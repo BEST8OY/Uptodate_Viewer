@@ -24,9 +24,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,7 +57,7 @@ private const val ZOOM_MIN = 50f
 private const val ZOOM_MAX = 200f
 
 @SuppressLint("SetJavaScriptEnabled")
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContentScreen(
     topicId: String,
@@ -266,49 +264,56 @@ fun ContentScreen(
             }
         }
 
-        HorizontalFloatingToolbar(
-            expanded = state.showFind,
-            floatingActionButton = {
-                FloatingToolbarDefaults.VibrantFloatingActionButton(
-                    onClick = {
-                        if (state.showFind) viewModel.hideFind()
-                        else viewModel.showFind()
-                    }
+        if (state.showFind) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .zIndex(1f)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        if (state.showFind) Icons.Default.Close else Icons.Default.Search,
-                        contentDescription = if (state.showFind) "Close find" else "Find in page"
+                    OutlinedTextField(
+                        value = state.findQuery,
+                        onValueChange = { viewModel.setFindQuery(it) },
+                        placeholder = { Text(stringResource(R.string.find_in_page)) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusProperties { canFocus = state.showFind }
                     )
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .zIndex(1f),
-            colors = FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
-            content = {
-                OutlinedTextField(
-                    value = state.findQuery,
-                    onValueChange = { viewModel.setFindQuery(it) },
-                    placeholder = { Text(stringResource(R.string.find_in_page)) },
-                    singleLine = true,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusProperties { canFocus = state.showFind }
-                )
-                IconButton(
-                    onClick = { mainWebView?.findNext(false) },
-                    modifier = Modifier.focusProperties { canFocus = state.showFind }
-                ) {
-                    Icon(Icons.Default.NavigateBefore, "Previous")
-                }
-                IconButton(
-                    onClick = { mainWebView?.findNext(true) },
-                    modifier = Modifier.focusProperties { canFocus = state.showFind }
-                ) {
-                    Icon(Icons.Default.NavigateNext, "Next")
+                    IconButton(
+                        onClick = { mainWebView?.findNext(false) },
+                        modifier = Modifier.focusProperties { canFocus = state.showFind }
+                    ) {
+                        Icon(Icons.Default.NavigateBefore, "Previous")
+                    }
+                    IconButton(
+                        onClick = { mainWebView?.findNext(true) },
+                        modifier = Modifier.focusProperties { canFocus = state.showFind }
+                    ) {
+                        Icon(Icons.Default.NavigateNext, "Next")
+                    }
                 }
             }
-        )
+        }
+
+        FloatingActionButton(
+            onClick = {
+                if (state.showFind) viewModel.hideFind()
+                else viewModel.showFind()
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .zIndex(2f)
+        ) {
+            Icon(
+                if (state.showFind) Icons.Default.Close else Icons.Default.Search,
+                contentDescription = if (state.showFind) "Close find" else "Find in page"
+            )
+        }
     }
 }

@@ -91,19 +91,18 @@ class DatabaseManager @Inject constructor(
     }
 
     private fun getOrNull(dbName: String): SQLiteDatabase? {
-        return connections.getOrPut(dbName) {
-            val dir = databaseDir ?: return null
-            val file = File(dir, dbName)
-            if (!file.exists()) return@getOrPut null
-            try {
-                SQLiteDatabase.openDatabase(
-                    file.absolutePath,
-                    null,
-                    SQLiteDatabase.OPEN_READONLY
-                )
-            } catch (_: Exception) {
-                null
-            }
+        connections[dbName]?.let { return it }
+        val dir = databaseDir ?: return null
+        val file = File(dir, dbName)
+        if (!file.exists()) return null
+        return try {
+            SQLiteDatabase.openDatabase(
+                file.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READONLY
+            ).also { connections[dbName] = it }
+        } catch (_: Exception) {
+            null
         }
     }
 

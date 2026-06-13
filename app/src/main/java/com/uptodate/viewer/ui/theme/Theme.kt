@@ -2,13 +2,11 @@ package com.uptodate.viewer.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.expressiveDarkColorScheme
-import androidx.compose.material3.expressiveLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
@@ -16,7 +14,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun UptodateTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -28,8 +25,8 @@ fun UptodateTheme(
             if (darkTheme) dynamicDarkColorScheme(LocalContext.current)
             else dynamicLightColorScheme(LocalContext.current)
         }
-        darkTheme -> expressiveDarkColorScheme()
-        else -> expressiveLightColorScheme()
+        darkTheme -> darkColorScheme()
+        else -> lightColorScheme()
     }.copy(
         error = if (darkTheme) MedicalColors.dangerDark else MedicalColors.dangerLight,
         onError = if (darkTheme) Color(0xFF601410) else Color.White,
@@ -43,7 +40,7 @@ fun UptodateTheme(
         }
     }
 
-    MaterialExpressiveTheme(
+    MaterialTheme(
         colorScheme = colorScheme,
         typography = AppTypography,
         content = content

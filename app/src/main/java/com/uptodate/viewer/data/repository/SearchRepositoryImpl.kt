@@ -81,13 +81,13 @@ class SearchRepositoryImpl(
                WHERE q.disp = ? AND x.nqid = q.nqid AND x.pref = ?""",
             arrayOf(query, preference)
         )
-        cursor.use {
+        return cursor.use {
             val allHits = mutableListOf<String>()
             while (it.moveToNext()) {
                 val blob = it.blob("hits") ?: continue
                 parseHitsBlob(blob, allHits)
             }
-            if (allHits.isEmpty()) return emptyList()
+            if (allHits.isEmpty()) return@use emptyList()
 
             // Fetch titles preserving order
             val placeholders = allHits.joinToString(",") { "?" }
@@ -101,8 +101,8 @@ class SearchRepositoryImpl(
                    ORDER BY CASE topic_id $caseWhen END""",
                 params
             )
-            titleCursor.use {
-                it.mapEach { row ->
+            titleCursor.use { titleCur ->
+                titleCur.mapEach { row ->
                     SearchResultRow(
                         topicId = row.string("topic_id") ?: "",
                         title = row.string("title") ?: ""

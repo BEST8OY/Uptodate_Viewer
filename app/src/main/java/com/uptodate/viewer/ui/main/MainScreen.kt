@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
@@ -76,7 +75,7 @@ fun MainScreen(
                     val vm: TocViewModel = hiltViewModel()
                     TocScreen(
                         viewModel = vm,
-                        onTopicClick = dropUnlessResumed { topicId ->
+                        onTopicClick = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
@@ -85,7 +84,7 @@ fun MainScreen(
                     val vm: SearchViewModel = hiltViewModel()
                     SearchScreen(
                         viewModel = vm,
-                        onTopicClick = dropUnlessResumed { topicId ->
+                        onTopicClick = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
@@ -94,7 +93,7 @@ fun MainScreen(
                     val vm: FavoritesViewModel = hiltViewModel()
                     FavoritesScreen(
                         viewModel = vm,
-                        onTopicClick = dropUnlessResumed { topicId ->
+                        onTopicClick = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
@@ -103,7 +102,7 @@ fun MainScreen(
                     val vm: HistoryViewModel = hiltViewModel()
                     HistoryScreen(
                         viewModel = vm,
-                        onTopicClick = dropUnlessResumed { topicId ->
+                        onTopicClick = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
@@ -114,7 +113,7 @@ fun MainScreen(
                     ContentScreen(
                         topicId = key.topicId,
                         viewModel = vm,
-                        onNavigateToGraphic = dropUnlessResumed { graphicId ->
+                        onNavigateToGraphic = { graphicId ->
                             topLevelBackStack.add(GraphicRoute(graphicId))
                         },
                         onBack = { topLevelBackStack.removeLast() }
