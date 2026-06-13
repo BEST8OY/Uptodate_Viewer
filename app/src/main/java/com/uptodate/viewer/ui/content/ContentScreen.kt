@@ -57,7 +57,6 @@ private const val ZOOM_MIN = 50f
 private const val ZOOM_MAX = 200f
 
 @SuppressLint("SetJavaScriptEnabled")
-@Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContentScreen(
@@ -202,8 +201,6 @@ fun ContentScreen(
                                 settings.domStorageEnabled = true
                                 settings.builtInZoomControls = false
                                 settings.allowFileAccess = false
-                                settings.allowFileAccessFromFileURLs = false
-                                settings.allowUniversalAccessFromFileURLs = false
 
                                 addJavascriptInterface(object {
                                     @JavascriptInterface

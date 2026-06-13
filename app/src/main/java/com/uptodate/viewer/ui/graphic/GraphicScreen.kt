@@ -27,7 +27,6 @@ import com.uptodate.viewer.ui.theme.ContentCssBuilder
 import com.uptodate.viewer.ui.theme.ThemeColors
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Suppress("DEPRECATION")
 @Composable
 fun GraphicScreen(
     graphicId: String,
@@ -106,8 +105,6 @@ fun GraphicScreen(
                             )
                             settings.domStorageEnabled = true
                             settings.allowFileAccess = false
-                            settings.allowFileAccessFromFileURLs = false
-                            settings.allowUniversalAccessFromFileURLs = false
                             webViewClient = WebViewClient()
 
                             webViewRef = this
