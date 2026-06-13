@@ -16,6 +16,7 @@ class DatabaseManager @Inject constructor(
     private var databaseDir: File? = null
 
     fun configureFromDefaultPath(): Boolean {
+        if (databaseDir != null) return hasDatabases()
         val dir = File(Environment.getExternalStorageDirectory(), "UptodateDB")
         return configureFromFile(dir)
     }
