@@ -42,8 +42,8 @@ object ZstdDecompressor {
                 )
                 outputOffset += decompressor.outputBytesProcessed
                 inputOffset += decompressor.inputBytesProcessed
-                if (result == ZSTD_e_end) break
-                if (result != ZSTD_e_continue) return null
+                if (result == ZSTD_e_end.toLong()) break
+                if (result != ZSTD_e_continue.toLong()) return null
             }
             if (outputOffset <= 0) null else output.copyOf(outputOffset)
         } catch (e: Exception) {
