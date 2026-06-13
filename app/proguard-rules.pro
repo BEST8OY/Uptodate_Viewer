@@ -1,11 +1,8 @@
 # ProGuard rules for UpToDate Viewer
 -keepattributes SourceFile,LineNumberTable
 
-# Keep aircompressor (pure Java Zstd)
--keep class io.airlift.compress.** { *; }
--dontwarn io.airlift.compress.hadoop.**
--dontwarn org.apache.hadoop.**
--ignorewarnings
+# Keep zstd-kmp (KMP Zstd)
+-keep class com.squareup.zstd.** { *; }
 
 # Keep JavascriptInterface methods for WebView
 -keepclassmembers class com.uptodate.viewer.** {

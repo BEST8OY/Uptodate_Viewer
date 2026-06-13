@@ -26,8 +26,8 @@ hilt-navigation-compose = "1.3.0"
 # Kotlin Serialization
 serialization = "1.11.0"
 
-# Zstd (pure Java - no native libs needed)
-aircompressor = "2.0.3"
+# Zstd (KMP - proper Android support)
+zstd-kmp = "0.4.0"
 
 # Testing
 junit = "4.13.2"
@@ -74,8 +74,8 @@ hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-com
 # Kotlin Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 
-# Zstd (pure Java)
-aircompressor = { group = "io.airlift", name = "aircompressor", version.ref = "aircompressor" }
+# Zstd (KMP)
+zstd-kmp = { group = "com.squareup.zstd", name = "zstd-kmp", version.ref = "zstd-kmp" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
