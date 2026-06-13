@@ -1,5 +1,6 @@
 package com.uptodate.viewer.ui.main
 
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -67,10 +68,11 @@ fun MainScreen(
                 }
             }
         }
-    ) { _ ->
+    ) { innerPadding ->
         NavDisplay(
             backStack = topLevelBackStack.backStack,
             onBack = { topLevelBackStack.removeLast() },
+            modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding),
             entryDecorators = listOf(
                 rememberSaveableStateHolderNavEntryDecorator(),
                 rememberViewModelStoreNavEntryDecorator()

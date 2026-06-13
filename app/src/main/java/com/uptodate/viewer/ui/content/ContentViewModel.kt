@@ -100,6 +100,7 @@ class ContentViewModel @Inject constructor(
     fun initTopic(topicId: String) {
         if (initialized) return
         initialized = true
+        viewModelScope.launch(Dispatchers.IO) { favoritesRepository.load() }
         navigationHistory.init(topicId)
         loadTopicContent(topicId)
     }

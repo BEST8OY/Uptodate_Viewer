@@ -10,7 +10,7 @@ interface FavoritesRepository {
     fun remove(topicId: String)
     fun isFavorite(topicId: String): Boolean
     fun toggle(topicId: String, title: String): Boolean
-    fun load()
+    suspend fun load()
 }
 
 interface HistoryRepository {
@@ -18,5 +18,5 @@ interface HistoryRepository {
     fun addOrPromote(topicId: String, title: String)
     fun remove(topicId: String)
     fun clear()
-    fun load()
+    suspend fun load()
 }

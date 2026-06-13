@@ -27,7 +27,12 @@ class FavoritesViewModel @Inject constructor(
     init {
         viewModelScope.launch(Dispatchers.IO) {
             favoritesRepository.load()
-            _state.value = UiState(items = favoritesRepository.favorites.value)
+            favoritesRepository.favorites.collect { entries ->
+                val filter = _state.value.filter
+                val filtered = if (filter.isBlank()) entries
+                else entries.filter { it.title.contains(filter, ignoreCase = true) }
+                _state.value = UiState(items = filtered, filter = filter)
+            }
         }
     }
 
@@ -40,6 +45,5 @@ class FavoritesViewModel @Inject constructor(
 
     fun remove(topicId: String) {
         favoritesRepository.remove(topicId)
-        onFilterChange(_state.value.filter)
     }
 }

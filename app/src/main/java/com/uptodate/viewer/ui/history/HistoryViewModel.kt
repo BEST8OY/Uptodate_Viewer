@@ -26,17 +26,17 @@ class HistoryViewModel @Inject constructor(
     init {
         viewModelScope.launch(Dispatchers.IO) {
             historyRepository.load()
-            _state.value = UiState(items = historyRepository.history.value)
+            historyRepository.history.collect { entries ->
+                _state.value = UiState(items = entries)
+            }
         }
     }
 
     fun remove(topicId: String) {
         historyRepository.remove(topicId)
-        _state.value = UiState(items = historyRepository.history.value)
     }
 
     fun clear() {
         historyRepository.clear()
-        _state.value = UiState()
     }
 }

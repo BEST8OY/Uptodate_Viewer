@@ -33,15 +33,13 @@ class DataStoreFavoritesRepository(
     private val _favorites = MutableStateFlow<List<FavoritesEntry>>(emptyList())
     override val favorites: StateFlow<List<FavoritesEntry>> = _favorites
 
-    override fun load() {
-        scope.launch {
-            val data = context.dataStore.data.first()
-            val raw = data[PrefsKeys.FAVORITES] ?: return@launch
-            try {
-                val entries = json.decodeFromString<List<FavoritesEntry>>(raw)
-                _favorites.value = entries
-            } catch (_: Exception) {}
-        }
+    override suspend fun load() {
+        val data = context.dataStore.data.first()
+        val raw = data[PrefsKeys.FAVORITES] ?: return
+        try {
+            val entries = json.decodeFromString<List<FavoritesEntry>>(raw)
+            _favorites.value = entries
+        } catch (_: Exception) {}
     }
 
     override fun add(topicId: String, title: String) {
@@ -89,15 +87,13 @@ class DataStoreHistoryRepository(
     private val _history = MutableStateFlow<List<HistoryEntry>>(emptyList())
     override val history: StateFlow<List<HistoryEntry>> = _history
 
-    override fun load() {
-        scope.launch {
-            val data = context.dataStore.data.first()
-            val raw = data[PrefsKeys.HISTORY] ?: return@launch
-            try {
-                val entries = json.decodeFromString<List<HistoryEntry>>(raw)
-                _history.value = entries
-            } catch (_: Exception) {}
-        }
+    override suspend fun load() {
+        val data = context.dataStore.data.first()
+        val raw = data[PrefsKeys.HISTORY] ?: return
+        try {
+            val entries = json.decodeFromString<List<HistoryEntry>>(raw)
+            _history.value = entries
+        } catch (_: Exception) {}
     }
 
     override fun addOrPromote(topicId: String, title: String) {
