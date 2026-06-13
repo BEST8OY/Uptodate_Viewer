@@ -1,12 +1,11 @@
 package com.uptodate.viewer.data.decompress
 
-import com.squareup.zstd.ZSTD_e_continue
-import com.squareup.zstd.ZSTD_e_end
-import com.squareup.zstd.zstdDecompressor
+import io.airlift.compress.zstd.ZstdDecompressor
 
 object ZstdDecompressor {
 
     private val MAGIC_BYTES = byteArrayOf(0x28.toByte(), 0xB5.toByte(), 0x2F.toByte(), 0xFD.toByte())
+    private val decompressor = ZstdDecompressor()
 
     fun isCompressed(data: ByteArray): Boolean {
         if (data.size < 4) return false
@@ -26,30 +25,14 @@ object ZstdDecompressor {
     }
 
     fun decompressToBytes(data: ByteArray): ByteArray? {
-        val decompressor = zstdDecompressor()
         return try {
-            var outputOffset = 0
-            var inputOffset = 0
-            val output = ByteArray(data.size * 4)
-            while (inputOffset < data.size) {
-                val result = decompressor.decompressStream(
-                    outputByteArray = output,
-                    outputEnd = output.size,
-                    outputStart = outputOffset,
-                    inputByteArray = data,
-                    inputEnd = data.size,
-                    inputStart = inputOffset,
-                )
-                outputOffset += decompressor.outputBytesProcessed
-                inputOffset += decompressor.inputBytesProcessed
-                if (result == ZSTD_e_end.toLong()) break
-                if (result != ZSTD_e_continue.toLong()) return null
-            }
-            if (outputOffset <= 0) null else output.copyOf(outputOffset)
+            val maxSize = decompressor.getDecompressedLength(data, 0, data.size)
+            if (maxSize <= 0) return null
+            val output = ByteArray(maxSize)
+            val actualSize = decompressor.decompress(data, 0, data.size, output, 0, output.size)
+            output.copyOf(actualSize)
         } catch (e: Exception) {
             null
-        } finally {
-            decompressor.close()
         }
     }
 }

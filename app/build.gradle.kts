@@ -82,8 +82,8 @@ dependencies {
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // Zstd (KMP)
-    implementation(libs.zstd.kmp)
+    // Zstd (pure Java)
+    implementation(libs.aircompressor)
 
     // Testing
     testImplementation(libs.junit)
