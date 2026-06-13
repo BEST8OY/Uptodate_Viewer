@@ -11,7 +11,7 @@ activity-compose = "1.11.0"
 compose-bom = "2026.05.01"
 
 # Navigation 3
-navigation3 = "1.1.1"
+navigation3 = "1.1.2"
 
 # Lifecycle
 lifecycle = "2.10.0"
