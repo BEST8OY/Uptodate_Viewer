@@ -117,15 +117,6 @@ private fun contentWebViewClient(
 
         return false
     }
-
-    override fun onCreateWindow(
-        view: WebView?,
-        isDialog: Boolean,
-        isUserGesture: Boolean,
-        resultMsg: android.os.Message?
-    ): Boolean {
-        return false
-    }
 }
 
 private fun outlineWebViewClient(
