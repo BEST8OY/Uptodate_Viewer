@@ -3,6 +3,8 @@
 
 # Keep aircompressor (pure Java Zstd)
 -keep class io.airlift.compress.** { *; }
+-dontwarn io.airlift.compress.hadoop.**
+-dontwarn org.apache.hadoop.**
 
 # Keep JavascriptInterface methods for WebView
 -keepclassmembers class com.uptodate.viewer.** {
