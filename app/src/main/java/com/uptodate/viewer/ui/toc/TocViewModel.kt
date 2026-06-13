@@ -40,7 +40,18 @@ class TocViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val nodes = tocRepository.getRootItems()
             val roots = nodes.map { it.toDomain() }
-            _state.value = UiState(roots = roots, isLoading = false)
+            val embeddedChildren = mutableMapOf<String, List<TocItem>>()
+            nodes.forEach { node ->
+                if (node.childrenInfo != null) {
+                    embeddedChildren[node.id] = node.childrenInfo.map { it.toDomain() }
+                }
+            }
+            childrenCache.putAll(embeddedChildren)
+            _state.value = UiState(
+                roots = roots,
+                children = embeddedChildren,
+                isLoading = false
+            )
         }
     }
 
@@ -53,11 +64,18 @@ class TocViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val nodes = tocRepository.getChildItems(parentId)
             val items = nodes.map { it.toDomain() }
+            val embeddedChildren = mutableMapOf<String, List<TocItem>>()
+            nodes.forEach { node ->
+                if (node.childrenInfo != null) {
+                    embeddedChildren[node.id] = node.childrenInfo.map { it.toDomain() }
+                }
+            }
             childrenCache[parentId] = items
+            childrenCache.putAll(embeddedChildren)
             loadingIds.remove(parentId)
             _state.update {
                 it.copy(
-                    children = it.children + (parentId to items),
+                    children = it.children + (parentId to items) + embeddedChildren,
                     expandedIds = it.expandedIds + parentId
                 )
             }
@@ -79,6 +97,14 @@ class TocViewModel @Inject constructor(
         id = id,
         title = title,
         isLeaf = isLeaf,
+        type = type,
+        hasChildren = childrenInfo != null
+    )
+
+    private fun com.uptodate.viewer.data.database.toc.models.TocChildJson.toDomain() = TocItem(
+        id = id,
+        title = title,
+        isLeaf = type == "TOPIC",
         type = type,
         hasChildren = childrenInfo != null
     )
