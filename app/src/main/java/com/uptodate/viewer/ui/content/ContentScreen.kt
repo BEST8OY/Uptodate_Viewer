@@ -228,7 +228,7 @@ fun ContentScreen(
                             }
                         },
                         update = { webView ->
-                            webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
+                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", fullHtml, "text/html", "UTF-8", null)
                             webView.settings.textZoom = state.zoomPercent
 
                             if (state.findQuery.isNotEmpty()) {
@@ -252,7 +252,7 @@ fun ContentScreen(
                             }
                         },
                         update = { webView ->
-                            webView.loadDataWithBaseURL(null, outlineFullHtml, "text/html", "UTF-8", null)
+                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", outlineFullHtml, "text/html", "UTF-8", null)
                         },
                         modifier = Modifier
                             .fillMaxSize()
