@@ -1,10 +1,11 @@
 package com.uptodate.viewer.data.decompress
 
-import com.github.luben.zstd.Zstd
+import io.airlift.compress.zstd.ZstdDecompressor
 
 object ZstdDecompressor {
 
     private val MAGIC_BYTES = byteArrayOf(0x28.toByte(), 0xB5.toByte(), 0x2F.toByte(), 0xFD.toByte())
+    private val decompressor = ZstdDecompressor()
 
     fun isCompressed(data: ByteArray): Boolean {
         if (data.size < 4) return false
@@ -16,7 +17,7 @@ object ZstdDecompressor {
 
     fun decompress(data: ByteArray): String? {
         return try {
-            val decompressed = Zstd.decompress(data)
+            val decompressed = decompressToBytes(data) ?: return null
             String(decompressed, Charsets.UTF_8)
         } catch (e: Exception) {
             null
@@ -25,7 +26,11 @@ object ZstdDecompressor {
 
     fun decompressToBytes(data: ByteArray): ByteArray? {
         return try {
-            Zstd.decompress(data)
+            val maxSize = decompressor.getDecompressedLength(data, 0, data.size)
+            if (maxSize <= 0) return null
+            val output = ByteArray(maxSize)
+            val actualSize = decompressor.decompress(data, 0, data.size, output, 0, output.size)
+            output.copyOf(actualSize)
         } catch (e: Exception) {
             null
         }

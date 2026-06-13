@@ -26,9 +26,6 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
-        jniLibs {
-            useLegacyPackaging = true
-        }
     }
 
     buildTypes {
@@ -85,8 +82,8 @@ dependencies {
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // Zstd
-    implementation(libs.zstd.jni)
+    // Zstd (pure Java)
+    implementation(libs.aircompressor)
 
     // Testing
     testImplementation(libs.junit)

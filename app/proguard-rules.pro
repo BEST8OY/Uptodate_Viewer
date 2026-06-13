@@ -1,8 +1,8 @@
 # ProGuard rules for UpToDate Viewer
 -keepattributes SourceFile,LineNumberTable
 
-# Keep zstd-jni (JNI native binding)
--keep class com.github.luben.zstd.** { *; }
+# Keep aircompressor (pure Java Zstd)
+-keep class io.airlift.compress.** { *; }
 
 # Keep JavascriptInterface methods for WebView
 -keepclassmembers class com.uptodate.viewer.** {
