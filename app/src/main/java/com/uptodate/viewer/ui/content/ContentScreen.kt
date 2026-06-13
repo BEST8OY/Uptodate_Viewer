@@ -90,6 +90,118 @@ private fun contentWebViewClient(
 
         return false
     }
+
+    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+        if (url == null) return false
+        val uri = android.net.Uri.parse(url)
+        val host = uri.host ?: ""
+
+        if (host == AppAction.SCHEME) {
+            onAction(uri.lastPathSegment ?: "")
+            return true
+        }
+
+        val topicMatch = TopicId.REGEX.find(host)
+        if (topicMatch != null) {
+            onNavigateToTopic(topicMatch.groupValues[1])
+            return true
+        }
+
+        val pathTopicMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
+        if (pathTopicMatch != null) {
+            onNavigateToTopic(pathTopicMatch.groupValues[1])
+            return true
+        }
+
+        if (host == "app.uptodate.viewer") return true
+
+        return false
+    }
+
+    override fun onCreateWindow(
+        view: WebView?,
+        isDialog: Boolean,
+        isUserGesture: Boolean,
+        resultMsg: android.os.Message?
+    ): Boolean {
+        return false
+    }
+}
+
+private fun outlineWebViewClient(
+    mainWebView: WebView?,
+    onAction: (String) -> Unit,
+    onNavigateToTopic: (String) -> Unit
+) = object : WebViewClient() {
+    override fun shouldOverrideUrlLoading(
+        view: WebView?,
+        request: android.webkit.WebResourceRequest?
+    ): Boolean {
+        val url = request?.url?.toString() ?: return false
+        val uri = request.url
+        val host = uri?.host ?: ""
+        val fragment = uri?.fragment
+
+        if (host == AppAction.SCHEME) {
+            val actionId = url.removePrefix("$AppAction.SCHEME://")
+            onAction(actionId)
+            return true
+        }
+
+        if (fragment != null && host == "app.uptodate.viewer") {
+            mainWebView?.evaluateJavascript("document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})", null)
+            return true
+        }
+
+        val topicMatch = TopicId.REGEX.find(host)
+        if (topicMatch != null) {
+            onNavigateToTopic(topicMatch.groupValues[1])
+            return true
+        }
+
+        val pathTopicMatch = TopicId.REGEX.find(uri?.lastPathSegment ?: "")
+        if (pathTopicMatch != null) {
+            onNavigateToTopic(pathTopicMatch.groupValues[1])
+            return true
+        }
+
+        if (host == "app.uptodate.viewer") return true
+
+        return false
+    }
+
+    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+        if (url == null) return false
+        val uri = android.net.Uri.parse(url)
+        val host = uri.host ?: ""
+        val fragment = uri.fragment
+
+        if (host == AppAction.SCHEME) {
+            onAction(uri.lastPathSegment ?: "")
+            return true
+        }
+
+        if (fragment != null && host == "app.uptodate.viewer") {
+            mainWebView?.evaluateJavascript("document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})", null)
+            return true
+        }
+
+        val topicMatch = TopicId.REGEX.find(host)
+        if (topicMatch != null) {
+            onNavigateToTopic(topicMatch.groupValues[1])
+            return true
+        }
+
+        val pathTopicMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
+        if (pathTopicMatch != null) {
+            onNavigateToTopic(pathTopicMatch.groupValues[1])
+            return true
+        }
+
+        if (host == "app.uptodate.viewer") return true
+
+        return false
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -273,7 +385,9 @@ fun ContentScreen(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
-                                webViewClient = contentWebViewClient(
+                                settings.javaScriptEnabled = true
+                                webViewClient = outlineWebViewClient(
+                                    mainWebView = mainWebView,
                                     onAction = { viewModel.handleActionUrl(it) },
                                     onNavigateToTopic = { viewModel.navigate(it) }
                                 )
