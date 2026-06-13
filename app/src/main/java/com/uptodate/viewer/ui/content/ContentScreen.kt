@@ -52,9 +52,45 @@ import com.uptodate.viewer.R
 import com.uptodate.viewer.ui.theme.ContentCssBuilder
 import com.uptodate.viewer.ui.theme.ThemeColors
 import com.uptodate.viewer.util.AppAction
+import com.uptodate.viewer.util.TopicId
 
 private const val ZOOM_MIN = 50f
 private const val ZOOM_MAX = 200f
+
+private fun contentWebViewClient(
+    onAction: (String) -> Unit,
+    onNavigateToTopic: (String) -> Unit
+) = object : WebViewClient() {
+    override fun shouldOverrideUrlLoading(
+        view: WebView?,
+        request: android.webkit.WebResourceRequest?
+    ): Boolean {
+        val url = request?.url?.toString() ?: return false
+        val host = request.url?.host ?: ""
+
+        if (host == AppAction.SCHEME) {
+            val actionId = url.removePrefix("$AppAction.SCHEME://")
+            onAction(actionId)
+            return true
+        }
+
+        val topicMatch = TopicId.REGEX.find(host)
+        if (topicMatch != null) {
+            onNavigateToTopic(topicMatch.groupValues[1])
+            return true
+        }
+
+        val pathTopicMatch = TopicId.REGEX.find(request.url?.lastPathSegment ?: "")
+        if (pathTopicMatch != null) {
+            onNavigateToTopic(pathTopicMatch.groupValues[1])
+            return true
+        }
+
+        if (host == "app.uptodate.viewer") return true
+
+        return false
+    }
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -209,20 +245,10 @@ fun ContentScreen(
                                     }
                                 }, "Android")
 
-                                webViewClient = object : WebViewClient() {
-                                    override fun shouldOverrideUrlLoading(
-                                        view: WebView?,
-                                        request: android.webkit.WebResourceRequest?
-                                    ): Boolean {
-                                        val url = request?.url?.toString() ?: return false
-                                        if (url.startsWith("$AppAction.SCHEME://")) {
-                                            val actionId = url.removePrefix("$AppAction.SCHEME://")
-                                            viewModel.handleActionUrl(actionId)
-                                            return true
-                                        }
-                                        return false
-                                    }
-                                }
+                                webViewClient = contentWebViewClient(
+                                    onAction = { viewModel.handleActionUrl(it) },
+                                    onNavigateToTopic = { viewModel.navigate(it) }
+                                )
 
                                 mainWebView = this
                             }
@@ -246,6 +272,10 @@ fun ContentScreen(
                                 layoutParams = ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                webViewClient = contentWebViewClient(
+                                    onAction = { viewModel.handleActionUrl(it) },
+                                    onNavigateToTopic = { viewModel.navigate(it) }
                                 )
 
                                 outlineWebView = this
