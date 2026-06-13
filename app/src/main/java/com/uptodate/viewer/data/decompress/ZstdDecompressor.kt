@@ -28,10 +28,13 @@ object ZstdDecompressor {
     fun decompressToBytes(data: ByteArray): ByteArray? {
         val decompressor = zstdDecompressor()
         return try {
-            val output = ByteArray(data.size * 10)
+            var output = ByteArray(data.size * 20)
             var inputOffset = 0
             var outputOffset = 0
             while (inputOffset < data.size) {
+                if (outputOffset >= output.size) {
+                    output = output.copyOf(output.size * 2)
+                }
                 val result = decompressor.decompressStream(
                     outputByteArray = output,
                     outputEnd = output.size,
@@ -40,8 +43,11 @@ object ZstdDecompressor {
                     inputEnd = data.size,
                     inputStart = inputOffset,
                 )
-                outputOffset += decompressor.outputBytesProcessed
-                inputOffset += decompressor.inputBytesProcessed
+                val inputRead = decompressor.inputBytesProcessed
+                val outputWritten = decompressor.outputBytesProcessed
+                if (inputRead == 0 && outputWritten == 0 && result != ZSTD_e_end.toLong()) return null
+                inputOffset += inputRead
+                outputOffset += outputWritten
                 if (result == ZSTD_e_end.toLong()) break
                 if (result != ZSTD_e_continue.toLong()) return null
             }
