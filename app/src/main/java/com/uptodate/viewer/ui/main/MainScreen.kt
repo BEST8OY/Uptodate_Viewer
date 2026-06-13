@@ -38,11 +38,16 @@ import com.uptodate.viewer.ui.toc.TocViewModel
 @Composable
 fun MainScreen(
     hasDatabases: Boolean,
-    onDatabaseConfigured: () -> Unit,
-    onSelectDatabaseDir: () -> Unit = {}
+    hasPermission: Boolean = true,
+    onRequestPermission: () -> Unit = {}
 ) {
+    if (!hasPermission) {
+        PermissionScreen(onRequestPermission = onRequestPermission)
+        return
+    }
+
     if (!hasDatabases) {
-        DatabaseSetupScreen(onSelectDatabaseDir = onSelectDatabaseDir)
+        DatabaseSetupScreen()
         return
     }
 

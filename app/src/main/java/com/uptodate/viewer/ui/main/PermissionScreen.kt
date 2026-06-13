@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,7 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun DatabaseSetupScreen() {
+fun PermissionScreen(
+    onRequestPermission: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -37,20 +40,20 @@ fun DatabaseSetupScreen() {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            "Database Not Found",
+            "Storage Permission Required",
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            "Place your UpToDate database files in:",
+            "This app needs access to storage to read UpToDate database files.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "/storage/emulated/0/UptodateDB",
+            "Expected path: /storage/emulated/0/UptodateDB",
             style = MaterialTheme.typography.bodySmall.copy(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp
@@ -58,15 +61,9 @@ fun DatabaseSetupScreen() {
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Required files:\nunidex.en.sqlite, utdasset.sqlite, utdtoc.db,\nfsearch.db, fcontentsearch.db, utdqf.sqlite",
-            style = MaterialTheme.typography.bodySmall.copy(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp
-            ),
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = onRequestPermission) {
+            Text("Grant Permission")
+        }
     }
 }

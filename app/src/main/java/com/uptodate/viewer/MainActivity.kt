@@ -1,7 +1,13 @@
 package com.uptodate.viewer
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -14,10 +20,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import com.uptodate.viewer.data.database.DatabaseManager
 import com.uptodate.viewer.ui.main.MainScreen
 import com.uptodate.viewer.ui.theme.UptodateTheme
-import com.uptodate.viewer.util.DatabasePrefs
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,12 +44,18 @@ class MainActivity : ComponentActivity() {
             UptodateTheme {
                 val scope = rememberCoroutineScope()
                 val hasDbState = remember { mutableStateOf(false) }
+                var hasPermission by remember { mutableStateOf(checkStoragePermission()) }
 
-                LaunchedEffect(Unit) {
-                    val savedUri = DatabasePrefs.getSavedDatabaseUri(applicationContext)
-                    if (savedUri != null) {
+                val permissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) {
+                    hasPermission = checkStoragePermission()
+                }
+
+                LaunchedEffect(hasPermission) {
+                    if (hasPermission) {
                         val configured = withContext(Dispatchers.IO) {
-                            databaseManager.configureFromUri(savedUri)
+                            databaseManager.configureFromDefaultPath()
                         }
                         if (configured) {
                             hasDbState.value = true
@@ -53,10 +65,25 @@ class MainActivity : ComponentActivity() {
 
                 AppContent(
                     hasDbState = hasDbState,
-                    databaseManager = databaseManager,
-                    scope = scope
+                    hasPermission = hasPermission,
+                    onRequestPermission = {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        permissionLauncher.launch(intent)
+                    }
                 )
             }
+        }
+    }
+
+    private fun checkStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
         }
     }
 }
@@ -64,30 +91,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppContent(
     hasDbState: androidx.compose.runtime.MutableState<Boolean>,
-    databaseManager: DatabaseManager,
-    scope: kotlinx.coroutines.CoroutineScope
+    hasPermission: Boolean,
+    onRequestPermission: () -> Unit
 ) {
     var hasDatabases by hasDbState
 
-    val dirPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            scope.launch {
-                val success = withContext(Dispatchers.IO) {
-                    databaseManager.configureFromUri(uri)
-                }
-                if (success) {
-                    DatabasePrefs.saveDatabaseUri(uri, databaseManager.context)
-                    hasDatabases = true
-                }
-            }
-        }
-    }
-
     MainScreen(
         hasDatabases = hasDatabases,
-        onDatabaseConfigured = { hasDatabases = true },
-        onSelectDatabaseDir = { dirPicker.launch(null) }
+        hasPermission = hasPermission,
+        onRequestPermission = onRequestPermission
     )
 }

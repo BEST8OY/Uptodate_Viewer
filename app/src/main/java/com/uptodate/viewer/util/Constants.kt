@@ -1,13 +1,5 @@
 package com.uptodate.viewer.util
 
-import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.first
-
 object DbFiles {
     const val UNIDEX = "unidex.en.sqlite"
     const val ASSETS = "utdasset.sqlite"
@@ -41,21 +33,4 @@ object SearchColumns {
     const val D1 = "d1"
     const val D2 = "d2"
     const val D3 = "d3"
-}
-
-private val Context.appDataStore: DataStore<Preferences> by preferencesDataStore(name = "app_preferences")
-
-object DatabasePrefs {
-    private val DB_DIR_URI = stringPreferencesKey("database_directory_uri")
-
-    suspend fun saveDatabaseUri(context: android.net.Uri, appContext: Context) {
-        appContext.appDataStore.edit { prefs ->
-            prefs[DB_DIR_URI] = context.toString()
-        }
-    }
-
-    suspend fun getSavedDatabaseUri(appContext: Context): android.net.Uri? {
-        val raw = appContext.appDataStore.data.first()[DB_DIR_URI] ?: return null
-        return try { android.net.Uri.parse(raw) } catch (_: Exception) { null }
-    }
 }
