@@ -26,9 +26,9 @@ object ZstdDecompressor {
 
     fun decompressToBytes(data: ByteArray): ByteArray? {
         return try {
-            val maxSize = decompressor.getDecompressedLength(data, 0, data.size)
+            val maxSize = ZstdDecompressor.getDecompressedSize(data, 0, data.size)
             if (maxSize <= 0) return null
-            val output = ByteArray(maxSize)
+            val output = ByteArray(maxSize.toInt())
             val actualSize = decompressor.decompress(data, 0, data.size, output, 0, output.size)
             output.copyOf(actualSize)
         } catch (e: Exception) {
