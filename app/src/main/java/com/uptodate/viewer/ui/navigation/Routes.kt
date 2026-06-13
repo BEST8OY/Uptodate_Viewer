@@ -1,8 +1,8 @@
 package com.uptodate.viewer.ui.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -16,7 +16,7 @@ sealed interface TopLevelRoute : NavKey {
 
 @Serializable
 data object TocRoute : TopLevelRoute {
-    override val icon = Icons.Default.List
+    override val icon = Icons.AutoMirrored.Filled.List
     override val label = "Contents"
 }
 

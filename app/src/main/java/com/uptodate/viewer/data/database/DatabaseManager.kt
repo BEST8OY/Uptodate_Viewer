@@ -11,7 +11,7 @@ import java.io.File
 import javax.inject.Inject
 
 class DatabaseManager @Inject constructor(
-    @ApplicationContext val context: Context
+    @param:ApplicationContext val context: Context
 ) {
 
     private val connections = mutableMapOf<String, SQLiteDatabase>()

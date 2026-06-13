@@ -27,6 +27,7 @@ import com.uptodate.viewer.ui.theme.ContentCssBuilder
 import com.uptodate.viewer.ui.theme.ThemeColors
 
 @OptIn(ExperimentalMaterial3Api::class)
+@Suppress("DEPRECATION")
 @Composable
 fun GraphicScreen(
     graphicId: String,

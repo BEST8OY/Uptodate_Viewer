@@ -14,15 +14,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.NavigateBefore
-import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -57,6 +57,7 @@ private const val ZOOM_MIN = 50f
 private const val ZOOM_MAX = 200f
 
 @SuppressLint("SetJavaScriptEnabled")
+@Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContentScreen(
@@ -137,7 +138,7 @@ fun ContentScreen(
                 title = { Text(state.title, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 actions = {
@@ -145,13 +146,13 @@ fun ContentScreen(
                         onClick = { viewModel.goBack() },
                         enabled = viewModel.canGoBack
                     ) {
-                        Icon(Icons.Default.ArrowBack, "Previous")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Previous")
                     }
                     IconButton(
                         onClick = { viewModel.goForward() },
                         enabled = viewModel.canGoForward
                     ) {
-                        Icon(Icons.Default.ArrowForward, "Next")
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, "Next")
                     }
                     IconButton(onClick = { viewModel.toggleOutline() }) {
                         Icon(Icons.Default.Menu, "Outline")
@@ -288,13 +289,13 @@ fun ContentScreen(
                         onClick = { mainWebView?.findNext(false) },
                         modifier = Modifier.focusProperties { canFocus = state.showFind }
                     ) {
-                        Icon(Icons.Default.NavigateBefore, "Previous")
+                        Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous")
                     }
                     IconButton(
                         onClick = { mainWebView?.findNext(true) },
                         modifier = Modifier.focusProperties { canFocus = state.showFind }
                     ) {
-                        Icon(Icons.Default.NavigateNext, "Next")
+                        Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next")
                     }
                 }
             }
