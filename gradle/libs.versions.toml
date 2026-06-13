@@ -4,8 +4,8 @@ kotlin = "2.4.0"
 ksp = "2.3.9"
 
 # AndroidX Core
-core-ktx = "1.16.0"
-activity-compose = "1.11.0"
+core-ktx = "1.19.0"
+activity-compose = "1.13.0"
 
 # Compose
 compose-bom = "2026.05.01"
