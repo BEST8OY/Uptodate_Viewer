@@ -8,9 +8,11 @@ import com.uptodate.viewer.util.DbFiles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
+import javax.inject.Singleton
 
 private const val TAG = "DatabaseManager"
 
+@Singleton
 class DatabaseManager @Inject constructor(
     @param:ApplicationContext val context: Context
 ) {
