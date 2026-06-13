@@ -1,0 +1,76 @@
+version: 2
+
+updates:
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    rebase-strategy: "auto"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+    groups:
+      kotlin:
+        patterns:
+          - "org.jetbrains.kotlin*"
+          - "org.jetbrains.kotlinx:*"
+      compose:
+        patterns:
+          - "org.jetbrains.compose*"
+          - "androidx.compose*"
+      androidx:
+        patterns:
+          - "androidx.*"
+        exclude-patterns:
+          - "androidx.compose*"
+          - "androidx.navigation3*"
+          - "androidx.hilt*"
+          - "androidx.datastore*"
+          - "androidx.lifecycle*"
+      navigation3:
+        patterns:
+          - "androidx.navigation3*"
+      lifecycle:
+        patterns:
+          - "androidx.lifecycle*"
+      datastore:
+        patterns:
+          - "androidx.datastore*"
+      hilt:
+        patterns:
+          - "com.google.dagger*"
+          - "androidx.hilt*"
+      serialization:
+        patterns:
+          - "org.jetbrains.kotlinx:kotlinx-serialization*"
+      coroutines:
+        patterns:
+          - "org.jetbrains.kotlinx:kotlinx-coroutines*"
+      zstd:
+        patterns:
+          - "com.github.luben:zstd-jni"
+      agp:
+        patterns:
+          - "com.android.application"
+      ksp:
+        patterns:
+          - "com.google.devtools.ksp*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    rebase-strategy: "auto"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
