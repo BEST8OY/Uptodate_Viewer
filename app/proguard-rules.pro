@@ -5,6 +5,7 @@
 -keep class io.airlift.compress.** { *; }
 -dontwarn io.airlift.compress.hadoop.**
 -dontwarn org.apache.hadoop.**
+-ignorewarnings
 
 # Keep JavascriptInterface methods for WebView
 -keepclassmembers class com.uptodate.viewer.** {
