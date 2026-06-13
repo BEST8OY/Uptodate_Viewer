@@ -16,12 +16,8 @@ object ZstdDecompressor {
 
     fun decompress(data: ByteArray): String? {
         return try {
-            val size = Zstd.getFrameContentSize(data)
-            if (size <= 0) return null
-            val dst = ByteArray(size.toInt())
-            val actualSize = Zstd.decompressByteArray(dst, 0, dst.size, data, 0, data.size)
-            if (actualSize < 0) return null
-            String(dst, 0, actualSize.toInt(), Charsets.UTF_8)
+            val decompressed = Zstd.decompress(data)
+            String(decompressed, Charsets.UTF_8)
         } catch (e: Exception) {
             null
         }
@@ -29,12 +25,7 @@ object ZstdDecompressor {
 
     fun decompressToBytes(data: ByteArray): ByteArray? {
         return try {
-            val size = Zstd.getFrameContentSize(data)
-            if (size <= 0) return null
-            val dst = ByteArray(size.toInt())
-            val actualSize = Zstd.decompressByteArray(dst, 0, dst.size, data, 0, data.size)
-            if (actualSize < 0) return null
-            dst.copyOf(actualSize.toInt())
+            Zstd.decompress(data)
         } catch (e: Exception) {
             null
         }
