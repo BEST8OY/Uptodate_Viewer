@@ -21,12 +21,12 @@ class TocRepositoryImpl(
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun getRootItems(): List<TocNode> = withContext(Dispatchers.IO) {
-        val db = dbManager.getAssetsDb()
+        val db = dbManager.getAssetsDbOrNull() ?: return@withContext emptyList()
         loadChildren(db, "RESOURCE/table_of_contents.json")
     }
 
     override suspend fun getChildItems(parentId: String): List<TocNode> = withContext(Dispatchers.IO) {
-        val db = dbManager.getAssetsDb()
+        val db = dbManager.getAssetsDbOrNull() ?: return@withContext emptyList()
         val resourceId = if (parentId.startsWith("RESOURCE/")) parentId
         else "RESOURCE/${parentId}.json"
         loadChildren(db, resourceId)

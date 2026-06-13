@@ -60,9 +60,9 @@ class DatabaseManager @Inject constructor(
             SQLiteDatabase.openDatabase(
                 file.absolutePath,
                 null,
-                SQLiteDatabase.OPEN_READONLY
+                SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
             ).also { connections[dbName] = it }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             null
         }
     }

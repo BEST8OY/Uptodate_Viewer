@@ -23,8 +23,8 @@ class ContentRepositoryImpl(
         val tid = TopicIdNormalizer.extractNumeric(topicId) ?: return@withContext null
 
         // Primary: utdasset.sqlite topic_asset
-        val assetsDb = dbManager.getAssetsDb()
-        val fromAssets = queryTopicAsset(assetsDb, tid)
+        val assetsDb = dbManager.getAssetsDbOrNull()
+        val fromAssets = assetsDb?.let { queryTopicAsset(it, tid) }
         if (fromAssets != null) return@withContext fromAssets
 
         // Fallback: fcontentsearch.db

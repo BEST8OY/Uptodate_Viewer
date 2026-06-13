@@ -16,7 +16,7 @@ class AssetRepositoryImpl(
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun getGraphic(graphicId: String): GraphicPayload? = withContext(Dispatchers.IO) {
-        val db = dbManager.getAssetsDb()
+        val db = dbManager.getAssetsDbOrNull() ?: return@withContext null
         val cursor = db.rawQuery("SELECT payload FROM graphic_asset WHERE id = ?", arrayOf(graphicId))
         cursor.use {
             if (!it.moveToFirst()) return@withContext null
