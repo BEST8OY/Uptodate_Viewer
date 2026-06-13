@@ -3,6 +3,7 @@ package com.uptodate.viewer.data.database
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.os.Environment
+import android.util.Log
 import com.uptodate.viewer.util.DbFiles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -20,6 +21,7 @@ class DatabaseManager @Inject constructor(
     fun configureFromDefaultPath(): Boolean {
         if (databaseDir != null) return hasDatabases()
         val dir = File(Environment.getExternalStorageDirectory(), "UptodateDB")
+        Log.i("DB", "configureFromDefaultPath: exists=${dir.exists()}, isDir=${dir.isDirectory}")
         return configureFromFile(dir)
     }
 
@@ -27,7 +29,9 @@ class DatabaseManager @Inject constructor(
         if (!dir.isDirectory) return false
         closeAll()
         databaseDir = dir
-        return validateDatabases()
+        val valid = validateDatabases()
+        Log.i("DB", "configureFromFile: valid=$valid")
+        return valid
     }
 
     private fun validateDatabases(): Boolean {
@@ -59,12 +63,16 @@ class DatabaseManager @Inject constructor(
         val file = File(dir, dbName)
         if (!file.exists()) return null
         return try {
-            SQLiteDatabase.openDatabase(
+            Log.i("DB", "opening $dbName (${file.length()} bytes)")
+            val db = SQLiteDatabase.openDatabase(
                 file.absolutePath,
                 null,
                 SQLiteDatabase.OPEN_READONLY or SQLiteDatabase.NO_LOCALIZED_COLLATORS
-            ).also { connections[dbName] = it }
-        } catch (_: Exception) {
+            )
+            connections[dbName] = db
+            db
+        } catch (e: Exception) {
+            Log.e("DB", "FAILED to open $dbName: ${e.message}")
             null
         }
     }
