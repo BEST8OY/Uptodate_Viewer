@@ -35,7 +35,7 @@ class NavigationHistory(private val maxHistory: Int = 50) {
     fun navigate(topicId: String) {
         entries.subList(index + 1, entries.size).clear()
         entries.add(topicId)
-        while (entries.size > maxHistory) entries.removeFirst()
+        while (entries.size > maxHistory) entries.removeAt(0)
         index = entries.size - 1
     }
 
