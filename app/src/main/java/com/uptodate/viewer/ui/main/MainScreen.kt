@@ -62,7 +62,7 @@ fun MainScreen(
                 }
             }
         }
-    ) { padding ->
+    ) { _ ->
         NavDisplay(
             backStack = topLevelBackStack.backStack,
             onBack = { topLevelBackStack.removeLast() },
