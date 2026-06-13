@@ -1,5 +1,7 @@
 package com.uptodate.viewer.data.decompress
 
+import com.squareup.zstd.ZSTD_e_continue
+import com.squareup.zstd.ZSTD_e_end
 import com.squareup.zstd.zstdDecompressor
 
 object ZstdDecompressor {
@@ -26,18 +28,24 @@ object ZstdDecompressor {
     fun decompressToBytes(data: ByteArray): ByteArray? {
         val decompressor = zstdDecompressor()
         return try {
+            var outputOffset = 0
+            var inputOffset = 0
             val output = ByteArray(data.size * 4)
-            val result = decompressor.decompressStream(
-                outputByteArray = output,
-                outputEnd = output.size,
-                outputStart = 0,
-                inputByteArray = data,
-                inputEnd = data.size,
-                inputStart = 0
-            )
-            if (result != 0L) return null
-            val size = decompressor.outputBytesProcessed
-            if (size <= 0) null else output.copyOf(size)
+            while (inputOffset < data.size) {
+                val result = decompressor.decompressStream(
+                    outputByteArray = output,
+                    outputEnd = output.size,
+                    outputStart = outputOffset,
+                    inputByteArray = data,
+                    inputEnd = data.size,
+                    inputStart = inputOffset,
+                )
+                outputOffset += decompressor.outputBytesProcessed
+                inputOffset += decompressor.inputBytesProcessed
+                if (result == ZSTD_e_end) break
+                if (result != ZSTD_e_continue) return null
+            }
+            if (outputOffset <= 0) null else output.copyOf(outputOffset)
         } catch (e: Exception) {
             null
         } finally {
