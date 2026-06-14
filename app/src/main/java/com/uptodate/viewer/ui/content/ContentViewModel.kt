@@ -16,6 +16,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
 class NavigationHistory(private val maxHistory: Int = 50) {
@@ -89,6 +93,7 @@ class ContentViewModel @Inject constructor(
 
     sealed class NavEvent {
         data class OpenGraphic(val graphicId: String) : NavEvent()
+        data class NavigateToTopic(val topicId: String, val section: String? = null) : NavEvent()
     }
 
     private val navEvents = Channel<NavEvent>(Channel.BUFFERED)
@@ -206,10 +211,26 @@ class ContentViewModel @Inject constructor(
     fun handleActionUrl(actionId: String) {
         val json = actions[actionId] ?: return
         try {
-            val trimmed = json.trim().removeSurrounding("\"").removeSuffix(";")
-            val parts = trimmed.split(",").map { it.trim().removeSurrounding("\"") }
-            if (parts.size >= 2 && parts[0] == "graphic") {
-                viewModelScope.launch { navEvents.send(NavEvent.OpenGraphic(parts[1])) }
+            val element = Json.parseToJsonElement(json).jsonObject
+            val meta = element["meta"]?.jsonObject ?: return
+            val data = element["data"]?.jsonArray ?: return
+            if (data.isEmpty()) return
+            val item = data[0].jsonObject
+
+            val assetType = meta["assetType"]?.jsonPrimitive?.content ?: ""
+            val dataType = item["type"]?.jsonPrimitive?.content ?: ""
+
+            when {
+                assetType == "topic" && dataType == "medical" -> {
+                    val topicId = item["id"]?.jsonPrimitive?.content ?: return
+                    val section = item["section"]?.jsonPrimitive?.content
+                        ?: meta["section"]?.jsonPrimitive?.content
+                    viewModelScope.launch { navEvents.send(NavEvent.NavigateToTopic(topicId, section)) }
+                }
+                assetType == "graphic" && dataType == "graphic" -> {
+                    val graphicId = item["id"]?.jsonPrimitive?.content ?: return
+                    viewModelScope.launch { navEvents.send(NavEvent.OpenGraphic(graphicId)) }
+                }
             }
         } catch (_: Exception) {}
     }

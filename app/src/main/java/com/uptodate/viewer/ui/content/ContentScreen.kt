@@ -57,46 +57,67 @@ import com.uptodate.viewer.util.TopicId
 private const val ZOOM_MIN = 50f
 private const val ZOOM_MAX = 200f
 
-private const val LINK_INTERCEPT_JS = """
+private fun linkInterceptJs(interfaceName: String = "Android") = """
 (function() {
     document.addEventListener('click', function(e) {
         var a = e.target.closest('a');
         if (!a) return;
         var href = a.getAttribute('href');
-        if (!href || href.startsWith('#') || href.startsWith('javascript:void')) return;
+        if (!href || href.startsWith('javascript:void')) return;
         e.preventDefault();
         e.stopPropagation();
-        Android.navigateUrl(href);
+        $interfaceName.navigateUrl(href);
     }, true);
 })();
 """
 
-private fun handleUrl(
-    url: String,
-    onAction: (String) -> Unit,
-    onNavigate: (String) -> Unit
-) {
+/**
+ * Result of parsing a URL clicked in the WebView.
+ */
+private sealed class LinkTarget {
+    data class Action(val actionId: String) : LinkTarget()
+    data class Topic(val topicId: String, val fragment: String? = null) : LinkTarget()
+    data class Anchor(val fragment: String) : LinkTarget()
+    data object Unhandled : LinkTarget()
+}
+
+private fun parseLink(url: String): LinkTarget {
+    // Anchor-only link: "#H123456"
+    if (url.startsWith("#")) {
+        return LinkTarget.Anchor(url.removePrefix("#"))
+    }
+
     val uri = android.net.Uri.parse(url)
     val scheme = uri.scheme ?: ""
     val host = uri.host ?: ""
     val fragment = uri.fragment
 
+    // appaction://action_0
     if (scheme == AppAction.SCHEME) {
-        onAction(host)
-        return
+        return LinkTarget.Action(host)
     }
 
-    val topicMatch = TopicId.REGEX.find(host)
-    if (topicMatch != null) {
-        onNavigate(topicMatch.groupValues[1])
-        return
+    // Query param: ?topicRef=1234 or ?topicKey=topic-1234
+    val topicRef = uri.getQueryParameter("topicRef")
+        ?: uri.getQueryParameter("topicKey")
+    if (topicRef != null) {
+        val num = TopicId.REGEX.find(topicRef.trim())
+        if (num != null) return LinkTarget.Topic(num.groupValues[1], fragment)
     }
 
+    // Host is a bare topic id: "1234" or "topic-1234"
+    val hostMatch = TopicId.REGEX.find(host)
+    if (hostMatch != null) {
+        return LinkTarget.Topic(hostMatch.groupValues[1], fragment)
+    }
+
+    // Last path segment: "/contents/topic-1234"
     val pathMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
     if (pathMatch != null) {
-        onNavigate(pathMatch.groupValues[1])
-        return
+        return LinkTarget.Topic(pathMatch.groupValues[1], fragment)
     }
+
+    return LinkTarget.Unhandled
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -148,6 +169,7 @@ fun ContentScreen(
 
     var mainWebView by remember { mutableStateOf<WebView?>(null) }
     var outlineWebView by remember { mutableStateOf<WebView?>(null) }
+    val scrollTarget = remember { mutableListOf<String?>(null) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -170,6 +192,10 @@ fun ContentScreen(
         viewModel.navEventFlow.collect { event ->
             when (event) {
                 is ContentViewModel.NavEvent.OpenGraphic -> onNavigateToGraphic(event.graphicId)
+                is ContentViewModel.NavEvent.NavigateToTopic -> {
+                    scrollTarget[0] = event.section
+                    viewModel.navigate(event.topicId)
+                }
             }
         }
     }
@@ -233,7 +259,7 @@ fun ContentScreen(
 
             Box(modifier = Modifier.weight(1f)) {
                 if (fullHtml.isNotEmpty()) {
-                    var loaded by remember { mutableStateOf(false) }
+                    var loaded by remember(state.topicId) { mutableStateOf(false) }
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
@@ -253,14 +279,39 @@ fun ContentScreen(
 
                                     @JavascriptInterface
                                     fun navigateUrl(url: String) {
-                                        handleUrl(url, viewModel::handleActionUrl, viewModel::navigate)
+                                        when (val target = parseLink(url)) {
+                                            is LinkTarget.Action -> viewModel.handleActionUrl(target.actionId)
+                                            is LinkTarget.Topic -> {
+                                                scrollTarget[0] = target.fragment
+                                                viewModel.navigate(target.topicId)
+                                            }
+                                            is LinkTarget.Anchor -> {
+                                                mainWebView?.post {
+                                                    mainWebView?.evaluateJavascript(
+                                                        "document.getElementById('${target.fragment}')?.scrollIntoView({behavior:'smooth'})",
+                                                        null
+                                                    )
+                                                }
+                                            }
+                                            is LinkTarget.Unhandled -> {}
+                                        }
                                     }
                                 }, "Android")
 
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
-                                        view?.evaluateJavascript(LINK_INTERCEPT_JS, null)
+                                        view?.evaluateJavascript(linkInterceptJs("Android"), null)
+                                        val section = scrollTarget[0]
+                                        if (section != null) {
+                                            scrollTarget[0] = null
+                                            view?.postDelayed({
+                                                view?.evaluateJavascript(
+                                                    "document.getElementById('$section')?.scrollIntoView({behavior:'smooth'})",
+                                                    null
+                                                )
+                                            }, 300)
+                                        }
                                     }
                                 }
 
@@ -287,7 +338,7 @@ fun ContentScreen(
                 }
 
                 if (state.showOutline && outlineFullHtml.isNotEmpty()) {
-                    var outlineLoaded by remember { mutableStateOf(false) }
+                    var outlineLoaded by remember(state.topicId) { mutableStateOf(false) }
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
@@ -300,16 +351,21 @@ fun ContentScreen(
                                 addJavascriptInterface(object {
                                     @JavascriptInterface
                                     fun navigateUrl(url: String) {
-                                        handleUrl(url, viewModel::handleActionUrl, viewModel::navigate)
-                                        val uri = android.net.Uri.parse(url)
-                                        val fragment = uri.fragment
-                                        if (fragment != null) {
-                                            mainWebView?.post {
-                                                mainWebView?.evaluateJavascript(
-                                                    "document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})",
-                                                    null
-                                                )
+                                        when (val target = parseLink(url)) {
+                                            is LinkTarget.Action -> viewModel.handleActionUrl(target.actionId)
+                                            is LinkTarget.Topic -> {
+                                                scrollTarget[0] = target.fragment
+                                                viewModel.navigate(target.topicId)
                                             }
+                                            is LinkTarget.Anchor -> {
+                                                mainWebView?.post {
+                                                    mainWebView?.evaluateJavascript(
+                                                        "document.getElementById('${target.fragment}')?.scrollIntoView({behavior:'smooth'})",
+                                                        null
+                                                    )
+                                                }
+                                            }
+                                            is LinkTarget.Unhandled -> {}
                                         }
                                     }
                                 }, "Outline")
@@ -317,7 +373,17 @@ fun ContentScreen(
                                 webViewClient = object : WebViewClient() {
                                     override fun onPageFinished(view: WebView?, url: String?) {
                                         super.onPageFinished(view, url)
-                                        view?.evaluateJavascript(LINK_INTERCEPT_JS, null)
+                                        view?.evaluateJavascript(linkInterceptJs("Outline"), null)
+                                        val section = scrollTarget[0]
+                                        if (section != null) {
+                                            scrollTarget[0] = null
+                                            view?.postDelayed({
+                                                view?.evaluateJavascript(
+                                                    "document.getElementById('$section')?.scrollIntoView({behavior:'smooth'})",
+                                                    null
+                                                )
+                                            }, 300)
+                                        }
                                     }
                                 }
 
