@@ -359,7 +359,7 @@ fun ContentScreen(
                             }
                         },
                         update = { webView ->
-                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", fullHtml, "text/html", "UTF-8", null)
+                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", fullHtml.replace(Regex("""target="_?blank"?"""), ""), "text/html", "UTF-8", null)
                             webView.settings.textZoom = state.zoomPercent
 
                             if (state.findQuery.isNotEmpty()) {
@@ -384,12 +384,55 @@ fun ContentScreen(
                                     onAction = { viewModel.handleActionUrl(it) },
                                     onNavigateToTopic = { viewModel.navigate(it) }
                                 )
+                                addJavascriptInterface(object {
+                                    @JavascriptInterface
+                                    fun scrollToElement(id: String) {
+                                        mainWebView?.post {
+                                            mainWebView?.evaluateJavascript(
+                                                "document.getElementById('$id')?.scrollIntoView({behavior:'smooth'})",
+                                                null
+                                            )
+                                        }
+                                    }
+                                    @JavascriptInterface
+                                    fun navigateToTopic(topicId: String) {
+                                        mainWebView?.post {
+                                            viewModel.navigate(topicId)
+                                        }
+                                    }
+                                    @JavascriptInterface
+                                    fun handleAction(actionId: String) {
+                                        mainWebView?.post {
+                                            viewModel.handleActionUrl(actionId)
+                                        }
+                                    }
+                                }, "Outline")
 
                                 outlineWebView = this
                             }
                         },
                         update = { webView ->
-                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", outlineFullHtml, "text/html", "UTF-8", null)
+                            val cleaned = outlineFullHtml.replace(Regex("""target="_?blank"?"""), "")
+                            val interceptJs = """
+                                <script>
+                                document.addEventListener('click', function(e) {
+                                    var a = e.target.closest('a');
+                                    if (!a) return;
+                                    var href = a.getAttribute('href');
+                                    if (!href) return;
+                                    e.preventDefault();
+                                    if (href.startsWith('#')) {
+                                        Outline.scrollToElement(href.substring(1));
+                                    } else if (href.startsWith('appaction://')) {
+                                        Outline.handleAction(href.replace('appaction://', ''));
+                                    } else {
+                                        var m = href.match(/^(?:topic-)?(\d+)$/i);
+                                        if (m) Outline.navigateToTopic(m[1]);
+                                    }
+                                }, true);
+                                </script>
+                            """.trimIndent()
+                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", cleaned.replace("</body>", "$interceptJs</body>"), "text/html", "UTF-8", null)
                         },
                         modifier = Modifier
                             .fillMaxSize()
