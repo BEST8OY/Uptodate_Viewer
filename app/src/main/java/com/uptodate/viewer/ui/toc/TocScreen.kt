@@ -50,7 +50,11 @@ fun TocScreen(
                 .padding(padding)
         ) {
             items(tocItems) { item ->
-                TocItemRow(item = item, onTopicSelected = onTopicSelected)
+                TocItemRow(
+                    item = item,
+                    onTopicSelected = onTopicSelected,
+                    onLoadChildren = { parentId -> viewModel.loadChildren(parentId) }
+                )
             }
         }
     }
@@ -60,6 +64,7 @@ fun TocScreen(
 fun TocItemRow(
     item: TocItem,
     onTopicSelected: (String) -> Unit,
+    onLoadChildren: (String) -> Unit,
     level: Int = 0
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -72,6 +77,9 @@ fun TocItemRow(
                     if (item.isLeaf) {
                         onTopicSelected(item.id)
                     } else {
+                        if (item.childrenInfo == null) {
+                            onLoadChildren(item.id)
+                        }
                         expanded = !expanded
                     }
                 }
@@ -97,6 +105,7 @@ fun TocItemRow(
                 TocItemRow(
                     item = child,
                     onTopicSelected = onTopicSelected,
+                    onLoadChildren = onLoadChildren,
                     level = level + 1
                 )
             }
