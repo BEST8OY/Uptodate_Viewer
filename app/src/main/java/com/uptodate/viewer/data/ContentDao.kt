@@ -1,5 +1,6 @@
 package com.uptodate.viewer.data
 
+import com.uptodate.viewer.util.GzipUtil
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -48,7 +49,7 @@ class ContentDao @Inject constructor(
         return cursor.use {
             if (it.moveToFirst()) {
                 val payload = it.getBlob(0)
-                val payloadStr = String(payload)
+                val payloadStr = GzipUtil.decodePayload(payload)
 
                 try {
                     val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
