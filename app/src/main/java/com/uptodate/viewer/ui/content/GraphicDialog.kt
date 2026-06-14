@@ -32,14 +32,13 @@ fun GraphicDialog(
                 if (graphicData.base64Image != null) {
                     val newSrc = "data:image/png;base64,${graphicData.base64Image}"
                     html = html.replace(Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE),
-                        """src="$newSrc""", true)
+                        """src="$newSrc"""")
                 }
 
                 // Fix class for viewer
                 html = html.replace(
                     Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE),
-                    """class="graphic_view""",
-                    true
+                    """class="graphic_view"""
                 )
 
                 // Wrap in HTML with CSS

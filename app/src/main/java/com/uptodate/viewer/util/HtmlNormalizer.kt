@@ -130,9 +130,9 @@ object HtmlNormalizer {
         """.trimIndent()
 
         if ("<h1 class=\"topic-title\">" in result) {
-            result = result.replaceFirst(Regex("""</h1>""")) { "${it.value}$metaLinksHtml" }
+            result = result.replace(Regex("""</h1>""")) { "${it.value}$metaLinksHtml" }
         } else if ("<div id=\"topicTitle\">" in result) {
-            result = result.replaceFirst(
+            result = result.replace(
                 Regex("""<div id="topicTitle">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL))
             ) { "${it.value}$metaLinksHtml" }
         }
