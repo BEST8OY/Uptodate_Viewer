@@ -12,6 +12,7 @@ updates:
       prefix: "deps"
     labels:
       - "dependencies"
+    versioning-strategy: increase-if-necessary
     groups:
       kotlin:
         patterns:
@@ -45,6 +46,9 @@ updates:
       serialization:
         patterns:
           - "org.jetbrains.kotlinx:kotlinx-serialization*"
+      webkit:
+        patterns:
+          - "androidx.webkit*"
       zstd:
         patterns:
           - "com.github.luben:zstd-jni"
@@ -67,6 +71,15 @@ updates:
     labels:
       - "dependencies"
     groups:
-      github-actions:
+      checkout:
         patterns:
-          - "*"
+          - "actions/checkout*"
+      java:
+        patterns:
+          - "actions/setup-java*"
+      gradle:
+        patterns:
+          - "gradle/*"
+      upload:
+        patterns:
+          - "actions/upload-artifact*"
