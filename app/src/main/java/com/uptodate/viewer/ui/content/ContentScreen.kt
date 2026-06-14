@@ -66,11 +66,11 @@ private fun contentWebViewClient(
         request: android.webkit.WebResourceRequest?
     ): Boolean {
         val url = request?.url?.toString() ?: return false
+        val scheme = request.url?.scheme ?: ""
         val host = request.url?.host ?: ""
 
-        if (host == AppAction.SCHEME) {
-            val actionId = url.removePrefix("$AppAction.SCHEME://")
-            onAction(actionId)
+        if (scheme == AppAction.SCHEME) {
+            onAction(host)
             return true
         }
 
@@ -94,10 +94,11 @@ private fun contentWebViewClient(
     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
         if (url == null) return false
         val uri = android.net.Uri.parse(url)
+        val scheme = uri.scheme ?: ""
         val host = uri.host ?: ""
 
-        if (host == AppAction.SCHEME) {
-            onAction(uri.lastPathSegment ?: "")
+        if (scheme == AppAction.SCHEME) {
+            onAction(host)
             return true
         }
 
@@ -130,12 +131,12 @@ private fun outlineWebViewClient(
     ): Boolean {
         val url = request?.url?.toString() ?: return false
         val uri = request.url
+        val scheme = uri?.scheme ?: ""
         val host = uri?.host ?: ""
         val fragment = uri?.fragment
 
-        if (host == AppAction.SCHEME) {
-            val actionId = url.removePrefix("$AppAction.SCHEME://")
-            onAction(actionId)
+        if (scheme == AppAction.SCHEME) {
+            onAction(host)
             return true
         }
 
@@ -164,11 +165,12 @@ private fun outlineWebViewClient(
     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
         if (url == null) return false
         val uri = android.net.Uri.parse(url)
+        val scheme = uri.scheme ?: ""
         val host = uri.host ?: ""
         val fragment = uri.fragment
 
-        if (host == AppAction.SCHEME) {
-            onAction(uri.lastPathSegment ?: "")
+        if (scheme == AppAction.SCHEME) {
+            onAction(host)
             return true
         }
 
