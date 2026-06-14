@@ -1,31 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">UpToDate Viewer</string>
-    <string name="tab_contents">Contents</string>
-    <string name="tab_search">Search</string>
-    <string name="tab_favorites">Favorites</string>
-    <string name="tab_history">History</string>
-    <string name="search_hint">Search UpToDate…</string>
-    <string name="filter_hint">Filter…</string>
-    <string name="preference_all">All</string>
-    <string name="preference_adult">Adult</string>
-    <string name="preference_pediatric">Pediatric</string>
-    <string name="preference_patient">Patient</string>
-    <string name="outline">Outline</string>
-    <string name="back">Back</string>
-    <string name="forward">Forward</string>
-    <string name="zoom">Zoom</string>
-    <string name="favorite">Favorite</string>
-    <string name="find_in_page">Find in page</string>
-    <string name="find_previous">Previous</string>
-    <string name="find_next">Next</string>
-    <string name="close">Close</string>
-    <string name="clear_history">Clear history</string>
-    <string name="delete">Delete</string>
-    <string name="contributors">Contributors</string>
-    <string name="disclosures">Disclosures</string>
-    <string name="graphic_viewer">Graphic Viewer</string>
-    <string name="select_database_dir">Select UpToDate database folder</string>
-    <string name="content_not_found">Content not found</string>
-    <string name="no_databases">No database files found in selected folder</string>
 </resources>

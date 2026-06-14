@@ -28,7 +28,9 @@ class TopLevelBackStack<T : Any>(startKey: T) {
             topLevelStacks[key] = mutableStateListOf(key)
         } else {
             topLevelStacks.apply {
-                remove(key)?.let { put(key, it) }
+                remove(key)?.let {
+                    put(key, it)
+                }
             }
         }
         topLevelKey = key
@@ -42,9 +44,7 @@ class TopLevelBackStack<T : Any>(startKey: T) {
 
     fun removeLast() {
         val removedKey = topLevelStacks[topLevelKey]?.removeLastOrNull()
-        if (removedKey != null && topLevelStacks.containsKey(removedKey) && removedKey != topLevelKey) {
-            topLevelStacks.remove(removedKey)
-        }
+        topLevelStacks.remove(removedKey)
         topLevelKey = topLevelStacks.keys.last()
         updateBackStack()
     }

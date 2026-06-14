@@ -2,15 +2,12 @@ package com.uptodate.viewer.ui.toc
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.uptodate.viewer.data.database.toc.TocRepository
-import com.uptodate.viewer.domain.model.TocItem
+import com.uptodate.viewer.domain.TocItem
+import com.uptodate.viewer.repository.TocRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 @HiltViewModel
@@ -18,94 +15,35 @@ class TocViewModel @Inject constructor(
     private val tocRepository: TocRepository
 ) : ViewModel() {
 
-    data class UiState(
-        val roots: List<TocItem> = emptyList(),
-        val children: Map<String, List<TocItem>> = emptyMap(),
-        val expandedIds: Set<String> = emptySet(),
-        val isLoading: Boolean = false
-    )
-
-    private val _state = MutableStateFlow(UiState())
-    val state: StateFlow<UiState> = _state
-
-    private val childrenCache = ConcurrentHashMap<String, List<TocItem>>()
-    private val loadingIds = ConcurrentHashMap.newKeySet<String>()
+    private val _tocItems = MutableStateFlow<List<TocItem>>(emptyList())
+    val tocItems: StateFlow<List<TocItem>> = _tocItems
 
     init {
-        loadRoots()
+        loadTocItems()
     }
 
-    private fun loadRoots() {
-        _state.value = _state.value.copy(isLoading = true)
-        viewModelScope.launch(Dispatchers.IO) {
-            val nodes = tocRepository.getRootItems()
-            val roots = nodes.map { it.toDomain() }
-            val embeddedChildren = mutableMapOf<String, List<TocItem>>()
-            nodes.forEach { node ->
-                if (node.childrenInfo != null) {
-                    embeddedChildren[node.id] = node.childrenInfo.map { it.toDomain() }
-                }
-            }
-            childrenCache.putAll(embeddedChildren)
-            _state.value = UiState(
-                roots = roots,
-                children = embeddedChildren,
-                isLoading = false
-            )
+    private fun loadTocItems() {
+        viewModelScope.launch {
+            _tocItems.value = tocRepository.getTocItems()
         }
     }
 
     fun loadChildren(parentId: String) {
-        if (childrenCache.containsKey(parentId)) {
-            toggleExpanded(parentId)
-            return
+        viewModelScope.launch {
+            val children = tocRepository.getTocItems(parentId)
+            _tocItems.value = updateTree(_tocItems.value, parentId, children)
         }
-        if (!loadingIds.add(parentId)) return
-        viewModelScope.launch(Dispatchers.IO) {
-            val nodes = tocRepository.getChildItems(parentId)
-            val items = nodes.map { it.toDomain() }
-            val embeddedChildren = mutableMapOf<String, List<TocItem>>()
-            nodes.forEach { node ->
-                if (node.childrenInfo != null) {
-                    embeddedChildren[node.id] = node.childrenInfo.map { it.toDomain() }
-                }
-            }
-            childrenCache[parentId] = items
-            childrenCache.putAll(embeddedChildren)
-            loadingIds.remove(parentId)
-            _state.update {
-                it.copy(
-                    children = it.children + (parentId to items) + embeddedChildren,
-                    expandedIds = it.expandedIds + parentId
+    }
+
+    private fun updateTree(items: List<TocItem>, parentId: String, children: List<TocItem>): List<TocItem> {
+        return items.map { item ->
+            if (item.id == parentId) {
+                item.copy(childrenInfo = children)
+            } else {
+                item.copy(
+                    childrenInfo = item.childrenInfo?.let { updateTree(it, parentId, children) }
                 )
             }
         }
     }
-
-    fun toggleExpanded(parentId: String) {
-        _state.update {
-            val newExpanded = if (parentId in it.expandedIds) {
-                it.expandedIds - parentId
-            } else {
-                it.expandedIds + parentId
-            }
-            it.copy(expandedIds = newExpanded)
-        }
-    }
-
-    private fun com.uptodate.viewer.data.database.toc.models.TocNode.toDomain() = TocItem(
-        id = id,
-        title = title,
-        isLeaf = isLeaf,
-        type = type,
-        hasChildren = childrenInfo != null
-    )
-
-    private fun com.uptodate.viewer.data.database.toc.models.TocChildJson.toDomain() = TocItem(
-        id = id,
-        title = title,
-        isLeaf = type == "TOPIC",
-        type = type,
-        hasChildren = childrenInfo != null
-    )
 }

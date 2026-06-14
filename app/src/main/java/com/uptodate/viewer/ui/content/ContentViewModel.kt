@@ -2,19 +2,15 @@ package com.uptodate.viewer.ui.content
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.uptodate.viewer.data.database.content.ContentRepository
-import com.uptodate.viewer.data.database.search.SearchRepository
-import com.uptodate.viewer.domain.model.ContributorGroup
-import com.uptodate.viewer.domain.model.GraphicEntry
-import com.uptodate.viewer.domain.persistence.FavoritesRepository
-import com.uptodate.viewer.domain.persistence.HistoryRepository
+import com.uptodate.viewer.domain.GraphicData
+import com.uptodate.viewer.repository.AssetRepository
+import com.uptodate.viewer.repository.ContentRepository
+import com.uptodate.viewer.repository.FavoriteRepository
+import com.uptodate.viewer.repository.HistoryRepository
+import com.uptodate.viewer.util.HtmlNormalizer
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -22,228 +18,203 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 
-class NavigationHistory(private val maxHistory: Int = 50) {
-    private val entries = mutableListOf<String>()
-    private var index = 0
-
-    val current: String get() = entries[index]
-    val canGoBack: Boolean get() = index > 0
-    val canGoForward: Boolean get() = index < entries.size - 1
-
-    fun init(topicId: String) {
-        entries.clear()
-        entries.add(topicId)
-        index = 0
-    }
-
-    fun navigate(topicId: String) {
-        entries.subList(index + 1, entries.size).clear()
-        entries.add(topicId)
-        while (entries.size > maxHistory) entries.removeAt(0)
-        index = entries.size - 1
-    }
-
-    fun goBack(): String? {
-        if (!canGoBack) return null
-        index--
-        return entries[index]
-    }
-
-    fun goForward(): String? {
-        if (!canGoForward) return null
-        index++
-        return entries[index]
-    }
-}
-
 @HiltViewModel
 class ContentViewModel @Inject constructor(
     private val contentRepository: ContentRepository,
-    private val searchRepository: SearchRepository,
-    private val favoritesRepository: FavoritesRepository,
+    private val favoriteRepository: FavoriteRepository,
     private val historyRepository: HistoryRepository,
+    private val assetRepository: AssetRepository
 ) : ViewModel() {
 
-    data class TopicContentData(
-        val topicId: String,
-        val title: String,
-        val rawBodyHtml: String,
-        val rawOutlineHtml: String,
-        val contributors: List<ContributorGroup>?,
-        val relatedGraphics: List<GraphicEntry>,
-        val isFavorite: Boolean
-    )
+    private val _currentTopicId = MutableStateFlow<String?>(null)
+    val currentTopicId: StateFlow<String?> = _currentTopicId
 
-    data class UiState(
-        val topicId: String = "",
-        val content: TopicContentData? = null,
-        val title: String = "",
-        val zoomPercent: Int = 100,
-        val showOutline: Boolean = false,
-        val showFind: Boolean = false,
-        val findQuery: String = "",
-        val isLoading: Boolean = true
-    )
+    private val _topicContent = MutableStateFlow<ContentRepository.TopicContent?>(null)
+    val topicContent: StateFlow<ContentRepository.TopicContent?> = _topicContent
 
-    private val _state = MutableStateFlow(UiState())
-    val state: StateFlow<UiState> = _state
+    private val _processedHtml = MutableStateFlow<String?>(null)
+    val processedHtml: StateFlow<String?> = _processedHtml
 
-    private val navigationHistory = NavigationHistory()
-    val actions: MutableMap<String, String> = mutableMapOf()
+    private val _isFavorite = MutableStateFlow(false)
+    val isFavorite: StateFlow<Boolean> = _isFavorite
 
-    sealed class NavEvent {
-        data class OpenGraphic(val graphicId: String) : NavEvent()
-        data class NavigateToTopic(val topicId: String, val section: String? = null) : NavEvent()
-    }
+    private val _showOutline = MutableStateFlow(false)
+    val showOutline: StateFlow<Boolean> = _showOutline
 
-    private val navEvents = Channel<NavEvent>(Channel.BUFFERED)
-    val navEventFlow = navEvents.receiveAsFlow()
+    private val _outlineHtml = MutableStateFlow<String?>(null)
+    val outlineHtml: StateFlow<String?> = _outlineHtml
 
-    private var initialized = false
-    private var loadJob: Job? = null
+    private val _graphicDialog = MutableStateFlow<GraphicData?>(null)
+    val graphicDialog: StateFlow<GraphicData?> = _graphicDialog
 
-    fun initTopic(topicId: String) {
-        if (initialized) return
-        initialized = true
-        viewModelScope.launch(Dispatchers.IO) { favoritesRepository.load() }
-        navigationHistory.init(topicId)
-        loadTopicContent(topicId)
-    }
+    private val _contributorsDialog = MutableStateFlow<List<Map<String, Any?>>?>(null)
+    val contributorsDialog: StateFlow<List<Map<String, Any?>>?> = _contributorsDialog
 
-    fun loadTopicContent(topicId: String) {
-        loadJob?.cancel()
-        _state.value = _state.value.copy(isLoading = true)
-        loadJob = viewModelScope.launch(Dispatchers.IO) {
+    private val _navigationHistory = MutableStateFlow<List<String>>(emptyList())
+    val navigationHistory: StateFlow<List<String>> = _navigationHistory
+
+    private var historyIndex = -1
+    private val actions = mutableMapOf<String, String>()
+
+    fun loadTopic(topicId: String, addToHistory: Boolean = true) {
+        viewModelScope.launch {
+            _currentTopicId.value = topicId
             val content = contentRepository.getTopicContent(topicId)
-            val title = searchRepository.getTopicTitle(topicId) ?: topicId
+            _topicContent.value = content
 
-            if (content == null) {
-                _state.value = UiState(topicId = topicId, title = "Not Found", isLoading = false)
-                return@launch
+            if (content != null) {
+                var html = content.bodyHtml
+                html = HtmlNormalizer.normalizeHeaders(html)
+                html = HtmlNormalizer.injectMetaLinks(html, content.contributors)
+
+                actions.clear()
+                html = Regex("""href="javascript:appAction\((.*?)\);?"""", RegexOption.DOT_MATCHES_ALL)
+                    .replace(html) { match ->
+                        val jsonStr = match.groupValues[1]
+                        val actionId = "action_${actions.size}"
+                        actions[actionId] = jsonStr
+                        """href="appaction://$actionId""""
+                    }
+
+                val css = getCss()
+                _processedHtml.value = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    $css
+                </head>
+                <body>${html.removeSurrounding("\"")}</body>
+                </html>
+                """.trimIndent()
+
+                if (content.outlineHtml.isNotBlank()) {
+                    var outline = content.outlineHtml
+                    outline = Regex("""href="javascript:appAction\((.*?)\);?"""", RegexOption.DOT_MATCHES_ALL)
+                        .replace(outline) { match ->
+                            val jsonStr = match.groupValues[1]
+                            val actionId = "action_${actions.size}"
+                            actions[actionId] = jsonStr
+                            """href="appaction://$actionId""""
+                        }
+                    _outlineHtml.value = """
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        $css
+                    </head>
+                    <body class="outline-mode"><div class="topic-outline">$outline</div></body>
+                    </html>
+                    """.trimIndent()
+                } else {
+                    _outlineHtml.value = null
+                }
             }
 
-            var body = HtmlProcessor.normalizeHeaders(content.bodyHtml)
-            val domainContributors = content.contributors?.map { it.toDomain() }
-            body = HtmlProcessor.injectMetaLinks(body, domainContributors)
-            val (processedBody, bodyActions) = HtmlProcessor.extractActions(body)
-            actions.clear()
-            actions.putAll(bodyActions)
-
-            var processedOutline = ""
-            if (content.outlineHtml != null) {
-                val (outline, outlineActions) = HtmlProcessor.extractActions(content.outlineHtml)
-                processedOutline = outline
-                actions.putAll(outlineActions)
+            if (addToHistory) {
+                val title = contentRepository.getTopicTitle(topicId) ?: topicId
+                historyRepository.addOrPromote(topicId, title)
             }
 
-            val graphics = content.relatedGraphics?.flatMap { group ->
-                group.graphics?.mapNotNull { g ->
-                    val info = g.graphicInfo ?: return@mapNotNull null
-                    GraphicEntry(g.label, info.id, info.displayName)
-                } ?: emptyList()
-            } ?: emptyList()
-
-            val isFav = favoritesRepository.isFavorite(topicId)
-            val topicData = TopicContentData(
-                topicId = topicId, title = title,
-                rawBodyHtml = processedBody, rawOutlineHtml = processedOutline,
-                contributors = domainContributors,
-                relatedGraphics = graphics, isFavorite = isFav
-            )
-
-            _state.value = UiState(
-                topicId = topicId, content = topicData, title = title,
-                isLoading = false
-            )
-
-            historyRepository.addOrPromote(topicId, title)
+            _isFavorite.value = favoriteRepository.isFavorite(topicId)
         }
     }
 
-    fun navigate(newTopicId: String) {
-        navigationHistory.navigate(newTopicId)
-        loadTopicContent(newTopicId)
-    }
+    fun handleAction(actionId: String) {
+        val jsonStr = actions[actionId] ?: return
+        try {
+            val data = Json.parseToJsonElement(jsonStr).jsonObject
+            val meta = data["meta"]?.jsonObject
+            val items = data["data"]?.jsonArray
 
-    fun goBack(): Boolean {
-        val topicId = navigationHistory.goBack() ?: return false
-        loadTopicContent(topicId)
-        return true
-    }
+            val assetType = meta?.get("assetType")?.jsonPrimitive?.content
+            val assetComponent = meta?.get("assetComponent")?.jsonPrimitive?.content
 
-    fun goForward(): Boolean {
-        val topicId = navigationHistory.goForward() ?: return false
-        loadTopicContent(topicId)
-        return true
-    }
-
-    val canGoBack: Boolean get() = navigationHistory.canGoBack
-    val canGoForward: Boolean get() = navigationHistory.canGoForward
-
-    fun toggleFavorite() {
-        val s = _state.value.content ?: return
-        val newState = favoritesRepository.toggle(s.topicId, s.title)
-        _state.value = _state.value.copy(
-            content = s.copy(isFavorite = newState)
-        )
-    }
-
-    fun setZoom(percent: Int) {
-        _state.value = _state.value.copy(zoomPercent = percent)
+            when {
+                assetComponent in listOf("contributors", "disclosures") -> {
+                    _contributorsDialog.value = _topicContent.value?.contributors
+                }
+                assetType == "graphic" -> {
+                    val graphicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    if (graphicId != null) {
+                        val graphic = assetRepository.getGraphic(graphicId)
+                        _graphicDialog.value = graphic
+                    }
+                }
+                assetType == "topic" -> {
+                    val topicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    if (topicId != null) {
+                        loadTopic(topicId)
+                    }
+                }
+            }
+        } catch (_: Exception) { }
     }
 
     fun toggleOutline() {
-        _state.value = _state.value.copy(showOutline = !_state.value.showOutline)
+        _showOutline.value = !_showOutline.value
     }
 
-    fun showFind() {
-        _state.value = _state.value.copy(showFind = true)
-    }
-
-    fun hideFind() {
-        _state.value = _state.value.copy(showFind = false, findQuery = "")
-    }
-
-    fun setFindQuery(query: String) {
-        _state.value = _state.value.copy(findQuery = query)
-    }
-
-    fun handleActionUrl(actionId: String) {
-        val json = actions[actionId] ?: return
-        try {
-            val element = Json.parseToJsonElement(json).jsonObject
-            val meta = element["meta"]?.jsonObject ?: return
-            val data = element["data"]?.jsonArray ?: return
-            if (data.isEmpty()) return
-            val item = data[0].jsonObject
-
-            val assetType = meta["assetType"]?.jsonPrimitive?.content ?: ""
-            val dataType = item["type"]?.jsonPrimitive?.content ?: ""
-
-            when {
-                assetType == "topic" && dataType == "medical" -> {
-                    val topicId = item["id"]?.jsonPrimitive?.content ?: return
-                    val section = item["section"]?.jsonPrimitive?.content
-                        ?: meta["section"]?.jsonPrimitive?.content
-                    viewModelScope.launch { navEvents.send(NavEvent.NavigateToTopic(topicId, section)) }
-                }
-                assetType == "graphic" && dataType == "graphic" -> {
-                    val graphicId = item["id"]?.jsonPrimitive?.content ?: return
-                    viewModelScope.launch { navEvents.send(NavEvent.OpenGraphic(graphicId)) }
-                }
+    fun toggleFavorite() {
+        val topicId = _currentTopicId.value ?: return
+        viewModelScope.launch {
+            if (_isFavorite.value) {
+                favoriteRepository.remove(topicId)
+            } else {
+                val title = contentRepository.getTopicTitle(topicId) ?: topicId
+                favoriteRepository.add(topicId, title)
             }
-        } catch (_: Exception) {}
+            _isFavorite.value = !_isFavorite.value
+        }
     }
 
-    private fun com.uptodate.viewer.data.database.content.models.ContributorGroup.toDomain() =
-        ContributorGroup(
-            headingTitle = headingTitle,
-            contributors = contributorList?.map { p ->
-                com.uptodate.viewer.domain.model.ContributorPerson(
-                    name = p.name,
-                    associations = p.associations,
-                    disclosure = p.disclosure
-                )
-            } ?: emptyList()
-        )
+    fun dismissGraphicDialog() {
+        _graphicDialog.value = null
+    }
+
+    fun dismissContributorsDialog() {
+        _contributorsDialog.value = null
+    }
+
+    fun goBack() {
+        if (historyIndex > 0) {
+            historyIndex--
+            val topicId = _navigationHistory.value[historyIndex]
+            loadTopic(topicId, addToHistory = false)
+        }
+    }
+
+    fun goForward() {
+        if (historyIndex < _navigationHistory.value.size - 1) {
+            historyIndex++
+            val topicId = _navigationHistory.value[historyIndex]
+            loadTopic(topicId, addToHistory = false)
+        }
+    }
+
+    private fun getCss(): String {
+        return """
+        <style>
+            body { font-family: sans-serif; padding: 16px; line-height: 1.6; }
+            h1, h2, h3, h4, h5, h6 { color: #333; margin-top: 1.5em; }
+            h1 { font-size: 1.8em; border-bottom: 2px solid #eee; padding-bottom: 0.3em; }
+            h2 { font-size: 1.5em; }
+            a { color: #1976D2; text-decoration: none; }
+            a:hover { text-decoration: underline; }
+            .topic-title { font-size: 1.8em; color: #333; }
+            .meta-links-row { margin: 10px 0; padding: 8px; background: #f5f5f5; border-radius: 4px; }
+            .meta-links-row a { margin: 0 8px; }
+            .meta-separator { color: #ccc; }
+            .outline-mode { padding: 8px; font-size: 0.9em; }
+            .topic-outline ul { list-style: none; padding-left: 16px; }
+            .topic-outline li { margin: 4px 0; }
+            .contributor-group-title { font-weight: bold; margin-top: 16px; }
+            .contributor-list { list-style: none; padding: 0; }
+            .contributor-name { font-weight: bold; }
+            .contributor-associations { color: #555; }
+            .contributor-disclosure { font-style: italic; color: #7f8c8d; }
+        </style>
+        """.trimIndent()
+    }
 }

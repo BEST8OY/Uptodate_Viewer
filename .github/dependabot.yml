@@ -2,7 +2,7 @@ version: 2
 
 updates:
   - package-ecosystem: "gradle"
-    directory: "/"
+    directory: "/android"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -19,18 +19,17 @@ updates:
           - "org.jetbrains.kotlinx:*"
       compose:
         patterns:
-          - "org.jetbrains.compose*"
           - "androidx.compose*"
       androidx:
         patterns:
           - "androidx.*"
         exclude-patterns:
           - "androidx.compose*"
-          - "androidx.navigation3*"
+          - "androidx.navigation*"
           - "androidx.hilt*"
           - "androidx.datastore*"
           - "androidx.lifecycle*"
-      navigation3:
+      navigation:
         patterns:
           - "androidx.navigation3*"
       lifecycle:
@@ -46,9 +45,6 @@ updates:
       serialization:
         patterns:
           - "org.jetbrains.kotlinx:kotlinx-serialization*"
-      coroutines:
-        patterns:
-          - "org.jetbrains.kotlinx:kotlinx-coroutines*"
       zstd:
         patterns:
           - "com.github.luben:zstd-jni"

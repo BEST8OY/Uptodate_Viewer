@@ -7,11 +7,13 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
-rootProject.name = "uptodate-viewer"
+rootProject.name = "UptodateViewer"
 include(":app")
