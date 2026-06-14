@@ -57,159 +57,45 @@ import com.uptodate.viewer.util.TopicId
 private const val ZOOM_MIN = 50f
 private const val ZOOM_MAX = 200f
 
-private fun contentWebViewClient(
+private const val LINK_INTERCEPT_JS = """
+(function() {
+    document.addEventListener('click', function(e) {
+        var a = e.target.closest('a');
+        if (!a) return;
+        var href = a.getAttribute('href');
+        if (!href || href.startsWith('#') || href.startsWith('javascript:void')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        Android.navigateUrl(href);
+    }, true);
+})();
+"""
+
+private fun handleUrl(
+    url: String,
     onAction: (String) -> Unit,
-    onNavigateToTopic: (String) -> Unit
-) = object : WebViewClient() {
-    override fun shouldOverrideUrlLoading(
-        view: WebView?,
-        request: android.webkit.WebResourceRequest?
-    ): Boolean {
-        val url = request?.url?.toString() ?: return false
-        val scheme = request.url?.scheme ?: ""
-        val host = request.url?.host ?: ""
-        val fragment = request.url?.fragment
+    onNavigate: (String) -> Unit
+) {
+    val uri = android.net.Uri.parse(url)
+    val scheme = uri.scheme ?: ""
+    val host = uri.host ?: ""
+    val fragment = uri.fragment
 
-        if (scheme == AppAction.SCHEME) {
-            onAction(host)
-            return true
-        }
-
-        val topicMatch = TopicId.REGEX.find(host)
-        if (topicMatch != null) {
-            onNavigateToTopic(topicMatch.groupValues[1])
-            return true
-        }
-
-        val pathTopicMatch = TopicId.REGEX.find(request.url?.lastPathSegment ?: "")
-        if (pathTopicMatch != null) {
-            onNavigateToTopic(pathTopicMatch.groupValues[1])
-            return true
-        }
-
-        if (host == "app.uptodate.viewer" && fragment == null) return true
-        if (host == "app.uptodate.viewer") return false
-
-        return false
+    if (scheme == AppAction.SCHEME) {
+        onAction(host)
+        return
     }
 
-    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-        if (url == null) return false
-        val uri = android.net.Uri.parse(url)
-        val scheme = uri.scheme ?: ""
-        val host = uri.host ?: ""
-        val fragment = uri.fragment
-
-        if (scheme == AppAction.SCHEME) {
-            onAction(host)
-            return true
-        }
-
-        val topicMatch = TopicId.REGEX.find(host)
-        if (topicMatch != null) {
-            onNavigateToTopic(topicMatch.groupValues[1])
-            return true
-        }
-
-        val pathTopicMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
-        if (pathTopicMatch != null) {
-            onNavigateToTopic(pathTopicMatch.groupValues[1])
-            return true
-        }
-
-        if (host == "app.uptodate.viewer" && fragment == null) return true
-        if (host == "app.uptodate.viewer") return false
-
-        return false
-    }
-}
-
-private fun outlineWebViewClient(
-    mainWebView: WebView?,
-    onAction: (String) -> Unit,
-    onNavigateToTopic: (String) -> Unit
-) = object : WebViewClient() {
-    override fun shouldOverrideUrlLoading(
-        view: WebView?,
-        request: android.webkit.WebResourceRequest?
-    ): Boolean {
-        val url = request?.url?.toString() ?: return false
-        val uri = request.url
-        val scheme = uri?.scheme ?: ""
-        val host = uri?.host ?: ""
-        val fragment = uri?.fragment
-
-        if (scheme == AppAction.SCHEME) {
-            onAction(host)
-            return true
-        }
-
-        if (fragment != null && host == "app.uptodate.viewer") {
-            mainWebView?.post {
-                mainWebView?.evaluateJavascript(
-                    "document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})",
-                    null
-                )
-            }
-            return true
-        }
-
-        val topicMatch = TopicId.REGEX.find(host)
-        if (topicMatch != null) {
-            onNavigateToTopic(topicMatch.groupValues[1])
-            return true
-        }
-
-        val pathTopicMatch = TopicId.REGEX.find(uri?.lastPathSegment ?: "")
-        if (pathTopicMatch != null) {
-            onNavigateToTopic(pathTopicMatch.groupValues[1])
-            return true
-        }
-
-        if (host == "app.uptodate.viewer" && fragment == null) return true
-        if (host == "app.uptodate.viewer") return false
-
-        return false
+    val topicMatch = TopicId.REGEX.find(host)
+    if (topicMatch != null) {
+        onNavigate(topicMatch.groupValues[1])
+        return
     }
 
-    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-        if (url == null) return false
-        val uri = android.net.Uri.parse(url)
-        val scheme = uri.scheme ?: ""
-        val host = uri.host ?: ""
-        val fragment = uri.fragment
-
-        if (scheme == AppAction.SCHEME) {
-            onAction(host)
-            return true
-        }
-
-        if (fragment != null && host == "app.uptodate.viewer") {
-            mainWebView?.post {
-                mainWebView?.evaluateJavascript(
-                    "document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})",
-                    null
-                )
-            }
-            return true
-        }
-
-        val topicMatch = TopicId.REGEX.find(host)
-        if (topicMatch != null) {
-            onNavigateToTopic(topicMatch.groupValues[1])
-            return true
-        }
-
-        val pathTopicMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
-        if (pathTopicMatch != null) {
-            onNavigateToTopic(pathTopicMatch.groupValues[1])
-            return true
-        }
-
-        if (host == "app.uptodate.viewer" && fragment == null) return true
-        if (host == "app.uptodate.viewer") return false
-
-        return false
+    val pathMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
+    if (pathMatch != null) {
+        onNavigate(pathMatch.groupValues[1])
+        return
     }
 }
 
@@ -347,6 +233,7 @@ fun ContentScreen(
 
             Box(modifier = Modifier.weight(1f)) {
                 if (fullHtml.isNotEmpty()) {
+                    var loaded by remember { mutableStateOf(false) }
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
@@ -357,7 +244,6 @@ fun ContentScreen(
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.builtInZoomControls = false
-                                settings.allowFileAccess = false
 
                                 addJavascriptInterface(object {
                                     @JavascriptInterface
@@ -367,65 +253,32 @@ fun ContentScreen(
 
                                     @JavascriptInterface
                                     fun navigateUrl(url: String) {
-                                        val uri = android.net.Uri.parse(url)
-                                        val scheme = uri.scheme ?: ""
-                                        val host = uri.host ?: ""
-                                        val fragment = uri.fragment
-
-                                        if (scheme == AppAction.SCHEME) {
-                                            viewModel.handleActionUrl(host)
-                                            return
-                                        }
-
-                                        val topicMatch = TopicId.REGEX.find(host)
-                                        if (topicMatch != null) {
-                                            viewModel.navigate(topicMatch.groupValues[1])
-                                            return
-                                        }
-
-                                        val pathMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
-                                        if (pathMatch != null) {
-                                            viewModel.navigate(pathMatch.groupValues[1])
-                                            return
-                                        }
-
-                                        if (fragment != null && host == "app.uptodate.viewer") {
-                                            mainWebView?.post {
-                                                mainWebView?.evaluateJavascript(
-                                                    "document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})",
-                                                    null
-                                                )
-                                            }
-                                        }
+                                        handleUrl(url, viewModel::handleActionUrl, viewModel::navigate)
                                     }
                                 }, "Android")
 
-                                webViewClient = contentWebViewClient(
-                                    onAction = { viewModel.handleActionUrl(it) },
-                                    onNavigateToTopic = { viewModel.navigate(it) }
-                                )
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        view?.evaluateJavascript(LINK_INTERCEPT_JS, null)
+                                    }
+                                }
 
                                 mainWebView = this
                             }
                         },
                         update = { webView ->
-                            val cleaned = fullHtml.replace(Regex("""target="_?blank"?"""), "")
-                            val linkInterceptJs = """
-                                <script>
-                                document.addEventListener('click', function(e) {
-                                    var a = e.target.closest('a');
-                                    if (!a) return;
-                                    var href = a.getAttribute('href');
-                                    if (!href || href.startsWith('#') || href.startsWith('javascript:void')) return;
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    Android.navigateUrl(href);
-                                }, true);
-                                </script>
-                            """.trimIndent()
-                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", cleaned.replace("</body>", "$linkInterceptJs</body>"), "text/html", "UTF-8", null)
+                            if (!loaded || webView.url == null) {
+                                webView.loadDataWithBaseURL(
+                                    "about:blank",
+                                    fullHtml.replace(Regex("""target="_?blank"?"""), ""),
+                                    "text/html",
+                                    "UTF-8",
+                                    null
+                                )
+                                loaded = true
+                            }
                             webView.settings.textZoom = state.zoomPercent
-
                             if (state.findQuery.isNotEmpty()) {
                                 webView.findAllAsync(state.findQuery)
                             }
@@ -435,6 +288,7 @@ fun ContentScreen(
                 }
 
                 if (state.showOutline && outlineFullHtml.isNotEmpty()) {
+                    var outlineLoaded by remember { mutableStateOf(false) }
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
@@ -443,31 +297,13 @@ fun ContentScreen(
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
                                 settings.javaScriptEnabled = true
+
                                 addJavascriptInterface(object {
                                     @JavascriptInterface
                                     fun navigateUrl(url: String) {
+                                        handleUrl(url, viewModel::handleActionUrl, viewModel::navigate)
                                         val uri = android.net.Uri.parse(url)
-                                        val scheme = uri.scheme ?: ""
-                                        val host = uri.host ?: ""
                                         val fragment = uri.fragment
-
-                                        if (scheme == AppAction.SCHEME) {
-                                            viewModel.handleActionUrl(host)
-                                            return
-                                        }
-
-                                        val topicMatch = TopicId.REGEX.find(host)
-                                        if (topicMatch != null) {
-                                            viewModel.navigate(topicMatch.groupValues[1])
-                                            return
-                                        }
-
-                                        val pathMatch = TopicId.REGEX.find(uri.lastPathSegment ?: "")
-                                        if (pathMatch != null) {
-                                            viewModel.navigate(pathMatch.groupValues[1])
-                                            return
-                                        }
-
                                         if (fragment != null) {
                                             mainWebView?.post {
                                                 mainWebView?.evaluateJavascript(
@@ -478,35 +314,28 @@ fun ContentScreen(
                                         }
                                     }
                                 }, "Outline")
-                                webViewClient = outlineWebViewClient(
-                                    mainWebView = mainWebView,
-                                    onAction = { viewModel.handleActionUrl(it) },
-                                    onNavigateToTopic = { viewModel.navigate(it) }
-                                )
+
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        view?.evaluateJavascript(LINK_INTERCEPT_JS, null)
+                                    }
+                                }
 
                                 outlineWebView = this
                             }
                         },
                         update = { webView ->
-                            val cleaned = outlineFullHtml.replace(Regex("""target="_?blank"?"""), "")
-                            val linkInterceptJs = """
-                                <script>
-                                document.addEventListener('click', function(e) {
-                                    var a = e.target.closest('a');
-                                    if (!a) return;
-                                    var href = a.getAttribute('href');
-                                    if (!href || href.startsWith('javascript:void')) return;
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    if (href.startsWith('#')) {
-                                        Outline.navigateUrl('https://app.uptodate.viewer/' + href);
-                                    } else {
-                                        Outline.navigateUrl(href);
-                                    }
-                                }, true);
-                                </script>
-                            """.trimIndent()
-                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", cleaned.replace("</body>", "$linkInterceptJs</body>"), "text/html", "UTF-8", null)
+                            if (!outlineLoaded || webView.url == null) {
+                                webView.loadDataWithBaseURL(
+                                    "about:blank",
+                                    outlineFullHtml.replace(Regex("""target="_?blank"?"""), ""),
+                                    "text/html",
+                                    "UTF-8",
+                                    null
+                                )
+                                outlineLoaded = true
+                            }
                         },
                         modifier = Modifier
                             .fillMaxSize()
