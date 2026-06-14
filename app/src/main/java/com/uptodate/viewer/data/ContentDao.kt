@@ -111,10 +111,8 @@ class ContentDao @Inject constructor(
 
     private fun decompressZstd(data: ByteArray): String? {
         return try {
-            val decompressedSize = Zstd.decompressBound(data).toInt()
-            val dst = ByteArray(decompressedSize)
-            Zstd.decompressByteArray(dst, 0, decompressedSize, data, 0, data.size)
-            String(dst, Charsets.UTF_8)
+            val decompressed = Zstd.decompressFrame(data)
+            String(decompressed, Charsets.UTF_8)
         } catch (_: Exception) {
             null
         }
