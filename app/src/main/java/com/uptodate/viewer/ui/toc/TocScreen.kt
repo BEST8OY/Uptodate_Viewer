@@ -110,7 +110,10 @@ private fun TocNodeItem(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = (indent * 16 + 8).dp, end = 8.dp, top = 2.dp, bottom = 2.dp)
+                .clickable {
+                    if (node.isLeaf) onTopicClick(node.id) else onToggle(node.id)
+                }
+                .padding(start = (indent * 16 + 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
                 .then(
                     if (node.isLeaf) {
                         Modifier.padding(start = 24.dp)
