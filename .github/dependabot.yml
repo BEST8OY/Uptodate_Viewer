@@ -12,7 +12,6 @@ updates:
       prefix: "deps"
     labels:
       - "dependencies"
-    versioning-strategy: increase-if-necessary
     groups:
       kotlin:
         patterns:
