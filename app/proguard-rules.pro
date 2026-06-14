@@ -18,6 +18,3 @@
 -keepclassmembers class com.uptodate.viewer.ui.content.JsBridge {
     @android.webkit.JavascriptInterface <methods>;
 }
-
-# Zstd JNI
--keepclasseswithmembers class com.github.luben.zstd.** { native <methods>; }

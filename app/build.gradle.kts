@@ -37,6 +37,15 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 kotlin {
@@ -82,7 +91,4 @@ dependencies {
 
     // JSON
     implementation(libs.kotlinx.serialization.json)
-
-    // Zstd
-    implementation(libs.zstd.jni)
 }

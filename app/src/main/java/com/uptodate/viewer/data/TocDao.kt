@@ -1,6 +1,5 @@
 package com.uptodate.viewer.data
 
-import com.github.luben.zstd.Zstd
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -30,11 +29,7 @@ class TocDao @Inject constructor(
         return cursor.use {
             if (it.moveToFirst()) {
                 val payload = it.getBlob(0)
-                val payloadStr = if (isZstdCompressed(payload)) {
-                    decompressZstd(payload) ?: return emptyList()
-                } else {
-                    String(payload)
-                }
+                val payloadStr = String(payload)
 
                 try {
                     val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
@@ -63,20 +58,4 @@ class TocDao @Inject constructor(
         }
     }
 
-    private fun isZstdCompressed(data: ByteArray): Boolean {
-        return data.size >= 4 &&
-            data[0] == 0x28.toByte() &&
-            data[1] == 0xB5.toByte() &&
-            data[2] == 0x2F.toByte() &&
-            data[3] == 0xFD.toByte()
-    }
-
-    private fun decompressZstd(data: ByteArray): String? {
-        return try {
-            val decompressed = Zstd.decompressFrame(data)
-            String(decompressed, Charsets.UTF_8)
-        } catch (_: Exception) {
-            null
-        }
-    }
 }
