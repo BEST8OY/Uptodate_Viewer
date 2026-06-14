@@ -13,6 +13,11 @@ dependencyResolutionManagement {
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
     }
+    configurations.all {
+        resolutionStrategy {
+            force("org.jetbrains.kotlin:compose-group-mapping:2.4.0")
+        }
+    }
 }
 
 rootProject.name = "UptodateViewer"
