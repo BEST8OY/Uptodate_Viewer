@@ -54,6 +54,9 @@ jobs:
           add-job-summary: on-failure
           cache-cleanup: on-success
 
+      - name: Clear Gradle Cache
+        run: ./gradlew clean
+
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace
 
