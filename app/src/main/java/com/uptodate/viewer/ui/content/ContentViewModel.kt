@@ -125,8 +125,14 @@ class ContentViewModel @Inject constructor(
     }
 
     fun handleAction(actionId: String) {
-        val jsonStr = actions[actionId] ?: return
+        val rawJsonStr = actions[actionId] ?: return
         try {
+            val jsonStr = rawJsonStr
+                .replace("&quot;", "\"")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&#39;", "'")
             val data = Json.parseToJsonElement(jsonStr).jsonObject
             val meta = data["meta"]?.jsonObject
             val items = data["data"]?.jsonArray
