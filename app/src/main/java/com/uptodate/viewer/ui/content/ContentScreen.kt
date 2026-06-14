@@ -269,8 +269,7 @@ fun ContentScreen(
                         },
                         update = { webView ->
                             if (!loaded || webView.url == null) {
-                                webView.loadDataWithBaseURL(
-                                    "about:blank",
+                                webView.loadData(
                                     fullHtml.replace(Regex("""target="_?blank"?"""), ""),
                                     "text/html",
                                     "UTF-8",
@@ -327,8 +326,7 @@ fun ContentScreen(
                         },
                         update = { webView ->
                             if (!outlineLoaded || webView.url == null) {
-                                webView.loadDataWithBaseURL(
-                                    "about:blank",
+                                webView.loadData(
                                     outlineFullHtml.replace(Regex("""target="_?blank"?"""), ""),
                                     "text/html",
                                     "UTF-8",
