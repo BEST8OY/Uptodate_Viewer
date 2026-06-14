@@ -19,13 +19,9 @@ env:
   JAVA_DISTRIBUTION: 'temurin'
   GRADLE_OPTS: >-
     -Dorg.gradle.daemon=false
-    -Dorg.gradle.configuration-cache=false
-    -Dorg.gradle.caching=true
     -Dorg.gradle.parallel=true
     -Xmx6g
-    -XX:+UseG1GC
     -XX:MaxMetaspaceSize=1g
-    -XX:+HeapDumpOnOutOfMemoryError
   ORG_GRADLE_PROJECT_ksp_incremental: 'false'
 
 jobs:
