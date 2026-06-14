@@ -323,8 +323,7 @@ fun ContentScreen(
                                 webView.loadData(
                                     fullHtml.replace(Regex("""target="_?blank"?"""), ""),
                                     "text/html",
-                                    "UTF-8",
-                                    null
+                                    "UTF-8"
                                 )
                                 loaded = true
                             }
@@ -395,8 +394,7 @@ fun ContentScreen(
                                 webView.loadData(
                                     outlineFullHtml.replace(Regex("""target="_?blank"?"""), ""),
                                     "text/html",
-                                    "UTF-8",
-                                    null
+                                    "UTF-8"
                                 )
                                 outlineLoaded = true
                             }
