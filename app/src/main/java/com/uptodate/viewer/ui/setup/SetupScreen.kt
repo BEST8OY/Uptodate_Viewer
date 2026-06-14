@@ -1,7 +1,9 @@
 package com.uptodate.viewer.ui.setup
 
 import android.content.Intent
+import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +56,22 @@ fun SetupScreen(
         }
     }
 
+    val manageStorageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager()) {
+                viewModel.checkDirectory(directoryPath)
+            }
+        }
+    }
+
+    val hasStoragePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        true
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -76,6 +94,22 @@ fun SetupScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            if (!hasStoragePermission) {
+                Button(
+                    onClick = {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                            data = android.net.Uri.parse("package:${context.packageName}")
+                        }
+                        manageStorageLauncher.launch(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Grant Storage Permission")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             Text(
                 text = "Enter the path to the directory containing your UpToDate database files:",
                 style = MaterialTheme.typography.bodyLarge
@@ -85,9 +119,9 @@ fun SetupScreen(
 
             OutlinedTextField(
                 value = directoryPath,
-                onValueChange = { 
+                onValueChange = {
                     directoryPath = it
-                    viewModel.checkDirectory(it)
+                    if (hasStoragePermission) viewModel.checkDirectory(it)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Database Directory Path") },
@@ -108,7 +142,7 @@ fun SetupScreen(
             Button(
                 onClick = { viewModel.selectDirectory(directoryPath) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = directoryPath.isNotBlank()
+                enabled = directoryPath.isNotBlank() && hasStoragePermission
             ) {
                 Text("Set Directory")
             }
