@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -47,7 +47,7 @@ data object SearchRoute : TopLevelRoute {
 @Serializable
 data object HistoryRoute : TopLevelRoute {
     override val title = "History"
-    override val icon = Icons.Default.List
+    override val icon = Icons.AutoMirrored.Filled.List
 }
 
 @Serializable

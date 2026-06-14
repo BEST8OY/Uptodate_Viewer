@@ -19,7 +19,7 @@ private val Context.historyDataStore: DataStore<Preferences> by preferencesDataS
 
 @Singleton
 class HistoryRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val historyKey = stringPreferencesKey("history_json")

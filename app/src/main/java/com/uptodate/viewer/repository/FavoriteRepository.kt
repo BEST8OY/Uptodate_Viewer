@@ -20,7 +20,7 @@ private val Context.favoritesDataStore: DataStore<Preferences> by preferencesDat
 
 @Singleton
 class FavoriteRepository @Inject constructor(
-    @ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val favoritesKey = stringPreferencesKey("favorites_json")
