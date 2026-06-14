@@ -17,12 +17,7 @@ permissions:
 env:
   JAVA_VERSION: '21'
   JAVA_DISTRIBUTION: 'temurin'
-  GRADLE_OPTS: >-
-    -Dorg.gradle.daemon=false
-    -Dorg.gradle.parallel=true
-    -Xmx6g
-    -XX:MaxMetaspaceSize=1g
-  ORG_GRADLE_PROJECT_ksp_incremental: 'false'
+  GRADLE_OPTS: -Dorg.gradle.daemon=false
 
 jobs:
   build-android:
@@ -48,7 +43,8 @@ jobs:
         with:
           cache-read-only: false
           add-job-summary: on-failure
-
+          cache-cleanup: on-success
+      
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace
 

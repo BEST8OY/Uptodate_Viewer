@@ -58,11 +58,23 @@ fun ContentScreen(
     val outlineHtml by viewModel.outlineHtml.collectAsState()
     val graphicDialog by viewModel.graphicDialog.collectAsState()
     val contributorsDialog by viewModel.contributorsDialog.collectAsState()
+    val scrollToSection by viewModel.scrollToSection.collectAsState()
 
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var searchResultCount by remember { mutableStateOf(0) }
+
+    // Scroll to section when requested
+    LaunchedEffect(scrollToSection) {
+        scrollToSection?.let { section ->
+            webView?.evaluateJavascript(
+                "document.getElementById('$section')?.scrollIntoView({behavior:'smooth'})",
+                null
+            )
+            viewModel.clearScrollToSection()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -141,8 +153,29 @@ fun ContentScreen(
                     AndroidView(
                         factory = { context ->
                             WebView(context).apply {
-                                webViewClient = WebViewClient()
-                                settings.javaScriptEnabled = false
+                                webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(
+                                        view: WebView?,
+                                        request: android.webkit.WebResourceRequest?
+                                    ): Boolean {
+                                        val url = request?.url?.toString() ?: return false
+                                        if (url.startsWith("appaction://")) {
+                                            val actionId = url.removePrefix("appaction://")
+                                            viewModel.handleAction(actionId)
+                                            return true
+                                        }
+                                        if (url.startsWith("http://") || url.startsWith("https://")) {
+                                            val intent = android.content.Intent(
+                                                android.content.Intent.ACTION_VIEW,
+                                                request.url
+                                            )
+                                            context.startActivity(intent)
+                                            return true
+                                        }
+                                        return false
+                                    }
+                                }
+                                settings.javaScriptEnabled = true
                             }
                         },
                         update = { outlineWebView ->

@@ -50,6 +50,9 @@ class ContentViewModel @Inject constructor(
     private val _contributorsDialog = MutableStateFlow<List<Map<String, Any?>>?>(null)
     val contributorsDialog: StateFlow<List<Map<String, Any?>>?> = _contributorsDialog
 
+    private val _scrollToSection = MutableStateFlow<String?>(null)
+    val scrollToSection: StateFlow<String?> = _scrollToSection
+
     private val _navigationHistory = MutableStateFlow<List<String>>(emptyList())
     val navigationHistory: StateFlow<List<String>> = _navigationHistory
 
@@ -144,8 +147,14 @@ class ContentViewModel @Inject constructor(
                 }
                 assetType == "topic" -> {
                     val topicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    val section = meta?.get("section")?.jsonPrimitive?.content
+                        ?: items?.firstOrNull()?.jsonObject?.get("section")?.jsonPrimitive?.content
                     if (topicId != null) {
-                        loadTopic(topicId)
+                        if (topicId == _currentTopicId.value && section != null) {
+                            _scrollToSection.value = section
+                        } else {
+                            loadTopic(topicId)
+                        }
                     }
                 }
             }
@@ -175,6 +184,10 @@ class ContentViewModel @Inject constructor(
 
     fun dismissContributorsDialog() {
         _contributorsDialog.value = null
+    }
+
+    fun clearScrollToSection() {
+        _scrollToSection.value = null
     }
 
     fun goBack() {
