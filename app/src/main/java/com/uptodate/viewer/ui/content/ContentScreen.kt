@@ -68,6 +68,7 @@ private fun contentWebViewClient(
         val url = request?.url?.toString() ?: return false
         val scheme = request.url?.scheme ?: ""
         val host = request.url?.host ?: ""
+        val fragment = request.url?.fragment
 
         if (scheme == AppAction.SCHEME) {
             onAction(host)
@@ -86,7 +87,8 @@ private fun contentWebViewClient(
             return true
         }
 
-        if (host == "app.uptodate.viewer") return true
+        if (host == "app.uptodate.viewer" && fragment == null) return true
+        if (host == "app.uptodate.viewer") return false
 
         return false
     }
@@ -96,6 +98,7 @@ private fun contentWebViewClient(
         val uri = android.net.Uri.parse(url)
         val scheme = uri.scheme ?: ""
         val host = uri.host ?: ""
+        val fragment = uri.fragment
 
         if (scheme == AppAction.SCHEME) {
             onAction(host)
@@ -114,7 +117,8 @@ private fun contentWebViewClient(
             return true
         }
 
-        if (host == "app.uptodate.viewer") return true
+        if (host == "app.uptodate.viewer" && fragment == null) return true
+        if (host == "app.uptodate.viewer") return false
 
         return false
     }
@@ -141,7 +145,12 @@ private fun outlineWebViewClient(
         }
 
         if (fragment != null && host == "app.uptodate.viewer") {
-            mainWebView?.evaluateJavascript("document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})", null)
+            mainWebView?.post {
+                mainWebView?.evaluateJavascript(
+                    "document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})",
+                    null
+                )
+            }
             return true
         }
 
@@ -157,7 +166,8 @@ private fun outlineWebViewClient(
             return true
         }
 
-        if (host == "app.uptodate.viewer") return true
+        if (host == "app.uptodate.viewer" && fragment == null) return true
+        if (host == "app.uptodate.viewer") return false
 
         return false
     }
@@ -175,7 +185,12 @@ private fun outlineWebViewClient(
         }
 
         if (fragment != null && host == "app.uptodate.viewer") {
-            mainWebView?.evaluateJavascript("document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})", null)
+            mainWebView?.post {
+                mainWebView?.evaluateJavascript(
+                    "document.getElementById('$fragment')?.scrollIntoView({behavior:'smooth'})",
+                    null
+                )
+            }
             return true
         }
 
@@ -191,7 +206,8 @@ private fun outlineWebViewClient(
             return true
         }
 
-        if (host == "app.uptodate.viewer") return true
+        if (host == "app.uptodate.viewer" && fragment == null) return true
+        if (host == "app.uptodate.viewer") return false
 
         return false
     }
@@ -384,55 +400,12 @@ fun ContentScreen(
                                     onAction = { viewModel.handleActionUrl(it) },
                                     onNavigateToTopic = { viewModel.navigate(it) }
                                 )
-                                addJavascriptInterface(object {
-                                    @JavascriptInterface
-                                    fun scrollToElement(id: String) {
-                                        mainWebView?.post {
-                                            mainWebView?.evaluateJavascript(
-                                                "document.getElementById('$id')?.scrollIntoView({behavior:'smooth'})",
-                                                null
-                                            )
-                                        }
-                                    }
-                                    @JavascriptInterface
-                                    fun navigateToTopic(topicId: String) {
-                                        mainWebView?.post {
-                                            viewModel.navigate(topicId)
-                                        }
-                                    }
-                                    @JavascriptInterface
-                                    fun handleAction(actionId: String) {
-                                        mainWebView?.post {
-                                            viewModel.handleActionUrl(actionId)
-                                        }
-                                    }
-                                }, "Outline")
 
                                 outlineWebView = this
                             }
                         },
                         update = { webView ->
-                            val cleaned = outlineFullHtml.replace(Regex("""target="_?blank"?"""), "")
-                            val interceptJs = """
-                                <script>
-                                document.addEventListener('click', function(e) {
-                                    var a = e.target.closest('a');
-                                    if (!a) return;
-                                    var href = a.getAttribute('href');
-                                    if (!href) return;
-                                    e.preventDefault();
-                                    if (href.startsWith('#')) {
-                                        Outline.scrollToElement(href.substring(1));
-                                    } else if (href.startsWith('appaction://')) {
-                                        Outline.handleAction(href.replace('appaction://', ''));
-                                    } else {
-                                        var m = href.match(/^(?:topic-)?(\d+)$/i);
-                                        if (m) Outline.navigateToTopic(m[1]);
-                                    }
-                                }, true);
-                                </script>
-                            """.trimIndent()
-                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", cleaned.replace("</body>", "$interceptJs</body>"), "text/html", "UTF-8", null)
+                            webView.loadDataWithBaseURL("https://app.uptodate.viewer/", outlineFullHtml.replace(Regex("""target="_?blank"?"""), ""), "text/html", "UTF-8", null)
                         },
                         modifier = Modifier
                             .fillMaxSize()
