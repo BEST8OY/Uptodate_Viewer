@@ -45,6 +45,12 @@ kotlin {
     }
 }
 
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:compose-group-mapping:2.4.0")
+    }
+}
+
 dependencies {
     // Compose
     implementation(platform(libs.compose.bom))
