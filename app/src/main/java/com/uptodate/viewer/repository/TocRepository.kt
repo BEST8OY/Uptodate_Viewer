@@ -17,16 +17,19 @@ class TocRepository @Inject constructor(
                 title = map["title"] as String,
                 isLeaf = map["leaf"] as Boolean,
                 type = map["type"] as? String,
-                childrenInfo = (map["childrenInfo"] as? List<*>)?.map { child ->
-                    val childMap = child as Map<String, Any?>
-                    TocItem(
-                        id = childMap["id"] as String,
-                        title = childMap["title"] as String,
-                        isLeaf = childMap["leaf"] as Boolean,
-                        type = childMap["type"] as? String,
-                        childrenInfo = null
-                    )
-                }
+                childrenInfo = mapToTocItems(map["childrenInfo"] as? List<Map<String, Any?>>)
+            )
+        }
+    }
+
+    private fun mapToTocItems(children: List<Map<String, Any?>>?): List<TocItem>? {
+        return children?.map { childMap ->
+            TocItem(
+                id = childMap["id"] as String,
+                title = childMap["title"] as String,
+                isLeaf = childMap["leaf"] as Boolean,
+                type = childMap["type"] as? String,
+                childrenInfo = mapToTocItems(childMap["childrenInfo"] as? List<Map<String, Any?>>)
             )
         }
     }

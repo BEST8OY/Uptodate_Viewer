@@ -4,9 +4,14 @@
 -keepattributes *Annotation*
 -keepattributes InnerClasses,EnclosingMethod
 
+-keep class kotlinx.serialization.** { *; }
+-keepclassmembers class * implements kotlinx.serialization.KSerializer { *; }
 -keep,includedescriptorclasses class com.uptodate.viewer.**$$serializer { *; }
 -keepclassmembers class com.uptodate.viewer.** { *** Companion; }
 -keepclasseswithmembers class com.uptodate.viewer.** { kotlinx.serialization.KSerializer serializer(...); }
+-keepclassmembers class com.uptodate.viewer.**$$serializer { *; }
+-keep class com.uptodate.viewer.ui.navigation.** { *; }
+-keep class com.uptodate.viewer.domain.** { *; }
 
 # Hilt
 -keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
