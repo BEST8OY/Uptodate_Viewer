@@ -1,6 +1,7 @@
 [versions]
 agp = "9.2.1"
-ksp = "2.3.9"
+kotlin = "2.1.20"
+ksp = "2.1.20-1.0.32"
 hilt = "2.59.2"
 composeBom = "2026.05.01"
 coreKtx = "1.19.0"
@@ -36,4 +37,4 @@ zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJ
 android-application = { id = "com.android.application", version.ref = "agp" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
-kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "agp" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
