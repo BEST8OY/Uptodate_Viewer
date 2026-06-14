@@ -19,7 +19,7 @@ env:
   JAVA_DISTRIBUTION: 'temurin'
   GRADLE_OPTS: >-
     -Dorg.gradle.daemon=false
-    -Dorg.gradle.configuration-cache=true
+    -Dorg.gradle.configuration-cache=false
     -Dorg.gradle.caching=true
     -Dorg.gradle.parallel=true
     -Xmx6g
@@ -53,9 +53,6 @@ jobs:
           cache-read-only: false
           add-job-summary: on-failure
           cache-cleanup: on-success
-
-      - name: Clear Gradle Cache
-        run: ./gradlew clean
 
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace
