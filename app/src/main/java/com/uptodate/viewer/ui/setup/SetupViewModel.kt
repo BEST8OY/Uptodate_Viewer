@@ -1,9 +1,7 @@
 package com.uptodate.viewer.ui.setup
 
 import android.app.Application
-import android.content.Intent
 import android.net.Uri
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.uptodate.viewer.data.DatabaseManager
@@ -32,44 +30,43 @@ class SetupViewModel @Inject constructor(
     private val _missingDbs = MutableStateFlow<List<String>>(emptyList())
     val missingDbs: StateFlow<List<String>> = _missingDbs
 
+    private val _isValidating = MutableStateFlow(false)
+    val isValidating: StateFlow<Boolean> = _isValidating
+
     fun selectDirectory(path: String) {
+        if (path.isBlank()) {
+            _error.value = "Please enter a directory path"
+            return
+        }
+
         viewModelScope.launch {
+            _isValidating.value = true
+            _error.value = null
+
+            val dir = File(path)
+            if (!dir.exists() || !dir.isDirectory) {
+                _error.value = "Directory not found: $path"
+                _isValidating.value = false
+                return@launch
+            }
+
+            val missing = databaseManager.getMissingDatabases().filter { !File(dir, it).exists() }
+            if (missing.isNotEmpty()) {
+                _missingDbs.value = missing
+                _availableDbs.value = databaseManager.getAvailableDatabases().filter { File(dir, it).exists() }
+                _error.value = "Missing ${missing.size} required file(s)"
+                _isValidating.value = false
+                return@launch
+            }
+
             if (databaseManager.setDatabaseDirectory(path)) {
                 _isConfigured.value = true
                 _error.value = null
-                _availableDbs.value = databaseManager.getAvailableDatabases()
-                _missingDbs.value = databaseManager.getMissingDatabases()
             } else {
-                _error.value = "Invalid directory or missing database files"
+                _error.value = "Failed to configure database"
             }
+            _isValidating.value = false
         }
-    }
-
-    fun selectDirectoryFromUri(uri: Uri) {
-        viewModelScope.launch {
-            val context = getApplication<Application>()
-            val path = getPathFromUri(uri)
-            if (path != null) {
-                selectDirectory(path)
-            } else {
-                _error.value = "Could not resolve directory path"
-            }
-        }
-    }
-
-    private fun getPathFromUri(uri: Uri): String? {
-        val context = getApplication<Application>()
-        // Try direct path first
-        val file = File(uri.path ?: return null)
-        if (file.exists() && file.isDirectory) {
-            return file.absolutePath
-        }
-        // Try parent directory
-        return file.parentFile?.absolutePath
-    }
-
-    fun clearError() {
-        _error.value = null
     }
 
     fun checkDirectory(path: String) {
@@ -81,5 +78,9 @@ class SetupViewModel @Inject constructor(
             _availableDbs.value = emptyList()
             _missingDbs.value = emptyList()
         }
+    }
+
+    fun clearError() {
+        _error.value = null
     }
 }
