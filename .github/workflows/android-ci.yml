@@ -50,7 +50,7 @@ jobs:
           add-job-summary: on-failure
           cache-cleanup: on-success
 
-      - name: Clear Gradle dependency cache
+      - name: Clear stale dependency cache
         run: rm -rf ~/.gradle/caches/modules-2/files-* ~/.gradle/caches/modules-2/metadata-*
 
       - name: Build Release APK
