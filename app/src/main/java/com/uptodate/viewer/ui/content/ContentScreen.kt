@@ -1,11 +1,5 @@
 package com.uptodate.viewer.ui.content
 
-private sealed class OutlineItem {
-    data class Section(val section: OutlineSection) : OutlineItem()
-    data class GroupHeader(val title: String, val indented: Boolean = false) : OutlineItem()
-    data class Spacer(val dp: Int) : OutlineItem()
-}
-
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -54,6 +48,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+
+private sealed class OutlineItem {
+    data class Section(val section: OutlineSection) : OutlineItem()
+    data class GroupHeader(val title: String, val indented: Boolean = false) : OutlineItem()
+    data class Spacer(val dp: Int) : OutlineItem()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
