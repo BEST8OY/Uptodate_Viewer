@@ -168,6 +168,8 @@ object HtmlNormalizer {
             setOf(RegexOption.DOT_MATCHES_ALL)
         )
         val sectionPattern = Regex("""&quot;section&quot;\s*:\s*&quot;([^&]+)&quot;""")
+        val idPattern = Regex("""&quot;id&quot;\s*:\s*&quot;([^&]+)&quot;""")
+        val typePattern = Regex("""&quot;(assetType|type)&quot;\s*:\s*&quot;([^&]+)&quot;""")
 
         var depth = 0
         var i = 0
@@ -185,12 +187,25 @@ object HtmlNormalizer {
                 if (match != null && match.range.first == i) {
                     val hrefContent = match.groupValues[1]
                     val rawTitle = match.groupValues[2]
-                    val sectionMatch = sectionPattern.find(hrefContent)
-                    if (sectionMatch != null) {
-                        val sectionId = sectionMatch.groupValues[1]
-                        val title = rawTitle.replace(Regex("<[^>]+>"), "").trim()
-                        if (title.isNotEmpty()) {
-                            sections.add(OutlineSection(id = sectionId, title = title, depth = depth))
+                    val title = rawTitle.replace(Regex("<[^>]+>"), "").trim()
+
+                    if (title.isNotEmpty()) {
+                        val sectionMatch = sectionPattern.find(hrefContent)
+                        val idMatch = idPattern.find(hrefContent)
+                        val typeMatch = typePattern.find(hrefContent)
+                        val assetType = typeMatch?.groupValues?.get(2) ?: ""
+
+                        val id = sectionMatch?.groupValues?.get(1)
+                            ?: idMatch?.groupValues?.get(1)
+                            ?: ""
+
+                        if (id.isNotEmpty()) {
+                            val prefix = when (assetType) {
+                                "graphic" -> "\u{1F4CA} "
+                                "medical", "medical_review" -> ""
+                                else -> ""
+                            }
+                            sections.add(OutlineSection(id = id, title = "$prefix$title", depth = depth))
                         }
                     }
                     i = match.range.last + 1
