@@ -1,5 +1,8 @@
 package com.uptodate.viewer.ui.navigation
 
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -15,8 +18,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.metadata
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.uptodate.viewer.data.DatabaseManager
 import com.uptodate.viewer.ui.content.ContentScreen
@@ -84,7 +90,9 @@ fun NavGraph(
         return
     }
 
-    val topLevelBackStack = remember { TopLevelBackStack<Any>(TocRoute) }
+    val topLevelBackStack = remember {
+        TopLevelBackStack<Any>(TocRoute) { it is ContentRoute }
+    }
 
     Scaffold(
         bottomBar = {
@@ -108,43 +116,71 @@ fun NavGraph(
             }
         }
     ) { innerPadding ->
+        val listDetailStrategy = rememberListDetailSceneStrategy()
+
         NavDisplay(
             backStack = topLevelBackStack.backStack,
             onBack = { topLevelBackStack.removeLast() },
+            entryDecorators = listOf(
+                rememberSaveableStateHolderNavEntryDecorator()
+            ),
+            sceneStrategies = listOf(listDetailStrategy),
             entryProvider = entryProvider {
-                entry<TocRoute> {
+                entry<TocRoute>(
+                    metadata = metadata { put(ListPane, true) }
+                ) {
                     TocScreen(
-                        onTopicSelected = { topicId ->
+                        onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<SearchRoute> {
+                entry<SearchRoute>(
+                    metadata = metadata { put(ListPane, true) }
+                ) {
                     SearchScreen(
-                        onTopicSelected = { topicId ->
+                        onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<HistoryRoute> {
+                entry<HistoryRoute>(
+                    metadata = metadata { put(ListPane, true) }
+                ) {
                     HistoryScreen(
-                        onTopicSelected = { topicId ->
+                        onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<FavoritesRoute> {
+                entry<FavoritesRoute>(
+                    metadata = metadata { put(ListPane, true) }
+                ) {
                     FavoritesScreen(
-                        onTopicSelected = { topicId ->
+                        onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<ContentRoute> { key ->
+                entry<ContentRoute>(
+                    metadata = metadata { put(DetailPane, true) }
+                ) { key ->
                     ContentScreen(
                         topicId = key.topicId
                     )
                 }
+            },
+            transitionSpec = {
+                slideInHorizontally(initialOffsetX = { it }) togetherWith
+                    slideOutHorizontally(targetOffsetX = { -it })
+            },
+            popTransitionSpec = {
+                slideInHorizontally(initialOffsetX = { -it }) togetherWith
+                    slideOutHorizontally(targetOffsetX = { it })
+            },
+            predictivePopTransitionSpec = {
+                slideInHorizontally(initialOffsetX = { -it }) togetherWith
+                    slideOutHorizontally(targetOffsetX = { it })
             },
             modifier = Modifier.padding(innerPadding)
         )

@@ -155,7 +155,8 @@ object HtmlNormalizer {
                     )
                 }
                 else -> {
-                    result = result.replace(metaLinksHtml, "$metaLinksHtml$contributorsHtml")
+                    val escaped = Regex.escape(metaLinksHtml)
+                    result = result.replaceFirst(Regex(escaped), "$metaLinksHtml$contributorsHtml")
                 }
             }
         } else {
@@ -167,9 +168,11 @@ object HtmlNormalizer {
 
         if (disclosuresHtml.isNotEmpty()) {
             if (contributorsHtml.isNotEmpty() && contributorsHtml in result) {
-                result = result.replace(contributorsHtml, "$contributorsHtml$disclosuresHtml")
+                val escaped = Regex.escape(contributorsHtml)
+                result = result.replaceFirst(Regex(escaped), "$contributorsHtml$disclosuresHtml")
             } else {
-                result = result.replace(metaLinksHtml, "$metaLinksHtml$disclosuresHtml")
+                val escaped = Regex.escape(metaLinksHtml)
+                result = result.replaceFirst(Regex(escaped), "$metaLinksHtml$disclosuresHtml")
             }
         }
 

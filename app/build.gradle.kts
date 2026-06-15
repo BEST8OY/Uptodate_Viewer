@@ -72,11 +72,16 @@ dependencies {
     // Core
     implementation(libs.core.ktx)
     implementation(libs.lifecycle.runtime.ktx)
+    implementation(libs.lifecycle.runtime.compose)
     implementation(libs.activity.compose)
 
     // Navigation 3
     implementation(libs.navigation3.runtime)
     implementation(libs.navigation3.ui)
+
+    // Material 3 Adaptive (scene strategies)
+    implementation(libs.compose.material3.adaptive)
+    implementation(libs.compose.material3.adaptive.navigation3)
 
     // Hilt
     implementation(libs.hilt.android)
