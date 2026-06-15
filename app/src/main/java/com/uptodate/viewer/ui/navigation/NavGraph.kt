@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
@@ -122,28 +121,28 @@ fun NavGraph(
             entryProvider = entryProvider {
                 entry<TocRoute> {
                     TocScreen(
-                        onTopicSelected = dropUnlessResumed { topicId ->
+                        onTopicSelected = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
                 entry<SearchRoute> {
                     SearchScreen(
-                        onTopicSelected = dropUnlessResumed { topicId ->
+                        onTopicSelected = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
                 entry<HistoryRoute> {
                     HistoryScreen(
-                        onTopicSelected = dropUnlessResumed { topicId ->
+                        onTopicSelected = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
                 entry<FavoritesRoute> {
                     FavoritesScreen(
-                        onTopicSelected = dropUnlessResumed { topicId ->
+                        onTopicSelected = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
