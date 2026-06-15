@@ -1,5 +1,6 @@
 package com.uptodate.viewer.repository
 
+import com.uptodate.viewer.data.ContributorGroup
 import com.uptodate.viewer.data.ContentDao
 import com.uptodate.viewer.data.SearchDao
 import javax.inject.Inject
@@ -14,7 +15,7 @@ class ContentRepository @Inject constructor(
         val bodyHtml: String,
         val outlineHtml: String = "",
         val relatedGraphics: List<Map<String, Any?>> = emptyList(),
-        val contributors: List<Map<String, Any?>>? = null
+        val contributors: List<ContributorGroup>? = null
     )
 
     fun getTopicContent(topicId: String): TopicContent? {

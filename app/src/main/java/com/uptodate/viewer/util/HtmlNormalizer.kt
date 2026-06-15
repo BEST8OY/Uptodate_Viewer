@@ -1,5 +1,8 @@
 package com.uptodate.viewer.util
 
+import com.uptodate.viewer.data.Contributor
+import com.uptodate.viewer.data.ContributorGroup
+
 object HtmlNormalizer {
 
     fun normalizeHeaders(html: String): String {
@@ -22,7 +25,7 @@ object HtmlNormalizer {
         return result
     }
 
-    fun injectMetaLinks(html: String, contributors: List<Map<String, Any?>>? = null): String {
+    fun injectMetaLinks(html: String, contributors: List<ContributorGroup>? = null): String {
         if (html.isEmpty()) return ""
 
         var result = html
@@ -74,7 +77,7 @@ object HtmlNormalizer {
         }
     }
 
-    private fun insertContributors(html: String, contributors: List<Map<String, Any?>>?): String {
+    private fun insertContributors(html: String, contributors: List<ContributorGroup>?): String {
         val contribHtml = contributors?.let { buildContributorsHtml(it) } ?: return hideExistingContributors(html)
 
         return when {
@@ -89,7 +92,7 @@ object HtmlNormalizer {
         }
     }
 
-    private fun insertDisclosures(html: String, contributors: List<Map<String, Any?>>?): String {
+    private fun insertDisclosures(html: String, contributors: List<ContributorGroup>?): String {
         val discHtml = contributors?.let { buildDisclosuresHtml(it) } ?: return html
         val contribHtml = buildContributorsHtml(contributors)
 
@@ -121,20 +124,15 @@ object HtmlNormalizer {
         </div>
     """.trimIndent()
 
-    private fun buildContributorsHtml(contributors: List<Map<String, Any?>>): String = buildString {
+    private fun buildContributorsHtml(groups: List<ContributorGroup>): String = buildString {
         append("""<div id="topicContributors" style="display:none">""")
-        for (group in contributors) {
-            val title = group["headingTitle"] as? String ?: ""
-            if (title.isNotEmpty()) append("""<div class="contributor-group-title">$title</div>""")
+        for (group in groups) {
+            if (group.headingTitle.isNotEmpty()) append("""<div class="contributor-group-title">${group.headingTitle}</div>""")
             append("""<ul class="contributor-list">""")
-            @Suppress("UNCHECKED_CAST")
-            for (person in (group["contributorList"] as? List<Map<String, Any?>> ?: emptyList())) {
-                val name = person["name"] as? String ?: ""
-                @Suppress("UNCHECKED_CAST")
-                val associations = person["associations"] as? List<String> ?: emptyList()
-                append("""<li><div class="contributor-name">$name</div>""")
-                if (associations.isNotEmpty()) {
-                    append("""<div class="contributor-associations">${associations.joinToString("<br>")}</div>""")
+            for (person in group.contributorList) {
+                append("""<li><div class="contributor-name">${person.name}</div>""")
+                if (person.associations.isNotEmpty()) {
+                    append("""<div class="contributor-associations">${person.associations.joinToString("<br>")}</div>""")
                 }
                 append("</li>")
             }
@@ -143,18 +141,15 @@ object HtmlNormalizer {
         append("</div>")
     }
 
-    private fun buildDisclosuresHtml(contributors: List<Map<String, Any?>>): String = buildString {
+    private fun buildDisclosuresHtml(groups: List<ContributorGroup>): String = buildString {
         append("""<div id="topicDisclosures" style="display:none">""")
         append("""<div class="contributor-group-title">Contributor Disclosures</div>""")
         append("""<ul class="contributor-list">""")
-        for (group in contributors) {
-            @Suppress("UNCHECKED_CAST")
-            for (person in (group["contributorList"] as? List<Map<String, Any?>> ?: emptyList())) {
-                val name = person["name"] as? String ?: ""
-                val disclosure = person["disclosure"] as? String ?: ""
-                append("""<li><div class="contributor-name">$name</div>""")
-                if (disclosure.isNotEmpty()) {
-                    append("""<div class="contributor-disclosure">$disclosure</div>""")
+        for (group in groups) {
+            for (person in group.contributorList) {
+                append("""<li><div class="contributor-name">${person.name}</div>""")
+                if (person.disclosure.isNotEmpty()) {
+                    append("""<div class="contributor-disclosure">${person.disclosure}</div>""")
                 }
                 append("</li>")
             }

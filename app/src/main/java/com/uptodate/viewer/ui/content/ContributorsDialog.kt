@@ -6,11 +6,12 @@ import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import com.uptodate.viewer.data.ContributorGroup
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ContributorsDialog(
-    contributors: List<Map<String, Any?>>?,
+    contributors: List<ContributorGroup>?,
     onDismiss: () -> Unit
 ) {
     if (contributors.isNullOrEmpty()) return
@@ -43,23 +44,16 @@ fun ContributorsDialog(
                     """.trimIndent())
 
                     for (group in contributors) {
-                        val title = group["headingTitle"] as? String ?: "Contributor"
+                        val title = group.headingTitle.ifEmpty { "Contributor" }
                         append("<h3>$title</h3>")
 
-                        @Suppress("UNCHECKED_CAST")
-                        val personList = group["contributorList"] as? List<Map<String, Any?>> ?: emptyList()
-                        for (person in personList) {
-                            val name = person["name"] as? String ?: ""
-                            @Suppress("UNCHECKED_CAST")
-                            val associations = person["associations"] as? List<String> ?: emptyList()
-                            val disclosure = person["disclosure"] as? String ?: ""
-
-                            append("""<div class="contributor"><div class="name">$name</div>""")
-                            if (associations.isNotEmpty()) {
-                                append("""<div class="associations">${associations.joinToString("<br>")}</div>""")
+                        for (person in group.contributorList) {
+                            append("""<div class="contributor"><div class="name">${person.name}</div>""")
+                            if (person.associations.isNotEmpty()) {
+                                append("""<div class="associations">${person.associations.joinToString("<br>")}</div>""")
                             }
-                            if (disclosure.isNotEmpty()) {
-                                append("""<div class="disclosure">$disclosure</div>""")
+                            if (person.disclosure.isNotEmpty()) {
+                                append("""<div class="disclosure">${person.disclosure}</div>""")
                             }
                             append("</div><hr>")
                         }

@@ -18,7 +18,7 @@ class ContentDao @Inject constructor(
         val bodyHtml: String,
         val outlineHtml: String = "",
         val relatedGraphics: List<Map<String, Any?>> = emptyList(),
-        val contributors: List<Map<String, Any?>>? = null
+        val contributors: List<ContributorGroup>? = null
     )
 
     fun getTopicContent(topicId: String): TopicContent? {
@@ -48,7 +48,7 @@ class ContentDao @Inject constructor(
             TopicContent(
                 bodyHtml = jsonObj.string("bodyHtml"),
                 outlineHtml = jsonObj.string("outlineHtml"),
-                contributors = jsonObj.list("contributors")
+                contributors = jsonObj.contributors("contributors")
             )
         }
     }
@@ -72,7 +72,6 @@ class ContentDao @Inject constructor(
     private fun JsonObject.string(key: String): String =
         this[key]?.jsonPrimitive?.content?.removeSurrounding("\"") ?: ""
 
-    @Suppress("UNCHECKED_CAST")
-    private fun JsonObject.list(key: String): List<Map<String, Any?>>? =
-        this[key]?.let { json.decodeFromJsonElement<List<Map<String, Any?>>>(it) }
+    private fun JsonObject.contributors(key: String): List<ContributorGroup>? =
+        this[key]?.let { json.decodeFromJsonElement<List<ContributorGroup>>(it) }
 }

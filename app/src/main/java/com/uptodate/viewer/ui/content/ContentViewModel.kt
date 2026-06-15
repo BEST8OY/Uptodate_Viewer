@@ -2,6 +2,7 @@ package com.uptodate.viewer.ui.content
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.uptodate.viewer.data.ContributorGroup
 import com.uptodate.viewer.domain.GraphicData
 import com.uptodate.viewer.repository.AssetRepository
 import com.uptodate.viewer.repository.ContentRepository
@@ -51,8 +52,8 @@ class ContentViewModel @Inject constructor(
     private val _graphicDialog = MutableStateFlow<GraphicData?>(null)
     val graphicDialog: StateFlow<GraphicData?> = _graphicDialog
 
-    private val _contributorsDialog = MutableStateFlow<List<Map<String, Any?>>?>(null)
-    val contributorsDialog: StateFlow<List<Map<String, Any?>>?> = _contributorsDialog
+    private val _contributorsDialog = MutableStateFlow<List<ContributorGroup>?>(null)
+    val contributorsDialog: StateFlow<List<ContributorGroup>?> = _contributorsDialog
 
     private val _scrollToSection = MutableStateFlow<String?>(null)
     val scrollToSection: StateFlow<String?> = _scrollToSection
