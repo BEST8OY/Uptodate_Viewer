@@ -2,6 +2,11 @@ package com.uptodate.viewer.util
 
 object HtmlNormalizer {
 
+    private fun String.replaceLiteral(old: String, new: String): String {
+        val idx = indexOf(old)
+        return if (idx >= 0) substring(0, idx) + new + substring(idx + old.length) else this
+    }
+
     fun normalizeHeaders(html: String): String {
         if (html.isEmpty()) return ""
 
@@ -155,8 +160,7 @@ object HtmlNormalizer {
                     )
                 }
                 else -> {
-                    val escaped = Regex.escape(metaLinksHtml)
-                    result = result.replaceFirst(Regex(escaped), "$metaLinksHtml$contributorsHtml")
+                    result = result.replaceLiteral(metaLinksHtml, "$metaLinksHtml$contributorsHtml")
                 }
             }
         } else {
@@ -168,11 +172,9 @@ object HtmlNormalizer {
 
         if (disclosuresHtml.isNotEmpty()) {
             if (contributorsHtml.isNotEmpty() && contributorsHtml in result) {
-                val escaped = Regex.escape(contributorsHtml)
-                result = result.replaceFirst(Regex(escaped), "$contributorsHtml$disclosuresHtml")
+                result = result.replaceLiteral(contributorsHtml, "$contributorsHtml$disclosuresHtml")
             } else {
-                val escaped = Regex.escape(metaLinksHtml)
-                result = result.replaceFirst(Regex(escaped), "$metaLinksHtml$disclosuresHtml")
+                result = result.replaceLiteral(metaLinksHtml, "$metaLinksHtml$disclosuresHtml")
             }
         }
 
