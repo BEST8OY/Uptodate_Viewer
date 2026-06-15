@@ -1,11 +1,20 @@
 package com.uptodate.viewer.ui.content
 
+private sealed class OutlineItem {
+    data class Section(val section: OutlineSection) : OutlineItem()
+    data class GroupHeader(val title: String, val indented: Boolean = false) : OutlineItem()
+    data class Spacer(val dp: Int) : OutlineItem()
+}
+
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -212,48 +221,104 @@ fun ContentScreen(
 
                 // Outline overlay
                 if (showOutline && outlineSections.isNotEmpty()) {
+                    val displayItems = remember(outlineSections) {
+                        buildList {
+                            var lastType: SectionType? = null
+                            var lastGraphicGroup = ""
+                            for (section in outlineSections) {
+                                if (section.sectionType != lastType) {
+                                    if (lastType != null) add(OutlineItem.Spacer(12))
+                                    when (section.sectionType) {
+                                        SectionType.GRAPHIC -> add(OutlineItem.GroupHeader("Graphics"))
+                                        SectionType.RELATED -> add(OutlineItem.GroupHeader("Related Topics"))
+                                        else -> {}
+                                    }
+                                }
+                                if (section.sectionType == SectionType.GRAPHIC) {
+                                    val group = when {
+                                        section.graphicLabel.startsWith("table") -> "Tables"
+                                        section.graphicLabel.startsWith("figure") -> "Figures"
+                                        else -> "Other"
+                                    }
+                                    if (group != lastGraphicGroup) {
+                                        if (lastGraphicGroup.isNotEmpty()) add(OutlineItem.Spacer(8))
+                                        add(OutlineItem.GroupHeader(group, indented = true))
+                                        lastGraphicGroup = group
+                                    }
+                                } else {
+                                    lastGraphicGroup = ""
+                                }
+                                add(OutlineItem.Section(section))
+                                lastType = section.sectionType
+                            }
+                        }
+                    }
+
                     Column(
                         modifier = Modifier
                             .width(220.dp)
                             .fillMaxHeight()
                             .align(Alignment.TopStart)
-                            .background(MaterialTheme.colorScheme.surface)
+                            .shadow(4.dp)
+                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
                     ) {
                         Text(
                             text = "Outline",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
                         )
-                        HorizontalDivider()
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(outlineSections) { section ->
-                                Text(
-                                    text = section.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (section.actionJson != null) MaterialTheme.colorScheme.primary
-                                           else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = if (section.depth == 0) FontWeight.Medium else FontWeight.Normal,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            if (section.actionJson != null) {
-                                                viewModel.handleOutlineAction(section.actionJson)
-                                            } else {
-                                                webView?.evaluateJavascript(
-                                                    "document.getElementById('${section.id}')?.scrollIntoView({behavior:'smooth'})",
-                                                    null
-                                                )
-                                            }
-                                        }
-                                        .padding(
-                                            start = (12 + section.depth * 16).dp,
-                                            end = 12.dp,
-                                            top = if (section.depth == 0) 10.dp else 6.dp,
-                                            bottom = if (section.depth == 0) 10.dp else 6.dp
+                            items(displayItems) { item ->
+                                when (item) {
+                                    is OutlineItem.Spacer -> {
+                                        Spacer(modifier = Modifier.height(item.dp.dp))
+                                    }
+                                    is OutlineItem.GroupHeader -> {
+                                        Text(
+                                            text = item.title,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(
+                                                start = if (item.indented) 28.dp else 16.dp,
+                                                top = 10.dp,
+                                                bottom = 4.dp
+                                            )
                                         )
-                                )
+                                    }
+                                    is OutlineItem.Section -> {
+                                        val section = item.section
+                                        Text(
+                                            text = section.title,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = when (section.sectionType) {
+                                                SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
+                                                SectionType.RELATED -> MaterialTheme.colorScheme.primary
+                                                SectionType.TOPIC -> MaterialTheme.colorScheme.onSurface
+                                            },
+                                            fontWeight = if (section.depth == 0 && section.sectionType == SectionType.TOPIC) FontWeight.Medium else FontWeight.Normal,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    if (section.actionJson != null) {
+                                                        viewModel.handleOutlineAction(section.actionJson)
+                                                    } else {
+                                                        webView?.evaluateJavascript(
+                                                            "document.getElementById('${section.id}')?.scrollIntoView({behavior:'smooth'})",
+                                                            null
+                                                        )
+                                                    }
+                                                }
+                                                .padding(
+                                                    start = (12 + section.depth * 16).dp,
+                                                    end = 12.dp,
+                                                    top = 6.dp,
+                                                    bottom = 6.dp
+                                                )
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

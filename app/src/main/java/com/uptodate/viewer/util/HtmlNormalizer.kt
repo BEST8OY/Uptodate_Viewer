@@ -3,6 +3,7 @@ package com.uptodate.viewer.util
 import com.uptodate.viewer.data.Contributor
 import com.uptodate.viewer.data.ContributorGroup
 import com.uptodate.viewer.ui.content.OutlineSection
+import com.uptodate.viewer.ui.content.SectionType
 
 object HtmlNormalizer {
 
@@ -170,6 +171,8 @@ object HtmlNormalizer {
         val sectionPattern = Regex("""&quot;section&quot;\s*:\s*&quot;([^&]+)&quot;""")
         val idPattern = Regex("""&quot;id&quot;\s*:\s*&quot;([^&]+)&quot;""")
         val typePattern = Regex("""&quot;(assetType|type)&quot;\s*:\s*&quot;([^&]+)&quot;""")
+        val subtypePattern = Regex("""&quot;subtype&quot;\s*:\s*&quot;([^&]+)&quot;""")
+        val labelPattern = Regex("""&quot;label&quot;\s*:\s*&quot;([^&]+)&quot;""")
 
         var depth = 0
         var i = 0
@@ -194,6 +197,8 @@ object HtmlNormalizer {
                         val idMatch = idPattern.find(hrefContent)
                         val typeMatch = typePattern.find(hrefContent)
                         val assetType = typeMatch?.groupValues?.get(2) ?: ""
+                        val subtype = subtypePattern.find(hrefContent)?.groupValues?.get(1) ?: ""
+                        val label = labelPattern.find(hrefContent)?.groupValues?.get(1) ?: ""
 
                         val id = sectionMatch?.groupValues?.get(1)
                             ?: idMatch?.groupValues?.get(1)
@@ -206,12 +211,19 @@ object HtmlNormalizer {
                                     .replace("&quot;", "\"")
                                     .replace("&amp;", "&")
                             } else null
-                            val prefix = if (assetType == "graphic") "\u25B6 " else ""
+                            val sectionType = when {
+                                assetType == "graphic" -> SectionType.GRAPHIC
+                                !isScrollable -> SectionType.RELATED
+                                else -> SectionType.TOPIC
+                            }
+                            val graphicLabel = if (sectionType == SectionType.GRAPHIC) label else ""
                             sections.add(OutlineSection(
                                 id = id,
-                                title = "$prefix$title",
+                                title = title,
                                 depth = depth,
-                                actionJson = actionJson
+                                actionJson = actionJson,
+                                sectionType = sectionType,
+                                graphicLabel = graphicLabel
                             ))
                         }
                     }
