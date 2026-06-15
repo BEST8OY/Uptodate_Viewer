@@ -196,4 +196,15 @@ object HtmlNormalizer {
 
         return sections
     }
+
+    private fun String.replaceLiteral(old: String, new: String): String {
+        if (old.isEmpty()) return this
+        var result = this
+        var idx = result.indexOf(old)
+        while (idx >= 0) {
+            result = result.substring(0, idx) + new + result.substring(idx + old.length)
+            idx = result.indexOf(old, idx + new.length)
+        }
+        return result
+    }
 }
