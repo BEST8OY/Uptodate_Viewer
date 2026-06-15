@@ -4,8 +4,8 @@ import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -159,13 +159,62 @@ fun ContentScreen(
             }
 
             // Content area
-            Row(modifier = Modifier.weight(1f)) {
-                // Outline panel
+            Box(modifier = Modifier.weight(1f)) {
+                // Main content (full width)
+                AndroidView(
+                    factory = { context ->
+                        WebView(context).apply {
+                            webViewClient = object : WebViewClient() {
+                                override fun shouldOverrideUrlLoading(
+                                    view: WebView?,
+                                    request: android.webkit.WebResourceRequest?
+                                ): Boolean {
+                                    val url = request?.url?.toString() ?: return false
+                                    if (url.startsWith("appaction://")) {
+                                        val actionId = url.removePrefix("appaction://")
+                                        viewModel.handleAction(actionId)
+                                        return true
+                                    }
+                                    if (url.startsWith("http://") || url.startsWith("https://")) {
+                                        val intent = android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            request.url
+                                        )
+                                        context.startActivity(intent)
+                                        return true
+                                    }
+                                    return false
+                                }
+                            }
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.setSupportZoom(true)
+                            settings.builtInZoomControls = true
+                            settings.displayZoomControls = false
+                            addJavascriptInterface(
+                                JsBridge { jsonStr ->
+                                    viewModel.handleAction("manual_$jsonStr")
+                                },
+                                "Android"
+                            )
+                            webView = this
+                        }
+                    },
+                    update = { wv ->
+                        processedHtml?.let { html ->
+                            wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Outline overlay
                 if (showOutline && outlineSections.isNotEmpty()) {
                     Column(
                         modifier = Modifier
                             .width(220.dp)
                             .fillMaxHeight()
+                            .align(Alignment.TopStart)
                             .padding(end = 1.dp)
                     ) {
                         Text(
@@ -203,64 +252,6 @@ fun ContentScreen(
                         }
                     }
                 }
-
-                // Main content
-                AndroidView(
-                    factory = { context ->
-                        WebView(context).apply {
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldOverrideUrlLoading(
-                                    view: WebView?,
-                                    request: android.webkit.WebResourceRequest?
-                                ): Boolean {
-                                    val url = request?.url?.toString() ?: return false
-
-                                    // Handle appaction:// scheme
-                                    if (url.startsWith("appaction://")) {
-                                        val actionId = url.removePrefix("appaction://")
-                                        viewModel.handleAction(actionId)
-                                        return true
-                                    }
-
-                                    // Open external links in browser
-                                    if (url.startsWith("http://") || url.startsWith("https://")) {
-                                        val intent = android.content.Intent(
-                                            android.content.Intent.ACTION_VIEW,
-                                            request.url
-                                        )
-                                        context.startActivity(intent)
-                                        return true
-                                    }
-
-                                    return false
-                                }
-                            }
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.setSupportZoom(true)
-                            settings.builtInZoomControls = true
-                            settings.displayZoomControls = false
-
-                            // Add JavaScript interface
-                            addJavascriptInterface(
-                                JsBridge { jsonStr ->
-                                    viewModel.handleAction("manual_$jsonStr")
-                                },
-                                "Android"
-                            )
-
-                            webView = this
-                        }
-                    },
-                    update = { wv ->
-                        processedHtml?.let { html ->
-                            wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                )
             }
         }
     }

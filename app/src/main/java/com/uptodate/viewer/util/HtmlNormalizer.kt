@@ -200,11 +200,7 @@ object HtmlNormalizer {
                             ?: ""
 
                         if (id.isNotEmpty()) {
-                            val prefix = when (assetType) {
-                                "graphic" -> "\u{1F4CA} "
-                                "medical", "medical_review" -> ""
-                                else -> ""
-                            }
+                            val prefix = if (assetType == "graphic") "\u25B6 " else ""
                             sections.add(OutlineSection(id = id, title = "$prefix$title", depth = depth))
                         }
                     }
