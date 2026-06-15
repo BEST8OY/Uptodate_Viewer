@@ -3,6 +3,7 @@ package com.uptodate.viewer.ui.content
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -216,7 +217,7 @@ fun ContentScreen(
                             .width(220.dp)
                             .fillMaxHeight()
                             .align(Alignment.TopStart)
-                            .padding(end = 1.dp)
+                            .background(MaterialTheme.colorScheme.surface)
                     ) {
                         Text(
                             text = "Outline",
@@ -231,16 +232,20 @@ fun ContentScreen(
                                 Text(
                                     text = section.title,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = if (section.actionJson != null) MaterialTheme.colorScheme.primary
+                                           else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (section.depth == 0) FontWeight.Medium else FontWeight.Normal,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable {
-                                            webView?.evaluateJavascript(
-                                                "document.getElementById('${section.id}')?.scrollIntoView({behavior:'smooth'})",
-                                                null
-                                            )
-                                            viewModel.clearScrollToSection()
+                                            if (section.actionJson != null) {
+                                                viewModel.handleOutlineAction(section.actionJson)
+                                            } else {
+                                                webView?.evaluateJavascript(
+                                                    "document.getElementById('${section.id}')?.scrollIntoView({behavior:'smooth'})",
+                                                    null
+                                                )
+                                            }
                                         }
                                         .padding(
                                             start = (12 + section.depth * 16).dp,

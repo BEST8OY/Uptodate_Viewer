@@ -183,6 +183,37 @@ class ContentViewModel @Inject constructor(
         } catch (_: Exception) { }
     }
 
+    fun handleOutlineAction(json: String) {
+        try {
+            val data = Json.parseToJsonElement(json).jsonObject
+            val meta = data["meta"]?.jsonObject
+            val items = data["data"]?.jsonArray
+            val assetType = meta?.get("assetType")?.jsonPrimitive?.content
+            val section = meta?.get("section")?.jsonPrimitive?.content
+                ?: items?.firstOrNull()?.jsonObject?.get("section")?.jsonPrimitive?.content
+
+            when (assetType) {
+                "graphic" -> {
+                    val graphicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    if (graphicId != null) {
+                        val graphic = assetRepository.getGraphic(graphicId)
+                        _graphicDialog.value = graphic
+                    }
+                }
+                "topic" -> {
+                    val topicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    if (topicId != null) {
+                        if (topicId == _currentTopicId.value && section != null) {
+                            _scrollToSection.value = section
+                        } else {
+                            loadTopic(topicId)
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
     fun toggleOutline() {
         _showOutline.value = !_showOutline.value
     }

@@ -200,8 +200,19 @@ object HtmlNormalizer {
                             ?: ""
 
                         if (id.isNotEmpty()) {
+                            val isScrollable = sectionMatch != null
+                            val actionJson = if (!isScrollable) {
+                                hrefContent
+                                    .replace("&quot;", "\"")
+                                    .replace("&amp;", "&")
+                            } else null
                             val prefix = if (assetType == "graphic") "\u25B6 " else ""
-                            sections.add(OutlineSection(id = id, title = "$prefix$title", depth = depth))
+                            sections.add(OutlineSection(
+                                id = id,
+                                title = "$prefix$title",
+                                depth = depth,
+                                actionJson = actionJson
+                            ))
                         }
                     }
                     i = match.range.last + 1
