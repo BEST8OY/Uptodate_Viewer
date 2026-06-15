@@ -163,10 +163,11 @@ object HtmlNormalizer {
         if (html.isEmpty()) return emptyList()
 
         val sections = mutableListOf<OutlineSection>()
-        val sectionPattern = Regex(
-            """<li[^>]*><a[^>]*href="javascript:appAction\(\{[^}]*"section"\s*:\s*"([^"]+)"[^}]*\}\);"[^>]*>(?:<span>)?(.*?)(?:</span>)?</a>""",
+        val liPattern = Regex(
+            """<li[^>]*><a[^>]*href="javascript:appAction\(([^)]+)\);"[^>]*>(.*?)</a>""",
             setOf(RegexOption.DOT_MATCHES_ALL)
         )
+        val sectionPattern = Regex("""&quot;section&quot;\s*:\s*&quot;([^&]+)&quot;""")
 
         var depth = 0
         var i = 0
@@ -180,12 +181,17 @@ object HtmlNormalizer {
                 depth = (depth - 1).coerceAtLeast(0)
                 i += 5
             } else {
-                val match = sectionPattern.find(lines, i)
+                val match = liPattern.find(lines, i)
                 if (match != null && match.range.first == i) {
-                    val sectionId = match.groupValues[1]
-                    val title = match.groupValues[2].trim()
-                    if (title.isNotEmpty()) {
-                        sections.add(OutlineSection(id = sectionId, title = title, depth = depth))
+                    val hrefContent = match.groupValues[1]
+                    val rawTitle = match.groupValues[2]
+                    val sectionMatch = sectionPattern.find(hrefContent)
+                    if (sectionMatch != null) {
+                        val sectionId = sectionMatch.groupValues[1]
+                        val title = rawTitle.replace(Regex("<[^>]+>"), "").trim()
+                        if (title.isNotEmpty()) {
+                            sections.add(OutlineSection(id = sectionId, title = title, depth = depth))
+                        }
                     }
                     i = match.range.last + 1
                 } else {

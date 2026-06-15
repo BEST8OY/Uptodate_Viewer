@@ -10,9 +10,11 @@ import com.uptodate.viewer.repository.FavoriteRepository
 import com.uptodate.viewer.repository.HistoryRepository
 import com.uptodate.viewer.util.HtmlNormalizer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -120,7 +122,10 @@ class ContentViewModel @Inject constructor(
                 """.trimIndent()
 
                 if (content.outlineHtml.isNotBlank()) {
-                    _outlineSections.value = HtmlNormalizer.parseOutline(content.outlineHtml)
+                    val sections = withContext(Dispatchers.Default) {
+                        HtmlNormalizer.parseOutline(content.outlineHtml)
+                    }
+                    _outlineSections.value = sections
                 } else {
                     _outlineSections.value = emptyList()
                 }
