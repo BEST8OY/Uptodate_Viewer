@@ -130,7 +130,10 @@ object HtmlNormalizer {
         """.trimIndent()
 
         if ("<h1 class=\"topic-title\">" in result) {
-            result = result.replace(Regex("""</h1>""")) { "${it.value}$metaLinksHtml" }
+            val firstClose = result.indexOf("</h1>")
+            if (firstClose >= 0) {
+                result = result.substring(0, firstClose + 5) + metaLinksHtml + result.substring(firstClose + 5)
+            }
         } else if ("<div id=\"topicTitle\">" in result) {
             result = result.replace(
                 Regex("""<div id="topicTitle">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL))
@@ -163,7 +166,7 @@ object HtmlNormalizer {
         }
 
         if (disclosuresHtml.isNotEmpty()) {
-            if (contributorsHtml in result) {
+            if (contributorsHtml.isNotEmpty() && contributorsHtml in result) {
                 result = result.replace(contributorsHtml, "$contributorsHtml$disclosuresHtml")
             } else {
                 result = result.replace(metaLinksHtml, "$metaLinksHtml$disclosuresHtml")
