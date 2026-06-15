@@ -267,6 +267,7 @@ class ContentViewModel @Inject constructor(
             border = "#e0e0e0",
             borderEmphasis = "#cccccc",
             primary = "#1976D2",
+            onPrimary = "#ffffff",
             heading = "#000000",
             drug = "#059669",
             danger = "#e11d48",

@@ -3,6 +3,7 @@ package com.uptodate.viewer.ui.content
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 
 data class ThemeColors(
     val isDark: Boolean,
