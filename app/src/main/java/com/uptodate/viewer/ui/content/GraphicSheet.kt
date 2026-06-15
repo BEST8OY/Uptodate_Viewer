@@ -3,8 +3,9 @@ package com.uptodate.viewer.ui.content
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -77,7 +78,7 @@ fun GraphicSheet(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxSize()
+                .heightIn(max = 600.dp)
         )
     }
 }

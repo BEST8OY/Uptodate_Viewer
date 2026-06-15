@@ -197,8 +197,8 @@ object HtmlNormalizer {
                         val idMatch = idPattern.find(hrefContent)
                         val typeMatch = typePattern.find(hrefContent)
                         val assetType = typeMatch?.groupValues?.get(2) ?: ""
-                        val subtype = subtypePattern.find(hrefContent)?.groupValues?.get(1) ?: ""
-                        val label = labelPattern.find(hrefContent)?.groupValues?.get(1) ?: ""
+                        val graphicSubtype = subtypePattern.find(hrefContent)?.groupValues?.get(1) ?: ""
+                        val graphicLabel = labelPattern.find(hrefContent)?.groupValues?.get(1) ?: ""
 
                         val id = sectionMatch?.groupValues?.get(1)
                             ?: idMatch?.groupValues?.get(1)
@@ -216,14 +216,20 @@ object HtmlNormalizer {
                                 !isScrollable -> SectionType.RELATED
                                 else -> SectionType.TOPIC
                             }
-                            val graphicLabel = if (sectionType == SectionType.GRAPHIC) label else ""
+                            val cleanTitle = title.removePrefix("- ").trim()
+                            val displayTitle = if (sectionType == SectionType.GRAPHIC && graphicLabel.isNotEmpty()) {
+                                "$graphicLabel - $cleanTitle"
+                            } else {
+                                title
+                            }
                             sections.add(OutlineSection(
                                 id = id,
-                                title = title,
+                                title = displayTitle,
                                 depth = depth,
                                 actionJson = actionJson,
                                 sectionType = sectionType,
-                                graphicLabel = graphicLabel
+                                graphicSubtype = if (sectionType == SectionType.GRAPHIC) graphicSubtype else "",
+                                graphicLabel = if (sectionType == SectionType.GRAPHIC) graphicLabel else ""
                             ))
                         }
                     }

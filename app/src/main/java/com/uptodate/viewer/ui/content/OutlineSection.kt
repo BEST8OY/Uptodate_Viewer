@@ -6,6 +6,7 @@ data class OutlineSection(
     val depth: Int = 0,
     val actionJson: String? = null,
     val sectionType: SectionType = SectionType.TOPIC,
+    val graphicSubtype: String = "",
     val graphicLabel: String = ""
 )
 
