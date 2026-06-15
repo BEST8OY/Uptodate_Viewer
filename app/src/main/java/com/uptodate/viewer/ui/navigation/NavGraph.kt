@@ -21,7 +21,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.dropUnlessResumed
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.metadata
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.uptodate.viewer.data.DatabaseManager
@@ -90,9 +89,7 @@ fun NavGraph(
         return
     }
 
-    val topLevelBackStack = remember {
-        TopLevelBackStack<Any>(TocRoute) { it is ContentRoute }
-    }
+    val topLevelBackStack = remember { TopLevelBackStack<Any>(TocRoute) }
 
     Scaffold(
         bottomBar = {
@@ -116,55 +113,42 @@ fun NavGraph(
             }
         }
     ) { innerPadding ->
-        val listDetailStrategy = rememberListDetailSceneStrategy()
-
         NavDisplay(
             backStack = topLevelBackStack.backStack,
             onBack = { topLevelBackStack.removeLast() },
             entryDecorators = listOf(
                 rememberSaveableStateHolderNavEntryDecorator()
             ),
-            sceneStrategies = listOf(listDetailStrategy),
             entryProvider = entryProvider {
-                entry<TocRoute>(
-                    metadata = metadata { put(ListPane, true) }
-                ) {
+                entry<TocRoute> {
                     TocScreen(
                         onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<SearchRoute>(
-                    metadata = metadata { put(ListPane, true) }
-                ) {
+                entry<SearchRoute> {
                     SearchScreen(
                         onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<HistoryRoute>(
-                    metadata = metadata { put(ListPane, true) }
-                ) {
+                entry<HistoryRoute> {
                     HistoryScreen(
                         onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<FavoritesRoute>(
-                    metadata = metadata { put(ListPane, true) }
-                ) {
+                entry<FavoritesRoute> {
                     FavoritesScreen(
                         onTopicSelected = dropUnlessResumed { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }
                     )
                 }
-                entry<ContentRoute>(
-                    metadata = metadata { put(DetailPane, true) }
-                ) { key ->
+                entry<ContentRoute> { key ->
                     ContentScreen(
                         topicId = key.topicId
                     )

@@ -79,10 +79,6 @@ dependencies {
     implementation(libs.navigation3.runtime)
     implementation(libs.navigation3.ui)
 
-    // Material 3 Adaptive (scene strategies)
-    implementation(libs.compose.material3.adaptive)
-    implementation(libs.compose.material3.adaptive.navigation3)
-
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

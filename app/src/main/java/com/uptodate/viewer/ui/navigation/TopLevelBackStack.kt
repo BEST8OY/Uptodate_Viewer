@@ -6,10 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 
-class TopLevelBackStack<T : Any>(
-    startKey: T,
-    private val isDetailKey: (Any) -> Boolean = { false }
-) {
+class TopLevelBackStack<T : Any>(startKey: T) {
 
     private var topLevelStacks: LinkedHashMap<T, SnapshotStateList<T>> = linkedMapOf(
         startKey to mutableStateListOf(startKey)
@@ -37,7 +34,6 @@ class TopLevelBackStack<T : Any>(
             }
         }
         topLevelKey = key
-        clearDetailEntriesFromOtherTabs()
         updateBackStack()
     }
 
@@ -57,15 +53,5 @@ class TopLevelBackStack<T : Any>(
             currentStack.removeLast()
         }
         updateBackStack()
-    }
-
-    private fun clearDetailEntriesFromOtherTabs() {
-        topLevelStacks.forEach { (route, stack) ->
-            if (route != topLevelKey && stack.size > 1) {
-                val root = stack.first()
-                stack.clear()
-                stack.add(root)
-            }
-        }
     }
 }
