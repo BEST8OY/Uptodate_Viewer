@@ -2,53 +2,16 @@ package com.uptodate.viewer.util
 
 object HtmlNormalizer {
 
-    private fun String.replaceLiteral(old: String, new: String): String {
-        val idx = indexOf(old)
-        return if (idx >= 0) substring(0, idx) + new + substring(idx + old.length) else this
-    }
-
     fun normalizeHeaders(html: String): String {
         if (html.isEmpty()) return ""
 
         var result = html
 
-        val pHeadingPattern = Regex(
+        result = Regex(
             """<p([^>]*class="headingAnchor"[^>]*)>(.*?)</p>""",
             setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
-        )
-
-        result = pHeadingPattern.replace(result) { match ->
-            val attrs = match.groupValues[1]
-            val content = match.groupValues[2]
-
-            val hMatch = Regex("""class="(h[1-6])"""").find(content) ?: return@replace match.value
-            val level = hMatch.groupValues[1]
-
-            val idMatch = Regex("""id="([^"]+)""").find(attrs)
-            val elemId = if (idMatch != null) """id="${idMatch.groupValues[1]}"""" else ""
-
-            val textMatch = Regex(
-                """<span[^>]*class="h[1-6]"[^>]*>(.*?)</span>""",
-                setOf(RegexOption.DOT_MATCHES_ALL)
-            ).find(content)
-
-            if (textMatch != null) {
-                val headerText = textMatch.groupValues[1]
-                val remainingContent = content.substring(textMatch.range.last + 1)
-                    .replace(Regex("""^<span[^>]*class="headingEndMark"[^>]*>.*?</span>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
-                    .trim()
-
-                val headerTag = """<$level $elemId class="$level">$headerText</$level>"""
-
-                if (remainingContent.isNotEmpty()) {
-                    "$headerTag\n<p>$remainingContent</p>"
-                } else {
-                    headerTag
-                }
-            } else {
-                val headerText = Regex("""<[^>]+>""").replace(content, "").trim()
-                """<$level $elemId class="$level">$headerText</$level>"""
-            }
+        ).replace(result) { match ->
+            convertHeading(match.groupValues[1], match.groupValues[2]) ?: match.value
         }
 
         result = result.replace(
@@ -63,68 +26,92 @@ object HtmlNormalizer {
         if (html.isEmpty()) return ""
 
         var result = html
+        result = removeReviewProcess(result)
+        result = insertMetaLinksRow(result)
+        result = insertContributors(result, contributors)
+        result = insertDisclosures(result, contributors)
+        result = hideLiteratureReviewDate(result)
+        result = removeDisclosureLink(result)
+        return result
+    }
 
-        result = result.replace(
-            Regex("""<div id="reviewProcess">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL)),
-            ""
-        )
+    private fun convertHeading(attrs: String, content: String): String? {
+        val level = Regex("""class="(h[1-6])"""").find(content)?.groupValues?.get(1) ?: return null
+        val elemId = Regex("""id="([^"]+)""").find(attrs)?.let { """id="${it.groupValues[1]}"""" } ?: ""
 
-        var contributorsHtml = ""
-        var disclosuresHtml = ""
+        val textMatch = Regex(
+            """<span[^>]*class="h[1-6]"[^>]*>(.*?)</span>""",
+            setOf(RegexOption.DOT_MATCHES_ALL)
+        ).find(content)
 
-        if (contributors != null) {
-            val contribBuilder = StringBuilder()
-            contribBuilder.append("""<div id="topicContributors" style="display:none">""")
-
-            for (group in contributors) {
-                val title = group["headingTitle"] as? String ?: ""
-                if (title.isNotEmpty()) {
-                    contribBuilder.append("""<div class="contributor-group-title">$title</div>""")
-                }
-
-                @Suppress("UNCHECKED_CAST")
-                val contributorList = group["contributorList"] as? List<Map<String, Any?>> ?: emptyList()
-                contribBuilder.append("""<ul class="contributor-list">""")
-                for (person in contributorList) {
-                    val name = person["name"] as? String ?: ""
-                    @Suppress("UNCHECKED_CAST")
-                    val associations = person["associations"] as? List<String> ?: emptyList()
-
-                    contribBuilder.append("""<li><div class="contributor-name">$name</div>""")
-                    if (associations.isNotEmpty()) {
-                        contribBuilder.append("""<div class="contributor-associations">${associations.joinToString("<br>")}</div>""")
-                    }
-                    contribBuilder.append("</li>")
-                }
-                contribBuilder.append("</ul>")
-            }
-            contribBuilder.append("</div>")
-            contributorsHtml = contribBuilder.toString()
-
-            val discBuilder = StringBuilder()
-            discBuilder.append("""<div id="topicDisclosures" style="display:none">""")
-            discBuilder.append("""<div class="contributor-group-title">Contributor Disclosures</div>""")
-            discBuilder.append("""<ul class="contributor-list">""")
-            for (group in contributors) {
-                @Suppress("UNCHECKED_CAST")
-                val contributorList = group["contributorList"] as? List<Map<String, Any?>> ?: emptyList()
-                for (person in contributorList) {
-                    val name = person["name"] as? String ?: ""
-                    val disclosure = person["disclosure"] as? String ?: ""
-
-                    discBuilder.append("""<li><div class="contributor-name">$name</div>""")
-                    if (disclosure.isNotEmpty()) {
-                        discBuilder.append("""<div class="contributor-disclosure">$disclosure</div>""")
-                    }
-                    discBuilder.append("</li>")
-                }
-            }
-            discBuilder.append("</ul>")
-            discBuilder.append("</div>")
-            disclosuresHtml = discBuilder.toString()
+        return if (textMatch != null) {
+            val headerText = textMatch.groupValues[1]
+            val remaining = content.substring(textMatch.range.last + 1)
+                .replace(Regex("""^<span[^>]*class="headingEndMark"[^>]*>.*?</span>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+                .trim()
+            val tag = """<$level $elemId class="$level">$headerText</$level>"""
+            if (remaining.isNotEmpty()) "$tag\n<p>$remaining</p>" else tag
+        } else {
+            val headerText = Regex("""<[^>]+>""").replace(content, "").trim()
+            """<$level $elemId class="$level">$headerText</$level>"""
         }
+    }
 
-        val metaLinksHtml = """
+    private fun removeReviewProcess(html: String): String =
+        html.replace(Regex("""<div id="reviewProcess">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL)), "")
+
+    private fun insertMetaLinksRow(html: String): String {
+        val links = buildMetaLinksHtml()
+        return when {
+            """<h1 class="topic-title">""" in html -> {
+                val idx = html.indexOf("</h1>")
+                if (idx >= 0) html.substring(0, idx + 5) + links + html.substring(idx + 5) else html
+            }
+            """<div id="topicTitle">""" in html -> {
+                html.replace(Regex("""<div id="topicTitle">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL))) { "${it.value}$links" }
+            }
+            else -> html
+        }
+    }
+
+    private fun insertContributors(html: String, contributors: List<Map<String, Any?>>?): String {
+        val contribHtml = contributors?.let { buildContributorsHtml(it) } ?: return hideExistingContributors(html)
+
+        return when {
+            """<dl id="topicContributors">""" in html ->
+                html.replace(Regex("""<dl id="topicContributors">.*?</dl>""", setOf(RegexOption.DOT_MATCHES_ALL)), contribHtml)
+            """<div id="topicContributors">""" in html ->
+                html.replace(Regex("""<div id="topicContributors">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL)), contribHtml)
+            else -> {
+                val links = buildMetaLinksHtml()
+                html.replaceLiteral(links, "$links$contribHtml")
+            }
+        }
+    }
+
+    private fun insertDisclosures(html: String, contributors: List<Map<String, Any?>>?): String {
+        val discHtml = contributors?.let { buildDisclosuresHtml(it) } ?: return html
+        val contribHtml = buildContributorsHtml(contributors)
+
+        return if (contribHtml in html) {
+            html.replaceLiteral(contribHtml, "$contribHtml$discHtml")
+        } else {
+            val links = buildMetaLinksHtml()
+            html.replaceLiteral(links, "$links$discHtml")
+        }
+    }
+
+    private fun hideExistingContributors(html: String): String =
+        html.replace("""<dl id="topicContributors">""", """<dl id="topicContributors" style="display:none">""")
+
+    private fun hideLiteratureReviewDate(html: String): String =
+        html.replace("""<div id="literatureReviewDate">""", """<div id="literatureReviewDate" style="display:none">""")
+
+    private fun removeDisclosureLink(html: String): String =
+        html.replace(Regex("""<p class="disclosureLink">.*?</p>""", setOf(RegexOption.DOT_MATCHES_ALL)), "")
+            .replace(Regex("""<span class="emphasis">Literature review current through:</span>.*?&#124;&#160;""", setOf(RegexOption.DOT_MATCHES_ALL)), "")
+
+    private fun buildMetaLinksHtml(): String = """
         <div class="meta-links-row">
             <a href="#" onclick="var el = document.getElementById('topicContributors'); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; return false;">Contributors</a>
             <span class="meta-separator"></span>
@@ -132,67 +119,58 @@ object HtmlNormalizer {
             <span class="meta-separator"></span>
             <a href="#" onclick="var el = document.getElementById('literatureReviewDate'); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; return false;">Date</a>
         </div>
-        """.trimIndent()
+    """.trimIndent()
 
-        if ("<h1 class=\"topic-title\">" in result) {
-            val firstClose = result.indexOf("</h1>")
-            if (firstClose >= 0) {
-                result = result.substring(0, firstClose + 5) + metaLinksHtml + result.substring(firstClose + 5)
+    private fun buildContributorsHtml(contributors: List<Map<String, Any?>>): String = buildString {
+        append("""<div id="topicContributors" style="display:none">""")
+        for (group in contributors) {
+            val title = group["headingTitle"] as? String ?: ""
+            if (title.isNotEmpty()) append("""<div class="contributor-group-title">$title</div>""")
+            append("""<ul class="contributor-list">""")
+            @Suppress("UNCHECKED_CAST")
+            for (person in (group["contributorList"] as? List<Map<String, Any?>> ?: emptyList())) {
+                val name = person["name"] as? String ?: ""
+                @Suppress("UNCHECKED_CAST")
+                val associations = person["associations"] as? List<String> ?: emptyList()
+                append("""<li><div class="contributor-name">$name</div>""")
+                if (associations.isNotEmpty()) {
+                    append("""<div class="contributor-associations">${associations.joinToString("<br>")}</div>""")
+                }
+                append("</li>")
             }
-        } else if ("<div id=\"topicTitle\">" in result) {
-            result = result.replace(
-                Regex("""<div id="topicTitle">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL))
-            ) { "${it.value}$metaLinksHtml" }
+            append("</ul>")
         }
+        append("</div>")
+    }
 
-        if (contributorsHtml.isNotEmpty()) {
-            when {
-                """<dl id="topicContributors">""" in result -> {
-                    result = result.replace(
-                        Regex("""<dl id="topicContributors">.*?</dl>""", setOf(RegexOption.DOT_MATCHES_ALL)),
-                        contributorsHtml
-                    )
+    private fun buildDisclosuresHtml(contributors: List<Map<String, Any?>>): String = buildString {
+        append("""<div id="topicDisclosures" style="display:none">""")
+        append("""<div class="contributor-group-title">Contributor Disclosures</div>""")
+        append("""<ul class="contributor-list">""")
+        for (group in contributors) {
+            @Suppress("UNCHECKED_CAST")
+            for (person in (group["contributorList"] as? List<Map<String, Any?>> ?: emptyList())) {
+                val name = person["name"] as? String ?: ""
+                val disclosure = person["disclosure"] as? String ?: ""
+                append("""<li><div class="contributor-name">$name</div>""")
+                if (disclosure.isNotEmpty()) {
+                    append("""<div class="contributor-disclosure">$disclosure</div>""")
                 }
-                """<div id="topicContributors">""" in result -> {
-                    result = result.replace(
-                        Regex("""<div id="topicContributors">.*?</div>""", setOf(RegexOption.DOT_MATCHES_ALL)),
-                        contributorsHtml
-                    )
-                }
-                else -> {
-                    result = result.replaceLiteral(metaLinksHtml, "$metaLinksHtml$contributorsHtml")
-                }
-            }
-        } else {
-            result = result.replace(
-                """<dl id="topicContributors">""",
-                """<dl id="topicContributors" style="display:none">"""
-            )
-        }
-
-        if (disclosuresHtml.isNotEmpty()) {
-            if (contributorsHtml.isNotEmpty() && contributorsHtml in result) {
-                result = result.replaceLiteral(contributorsHtml, "$contributorsHtml$disclosuresHtml")
-            } else {
-                result = result.replaceLiteral(metaLinksHtml, "$metaLinksHtml$disclosuresHtml")
+                append("</li>")
             }
         }
+        append("</ul>")
+        append("</div>")
+    }
 
-        result = result.replace(
-            """<div id="literatureReviewDate">""",
-            """<div id="literatureReviewDate" style="display:none">"""
-        )
-
-        result = result.replace(
-            Regex("""<span class="emphasis">Literature review current through:</span>.*?&#124;&#160;""", setOf(RegexOption.DOT_MATCHES_ALL)),
-            ""
-        )
-
-        result = result.replace(
-            Regex("""<p class="disclosureLink">.*?</p>""", setOf(RegexOption.DOT_MATCHES_ALL)),
-            ""
-        )
-
+    private fun String.replaceLiteral(old: String, new: String): String {
+        if (old.isEmpty()) return this
+        var result = this
+        var idx = result.indexOf(old)
+        while (idx >= 0) {
+            result = result.substring(0, idx) + new + result.substring(idx + old.length)
+            idx = result.indexOf(old, idx + new.length)
+        }
         return result
     }
 }

@@ -2,6 +2,7 @@ package com.uptodate.viewer.data
 
 import com.uptodate.viewer.util.GzipUtil
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
@@ -21,80 +22,57 @@ class ContentDao @Inject constructor(
     )
 
     fun getTopicContent(topicId: String): TopicContent? {
-        val assetResult = loadFromAssets(topicId)
-        if (assetResult != null) return assetResult
-
-        val fcontentResult = loadFromFcontentsearch(topicId)
-        if (fcontentResult != null) return fcontentResult
-
-        return TopicContent(
-            bodyHtml = "<h1>Content not found</h1><p>Could not retrieve content for this topic.</p>"
-        )
+        return loadFromAssets(topicId)
+            ?: loadFromFcontentsearch(topicId)
+            ?: TopicContent(bodyHtml = "<h1>Content not found</h1><p>Could not retrieve content for this topic.</p>")
     }
 
     private fun extractNumericId(topicId: String): Int? {
-        val match = Regex("""^(?:topic-)?(\d+)$""", RegexOption.IGNORE_CASE).find(topicId)
-        return match?.groupValues?.get(1)?.toIntOrNull()
+        return Regex("""^(?:topic-)?(\d+)$""", RegexOption.IGNORE_CASE)
+            .find(topicId)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull()
     }
 
     private fun loadFromAssets(topicId: String): TopicContent? {
         val numericId = extractNumericId(topicId) ?: return null
         val db = dbManager.getAssetsDb()
 
-        val cursor = db.rawQuery(
-            "SELECT payload FROM topic_asset WHERE id = ?",
-            arrayOf(numericId.toString())
-        )
+        return db.rawQuery("SELECT payload FROM topic_asset WHERE id = ?", arrayOf(numericId.toString())).use { cursor ->
+            if (!cursor.moveToFirst()) return null
 
-        return cursor.use {
-            if (it.moveToFirst()) {
-                val payload = it.getBlob(0)
-                val payloadStr = GzipUtil.decodePayload(payload)
+            val payloadStr = GzipUtil.decodePayload(cursor.getBlob(0))
+            val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
 
-                try {
-                    val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
-                    TopicContent(
-                        bodyHtml = jsonObj["bodyHtml"]?.jsonPrimitive?.content?.removeSurrounding("\"") ?: "",
-                        outlineHtml = jsonObj["outlineHtml"]?.jsonPrimitive?.content?.removeSurrounding("\"") ?: "",
-                        relatedGraphics = emptyList(),
-                        contributors = null
-                    )
-                } catch (_: Exception) {
-                    null
-                }
-            } else {
-                null
-            }
+            TopicContent(
+                bodyHtml = jsonObj.string("bodyHtml"),
+                outlineHtml = jsonObj.string("outlineHtml"),
+                contributors = jsonObj.list("contributors")
+            )
         }
     }
 
     private fun loadFromFcontentsearch(topicId: String): TopicContent? {
         val db = dbManager.getFcontentsearchDb()
 
-        var cursor = db.rawQuery(
-            "SELECT Text FROM search WHERE URL = ?",
-            arrayOf("topic-$topicId")
-        )
+        val result = queryFcontentsearch(db, "topic-$topicId")
+            ?: queryFcontentsearch(db, topicId)
+            ?: return null
 
-        var result = cursor.use {
-            if (it.moveToFirst()) it.getString(0) else null
-        }
+        return TopicContent(bodyHtml = result)
+    }
 
-        if (result == null) {
-            cursor = db.rawQuery(
-                "SELECT Text FROM search WHERE URL = ?",
-                arrayOf(topicId)
-            )
-            result = cursor.use {
-                if (it.moveToFirst()) it.getString(0) else null
-            }
-        }
-
-        return if (result != null) {
-            TopicContent(bodyHtml = result)
-        } else {
-            null
+    private fun queryFcontentsearch(db: android.database.sqlite.SQLiteDatabase, url: String): String? {
+        return db.rawQuery("SELECT Text FROM search WHERE URL = ?", arrayOf(url)).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
         }
     }
 
+    private fun JsonObject.string(key: String): String =
+        this[key]?.jsonPrimitive?.content?.removeSurrounding("\"") ?: ""
+
+    @Suppress("UNCHECKED_CAST")
+    private fun JsonObject.list(key: String): List<Map<String, Any?>>? =
+        this[key]?.let { json.decodeFromJsonElement<List<Map<String, Any?>>>(it) }
 }
