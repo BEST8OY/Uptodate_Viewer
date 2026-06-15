@@ -778,8 +778,8 @@ body {
 .cntnt img {
     display: block;
     margin: 0 auto;
-    max-width: 100%;
-    height: auto;
+    max-width: 100% !important;
+    height: auto !important;
     border: 1px solid ${colors.border};
     border-radius: 4px;
 }
@@ -832,6 +832,12 @@ body {
 
 tr.border_bottom_thick td { border-bottom: 2px solid ${colors.borderEmphasis} !important; }
 tr.border_top_thick td { border-top: 2px solid ${colors.borderEmphasis} !important; }
+.border_right_thick { border-right: 2px solid ${colors.borderEmphasis} !important; }
+
+.highlight_blue_text { background: #e3f2fd !important; }
+.highlight_lght_orange_text { background: #fff3e0 !important; }
+
+.subtitle2_left_white { background: #fff !important; color: ${colors.heading}; font-weight: 600; padding: 8px 12px; text-align: left; }
 
 .sublist1_start, .sublist1 {
     padding-left: 24px !important;
