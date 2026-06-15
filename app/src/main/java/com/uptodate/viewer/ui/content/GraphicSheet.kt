@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -37,7 +35,9 @@ fun GraphicSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState
+        sheetState = sheetState,
+        dragHandle = null,
+        sheetGesturesEnabled = false
     ) {
         AndroidView(
             factory = { context ->
@@ -76,9 +76,7 @@ fun GraphicSheet(
 
                 webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 600.dp)
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }
