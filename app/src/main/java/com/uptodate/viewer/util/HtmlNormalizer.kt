@@ -2,6 +2,7 @@ package com.uptodate.viewer.util
 
 import com.uptodate.viewer.data.Contributor
 import com.uptodate.viewer.data.ContributorGroup
+import com.uptodate.viewer.ui.content.OutlineSection
 
 object HtmlNormalizer {
 
@@ -158,14 +159,41 @@ object HtmlNormalizer {
         append("</div>")
     }
 
-    private fun String.replaceLiteral(old: String, new: String): String {
-        if (old.isEmpty()) return this
-        var result = this
-        var idx = result.indexOf(old)
-        while (idx >= 0) {
-            result = result.substring(0, idx) + new + result.substring(idx + old.length)
-            idx = result.indexOf(old, idx + new.length)
+    fun parseOutline(html: String): List<OutlineSection> {
+        if (html.isEmpty()) return emptyList()
+
+        val sections = mutableListOf<OutlineSection>()
+        val sectionPattern = Regex(
+            """<li[^>]*><a[^>]*href="javascript:appAction\(\{[^}]*"section"\s*:\s*"([^"]+)"[^}]*\}\);"[^>]*>(?:<span>)?(.*?)(?:</span>)?</a>""",
+            setOf(RegexOption.DOT_MATCHES_ALL)
+        )
+
+        var depth = 0
+        var i = 0
+        val lines = html.replace("\n", " ")
+
+        while (i < lines.length) {
+            if (lines.startsWith("<ul", i)) {
+                depth++
+                i += 3
+            } else if (lines.startsWith("</ul>", i)) {
+                depth = (depth - 1).coerceAtLeast(0)
+                i += 5
+            } else {
+                val match = sectionPattern.find(lines, i)
+                if (match != null && match.range.first == i) {
+                    val sectionId = match.groupValues[1]
+                    val title = match.groupValues[2].trim()
+                    if (title.isNotEmpty()) {
+                        sections.add(OutlineSection(id = sectionId, title = title, depth = depth))
+                    }
+                    i = match.range.last + 1
+                } else {
+                    i++
+                }
+            }
         }
-        return result
+
+        return sections
     }
 }

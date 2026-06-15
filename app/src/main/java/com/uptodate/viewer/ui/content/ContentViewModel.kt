@@ -29,7 +29,6 @@ class ContentViewModel @Inject constructor(
 
     private var _themeColors: ThemeColors? = null
     private var _rawHtml: String? = null
-    private var _rawOutlineHtml: String? = null
 
     private val _currentTopicId = MutableStateFlow<String?>(null)
     val currentTopicId: StateFlow<String?> = _currentTopicId
@@ -46,8 +45,8 @@ class ContentViewModel @Inject constructor(
     private val _showOutline = MutableStateFlow(false)
     val showOutline: StateFlow<Boolean> = _showOutline
 
-    private val _outlineHtml = MutableStateFlow<String?>(null)
-    val outlineHtml: StateFlow<String?> = _outlineHtml
+    private val _outlineSections = MutableStateFlow<List<OutlineSection>>(emptyList())
+    val outlineSections: StateFlow<List<OutlineSection>> = _outlineSections
 
     private val _graphicDialog = MutableStateFlow<GraphicData?>(null)
     val graphicDialog: StateFlow<GraphicData?> = _graphicDialog
@@ -84,19 +83,6 @@ class ContentViewModel @Inject constructor(
         </html>
         """.trimIndent()
 
-        val outline = _rawOutlineHtml
-        if (outline != null) {
-            _outlineHtml.value = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                $css
-            </head>
-            <body class="outline-mode"><div class="topic-outline">$outline</div></body>
-            </html>
-            """.trimIndent()
-        }
     }
 
     fun loadTopic(topicId: String, addToHistory: Boolean = true) {
@@ -120,7 +106,6 @@ class ContentViewModel @Inject constructor(
                     }
 
                 _rawHtml = html
-                _rawOutlineHtml = null
 
                 val css = getCss()
                 _processedHtml.value = """
@@ -135,27 +120,9 @@ class ContentViewModel @Inject constructor(
                 """.trimIndent()
 
                 if (content.outlineHtml.isNotBlank()) {
-                    var outline = content.outlineHtml
-                    outline = Regex("""href="javascript:appAction\((.*?)\);?"""", RegexOption.DOT_MATCHES_ALL)
-                        .replace(outline) { match ->
-                            val jsonStr = match.groupValues[1]
-                            val actionId = "action_${actions.size}"
-                            actions[actionId] = jsonStr
-                            """href="appaction://$actionId""""
-                        }
-                    _rawOutlineHtml = outline
-                    _outlineHtml.value = """
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        $css
-                    </head>
-                    <body class="outline-mode"><div class="topic-outline">$outline</div></body>
-                    </html>
-                    """.trimIndent()
+                    _outlineSections.value = HtmlNormalizer.parseOutline(content.outlineHtml)
                 } else {
-                    _outlineHtml.value = null
+                    _outlineSections.value = emptyList()
                 }
             }
 
@@ -288,8 +255,7 @@ class ContentViewModel @Inject constructor(
             builder.references(),
             builder.drugMonograph(),
             builder.patientEducation(),
-            builder.calculator(),
-            builder.outlineSidebar()
+            builder.calculator()
         )
     }
 }
