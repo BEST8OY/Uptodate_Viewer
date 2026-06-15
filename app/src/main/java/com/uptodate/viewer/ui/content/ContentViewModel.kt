@@ -26,6 +26,10 @@ class ContentViewModel @Inject constructor(
     private val assetRepository: AssetRepository
 ) : ViewModel() {
 
+    private var _themeColors: ThemeColors? = null
+    private var _rawHtml: String? = null
+    private var _rawOutlineHtml: String? = null
+
     private val _currentTopicId = MutableStateFlow<String?>(null)
     val currentTopicId: StateFlow<String?> = _currentTopicId
 
@@ -59,6 +63,41 @@ class ContentViewModel @Inject constructor(
     private var historyIndex = -1
     private val actions = mutableMapOf<String, String>()
 
+    fun setThemeColors(colors: ThemeColors) {
+        val changed = _themeColors?.isDark != colors.isDark
+        _themeColors = colors
+        if (changed) regenerateHtml()
+    }
+
+    private fun regenerateHtml() {
+        val html = _rawHtml ?: return
+        val css = getCss()
+        _processedHtml.value = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            $css
+        </head>
+        <body>${html.removeSurrounding("\"")}</body>
+        </html>
+        """.trimIndent()
+
+        val outline = _rawOutlineHtml
+        if (outline != null) {
+            _outlineHtml.value = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                $css
+            </head>
+            <body class="outline-mode"><div class="topic-outline">$outline</div></body>
+            </html>
+            """.trimIndent()
+        }
+    }
+
     fun loadTopic(topicId: String, addToHistory: Boolean = true) {
         viewModelScope.launch {
             _currentTopicId.value = topicId
@@ -78,6 +117,9 @@ class ContentViewModel @Inject constructor(
                         actions[actionId] = jsonStr
                         """href="appaction://$actionId""""
                     }
+
+                _rawHtml = html
+                _rawOutlineHtml = null
 
                 val css = getCss()
                 _processedHtml.value = """
@@ -100,6 +142,7 @@ class ContentViewModel @Inject constructor(
                             actions[actionId] = jsonStr
                             """href="appaction://$actionId""""
                         }
+                    _rawOutlineHtml = outline
                     _outlineHtml.value = """
                     <!DOCTYPE html>
                     <html>
@@ -213,27 +256,38 @@ class ContentViewModel @Inject constructor(
     }
 
     private fun getCss(): String {
-        return """
-        <style>
-            body { font-family: sans-serif; padding: 16px; line-height: 1.6; }
-            h1, h2, h3, h4, h5, h6 { color: #333; margin-top: 1.5em; }
-            h1 { font-size: 1.8em; border-bottom: 2px solid #eee; padding-bottom: 0.3em; }
-            h2 { font-size: 1.5em; }
-            a { color: #1976D2; text-decoration: none; }
-            a:hover { text-decoration: underline; }
-            .topic-title { font-size: 1.8em; color: #333; }
-            .meta-links-row { margin: 10px 0; padding: 8px; background: #f5f5f5; border-radius: 4px; }
-            .meta-links-row a { margin: 0 8px; }
-            .meta-separator { color: #ccc; }
-            .outline-mode { padding: 8px; font-size: 0.9em; }
-            .topic-outline ul { list-style: none; padding-left: 16px; }
-            .topic-outline li { margin: 4px 0; }
-            .contributor-group-title { font-weight: bold; margin-top: 16px; }
-            .contributor-list { list-style: none; padding: 0; }
-            .contributor-name { font-weight: bold; }
-            .contributor-associations { color: #555; }
-            .contributor-disclosure { font-style: italic; color: #7f8c8d; }
-        </style>
-        """.trimIndent()
+        val colors = _themeColors ?: ThemeColors(
+            isDark = false,
+            bg = "#ffffff",
+            surface = "#f5f5f5",
+            surfaceAlt = "#fafafa",
+            text = "#000000",
+            textSecondary = "#666666",
+            textTertiary = "#999999",
+            border = "#e0e0e0",
+            borderEmphasis = "#cccccc",
+            primary = "#1976D2",
+            heading = "#000000",
+            drug = "#059669",
+            danger = "#e11d48",
+            caution = "#d97706",
+            grade = "#7c3aed",
+            selection = "#1976D2"
+        )
+        val builder = CssBuilder(colors)
+        return builder.build(
+            builder.resetAndBase(),
+            builder.layoutContainers(),
+            builder.headings(),
+            builder.links(),
+            builder.contributors(),
+            builder.bulletLists(),
+            builder.tables(),
+            builder.references(),
+            builder.drugMonograph(),
+            builder.patientEducation(),
+            builder.calculator(),
+            builder.outlineSidebar()
+        )
     }
 }
