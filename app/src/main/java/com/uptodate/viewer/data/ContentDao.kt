@@ -1,6 +1,7 @@
 package com.uptodate.viewer.data
 
 import com.uptodate.viewer.util.GzipUtil
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -73,5 +74,5 @@ class ContentDao @Inject constructor(
         this[key]?.jsonPrimitive?.content?.removeSurrounding("\"") ?: ""
 
     private fun JsonObject.contributors(key: String): List<ContributorGroup>? =
-        this[key]?.let { json.decodeFromJsonElement<List<ContributorGroup>>(it) }
+        this[key]?.let { json.decodeFromString(it.toString()) }
 }
