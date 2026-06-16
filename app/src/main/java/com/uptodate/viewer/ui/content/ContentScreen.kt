@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
@@ -145,26 +146,6 @@ fun ContentScreen(
                 .padding(padding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Search bar
-                if (showSearch) {
-                    ContentSearchBar(
-                        query = searchQuery,
-                        onQueryChange = {
-                            searchQuery = it
-                            webView?.findAllAsync(it)
-                        },
-                        resultCount = searchResultCount,
-                        onPreviousClick = { webView?.findNext(false) },
-                        onNextClick = { webView?.findNext(true) },
-                        onCloseClick = {
-                            showSearch = false
-                            searchQuery = ""
-                            webView?.clearMatches()
-                        },
-                        focusRequester = searchFocusRequester
-                    )
-                }
-
                 // Content area
                 Box(modifier = Modifier.weight(1f)) {
                     HtmlContentWebView(
@@ -213,15 +194,30 @@ fun ContentScreen(
 
             // Floating action toolbar
             ContentFloatingToolbar(
+                showSearch = showSearch,
                 canGoBack = canGoBack,
                 canGoForward = canGoForward,
                 isFavorite = isFavorite,
                 outlineEnabled = outlineSections.isNotEmpty(),
+                searchQuery = searchQuery,
+                searchResultCount = searchResultCount,
                 onBackClick = { viewModel.goBack() },
                 onForwardClick = { viewModel.goForward() },
                 onFavoriteClick = { viewModel.toggleFavorite() },
                 onOutlineClick = { viewModel.toggleOutline() },
                 onSearchClick = { showSearch = !showSearch },
+                onSearchQueryChange = {
+                    searchQuery = it
+                    webView?.findAllAsync(it)
+                },
+                onSearchPrevious = { webView?.findNext(false) },
+                onSearchNext = { webView?.findNext(true) },
+                onSearchClose = {
+                    showSearch = false
+                    searchQuery = ""
+                    webView?.clearMatches()
+                },
+                searchFocusRequester = searchFocusRequester,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .offset(y = -ScreenOffset)
@@ -271,63 +267,105 @@ private fun ContentTopBar(
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ContentSearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    resultCount: Int,
-    onPreviousClick: () -> Unit,
-    onNextClick: () -> Unit,
-    onCloseClick: () -> Unit,
-    focusRequester: FocusRequester,
+private fun ContentFloatingToolbar(
+    showSearch: Boolean,
+    canGoBack: Boolean,
+    canGoForward: Boolean,
+    isFavorite: Boolean,
+    outlineEnabled: Boolean,
+    searchQuery: String,
+    searchResultCount: Int,
+    onBackClick: () -> Unit,
+    onForwardClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
+    onOutlineClick: () -> Unit,
+    onSearchClick: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onSearchPrevious: () -> Unit,
+    onSearchNext: () -> Unit,
+    onSearchClose: () -> Unit,
+    searchFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 8.dp)
-                .focusRequester(focusRequester),
-            placeholder = { Text("Find in page...") },
-            singleLine = true
-        )
-        if (query.isNotEmpty()) {
-            Text(
-                text = "${resultCount.coerceAtLeast(0)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 4.dp)
-            )
-            IconButton(onClick = onPreviousClick) {
+    val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
+    HorizontalFloatingToolbar(
+        modifier = modifier,
+        expanded = true,
+        floatingActionButton = {
+            FloatingToolbarDefaults.VibrantFloatingActionButton(
+                onClick = {
+                    if (showSearch) {
+                        onSearchClose()
+                        keyboardController?.hide()
+                    } else {
+                        onSearchClick()
+                    }
+                }
+            ) {
                 Icon(
-                    Icons.Default.ArrowDropUp,
-                    contentDescription = "Find Previous",
-                    modifier = Modifier.size(20.dp)
+                    imageVector = if (showSearch) Icons.Default.Close else Icons.Default.Search,
+                    contentDescription = if (showSearch) "Close Search" else "Search"
                 )
             }
-            IconButton(onClick = onNextClick) {
-                Icon(
-                    Icons.Default.ArrowDropDown,
-                    contentDescription = "Find Next",
-                    modifier = Modifier.size(20.dp)
+        },
+        colors = vibrantColors,
+        leadingContent = {
+            if (!showSearch) {
+                IconButton(onClick = onBackClick, enabled = canGoBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                IconButton(onClick = onForwardClick, enabled = canGoForward) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                }
+            }
+        },
+        trailingContent = {
+            if (!showSearch) {
+                IconButton(onClick = onFavoriteClick) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
+                    )
+                }
+            }
+        },
+        content = {
+            if (showSearch) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(searchFocusRequester),
+                    placeholder = { Text("Find in page") },
+                    singleLine = true
                 )
+                if (searchQuery.isNotEmpty()) {
+                    Text(
+                        text = "${searchResultCount.coerceAtLeast(0)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onSearchPrevious, enabled = searchQuery.isNotEmpty()) {
+                    Icon(Icons.Default.ArrowDropUp, contentDescription = "Find Previous", modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onSearchNext, enabled = searchQuery.isNotEmpty()) {
+                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Find Next", modifier = Modifier.size(20.dp))
+                }
+            } else {
+                IconButton(
+                    onClick = onOutlineClick,
+                    enabled = outlineEnabled
+                ) {
+                    Icon(Icons.Default.Menu, contentDescription = "Outline")
+                }
             }
         }
-        IconButton(onClick = {
-            onCloseClick()
-            keyboardController?.hide()
-        }) {
-            Icon(Icons.Default.Close, contentDescription = "Close Search")
-        }
-    }
+    )
 }
 
 @SuppressLint("SetJavaScriptEnabled")
