@@ -1,6 +1,10 @@
 package com.uptodate.viewer.ui.content
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.net.Uri
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
@@ -8,7 +12,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -32,7 +35,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.uptodate.viewer.R
@@ -62,7 +68,6 @@ fun GraphicSheet(
         sheetState = sheetState,
         dragHandle = null,
         sheetGesturesEnabled = false,
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
     ) {
         Box(
             modifier = Modifier
@@ -84,9 +89,11 @@ fun GraphicSheet(
         }
 
         GraphicSheetContent(
+            graphicId = graphicData.id,
             fullHtml = fullHtml,
             isLoading = isLoading,
             onLoadingFinished = { isLoading = false },
+            onLoadingError = { isLoading = false },
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
@@ -94,18 +101,22 @@ fun GraphicSheet(
     }
 }
 
+private val SRC_REGEX = Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE)
+private val GRAPHIC_CLASS_REGEX = Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE)
+private val BASE64_VALIDATION_REGEX = Regex("^[A-Za-z0-9+/=\n\r ]+$")
+
 private fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
     var html = graphicData.imageHtml
 
-    if (graphicData.base64Image != null) {
+    if (graphicData.base64Image != null && BASE64_VALIDATION_REGEX.matches(graphicData.base64Image)) {
         html = html.replace(
-            regex = Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE),
+            regex = SRC_REGEX,
             replacement = """src="data:image/png;base64,${graphicData.base64Image}"""",
         )
     }
 
     html = html.replace(
-        regex = Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE),
+        regex = GRAPHIC_CLASS_REGEX,
         replacement = """class="graphic_view"""",
     )
 
@@ -125,25 +136,57 @@ private fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun GraphicSheetContent(
+    graphicId: String,
     fullHtml: String,
     isLoading: Boolean,
     onLoadingFinished: () -> Unit,
+    onLoadingError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val currentOnLoadingFinished by rememberUpdatedState(onLoadingFinished)
+    val currentOnLoadingError by rememberUpdatedState(onLoadingError)
+    val context = LocalContext.current
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier.semantics {
+            contentDescription = "Graphic: $graphicId"
+        },
+    ) {
         AndroidView(
-            factory = { context ->
-                WebView(context).apply {
+            factory = { ctx ->
+                WebView(ctx).apply {
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             currentOnLoadingFinished()
                         }
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?,
+                        ) {
+                            if (request?.isForMainFrame == true) {
+                                currentOnLoadingError()
+                            }
+                        }
+
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): Boolean {
+                            val url = request?.url?.toString() ?: return false
+                            if (url.startsWith("http://") || url.startsWith("https://")) {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                return true
+                            }
+                            return false
+                        }
                     }
                     with(settings) {
-                        javaScriptEnabled = true
-                        allowFileAccess = true
+                        javaScriptEnabled = false
+                        allowFileAccess = false
+                        allowFileAccessFromFileURLs = false
+                        allowUniversalAccessFromFileURLs = false
                         setSupportZoom(true)
                         builtInZoomControls = true
                         displayZoomControls = false
@@ -151,8 +194,8 @@ private fun GraphicSheetContent(
                 }
             },
             update = { webView ->
-                if (webView.tag != fullHtml) {
-                    webView.tag = fullHtml
+                if (webView.tag != graphicId) {
+                    webView.tag = graphicId
                     webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
                 }
             },

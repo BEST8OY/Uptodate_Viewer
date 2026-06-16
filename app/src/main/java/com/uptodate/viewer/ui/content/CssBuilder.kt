@@ -584,8 +584,7 @@ th {
     border-radius: 6px;
     background: ${colors.surface};
     color: ${colors.text};
-    max-width: 100% !important;
-    width: auto !important;
+    min-width: 240px;
     font-size: 0.9rem;
 }
 
@@ -670,120 +669,6 @@ th {
     color: ${colors.text};
     font-size: 1rem;
     max-width: 100%;
-    transition: border-color 0.15s;
-}
-
-#calc_main input[type="number"]:focus {
-    outline: none;
-    border-color: ${colors.primary};
-    box-shadow: 0 0 0 2px ${colors.primary}33;
-}
-
-#calc_main input[readonly] { background: ${colors.surface}; font-weight: 600; }
-
-#calc_buttons input[type="submit"],
-#calc_buttons input[type="button"],
-#calc_buttons input[type="reset"] {
-    padding: 10px 24px;
-    border: 1px solid ${colors.border};
-    border-radius: 6px;
-    background: ${colors.surface};
-    color: ${colors.text};
-    font-size: 0.9rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-
-#calc_buttons input[type="submit"]:hover,
-#calc_buttons input[type="button"]:hover {
-    background: ${colors.primary};
-    color: ${colors.bg};
-    border-color: ${colors.primary};
-}
-
-.medCalcFontIO { font-size: 1rem; font-weight: 700; color: ${colors.primary}; }
-.medCalcFontCCTabBold, .medCalcFontOneBold { font-size: 0.95rem; font-weight: 600; color: ${colors.heading}; }
-.medCalcFontOne { font-size: 0.9rem; color: ${colors.text}; }
-
-.medCalcFontSelect {
-    padding: 8px 12px;
-    border: 1px solid ${colors.border};
-    border-radius: 6px;
-    background: ${colors.surface};
-    color: ${colors.text};
-    min-width: 240px;
-    font-size: 0.9rem;
-}
-
-.medCalcFontResultParam { font-weight: 600; color: ${colors.heading}; }
-
-.medCalcResultBox {
-    background: ${colors.surface};
-    border: 2px solid ${colors.primary};
-    border-radius: 8px;
-    padding: 8px;
-}
-
-.medCalcFormuliBox {
-    background: ${colors.surface};
-    border: 1px solid ${colors.border};
-    border-radius: 6px;
-    padding: 12px 16px;
-}
-
-.medCalcFontFormuli {
-    font-family: "SF Mono", Monaco, Inconsolata, "Fira Mono", monospace;
-    font-size: 0.85rem;
-    color: ${colors.text};
-}
-
-.medCalcFontRef { font-size: 0.85rem; color: ${colors.textSecondary}; }
-
-.medCalcFontTwo {
-    font-size: 0.85rem;
-    color: ${colors.textSecondary};
-    line-height: 1.6;
-}
-
-.medCalcFontTwo .header { font-weight: 700; color: ${colors.heading}; margin-bottom: 8px; }
-.medCalcFontTwo .copy { font-size: 0.8rem; margin-top: 12px; }
-.medCalcDisclaimerLink { color: ${colors.primary}; }
-
-#mc3k table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-#mc3k td, #mc3k th { padding: 10px 12px; }
-#mc3k td[bgcolor], #mc3k tr[bgcolor] td { background-color: ${colors.surface} !important; }
-#mc3k table[border] { border: 1px solid ${colors.border}; }
-#mc3k table[border] td, #mc3k table[border] th { border: 1px solid ${colors.border}; }
-
-#calc_main table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-#calc_main td, #calc_main th { padding: 10px 12px; border: 1px solid ${colors.border}; }
-#calc_main tr:first-child td { background: ${colors.surface} !important; }
-
-#calc_tables_above_notes { margin-top: 20px; }
-#pretextrefs { margin-top: 16px; min-height: 8px; }
-#calc_notes ul { margin: 12px 0 12px 24px; }
-#calc_notes li { margin: 8px 0; }
-#calc_refs ol { margin: 12px 0 12px 24px; }
-#calc_refs li { margin: 8px 0; }
-
-#printDisclaimer, #disclaimerCalculator {
-    margin-top: 24px;
-    padding: 18px 20px;
-    border: 1px solid ${colors.border};
-    border-radius: 8px;
-    background: ${colors.surface};
-    font-size: 0.85rem;
-    line-height: 1.6;
-}
-
-#calc_main input[type="number"] {
-    padding: 8px 12px;
-    border: 1px solid ${colors.border};
-    border-radius: 6px;
-    background: ${colors.bg};
-    color: ${colors.text};
-    font-size: 1rem;
     transition: border-color 0.15s;
 }
 

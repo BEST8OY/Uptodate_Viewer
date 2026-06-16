@@ -69,7 +69,7 @@ data class ThemeColors(
                 borderEmphasis = borderEmphasis,
                 primary = primary,
                 onPrimary = onPrimary,
-                heading = text,
+                heading = primary,
                 drug = medicalColors.drug,
                 danger = medicalColors.danger,
                 caution = medicalColors.caution,
