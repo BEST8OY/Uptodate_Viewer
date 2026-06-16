@@ -125,6 +125,7 @@ fun TocScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
+                        .padding(bottom = 80.dp)
                 ) {
                     items(tocItems, key = { it.id }) { item ->
                         TocItemRow(

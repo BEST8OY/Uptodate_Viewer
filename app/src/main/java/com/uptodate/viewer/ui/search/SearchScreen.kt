@@ -86,7 +86,9 @@ fun SearchScreen(
                 singleLine = true
             )
 
-            LazyColumn {
+            LazyColumn(
+                modifier = Modifier.padding(bottom = 80.dp)
+            ) {
                 if (suggestions.isNotEmpty()) {
                     items(suggestions) { suggestion ->
                         ListItem(

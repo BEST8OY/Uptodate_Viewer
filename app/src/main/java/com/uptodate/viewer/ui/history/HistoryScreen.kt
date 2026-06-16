@@ -87,6 +87,7 @@ fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    .padding(bottom = 80.dp)
             ) {
                 items(
                     items = history,
