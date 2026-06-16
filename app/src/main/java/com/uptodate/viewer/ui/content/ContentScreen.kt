@@ -88,7 +88,6 @@ fun ContentScreen(
         viewModel.setThemeColors(ThemeColors.fromColorScheme(colorScheme))
     }
 
-
     val topicContent by viewModel.topicContent.collectAsState()
     val processedHtml by viewModel.processedHtml.collectAsState()
     val isFavorite by viewModel.isFavorite.collectAsState()
@@ -132,19 +131,10 @@ fun ContentScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = articleTitle.ifEmpty { "Content" },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { viewModel.goBack() }, enabled = canGoBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
+            ContentTopBar(
+                title = articleTitle,
+                canGoBack = canGoBack,
+                onBackClick = { viewModel.goBack() }
             )
         }
     ) { padding ->
@@ -154,343 +144,89 @@ fun ContentScreen(
                 .padding(padding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-            // Search bar
-            if (showSearch) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = {
+                // Search bar
+                if (showSearch) {
+                    ContentSearchBar(
+                        query = searchQuery,
+                        onQueryChange = {
                             searchQuery = it
                             webView?.findAllAsync(it)
                         },
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(end = 8.dp)
-                            .focusRequester(searchFocusRequester),
-                        placeholder = { Text("Find in page...") },
-                        singleLine = true
+                        resultCount = searchResultCount,
+                        onPreviousClick = { webView?.findNext(false) },
+                        onNextClick = { webView?.findNext(true) },
+                        onCloseClick = {
+                            showSearch = false
+                            searchQuery = ""
+                            webView?.clearMatches()
+                        },
+                        focusRequester = searchFocusRequester
                     )
-                    if (searchQuery.isNotEmpty()) {
-                        Text(
-                            text = "${searchResultCount.coerceAtLeast(0)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                        IconButton(onClick = {
-                            webView?.findNext(false)
-                        }) {
-                            Icon(
-                                Icons.Default.ArrowDropUp,
-                                contentDescription = "Find Previous",
-                                modifier = Modifier.size(20.dp)
+                }
+
+                // Content area
+                Box(modifier = Modifier.weight(1f)) {
+                    HtmlContentWebView(
+                        processedHtml = processedHtml,
+                        onAction = { viewModel.handleAction(it) },
+                        onFindResult = { searchResultCount = it },
+                        onWebViewCreated = { webView = it },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    if (!showOutline) {
+                        if (isLoading) {
+                            ContentLoadingView(
+                                modifier = Modifier.align(Alignment.Center)
                             )
                         }
-                        IconButton(onClick = {
-                            webView?.findNext(true)
-                        }) {
-                            Icon(
-                                Icons.Default.ArrowDropDown,
-                                contentDescription = "Find Next",
-                                modifier = Modifier.size(20.dp)
+
+                        error?.let { errorMsg ->
+                            ContentErrorView(
+                                errorMsg = errorMsg,
+                                modifier = Modifier.align(Alignment.Center)
                             )
                         }
                     }
-                    IconButton(onClick = {
-                        showSearch = false
-                        searchQuery = ""
-                        webView?.clearMatches()
-                        keyboardController?.hide()
-                    }) {
-                        Icon(Icons.Default.Close, contentDescription = "Close Search")
-                    }
+
+                    // Outline overlay
+                    OutlineOverlay(
+                        showOutline = showOutline,
+                        outlineSections = outlineSections,
+                        activeSectionId = activeSectionId,
+                        onSectionClick = { section ->
+                            viewModel.setActiveSection(section.id)
+                            if (section.actionJson != null) {
+                                viewModel.handleOutlineAction(section.actionJson)
+                            } else {
+                                webView?.evaluateJavascript(
+                                    "document.getElementById('${section.id}')?.scrollIntoView({behavior:'smooth'})",
+                                    null
+                                )
+                            }
+                        },
+                        onDismiss = { viewModel.toggleOutline() }
+                    )
                 }
             }
 
-            // Content area
-            Box(modifier = Modifier.weight(1f)) {
-                // Main content (full width)
-                AndroidView(
-                    factory = { context ->
-                        WebView(context).apply {
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldOverrideUrlLoading(
-                                    view: WebView?,
-                                    request: android.webkit.WebResourceRequest?
-                                ): Boolean {
-                                    val url = request?.url?.toString() ?: return false
-                                    if (url.startsWith("appaction://")) {
-                                        val actionId = url.removePrefix("appaction://")
-                                        viewModel.handleAction(actionId)
-                                        return true
-                                    }
-                                    if (url.startsWith("http://") || url.startsWith("https://")) {
-                                        val intent = android.content.Intent(
-                                            android.content.Intent.ACTION_VIEW,
-                                            request.url
-                                        )
-                                        try {
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) { }
-                                        return true
-                                    }
-                                    return false
-                                }
-                            }
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.setSupportZoom(true)
-                            settings.builtInZoomControls = true
-                            settings.displayZoomControls = false
-                            setFindListener { _, numberOfMatches, _ ->
-                                searchResultCount = numberOfMatches
-                            }
-                            addJavascriptInterface(
-                                JsBridge { jsonStr ->
-                                    viewModel.handleAction("manual_$jsonStr")
-                                },
-                                "Android"
-                            )
-                            webView = this
-                        }
-                    },
-                    update = { wv ->
-                        processedHtml?.let { html ->
-                            wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                DisposableEffect(Unit) {
-                    onDispose {
-                        webView?.apply {
-                            stopLoading()
-                            destroy()
-                        }
-                    }
-                }
-
-                if (!showOutline) {
-                    if (isLoading) {
-                        LoadingIndicator(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .align(Alignment.Center)
-                        )
-                    }
-
-                    error?.let { errorMsg ->
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ErrorOutline,
-                                contentDescription = "Error",
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = errorMsg,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                        }
-                    }
-                }
-
-                // Outline overlay
-                if (showOutline && outlineSections.isNotEmpty()) {
-                    val displayItems = remember(outlineSections) {
-                        buildList {
-                            var lastType: SectionType? = null
-                            var lastGraphicGroup = ""
-                            add(OutlineItem.GroupHeader("Outline"))
-                            for (section in outlineSections) {
-                                if (section.sectionType != lastType) {
-                                    when (section.sectionType) {
-                                        SectionType.GRAPHIC -> {
-                                            add(OutlineItem.Spacer(8))
-                                            add(OutlineItem.GroupHeader("Graphics"))
-                                        }
-                                        SectionType.RELATED -> {
-                                            add(OutlineItem.Spacer(8))
-                                            add(OutlineItem.GroupHeader("Related Topics"))
-                                        }
-                                        else -> {}
-                                    }
-                                }
-                                if (section.sectionType == SectionType.GRAPHIC) {
-                                    val group = when (section.graphicSubtype) {
-                                        "graphic_table" -> "Tables"
-                                        "graphic_figure" -> "Figures"
-                                        "graphic_algorithm" -> "Algorithms"
-                                        "graphic_picture" -> "Pictures"
-                                        "graphic_diagnosticimage" -> "Diagnostic Images"
-                                        else -> "Other"
-                                    }
-                                    if (group != lastGraphicGroup) {
-                                        if (lastGraphicGroup.isNotEmpty()) add(OutlineItem.Spacer(4))
-                                        add(OutlineItem.GroupHeader(group, indented = true))
-                                        lastGraphicGroup = group
-                                    }
-                                } else {
-                                    lastGraphicGroup = ""
-                                }
-                                add(OutlineItem.Section(section))
-                                lastType = section.sectionType
-                            }
-                        }
-                    }
-
-                    // Scrim
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
-                            .clickable { viewModel.toggleOutline() }
-                    )
-
-                    // Outline panel
-                    Column(
-                        modifier = Modifier
-                            .width(260.dp)
-                            .fillMaxHeight()
-                            .align(Alignment.TopStart)
-                            .shadow(8.dp)
-                            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                    ) {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(displayItems) { item ->
-                                when (item) {
-                                    is OutlineItem.Spacer -> {
-                                        Spacer(modifier = Modifier.height(item.dp.dp))
-                                    }
-                                    is OutlineItem.GroupHeader -> {
-                                        Text(
-                                            text = item.title.uppercase(),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(
-                                                start = if (item.indented) 28.dp else 16.dp,
-                                                top = 12.dp,
-                                                bottom = 6.dp
-                                            )
-                                        )
-                                    }
-                                    is OutlineItem.Section -> {
-                                        val section = item.section
-                                        val isTopic = section.sectionType == SectionType.TOPIC
-                                        val isActive = section.id == activeSectionId
-                                        Surface(
-                                            onClick = {
-                                                viewModel.setActiveSection(section.id)
-                                                if (section.actionJson != null) {
-                                                    viewModel.handleOutlineAction(section.actionJson)
-                                                } else {
-                                                    webView?.evaluateJavascript(
-                                                        "document.getElementById('${section.id}')?.scrollIntoView({behavior:'smooth'})",
-                                                        null
-                                                    )
-                                                }
-                                            },
-                                            color = if (isActive) {
-                                                MaterialTheme.colorScheme.primaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.surfaceContainerLow
-                                            },
-                                            shape = MaterialTheme.shapes.small
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(
-                                                        start = (12 + section.depth * 16).dp,
-                                                        end = 12.dp,
-                                                        top = 10.dp,
-                                                        bottom = 10.dp
-                                                    ),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                if (isTopic && section.depth == 0) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(4.dp)
-                                                            .background(
-                                                                MaterialTheme.colorScheme.primary,
-                                                                MaterialTheme.shapes.extraSmall
-                                                            )
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                }
-                                                Text(
-                                                    text = section.title,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = when {
-                                                        isActive -> MaterialTheme.colorScheme.onPrimaryContainer
-                                                        section.sectionType == SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
-                                                        section.sectionType == SectionType.RELATED -> MaterialTheme.colorScheme.primary
-                                                        else -> MaterialTheme.colorScheme.onSurface
-                                                    },
-                                                    fontWeight = if (isTopic && section.depth == 0 || isActive) FontWeight.Medium else FontWeight.Normal
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            } // Column
+            // Floating action toolbar
+            ContentFloatingToolbar(
+                canGoBack = canGoBack,
+                canGoForward = canGoForward,
+                isFavorite = isFavorite,
+                outlineEnabled = outlineSections.isNotEmpty(),
+                onBackClick = { viewModel.goBack() },
+                onForwardClick = { viewModel.goForward() },
+                onFavoriteClick = { viewModel.toggleFavorite() },
+                onOutlineClick = { viewModel.toggleOutline() },
+                onSearchClick = { showSearch = !showSearch },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = -ScreenOffset)
+                    .zIndex(1f)
+            )
         }
-
-        // Floating action toolbar
-        HorizontalFloatingToolbar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = -ScreenOffset)
-                .zIndex(1f),
-            expanded = true,
-            leadingContent = {
-                IconButton(onClick = { viewModel.goBack() }, enabled = canGoBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                IconButton(onClick = { viewModel.goForward() }, enabled = canGoForward) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                }
-            },
-            trailingContent = {
-                IconButton(onClick = { viewModel.toggleFavorite() }) {
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
-                    )
-                }
-            },
-            content = {
-                IconButton(
-                    onClick = { viewModel.toggleOutline() },
-                    enabled = outlineSections.isNotEmpty()
-                ) {
-                    Icon(Icons.Default.Menu, contentDescription = "Outline")
-                }
-                IconButton(onClick = { showSearch = !showSearch }) {
-                    Icon(Icons.Default.Search, contentDescription = "Search")
-                }
-            }
-        )
     }
 
     // Graphic dialog
@@ -508,4 +244,388 @@ fun ContentScreen(
             onDismiss = { viewModel.dismissContributorsDialog() }
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ContentTopBar(
+    title: String,
+    canGoBack: Boolean,
+    onBackClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TopAppBar(
+        title = {
+            Text(
+                text = title.ifEmpty { "Content" },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onBackClick, enabled = canGoBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun ContentSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    resultCount: Int,
+    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit,
+    onCloseClick: () -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier
+) {
+    val keyboardController = LocalSoftwareKeyboardController.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp)
+                .focusRequester(focusRequester),
+            placeholder = { Text("Find in page...") },
+            singleLine = true
+        )
+        if (query.isNotEmpty()) {
+            Text(
+                text = "${resultCount.coerceAtLeast(0)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(end = 4.dp)
+            )
+            IconButton(onClick = onPreviousClick) {
+                Icon(
+                    Icons.Default.ArrowDropUp,
+                    contentDescription = "Find Previous",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            IconButton(onClick = onNextClick) {
+                Icon(
+                    Icons.Default.ArrowDropDown,
+                    contentDescription = "Find Next",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+        IconButton(onClick = {
+            onCloseClick()
+            keyboardController?.hide()
+        }) {
+            Icon(Icons.Default.Close, contentDescription = "Close Search")
+        }
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun HtmlContentWebView(
+    processedHtml: String?,
+    onAction: (String) -> Unit,
+    onFindResult: (Int) -> Unit,
+    onWebViewCreated: (WebView) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    AndroidView(
+        factory = { context ->
+            WebView(context).apply {
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: android.webkit.WebResourceRequest?
+                    ): Boolean {
+                        val url = request?.url?.toString() ?: return false
+                        if (url.startsWith("appaction://")) {
+                            val actionId = url.removePrefix("appaction://")
+                            onAction(actionId)
+                            return true
+                        }
+                        if (url.startsWith("http://") || url.startsWith("https://")) {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                request.url
+                            )
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: Exception) { }
+                            return true
+                        }
+                        return false
+                    }
+                }
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.setSupportZoom(true)
+                settings.builtInZoomControls = true
+                settings.displayZoomControls = false
+                setFindListener { _, numberOfMatches, _ ->
+                    onFindResult(numberOfMatches)
+                }
+                addJavascriptInterface(
+                    JsBridge { jsonStr ->
+                        onAction("manual_$jsonStr")
+                    },
+                    "Android"
+                )
+                webViewRef = this
+                onWebViewCreated(this)
+            }
+        },
+        update = { wv ->
+            processedHtml?.let { html ->
+                wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+            }
+        },
+        modifier = modifier
+    )
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef?.apply {
+                stopLoading()
+                destroy()
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ContentLoadingView(
+    modifier: Modifier = Modifier
+) {
+    LoadingIndicator(
+        modifier = modifier.size(48.dp)
+    )
+}
+
+@Composable
+private fun ContentErrorView(
+    errorMsg: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = Icons.Default.ErrorOutline,
+            contentDescription = "Error",
+            modifier = Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.error
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = errorMsg,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun OutlineOverlay(
+    showOutline: Boolean,
+    outlineSections: List<OutlineSection>,
+    activeSectionId: String?,
+    onSectionClick: (OutlineSection) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (!showOutline || outlineSections.isEmpty()) return
+
+    val displayItems = remember(outlineSections) {
+        buildList {
+            var lastType: SectionType? = null
+            var lastGraphicGroup = ""
+            add(OutlineItem.GroupHeader("Outline"))
+            for (section in outlineSections) {
+                if (section.sectionType != lastType) {
+                    when (section.sectionType) {
+                        SectionType.GRAPHIC -> {
+                            add(OutlineItem.Spacer(8))
+                            add(OutlineItem.GroupHeader("Graphics"))
+                        }
+                        SectionType.RELATED -> {
+                            add(OutlineItem.Spacer(8))
+                            add(OutlineItem.GroupHeader("Related Topics"))
+                        }
+                        else -> {}
+                    }
+                }
+                if (section.sectionType == SectionType.GRAPHIC) {
+                    val group = when (section.graphicSubtype) {
+                        "graphic_table" -> "Tables"
+                        "graphic_figure" -> "Figures"
+                        "graphic_algorithm" -> "Algorithms"
+                        "graphic_picture" -> "Pictures"
+                        "graphic_diagnosticimage" -> "Diagnostic Images"
+                        else -> "Other"
+                    }
+                    if (group != lastGraphicGroup) {
+                        if (lastGraphicGroup.isNotEmpty()) add(OutlineItem.Spacer(4))
+                        add(OutlineItem.GroupHeader(group, indented = true))
+                        lastGraphicGroup = group
+                    }
+                } else {
+                    lastGraphicGroup = ""
+                }
+                add(OutlineItem.Section(section))
+                lastType = section.sectionType
+            }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        // Scrim
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                .clickable { onDismiss() }
+        )
+
+        // Outline panel
+        Column(
+            modifier = Modifier
+                .width(260.dp)
+                .fillMaxHeight()
+                .shadow(8.dp)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+        ) {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(displayItems) { item ->
+                    when (item) {
+                        is OutlineItem.Spacer -> {
+                            Spacer(modifier = Modifier.height(item.dp.dp))
+                        }
+                        is OutlineItem.GroupHeader -> {
+                            Text(
+                                text = item.title.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(
+                                    start = if (item.indented) 28.dp else 16.dp,
+                                    top = 12.dp,
+                                    bottom = 6.dp
+                                )
+                            )
+                        }
+                        is OutlineItem.Section -> {
+                            val section = item.section
+                            val isTopic = section.sectionType == SectionType.TOPIC
+                            val isActive = section.id == activeSectionId
+                            Surface(
+                                onClick = { onSectionClick(section) },
+                                color = if (isActive) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                },
+                                shape = MaterialTheme.shapes.small
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(
+                                            start = (12 + section.depth * 16).dp,
+                                            end = 12.dp,
+                                            top = 10.dp,
+                                            bottom = 10.dp
+                                        ),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isTopic && section.depth == 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(4.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme.primary,
+                                                    MaterialTheme.shapes.extraSmall
+                                                )
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                    Text(
+                                        text = section.title,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = when {
+                                            isActive -> MaterialTheme.colorScheme.onPrimaryContainer
+                                            section.sectionType == SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
+                                            section.sectionType == SectionType.RELATED -> MaterialTheme.colorScheme.primary
+                                            else -> MaterialTheme.colorScheme.onSurface
+                                        },
+                                        fontWeight = if (isTopic && section.depth == 0 || isActive) FontWeight.Medium else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ContentFloatingToolbar(
+    canGoBack: Boolean,
+    canGoForward: Boolean,
+    isFavorite: Boolean,
+    outlineEnabled: Boolean,
+    onBackClick: () -> Unit,
+    onForwardClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
+    onOutlineClick: () -> Unit,
+    onSearchClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    HorizontalFloatingToolbar(
+        modifier = modifier,
+        expanded = true,
+        leadingContent = {
+            IconButton(onClick = onBackClick, enabled = canGoBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            IconButton(onClick = onForwardClick, enabled = canGoForward) {
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+            }
+        },
+        trailingContent = {
+            IconButton(onClick = onFavoriteClick) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
+                )
+            }
+        },
+        content = {
+            IconButton(
+                onClick = onOutlineClick,
+                enabled = outlineEnabled
+            ) {
+                Icon(Icons.Default.Menu, contentDescription = "Outline")
+            }
+            IconButton(onClick = onSearchClick) {
+                Icon(Icons.Default.Search, contentDescription = "Search")
+            }
+        }
+    )
 }
