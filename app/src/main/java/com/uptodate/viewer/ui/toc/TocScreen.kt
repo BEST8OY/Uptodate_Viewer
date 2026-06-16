@@ -37,7 +37,6 @@ import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -71,7 +70,7 @@ fun TocScreen(
     val suggestions by searchViewModel.suggestions.collectAsState()
     val searchResults by searchViewModel.searchResults.collectAsState()
     val textFieldState = rememberTextFieldState()
-    val searchBarState = rememberSearchBarState()
+    var expanded by remember { mutableStateOf(false) }
     var hasSearched by remember { mutableStateOf(false) }
 
     LaunchedEffect(textFieldState) {
@@ -85,11 +84,12 @@ fun TocScreen(
     val inputField = @Composable {
         SearchBarDefaults.InputField(
             textFieldState = textFieldState,
-            searchBarState = searchBarState,
             onSearch = { query ->
                 searchViewModel.search(query.toString())
                 hasSearched = true
             },
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
             placeholder = {
                 Text(modifier = Modifier.clearAndSetSemantics {}, text = "Search topics...")
             },
@@ -115,11 +115,81 @@ fun TocScreen(
             )
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            SearchBar(
+                inputField = inputField,
+                expanded = expanded,
+                onExpandedChange = { expanded = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                LazyColumn {
+                    if (suggestions.isNotEmpty()) {
+                        items(suggestions) { suggestion ->
+                            ListItem(
+                                headlineContent = { Text(suggestion) },
+                                leadingContent = {
+                                    Icon(
+                                        Icons.Default.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                modifier = Modifier.clickable {
+                                    textFieldState.edit { replace(0, length, suggestion) }
+                                    searchViewModel.search(suggestion)
+                                    hasSearched = true
+                                }
+                            )
+                        }
+                    }
+
+                    if (hasSearched && searchResults.isEmpty() && textFieldState.text.isNotEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.SearchOff,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "No results found",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (searchResults.isNotEmpty()) {
+                        items(searchResults) { result ->
+                            ListItem(
+                                headlineContent = { Text(result.title) },
+                                modifier = Modifier.clickable {
+                                    onTopicSelected(result.topicId)
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
             when {
                 isLoading -> {
                     Box(
@@ -179,9 +249,7 @@ fun TocScreen(
                 }
                 else -> {
                     LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(bottom = 80.dp)
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(tocItems, key = { it.id }) { item ->
                             TocItemRow(
@@ -190,70 +258,6 @@ fun TocScreen(
                                 onLoadChildren = { parentId -> viewModel.loadChildren(parentId) },
                                 expandedIds = expandedIds,
                                 onToggleExpand = { id -> viewModel.toggleExpanded(id) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            SearchBar(state = searchBarState, inputField = inputField)
-
-            ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
-                LazyColumn(modifier = Modifier.padding(bottom = 80.dp)) {
-                    if (suggestions.isNotEmpty()) {
-                        items(suggestions) { suggestion ->
-                            ListItem(
-                                headlineContent = { Text(suggestion) },
-                                leadingContent = {
-                                    Icon(
-                                        Icons.Default.Search,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                },
-                                modifier = Modifier.clickable {
-                                    textFieldState.edit { replace(0, length, suggestion) }
-                                    searchViewModel.search(suggestion)
-                                    hasSearched = true
-                                }
-                            )
-                        }
-                    }
-
-                    if (hasSearched && searchResults.isEmpty() && textFieldState.text.isNotEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.SearchOff,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(48.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = "No results found",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (searchResults.isNotEmpty()) {
-                        items(searchResults) { result ->
-                            ListItem(
-                                headlineContent = { Text(result.title) },
-                                modifier = Modifier.clickable {
-                                    onTopicSelected(result.topicId)
-                                }
                             )
                         }
                     }

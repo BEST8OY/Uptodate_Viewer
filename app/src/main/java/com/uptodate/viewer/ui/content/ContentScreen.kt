@@ -3,7 +3,13 @@ package com.uptodate.viewer.ui.content
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,16 +19,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.Surface
-import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -34,14 +37,17 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -59,10 +65,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 
 private sealed class OutlineItem {
@@ -77,7 +83,8 @@ private sealed class OutlineItem {
 fun ContentScreen(
     topicId: String,
     onBack: () -> Unit,
-    viewModel: ContentViewModel = hiltViewModel()
+    viewModel: ContentViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier
 ) {
     // Load topic when screen appears
     LaunchedEffect(topicId) {
@@ -91,7 +98,6 @@ fun ContentScreen(
         viewModel.setThemeColors(ThemeColors.fromColorScheme(colorScheme))
     }
 
-    val topicContent by viewModel.topicContent.collectAsState()
     val processedHtml by viewModel.processedHtml.collectAsState()
     val isFavorite by viewModel.isFavorite.collectAsState()
     val showOutline by viewModel.showOutline.collectAsState()
@@ -110,6 +116,7 @@ fun ContentScreen(
     var searchQuery by remember { mutableStateOf("") }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var searchResultCount by remember { mutableStateOf(0) }
+    var searchResultIndex by remember { mutableStateOf(0) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -201,6 +208,7 @@ fun ContentScreen(
                 outlineEnabled = outlineSections.isNotEmpty(),
                 searchQuery = searchQuery,
                 searchResultCount = searchResultCount,
+                searchResultIndex = searchResultIndex,
                 onBackClick = { viewModel.goBack() },
                 onForwardClick = { viewModel.goForward() },
                 onFavoriteClick = { viewModel.toggleFavorite() },
@@ -208,20 +216,32 @@ fun ContentScreen(
                 onSearchClick = { showSearch = !showSearch },
                 onSearchQueryChange = {
                     searchQuery = it
+                    searchResultIndex = 0
                     webView?.findAllAsync(it)
                 },
-                onSearchPrevious = { webView?.findNext(false) },
-                onSearchNext = { webView?.findNext(true) },
+                onSearchPrevious = {
+                    if (searchResultCount > 0) {
+                        webView?.findNext(false)
+                        searchResultIndex = if (searchResultIndex > 0) searchResultIndex - 1 else searchResultCount - 1
+                    }
+                },
+                onSearchNext = {
+                    if (searchResultCount > 0) {
+                        webView?.findNext(true)
+                        searchResultIndex = if (searchResultIndex < searchResultCount - 1) searchResultIndex + 1 else 0
+                    }
+                },
                 onSearchClose = {
                     showSearch = false
                     searchQuery = ""
+                    searchResultIndex = 0
                     webView?.clearMatches()
                 },
                 searchFocusRequester = searchFocusRequester,
-                modifier = Modifier
+                modifier = modifier
                     .align(Alignment.BottomCenter)
-                    .offset(y = -ScreenOffset)
-                    .zIndex(1f)
+                    .padding(bottom = 16.dp)
+                    .imePadding()
             )
         }
     }
@@ -277,6 +297,7 @@ private fun ContentFloatingToolbar(
     outlineEnabled: Boolean,
     searchQuery: String,
     searchResultCount: Int,
+    searchResultIndex: Int,
     onBackClick: () -> Unit,
     onForwardClick: () -> Unit,
     onFavoriteClick: () -> Unit,
@@ -290,77 +311,151 @@ private fun ContentFloatingToolbar(
     modifier: Modifier = Modifier
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
-    if (showSearch) {
-        HorizontalFloatingToolbar(
-            expanded = true,
-            modifier = modifier,
-            leadingContent = {
-                IconButton(onClick = {
-                    onSearchClose()
-                    keyboardController?.hide()
-                }) {
-                    Icon(Icons.Default.Close, contentDescription = "Close Search", modifier = Modifier.size(20.dp))
-                }
-            },
-            content = {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchQueryChange,
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(searchFocusRequester),
-                    placeholder = { Text("Find in page") },
-                    singleLine = true
-                )
-                if (searchQuery.isNotEmpty()) {
-                    Text(
-                        text = "${searchResultCount.coerceAtLeast(0)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+    val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
+
+    AnimatedContent(
+        targetState = showSearch,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = 90)) togetherWith
+                    fadeOut(animationSpec = tween(durationMillis = 90))
+        },
+        label = "SearchToolbarTransition",
+        modifier = modifier
+    ) { isSearching ->
+        if (isSearching) {
+            HorizontalFloatingToolbar(
+                expanded = true,
+                shape = CircleShape,
+                colors = FloatingToolbarDefaults.standardFloatingToolbarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ),
+                leadingContent = {
+                    IconButton(
+                        onClick = {
+                            onSearchClose()
+                            keyboardController?.hide()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                trailingContent = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        if (searchQuery.isNotEmpty()) {
+                            Text(
+                                text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onSearchPrevious,
+                            enabled = searchQuery.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropUp,
+                                contentDescription = "Find Previous",
+                                tint = if (searchQuery.isNotEmpty()) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                }
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onSearchNext,
+                            enabled = searchQuery.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "Find Next",
+                                tint = if (searchQuery.isNotEmpty()) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                }
+                            )
+                        }
+                    }
+                },
+                content = {
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .focusRequester(searchFocusRequester),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        singleLine = true,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .padding(horizontal = 4.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Find in page",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
                     )
                 }
-                IconButton(onClick = onSearchPrevious, enabled = searchQuery.isNotEmpty()) {
-                    Icon(Icons.Default.ArrowDropUp, contentDescription = "Find Previous", modifier = Modifier.size(20.dp))
+            )
+        } else {
+            HorizontalFloatingToolbar(
+                expanded = true,
+                shape = CircleShape,
+                floatingActionButton = {
+                    FloatingToolbarDefaults.VibrantFloatingActionButton(
+                        onClick = onSearchClick,
+                        shape = CircleShape
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = "Search")
+                    }
+                },
+                colors = vibrantColors,
+                content = {
+                    IconButton(onClick = onBackClick, enabled = canGoBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                    IconButton(onClick = onForwardClick, enabled = canGoForward) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                    }
+                    IconButton(
+                        onClick = onOutlineClick,
+                        enabled = outlineEnabled
+                    ) {
+                        Icon(Icons.Default.Menu, contentDescription = "Outline")
+                    }
+                    IconButton(onClick = onFavoriteClick) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
+                        )
+                    }
                 }
-                IconButton(onClick = onSearchNext, enabled = searchQuery.isNotEmpty()) {
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Find Next", modifier = Modifier.size(20.dp))
-                }
-            }
-        )
-    } else {
-        val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
-        HorizontalFloatingToolbar(
-            expanded = true,
-            floatingActionButton = {
-                FloatingToolbarDefaults.VibrantFloatingActionButton(
-                    onClick = onSearchClick
-                ) {
-                    Icon(Icons.Default.Search, contentDescription = "Search")
-                }
-            },
-            modifier = modifier,
-            colors = vibrantColors,
-            content = {
-                IconButton(onClick = onBackClick, enabled = canGoBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                IconButton(onClick = onForwardClick, enabled = canGoForward) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                }
-                IconButton(
-                    onClick = onOutlineClick,
-                    enabled = outlineEnabled
-                ) {
-                    Icon(Icons.Default.Menu, contentDescription = "Outline")
-                }
-                IconButton(onClick = onFavoriteClick) {
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
-                    )
-                }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -468,7 +563,7 @@ private fun ContentErrorView(
             text = errorMsg,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.error,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -605,7 +700,7 @@ private fun OutlineOverlay(
                                             section.sectionType == SectionType.RELATED -> MaterialTheme.colorScheme.primary
                                             else -> MaterialTheme.colorScheme.onSurface
                                         },
-                                        fontWeight = if (isTopic && section.depth == 0 || isActive) FontWeight.Medium else FontWeight.Normal
+                                        fontWeight = if ((isTopic && section.depth == 0) || isActive) FontWeight.Medium else FontWeight.Normal
                                     )
                                 }
                             }
@@ -615,51 +710,4 @@ private fun OutlineOverlay(
             }
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ContentFloatingToolbar(
-    canGoBack: Boolean,
-    canGoForward: Boolean,
-    isFavorite: Boolean,
-    outlineEnabled: Boolean,
-    onBackClick: () -> Unit,
-    onForwardClick: () -> Unit,
-    onFavoriteClick: () -> Unit,
-    onOutlineClick: () -> Unit,
-    onSearchClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    HorizontalFloatingToolbar(
-        modifier = modifier,
-        expanded = true,
-        leadingContent = {
-            IconButton(onClick = onBackClick, enabled = canGoBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            IconButton(onClick = onForwardClick, enabled = canGoForward) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-            }
-        },
-        trailingContent = {
-            IconButton(onClick = onFavoriteClick) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
-                )
-            }
-        },
-        content = {
-            IconButton(
-                onClick = onOutlineClick,
-                enabled = outlineEnabled
-            ) {
-                Icon(Icons.Default.Menu, contentDescription = "Outline")
-            }
-            IconButton(onClick = onSearchClick) {
-                Icon(Icons.Default.Search, contentDescription = "Search")
-            }
-        }
-    )
 }
