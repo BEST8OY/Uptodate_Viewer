@@ -36,6 +36,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -70,7 +71,7 @@ fun TocScreen(
     val suggestions by searchViewModel.suggestions.collectAsState()
     val searchResults by searchViewModel.searchResults.collectAsState()
     val textFieldState = rememberTextFieldState()
-    val searchBarState = remember { androidx.compose.material3.rememberSearchBarState() }
+    val searchBarState = rememberSearchBarState()
     var hasSearched by remember { mutableStateOf(false) }
 
     LaunchedEffect(textFieldState) {

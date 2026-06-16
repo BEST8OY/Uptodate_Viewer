@@ -76,11 +76,11 @@ fun GraphicSheet(
                         detectVerticalDragGestures(
                             onDragEnd = {},
                             onDragCancel = {},
-                            onDrag = { change, dragAmount ->
+                            onVerticalDrag = { change, dragAmount ->
                                 change.consume()
-                                if (dragAmount < -5) {
+                                if (dragAmount < -5f) {
                                     scope.launch { sheetState.expand() }
-                                } else if (dragAmount > 5) {
+                                } else if (dragAmount > 5f) {
                                     scope.launch {
                                         sheetState.hide()
                                         onDismiss()

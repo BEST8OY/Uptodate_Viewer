@@ -312,26 +312,6 @@ private fun ContentFloatingToolbar(
         },
         modifier = modifier,
         colors = vibrantColors,
-        leadingContent = {
-            if (!showSearch) {
-                IconButton(onClick = onBackClick, enabled = canGoBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                IconButton(onClick = onForwardClick, enabled = canGoForward) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                }
-            }
-        },
-        trailingContent = {
-            if (!showSearch) {
-                IconButton(onClick = onFavoriteClick) {
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
-                    )
-                }
-            }
-        },
         content = {
             if (showSearch) {
                 OutlinedTextField(
@@ -357,11 +337,23 @@ private fun ContentFloatingToolbar(
                     Icon(Icons.Default.ArrowDropDown, contentDescription = "Find Next", modifier = Modifier.size(20.dp))
                 }
             } else {
+                IconButton(onClick = onBackClick, enabled = canGoBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+                IconButton(onClick = onForwardClick, enabled = canGoForward) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                }
                 IconButton(
                     onClick = onOutlineClick,
                     enabled = outlineEnabled
                 ) {
                     Icon(Icons.Default.Menu, contentDescription = "Outline")
+                }
+                IconButton(onClick = onFavoriteClick) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
+                    )
                 }
             }
         }
