@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -67,7 +65,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import kotlinx.coroutines.delay
 
 private sealed class OutlineItem {
     data class Section(val section: OutlineSection) : OutlineItem()
@@ -136,11 +137,18 @@ fun ContentScreen(
         }
     }
 
-    // Auto-focus search field when opened
-    LaunchedEffect(showSearch) {
+    // Auto-focus search field when opened, with window focus reset
+    val windowInfo = LocalWindowInfo.current
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(windowInfo.isWindowFocused, showSearch) {
         if (showSearch) {
-            searchFocusRequester.requestFocus()
-            keyboardController?.show()
+            if (windowInfo.isWindowFocused) {
+                focusManager.clearFocus()
+                delay(100)
+                searchFocusRequester.requestFocus()
+                keyboardController?.show()
+            }
         }
     }
 
@@ -156,7 +164,6 @@ fun ContentScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .imePadding()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Content area
