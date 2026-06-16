@@ -17,7 +17,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,8 +47,11 @@ fun GraphicSheet(
         CssBuilder(themeColors).graphicViewer()
     }
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var isLoading by remember { mutableStateOf(true) }
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        confirmValueChange = { it != SheetValue.Hidden }
+    )
+    var isLoading by remember(graphicData) { mutableStateOf(true) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,

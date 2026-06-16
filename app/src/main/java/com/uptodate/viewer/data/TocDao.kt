@@ -1,5 +1,6 @@
 package com.uptodate.viewer.data
 
+import com.uptodate.viewer.domain.TocItem
 import com.uptodate.viewer.util.GzipUtil
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -14,7 +15,7 @@ class TocDao @Inject constructor(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun getTocItems(parentId: String? = null): List<Map<String, Any?>> {
+    fun getTocItems(parentId: String? = null): List<TocItem> {
         val db = dbManager.getAssetsDb()
         val resourceId = when {
             parentId == null || parentId == "0" -> "RESOURCE/table_of_contents.json"
@@ -45,16 +46,16 @@ class TocDao @Inject constructor(
         }
     }
 
-    private fun processChildren(children: kotlinx.serialization.json.JsonArray): List<Map<String, Any?>> {
+    private fun processChildren(children: kotlinx.serialization.json.JsonArray): List<TocItem> {
         return children.map { child ->
             val obj = child.jsonObject
             val type = obj["type"]?.jsonPrimitive?.content
-            mapOf(
-                "id" to (obj["id"]?.jsonPrimitive?.content ?: ""),
-                "title" to (obj["title"]?.jsonPrimitive?.content ?: ""),
-                "leaf" to (type == "TOPIC"),
-                "type" to type,
-                "childrenInfo" to obj["childrenInfo"]?.jsonArray?.let { processChildren(it) }
+            TocItem(
+                id = obj["id"]?.jsonPrimitive?.content ?: "",
+                title = obj["title"]?.jsonPrimitive?.content ?: "",
+                isLeaf = type == "TOPIC",
+                type = type,
+                childrenInfo = obj["childrenInfo"]?.jsonArray?.let { processChildren(it) }
             )
         }
     }

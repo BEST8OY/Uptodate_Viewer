@@ -24,6 +24,9 @@ class TocViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
+    private val _expandedIds = MutableStateFlow<Set<String>>(emptySet())
+    val expandedIds: StateFlow<Set<String>> = _expandedIds
+
     init {
         loadTocItems()
     }
@@ -56,6 +59,16 @@ class TocViewModel @Inject constructor(
             }
         }
     }
+
+    fun toggleExpanded(id: String) {
+        _expandedIds.value = if (id in _expandedIds.value) {
+            _expandedIds.value - id
+        } else {
+            _expandedIds.value + id
+        }
+    }
+
+    fun isExpanded(id: String): Boolean = id in _expandedIds.value
 
     private fun updateTree(items: List<TocItem>, parentId: String, children: List<TocItem>): List<TocItem> {
         return items.map { item ->

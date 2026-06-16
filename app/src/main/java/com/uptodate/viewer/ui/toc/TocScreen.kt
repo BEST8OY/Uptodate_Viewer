@@ -31,9 +31,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -51,6 +48,7 @@ fun TocScreen(
     val tocItems by viewModel.tocItems.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    val expandedIds by viewModel.expandedIds.collectAsState()
 
     Scaffold(
         topBar = {
@@ -132,7 +130,9 @@ fun TocScreen(
                         TocItemRow(
                             item = item,
                             onTopicSelected = onTopicSelected,
-                            onLoadChildren = { parentId -> viewModel.loadChildren(parentId) }
+                            onLoadChildren = { parentId -> viewModel.loadChildren(parentId) },
+                            expandedIds = expandedIds,
+                            onToggleExpand = { id -> viewModel.toggleExpanded(id) }
                         )
                     }
                 }
@@ -146,10 +146,12 @@ fun TocItemRow(
     item: TocItem,
     onTopicSelected: (String) -> Unit,
     onLoadChildren: (String) -> Unit,
+    expandedIds: Set<String>,
+    onToggleExpand: (String) -> Unit,
     level: Int = 0
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val expandDesc = if (expanded) "Collapse" else "Expand"
+    val isExpanded = item.id in expandedIds
+    val expandDesc = if (isExpanded) "Collapse" else "Expand"
 
     Column {
         Row(
@@ -162,7 +164,7 @@ fun TocItemRow(
                         if (item.childrenInfo == null) {
                             onLoadChildren(item.id)
                         }
-                        expanded = !expanded
+                        onToggleExpand(item.id)
                     }
                 }
                 .padding(start = (16 + level * 24).dp, end = 16.dp)
@@ -171,7 +173,7 @@ fun TocItemRow(
         ) {
             if (!item.isLeaf) {
                 Icon(
-                    imageVector = if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = expandDesc,
                     modifier = Modifier
                         .padding(end = 8.dp)
@@ -191,12 +193,14 @@ fun TocItemRow(
             )
         }
 
-        if (expanded && item.childrenInfo != null) {
+        if (isExpanded && item.childrenInfo != null) {
             item.childrenInfo.forEach { child ->
                 TocItemRow(
                     item = child,
                     onTopicSelected = onTopicSelected,
                     onLoadChildren = onLoadChildren,
+                    expandedIds = expandedIds,
+                    onToggleExpand = onToggleExpand,
                     level = level + 1
                 )
             }

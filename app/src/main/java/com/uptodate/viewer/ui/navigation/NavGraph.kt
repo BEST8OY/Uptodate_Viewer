@@ -95,7 +95,7 @@ fun NavGraph(
 
     val topLevelBackStack = remember { TopLevelBackStack<Any>(TocRoute) }
     val isOnContentScreen by remember {
-        derivedStateOf { topLevelBackStack.topLevelKey is ContentRoute }
+        derivedStateOf { topLevelBackStack.backStack.lastOrNull() is ContentRoute }
     }
 
     Scaffold(
@@ -163,7 +163,8 @@ fun NavGraph(
                 }
                 entry<ContentRoute> { key ->
                     ContentScreen(
-                        topicId = key.topicId
+                        topicId = key.topicId,
+                        onBack = { topLevelBackStack.removeLast() }
                     )
                 }
             },

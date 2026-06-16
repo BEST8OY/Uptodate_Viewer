@@ -75,6 +75,7 @@ private sealed class OutlineItem {
 @Composable
 fun ContentScreen(
     topicId: String,
+    onBack: () -> Unit,
     viewModel: ContentViewModel = hiltViewModel()
 ) {
     // Load topic when screen appears
@@ -133,8 +134,7 @@ fun ContentScreen(
         topBar = {
             ContentTopBar(
                 title = articleTitle,
-                canGoBack = canGoBack,
-                onBackClick = { viewModel.goBack() }
+                onBackClick = onBack
             )
         }
     ) { padding ->
@@ -250,7 +250,6 @@ fun ContentScreen(
 @Composable
 private fun ContentTopBar(
     title: String,
-    canGoBack: Boolean,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -263,7 +262,7 @@ private fun ContentTopBar(
             )
         },
         navigationIcon = {
-            IconButton(onClick = onBackClick, enabled = canGoBack) {
+            IconButton(onClick = onBackClick) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
         },
