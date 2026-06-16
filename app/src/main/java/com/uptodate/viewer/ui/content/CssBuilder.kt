@@ -772,13 +772,14 @@ body {
     color: ${colors.text};
     background: ${colors.bg};
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
 }
 
 .graphic_view {
     padding: 24px;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
 }
 .figure { margin: 0; text-align: center; }
 
@@ -789,6 +790,8 @@ body {
     margin-bottom: 16px;
     padding-bottom: 12px;
     border-bottom: 2px solid ${colors.primary};
+    text-align: center;
+    width: 100%;
 }
 
 .cntnt {
