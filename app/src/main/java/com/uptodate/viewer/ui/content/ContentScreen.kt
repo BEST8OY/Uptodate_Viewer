@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -241,7 +243,7 @@ fun ContentScreen(
                 modifier = modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp)
-                    .then(if (showSearch) Modifier.imePadding() else Modifier)
+                    .then(if (showSearch) Modifier.windowInsetsPadding(WindowInsets.ime) else Modifier)
             )
         }
     }
@@ -327,6 +329,7 @@ private fun ContentFloatingToolbar(
                 expanded = true,
                 shape = CircleShape,
                 colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
+                modifier = Modifier.fillMaxWidth(),
                 leadingContent = {
                     IconButton(
                         onClick = {
@@ -341,7 +344,7 @@ private fun ContentFloatingToolbar(
                         )
                     }
                 },
-                trailingContent = {
+                content = {
                     if (searchQuery.isNotEmpty()) {
                         Text(
                             text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
@@ -379,8 +382,6 @@ private fun ContentFloatingToolbar(
                             }
                         )
                     }
-                },
-                content = {
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = onSearchQueryChange,
