@@ -8,13 +8,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.BottomSheet
@@ -96,12 +93,14 @@ fun GraphicSheet(
         gesturesEnabled = false,
         dragHandle = null
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            GraphicSheetContent(
+                fullHtml = fullHtml,
+                isLoading = isLoading,
+                onLoadingFinished = { isLoading = false },
+                modifier = Modifier.fillMaxSize()
+            )
+
             IconButton(
                 onClick = {
                     coroutineScope.launch {
@@ -109,7 +108,9 @@ fun GraphicSheet(
                         onDismiss()
                     }
                 },
-                modifier = Modifier.align(Alignment.CenterEnd)
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
@@ -117,14 +118,6 @@ fun GraphicSheet(
                 )
             }
         }
-        GraphicSheetContent(
-            fullHtml = fullHtml,
-            isLoading = isLoading,
-            onLoadingFinished = { isLoading = false },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
     }
 }
 

@@ -388,16 +388,16 @@ private fun ContentFloatingToolbar(
                             }
                         }
                     )
-                },
-                trailingContent = {
+
                     if (searchQuery.isNotEmpty()) {
                         Text(
                             text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 4.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp)
                         )
                     }
+
                     IconButton(
                         onClick = onSearchPrevious,
                         enabled = searchQuery.isNotEmpty()
@@ -409,6 +409,7 @@ private fun ContentFloatingToolbar(
                             tint = LocalContentColor.current
                         )
                     }
+
                     IconButton(
                         onClick = onSearchNext,
                         enabled = searchQuery.isNotEmpty()
