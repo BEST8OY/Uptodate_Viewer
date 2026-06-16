@@ -88,8 +88,6 @@ fun TocScreen(
                 searchViewModel.search(query.toString())
                 hasSearched = true
             },
-            expanded = expanded,
-            onExpandedChange = { expanded = it },
             placeholder = {
                 Text(modifier = Modifier.clearAndSetSemantics {}, text = "Search topics...")
             },

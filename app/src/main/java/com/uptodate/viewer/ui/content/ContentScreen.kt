@@ -326,9 +326,7 @@ private fun ContentFloatingToolbar(
             HorizontalFloatingToolbar(
                 expanded = true,
                 shape = CircleShape,
-                colors = FloatingToolbarDefaults.standardFloatingToolbarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                ),
+                colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
                 leadingContent = {
                     IconButton(
                         onClick = {
