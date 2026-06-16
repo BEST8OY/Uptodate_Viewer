@@ -72,7 +72,6 @@ fun TocScreen(
     val searchResults by searchViewModel.searchResults.collectAsState()
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
-    var expanded by remember { mutableStateOf(false) }
     var hasSearched by remember { mutableStateOf(false) }
 
     LaunchedEffect(textFieldState) {
@@ -122,9 +121,8 @@ fun TocScreen(
                 .padding(padding)
         ) {
             SearchBar(
+                state = searchBarState,
                 inputField = inputField,
-                expanded = expanded,
-                onExpandedChange = { expanded = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)

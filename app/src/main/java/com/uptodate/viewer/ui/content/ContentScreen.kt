@@ -342,48 +342,42 @@ private fun ContentFloatingToolbar(
                     }
                 },
                 trailingContent = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(end = 4.dp)
+                    if (searchQuery.isNotEmpty()) {
+                        Text(
+                            text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = onSearchPrevious,
+                        enabled = searchQuery.isNotEmpty()
                     ) {
-                        if (searchQuery.isNotEmpty()) {
-                            Text(
-                                text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onSearchPrevious,
-                            enabled = searchQuery.isNotEmpty()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropUp,
-                                contentDescription = "Find Previous",
-                                tint = if (searchQuery.isNotEmpty()) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                }
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onSearchNext,
-                            enabled = searchQuery.isNotEmpty()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowDropDown,
-                                contentDescription = "Find Next",
-                                tint = if (searchQuery.isNotEmpty()) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                }
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropUp,
+                            contentDescription = "Find Previous",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (searchQuery.isNotEmpty()) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            }
+                        )
+                    }
+                    IconButton(
+                        onClick = onSearchNext,
+                        enabled = searchQuery.isNotEmpty()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Find Next",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (searchQuery.isNotEmpty()) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            }
+                        )
                     }
                 },
                 content = {
