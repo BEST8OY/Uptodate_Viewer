@@ -26,8 +26,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowDown
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowDropUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
@@ -186,7 +186,7 @@ fun ContentScreen(
                             webView?.findNext(false)
                         }) {
                             Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowUp,
+                                Icons.Default.ArrowDropUp,
                                 contentDescription = "Find Previous",
                                 modifier = Modifier.size(20.dp)
                             )
@@ -195,7 +195,7 @@ fun ContentScreen(
                             webView?.findNext(true)
                         }) {
                             Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowDown,
+                                Icons.Default.ArrowDropDown,
                                 contentDescription = "Find Next",
                                 modifier = Modifier.size(20.dp)
                             )
@@ -247,7 +247,7 @@ fun ContentScreen(
                             settings.setSupportZoom(true)
                             settings.builtInZoomControls = true
                             settings.displayZoomControls = false
-                            setFindListener { numberOfMatches ->
+                            setFindListener { _, numberOfMatches, _ ->
                                 searchResultCount = numberOfMatches
                             }
                             addJavascriptInterface(
