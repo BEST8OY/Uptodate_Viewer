@@ -52,7 +52,7 @@ fun SearchScreen(
     var hasSearched by remember { mutableStateOf(false) }
 
     LaunchedEffect(searchBarState) {
-        searchBarState.expand()
+        searchBarState.animateToExpanded()
     }
 
     LaunchedEffect(textFieldState) {

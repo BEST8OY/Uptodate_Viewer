@@ -3,6 +3,7 @@ package com.uptodate.viewer.ui.content
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,12 +26,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.uptodate.viewer.domain.GraphicData
+import kotlinx.coroutines.launch
 
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -54,6 +58,7 @@ fun GraphicSheet(
         confirmValueChange = { it != SheetValue.Hidden }
     )
     var isLoading by remember(graphicData) { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         sheetState.show()
@@ -67,6 +72,23 @@ fun GraphicSheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {},
+                            onDragCancel = {},
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                if (dragAmount < -5) {
+                                    scope.launch { sheetState.expand() }
+                                } else if (dragAmount > 5) {
+                                    scope.launch {
+                                        sheetState.hide()
+                                        onDismiss()
+                                    }
+                                }
+                            }
+                        )
+                    }
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 IconButton(

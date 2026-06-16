@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,7 +36,6 @@ import com.uptodate.viewer.data.DatabaseManager
 import com.uptodate.viewer.ui.content.ContentScreen
 import com.uptodate.viewer.ui.favorites.FavoritesScreen
 import com.uptodate.viewer.ui.history.HistoryScreen
-import com.uptodate.viewer.ui.search.SearchScreen
 import com.uptodate.viewer.ui.setup.SetupScreen
 import com.uptodate.viewer.ui.toc.TocScreen
 import kotlinx.serialization.Serializable
@@ -79,7 +77,6 @@ data object SetupRoute : NavKey
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
-    SearchRoute,
     HistoryRoute,
     FavoritesRoute
 )
@@ -112,13 +109,6 @@ fun NavGraph(
             entryProvider = entryProvider {
                 entry<TocRoute> {
                     TocScreen(
-                        onTopicSelected = { topicId ->
-                            topLevelBackStack.add(ContentRoute(topicId))
-                        }
-                    )
-                }
-                entry<SearchRoute> {
-                    SearchScreen(
                         onTopicSelected = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
                         }

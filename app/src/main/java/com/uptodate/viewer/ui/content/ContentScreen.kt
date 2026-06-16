@@ -292,7 +292,6 @@ private fun ContentFloatingToolbar(
     val keyboardController = LocalSoftwareKeyboardController.current
     val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
     HorizontalFloatingToolbar(
-        modifier = modifier,
         expanded = true,
         floatingActionButton = {
             FloatingToolbarDefaults.VibrantFloatingActionButton(
@@ -311,6 +310,7 @@ private fun ContentFloatingToolbar(
                 )
             }
         },
+        modifier = modifier,
         colors = vibrantColors,
         leadingContent = {
             if (!showSearch) {
