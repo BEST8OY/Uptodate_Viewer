@@ -10,6 +10,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,9 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.windowInsetsPadding
+
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -49,6 +49,7 @@ import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -67,6 +68,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -243,7 +245,6 @@ fun ContentScreen(
                 modifier = modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp)
-                    .then(if (showSearch) Modifier.windowInsetsPadding(WindowInsets.ime) else Modifier)
             )
         }
     }
@@ -329,7 +330,9 @@ private fun ContentFloatingToolbar(
                 expanded = true,
                 shape = CircleShape,
                 colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth(),
                 leadingContent = {
                     IconButton(
                         onClick = {
@@ -345,43 +348,6 @@ private fun ContentFloatingToolbar(
                     }
                 },
                 content = {
-                    if (searchQuery.isNotEmpty()) {
-                        Text(
-                            text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
-                        onClick = onSearchPrevious,
-                        enabled = searchQuery.isNotEmpty()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropUp,
-                            contentDescription = "Find Previous",
-                            modifier = Modifier.size(20.dp),
-                            tint = if (searchQuery.isNotEmpty()) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            }
-                        )
-                    }
-                    IconButton(
-                        onClick = onSearchNext,
-                        enabled = searchQuery.isNotEmpty()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Find Next",
-                            modifier = Modifier.size(20.dp),
-                            tint = if (searchQuery.isNotEmpty()) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            }
-                        )
-                    }
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = onSearchQueryChange,
@@ -394,6 +360,16 @@ private fun ContentFloatingToolbar(
                         ),
                         singleLine = true,
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Search
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onSearch = {
+                                if (searchQuery.isNotEmpty()) {
+                                    onSearchNext()
+                                }
+                            }
+                        ),
                         decorationBox = { innerTextField ->
                             Box(
                                 modifier = Modifier
@@ -412,6 +388,38 @@ private fun ContentFloatingToolbar(
                             }
                         }
                     )
+                },
+                trailingContent = {
+                    if (searchQuery.isNotEmpty()) {
+                        Text(
+                            text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onSearchPrevious,
+                        enabled = searchQuery.isNotEmpty()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropUp,
+                            contentDescription = "Find Previous",
+                            modifier = Modifier.size(24.dp),
+                            tint = LocalContentColor.current
+                        )
+                    }
+                    IconButton(
+                        onClick = onSearchNext,
+                        enabled = searchQuery.isNotEmpty()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Find Next",
+                            modifier = Modifier.size(24.dp),
+                            tint = LocalContentColor.current
+                        )
+                    }
                 }
             )
         } else {
