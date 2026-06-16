@@ -164,7 +164,7 @@ fun ContentScreen(
                 onBackClick = onBack
             )
         },
-        contentWindowInsets = WindowInsets.statusBars + WindowInsets.navigationBars
+        contentWindowInsets = WindowInsets.systemBars
     ) { padding ->
         Box(
             modifier = Modifier
