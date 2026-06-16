@@ -11,6 +11,7 @@ import com.uptodate.viewer.repository.HistoryRepository
 import com.uptodate.viewer.util.HtmlNormalizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -31,6 +32,7 @@ class ContentViewModel @Inject constructor(
 
     private var _themeColors: ThemeColors? = null
     private var _rawHtml: String? = null
+    private var currentLoadJob: Job? = null
 
     private val _currentTopicId = MutableStateFlow<String?>(null)
     val currentTopicId: StateFlow<String?> = _currentTopicId
@@ -59,10 +61,30 @@ class ContentViewModel @Inject constructor(
     private val _scrollToSection = MutableStateFlow<String?>(null)
     val scrollToSection: StateFlow<String?> = _scrollToSection
 
+    private val _activeSectionId = MutableStateFlow<String?>(null)
+    val activeSectionId: StateFlow<String?> = _activeSectionId
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
+    private val _canGoBack = MutableStateFlow(false)
+    val canGoBack: StateFlow<Boolean> = _canGoBack
+
+    private val _canGoForward = MutableStateFlow(false)
+    val canGoForward: StateFlow<Boolean> = _canGoForward
+
+    private val _articleTitle = MutableStateFlow("")
+    val articleTitle: StateFlow<String> = _articleTitle
+
     private val _navigationHistory = MutableStateFlow<List<String>>(emptyList())
     val navigationHistory: StateFlow<List<String>> = _navigationHistory
 
-    private var historyIndex = -1
+    private val _historyIndex = MutableStateFlow(-1)
+    val historyIndex: StateFlow<Int> = _historyIndex
+
     private val actions = mutableMapOf<String, String>()
 
     fun setThemeColors(colors: ThemeColors) {
@@ -84,59 +106,83 @@ class ContentViewModel @Inject constructor(
         <body>${html.removeSurrounding("\"")}</body>
         </html>
         """.trimIndent()
-
     }
 
     fun loadTopic(topicId: String, addToHistory: Boolean = true) {
-        viewModelScope.launch {
+        currentLoadJob?.cancel()
+        currentLoadJob = viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
             _currentTopicId.value = topicId
-            val content = contentRepository.getTopicContent(topicId)
+
+            val content = try {
+                contentRepository.getTopicContent(topicId)
+            } catch (e: Exception) {
+                _error.value = e.message ?: "Failed to load content"
+                _isLoading.value = false
+                return@launch
+            }
+
             _topicContent.value = content
 
-            if (content != null) {
-                var html = content.bodyHtml
-                html = HtmlNormalizer.normalizeHeaders(html)
-                html = HtmlNormalizer.injectMetaLinks(html, content.contributors)
+            if (content == null) {
+                _error.value = "Content not found"
+                _articleTitle.value = ""
+                _isLoading.value = false
+                return@launch
+            }
 
-                actions.clear()
-                html = Regex("""href="javascript:appAction\((.*?)\);?"""", RegexOption.DOT_MATCHES_ALL)
-                    .replace(html) { match ->
-                        val jsonStr = match.groupValues[1]
-                        val actionId = "action_${actions.size}"
-                        actions[actionId] = jsonStr
-                        """href="appaction://$actionId""""
-                    }
+            val title = contentRepository.getTopicTitle(topicId) ?: topicId
+            _articleTitle.value = title
 
-                _rawHtml = html
+            var html = content.bodyHtml
+            html = HtmlNormalizer.normalizeHeaders(html)
+            html = HtmlNormalizer.injectMetaLinks(html, content.contributors)
 
-                val css = getCss()
-                _processedHtml.value = """
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    $css
-                </head>
-                <body>${html.removeSurrounding("\"")}</body>
-                </html>
-                """.trimIndent()
-
-                if (content.outlineHtml.isNotBlank()) {
-                    val sections = withContext(Dispatchers.Default) {
-                        HtmlNormalizer.parseOutline(content.outlineHtml)
-                    }
-                    _outlineSections.value = sections
-                } else {
-                    _outlineSections.value = emptyList()
+            actions.clear()
+            html = Regex("""href="javascript:appAction\((.*?)\);?"""", RegexOption.DOT_MATCHES_ALL)
+                .replace(html) { match ->
+                    val jsonStr = match.groupValues[1]
+                    val actionId = "action_${actions.size}"
+                    actions[actionId] = jsonStr
+                    """href="appaction://$actionId""""
                 }
+
+            _rawHtml = html
+
+            val css = getCss()
+            _processedHtml.value = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                $css
+            </head>
+            <body>${html.removeSurrounding("\"")}</body>
+            </html>
+            """.trimIndent()
+
+            if (content.outlineHtml.isNotBlank()) {
+                val sections = withContext(Dispatchers.Default) {
+                    HtmlNormalizer.parseOutline(content.outlineHtml)
+                }
+                _outlineSections.value = sections
+            } else {
+                _outlineSections.value = emptyList()
             }
 
             if (addToHistory) {
-                val title = contentRepository.getTopicTitle(topicId) ?: topicId
                 historyRepository.addOrPromote(topicId, title)
+                val history = _navigationHistory.value
+                val idx = _historyIndex.value
+                val trimmed = if (idx >= 0) history.take(idx + 1) else emptyList()
+                _navigationHistory.value = trimmed + topicId
+                _historyIndex.value = _navigationHistory.value.size - 1
             }
 
             _isFavorite.value = favoriteRepository.isFavorite(topicId)
+            _isLoading.value = false
+            updateNavigationState()
         }
     }
 
@@ -168,14 +214,14 @@ class ContentViewModel @Inject constructor(
                     }
                 }
                 assetType == "topic" -> {
-                    val topicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    val targetTopicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
                     val section = meta?.get("section")?.jsonPrimitive?.content
                         ?: items?.firstOrNull()?.jsonObject?.get("section")?.jsonPrimitive?.content
-                    if (topicId != null) {
-                        if (topicId == _currentTopicId.value && section != null) {
+                    if (targetTopicId != null) {
+                        if (targetTopicId == _currentTopicId.value && section != null) {
                             _scrollToSection.value = section
                         } else {
-                            loadTopic(topicId)
+                            loadTopic(targetTopicId)
                         }
                     }
                 }
@@ -201,12 +247,12 @@ class ContentViewModel @Inject constructor(
                     }
                 }
                 "topic" -> {
-                    val topicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
-                    if (topicId != null) {
-                        if (topicId == _currentTopicId.value && section != null) {
+                    val targetTopicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    if (targetTopicId != null) {
+                        if (targetTopicId == _currentTopicId.value && section != null) {
                             _scrollToSection.value = section
                         } else {
-                            loadTopic(topicId)
+                            loadTopic(targetTopicId)
                         }
                     }
                 }
@@ -224,7 +270,7 @@ class ContentViewModel @Inject constructor(
             if (_isFavorite.value) {
                 favoriteRepository.remove(topicId)
             } else {
-                val title = contentRepository.getTopicTitle(topicId) ?: topicId
+                val title = _articleTitle.value.ifEmpty { topicId }
                 favoriteRepository.add(topicId, title)
             }
             _isFavorite.value = !_isFavorite.value
@@ -243,20 +289,33 @@ class ContentViewModel @Inject constructor(
         _scrollToSection.value = null
     }
 
+    fun setActiveSection(sectionId: String?) {
+        _activeSectionId.value = sectionId
+    }
+
     fun goBack() {
-        if (historyIndex > 0) {
-            historyIndex--
-            val topicId = _navigationHistory.value[historyIndex]
-            loadTopic(topicId, addToHistory = false)
+        val idx = _historyIndex.value
+        if (idx > 0) {
+            val history = _navigationHistory.value
+            _historyIndex.value = idx - 1
+            loadTopic(history[idx - 1], addToHistory = false)
         }
     }
 
     fun goForward() {
-        if (historyIndex < _navigationHistory.value.size - 1) {
-            historyIndex++
-            val topicId = _navigationHistory.value[historyIndex]
-            loadTopic(topicId, addToHistory = false)
+        val idx = _historyIndex.value
+        val history = _navigationHistory.value
+        if (idx < history.size - 1) {
+            _historyIndex.value = idx + 1
+            loadTopic(history[idx + 1], addToHistory = false)
         }
+    }
+
+    private fun updateNavigationState() {
+        val idx = _historyIndex.value
+        val history = _navigationHistory.value
+        _canGoBack.value = idx > 0
+        _canGoForward.value = idx < history.size - 1
     }
 
     private fun getCss(): String {

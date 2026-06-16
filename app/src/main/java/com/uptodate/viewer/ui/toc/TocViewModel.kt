@@ -18,20 +18,42 @@ class TocViewModel @Inject constructor(
     private val _tocItems = MutableStateFlow<List<TocItem>>(emptyList())
     val tocItems: StateFlow<List<TocItem>> = _tocItems
 
+    private val _isLoading = MutableStateFlow(true)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
     init {
         loadTocItems()
     }
 
     private fun loadTocItems() {
         viewModelScope.launch {
-            _tocItems.value = tocRepository.getTocItems()
+            _isLoading.value = true
+            _error.value = null
+            try {
+                _tocItems.value = tocRepository.getTocItems()
+            } catch (e: Exception) {
+                _error.value = e.message ?: "Failed to load table of contents"
+            } finally {
+                _isLoading.value = false
+            }
         }
+    }
+
+    fun retry() {
+        loadTocItems()
     }
 
     fun loadChildren(parentId: String) {
         viewModelScope.launch {
-            val children = tocRepository.getTocItems(parentId)
-            _tocItems.value = updateTree(_tocItems.value, parentId, children)
+            try {
+                val children = tocRepository.getTocItems(parentId)
+                _tocItems.value = updateTree(_tocItems.value, parentId, children)
+            } catch (e: Exception) {
+                _error.value = e.message ?: "Failed to load children"
+            }
         }
     }
 

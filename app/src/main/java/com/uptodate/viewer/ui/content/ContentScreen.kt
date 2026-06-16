@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,18 +18,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +42,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,7 +51,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -56,7 +66,7 @@ private sealed class OutlineItem {
     data class Spacer(val dp: Int) : OutlineItem()
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ContentScreen(
@@ -83,11 +93,19 @@ fun ContentScreen(
     val graphicDialog by viewModel.graphicDialog.collectAsState()
     val contributorsDialog by viewModel.contributorsDialog.collectAsState()
     val scrollToSection by viewModel.scrollToSection.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val canGoBack by viewModel.canGoBack.collectAsState()
+    val canGoForward by viewModel.canGoForward.collectAsState()
+    val articleTitle by viewModel.articleTitle.collectAsState()
+    val activeSectionId by viewModel.activeSectionId.collectAsState()
+    val error by viewModel.error.collectAsState()
 
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var searchResultCount by remember { mutableStateOf(0) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // Scroll to section when requested
     LaunchedEffect(scrollToSection) {
@@ -100,20 +118,37 @@ fun ContentScreen(
         }
     }
 
+    // Auto-focus search field when opened
+    LaunchedEffect(showSearch) {
+        if (showSearch) {
+            searchFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Content") },
+                title = {
+                    Text(
+                        text = articleTitle.ifEmpty { "Content" },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.goBack() }) {
+                    IconButton(onClick = { viewModel.goBack() }, enabled = canGoBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.goForward() }) {
+                    IconButton(onClick = { viewModel.goForward() }, enabled = canGoForward) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
                     }
-                    IconButton(onClick = { viewModel.toggleOutline() }) {
+                    IconButton(
+                        onClick = { viewModel.toggleOutline() },
+                        enabled = outlineSections.isNotEmpty()
+                    ) {
                         Icon(Icons.Default.Menu, contentDescription = "Outline")
                     }
                     IconButton(onClick = { showSearch = !showSearch }) {
@@ -122,7 +157,7 @@ fun ContentScreen(
                     IconButton(onClick = { viewModel.toggleFavorite() }) {
                         Icon(
                             imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite"
+                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
                         )
                     }
                 }
@@ -144,26 +179,48 @@ fun ContentScreen(
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = {
+                            searchQuery = it
+                            webView?.findAllAsync(it)
+                        },
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 8.dp),
+                            .padding(end = 8.dp)
+                            .focusRequester(searchFocusRequester),
                         placeholder = { Text("Find in page...") },
                         singleLine = true
                     )
-                    Text(
-                        text = if (searchResultCount >= 0) "$searchResultCount results" else "",
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                    IconButton(onClick = {
-                        webView?.findAllAsync(searchQuery)
-                    }) {
-                        Icon(Icons.Default.Search, contentDescription = "Find Next")
+                    if (searchQuery.isNotEmpty()) {
+                        Text(
+                            text = "${searchResultCount.coerceAtLeast(0)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                        IconButton(onClick = {
+                            webView?.findNext(false)
+                        }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowUp,
+                                contentDescription = "Find Previous",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(onClick = {
+                            webView?.findNext(true)
+                        }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowDown,
+                                contentDescription = "Find Next",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                     IconButton(onClick = {
                         showSearch = false
                         searchQuery = ""
                         webView?.clearMatches()
+                        keyboardController?.hide()
                     }) {
                         Icon(Icons.Default.Close, contentDescription = "Close Search")
                     }
@@ -192,7 +249,9 @@ fun ContentScreen(
                                             android.content.Intent.ACTION_VIEW,
                                             request.url
                                         )
-                                        context.startActivity(intent)
+                                        try {
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) { }
                                         return true
                                     }
                                     return false
@@ -203,6 +262,9 @@ fun ContentScreen(
                             settings.setSupportZoom(true)
                             settings.builtInZoomControls = true
                             settings.displayZoomControls = false
+                            setFindListener { numberOfMatches ->
+                                searchResultCount = numberOfMatches
+                            }
                             addJavascriptInterface(
                                 JsBridge { jsonStr ->
                                     viewModel.handleAction("manual_$jsonStr")
@@ -219,6 +281,48 @@ fun ContentScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                DisposableEffect(Unit) {
+                    onDispose {
+                        webView?.apply {
+                            stopLoading()
+                            destroy()
+                        }
+                    }
+                }
+
+                if (!showOutline) {
+                    if (isLoading) {
+                        LoadingIndicator(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .align(Alignment.Center)
+                        )
+                    }
+
+                    error?.let { errorMsg ->
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ErrorOutline,
+                                contentDescription = "Error",
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = errorMsg,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
 
                 // Outline overlay
                 if (showOutline && outlineSections.isNotEmpty()) {
@@ -264,12 +368,21 @@ fun ContentScreen(
                         }
                     }
 
+                    // Scrim
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                            .clickable { viewModel.toggleOutline() }
+                    )
+
+                    // Outline panel
                     Column(
                         modifier = Modifier
-                            .width(220.dp)
+                            .width(260.dp)
                             .fillMaxHeight()
                             .align(Alignment.TopStart)
-                            .shadow(4.dp)
+                            .shadow(8.dp)
                             .background(MaterialTheme.colorScheme.surfaceContainerLow)
                     ) {
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -293,8 +406,10 @@ fun ContentScreen(
                                     is OutlineItem.Section -> {
                                         val section = item.section
                                         val isTopic = section.sectionType == SectionType.TOPIC
+                                        val isActive = section.id == activeSectionId
                                         Surface(
                                             onClick = {
+                                                viewModel.setActiveSection(section.id)
                                                 if (section.actionJson != null) {
                                                     viewModel.handleOutlineAction(section.actionJson)
                                                 } else {
@@ -304,7 +419,11 @@ fun ContentScreen(
                                                     )
                                                 }
                                             },
-                                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                            color = if (isActive) {
+                                                MaterialTheme.colorScheme.primaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceContainerLow
+                                            },
                                             shape = MaterialTheme.shapes.small
                                         ) {
                                             Row(
@@ -313,8 +432,8 @@ fun ContentScreen(
                                                     .padding(
                                                         start = (12 + section.depth * 16).dp,
                                                         end = 12.dp,
-                                                        top = 7.dp,
-                                                        bottom = 7.dp
+                                                        top = 10.dp,
+                                                        bottom = 10.dp
                                                     ),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
@@ -332,12 +451,13 @@ fun ContentScreen(
                                                 Text(
                                                     text = section.title,
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = when (section.sectionType) {
-                                                        SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
-                                                        SectionType.RELATED -> MaterialTheme.colorScheme.primary
-                                                        SectionType.TOPIC -> MaterialTheme.colorScheme.onSurface
+                                                    color = when {
+                                                        isActive -> MaterialTheme.colorScheme.onPrimaryContainer
+                                                        section.sectionType == SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
+                                                        section.sectionType == SectionType.RELATED -> MaterialTheme.colorScheme.primary
+                                                        else -> MaterialTheme.colorScheme.onSurface
                                                     },
-                                                    fontWeight = if (isTopic && section.depth == 0) FontWeight.Medium else FontWeight.Normal
+                                                    fontWeight = if (isTopic && section.depth == 0 || isActive) FontWeight.Medium else FontWeight.Normal
                                                 )
                                             }
                                         }

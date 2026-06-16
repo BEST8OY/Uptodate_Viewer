@@ -3,6 +3,9 @@ package com.uptodate.viewer.ui.navigation
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -16,6 +19,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation3.runtime.NavKey
@@ -89,25 +94,34 @@ fun NavGraph(
     }
 
     val topLevelBackStack = remember { TopLevelBackStack<Any>(TocRoute) }
+    val isOnContentScreen by remember {
+        derivedStateOf { topLevelBackStack.topLevelKey is ContentRoute }
+    }
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                topLevelRoutes.forEach { route ->
-                    val isSelected = route == topLevelBackStack.topLevelKey
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = {
-                            topLevelBackStack.addTopLevel(route)
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = route.icon,
-                                contentDescription = route.title
-                            )
-                        },
-                        label = { Text(route.title) }
-                    )
+            AnimatedVisibility(
+                visible = !isOnContentScreen,
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it })
+            ) {
+                NavigationBar {
+                    topLevelRoutes.forEach { route ->
+                        val isSelected = route == topLevelBackStack.topLevelKey
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = {
+                                topLevelBackStack.addTopLevel(route)
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = route.icon,
+                                    contentDescription = route.title
+                                )
+                            },
+                            label = { Text(route.title) }
+                        )
+                    }
                 }
             }
         }
