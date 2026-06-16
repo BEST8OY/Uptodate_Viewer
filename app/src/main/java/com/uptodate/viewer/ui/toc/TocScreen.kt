@@ -120,13 +120,9 @@ fun TocScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            SearchBar(
-                state = searchBarState,
-                inputField = inputField,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
+            SearchBar(state = searchBarState, inputField = inputField)
+
+            ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
                 LazyColumn {
                     if (suggestions.isNotEmpty()) {
                         items(suggestions) { suggestion ->
@@ -181,7 +177,6 @@ fun TocScreen(
                                 headlineContent = { Text(result.title) },
                                 modifier = Modifier.clickable {
                                     onTopicSelected(result.topicId)
-                                    expanded = false
                                 }
                             )
                         }

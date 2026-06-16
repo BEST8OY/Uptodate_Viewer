@@ -241,7 +241,7 @@ fun ContentScreen(
                 modifier = modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp)
-                    .imePadding()
+                    .then(if (showSearch) Modifier.imePadding() else Modifier)
             )
         }
     }
