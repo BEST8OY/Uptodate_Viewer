@@ -14,15 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.BottomSheet
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,98 +38,95 @@ import com.uptodate.viewer.R
 import com.uptodate.viewer.domain.GraphicData
 import kotlinx.coroutines.launch
 
-@SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun GraphicSheet(
     graphicData: GraphicData?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
-    if (graphicData == null) return
+    graphicData ?: return
 
     val colorScheme = MaterialTheme.colorScheme
-    val themeColors = remember(colorScheme) {
-        ThemeColors.fromColorScheme(colorScheme)
-    }
-    val graphicCss = remember(themeColors) {
-        CssBuilder(themeColors).graphicViewer()
-    }
+    val themeColors = remember(colorScheme) { ThemeColors.fromColorScheme(colorScheme) }
+    val graphicCss = remember(themeColors) { CssBuilder(themeColors).graphicViewer() }
 
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Expanded
-    )
-    val coroutineScope = rememberCoroutineScope()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
     var isLoading by remember(graphicData) { mutableStateOf(true) }
 
-    val fullHtml = remember(graphicData, graphicCss) {
-        var html = graphicData.imageHtml
+    val fullHtml = remember(graphicData, graphicCss) { buildGraphicHtml(graphicData, graphicCss) }
 
-        if (graphicData.base64Image != null) {
-            val newSrc = "data:image/png;base64,${graphicData.base64Image}"
-            html = html.replace(Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE), """src="$newSrc"""")
-        }
-
-        html = html.replace(
-            Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE),
-            """class="graphic_view""""
-        )
-
-        """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes">
-            <style>$graphicCss</style>
-        </head>
-        <body>$html</body>
-        </html>
-        """.trimIndent()
-    }
-
-    BottomSheet(
-        state = sheetState,
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        gesturesEnabled = false,
-        dragHandle = null
+        sheetState = sheetState,
+        dragHandle = null,
+        sheetGesturesEnabled = false,
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             IconButton(
                 onClick = {
-                    coroutineScope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                    }
+                    scope.launch { sheetState.hide() }
+                        .invokeOnCompletion { if (!sheetState.isVisible) onDismiss() }
                 },
-                modifier = Modifier.align(Alignment.CenterEnd)
+                modifier = Modifier.align(Alignment.CenterEnd),
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(id = R.string.close_sheet)
+                    contentDescription = stringResource(R.string.close_sheet),
                 )
             }
         }
+
         GraphicSheetContent(
             fullHtml = fullHtml,
             isLoading = isLoading,
             onLoadingFinished = { isLoading = false },
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(1f),
         )
     }
 }
 
+private fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
+    var html = graphicData.imageHtml
+
+    if (graphicData.base64Image != null) {
+        html = html.replace(
+            regex = Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE),
+            replacement = """src="data:image/png;base64,${graphicData.base64Image}"""",
+        )
+    }
+
+    html = html.replace(
+        regex = Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE),
+        replacement = """class="graphic_view"""",
+    )
+
+    return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes">
+            <style>$css</style>
+        </head>
+        <body>$html</body>
+        </html>
+    """.trimIndent()
+}
+
+@SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun GraphicSheetContent(
     fullHtml: String,
     isLoading: Boolean,
     onLoadingFinished: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val currentOnLoadingFinished by rememberUpdatedState(onLoadingFinished)
 
@@ -143,11 +139,13 @@ private fun GraphicSheetContent(
                             currentOnLoadingFinished()
                         }
                     }
-                    settings.javaScriptEnabled = true
-                    settings.allowFileAccess = true
-                    settings.setSupportZoom(true)
-                    settings.builtInZoomControls = true
-                    settings.displayZoomControls = false
+                    with(settings) {
+                        javaScriptEnabled = true
+                        allowFileAccess = true
+                        setSupportZoom(true)
+                        builtInZoomControls = true
+                        displayZoomControls = false
+                    }
                 }
             },
             update = { webView ->
@@ -156,24 +154,23 @@ private fun GraphicSheetContent(
                     webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            onRelease = { webView -> webView.destroy() },
+            modifier = Modifier.fillMaxSize(),
         )
 
         AnimatedVisibility(
             visible = isLoading,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
-                LoadingIndicator(
-                    modifier = Modifier.size(48.dp)
-                )
+                LoadingIndicator(modifier = Modifier.size(48.dp))
             }
         }
     }
