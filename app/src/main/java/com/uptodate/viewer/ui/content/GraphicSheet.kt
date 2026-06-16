@@ -4,22 +4,25 @@ import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.BottomSheet
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Scrim
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,9 +56,19 @@ fun GraphicSheet(
     )
     var isLoading by remember(graphicData) { mutableStateOf(true) }
 
-    ModalBottomSheet(
+    LaunchedEffect(Unit) {
+        sheetState.show()
+    }
+
+    Scrim(
+        onClick = onDismiss,
+        visible = sheetState.targetValue != SheetValue.Hidden
+    )
+
+    BottomSheet(
+        state = sheetState,
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
+        gesturesEnabled = false,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -74,62 +87,77 @@ fun GraphicSheet(
             }
         }
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            AndroidView(
-                factory = { context ->
-                    WebView(context).apply {
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                isLoading = false
-                            }
+        GraphicSheetContent(
+            graphicData = graphicData,
+            graphicCss = graphicCss,
+            isLoading = isLoading,
+            onLoadingFinished = { isLoading = false }
+        )
+    }
+}
+
+@Composable
+private fun ColumnScope.GraphicSheetContent(
+    graphicData: GraphicData,
+    graphicCss: String,
+    isLoading: Boolean,
+    onLoadingFinished: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .weight(1f)
+    ) {
+        AndroidView(
+            factory = { context ->
+                WebView(context).apply {
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            onLoadingFinished()
                         }
-                        settings.javaScriptEnabled = true
-                        settings.allowFileAccess = true
-                        settings.setSupportZoom(true)
-                        settings.builtInZoomControls = true
-                        settings.displayZoomControls = false
                     }
-                },
-                update = { webView ->
-                    var html = graphicData.imageHtml
+                    settings.javaScriptEnabled = true
+                    settings.allowFileAccess = true
+                    settings.setSupportZoom(true)
+                    settings.builtInZoomControls = true
+                    settings.displayZoomControls = false
+                }
+            },
+            update = { webView ->
+                var html = graphicData.imageHtml
 
-                    if (graphicData.base64Image != null) {
-                        val newSrc = "data:image/png;base64,${graphicData.base64Image}"
-                        html = html.replace(Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE), """src="$newSrc"""")
-                    }
+                if (graphicData.base64Image != null) {
+                    val newSrc = "data:image/png;base64,${graphicData.base64Image}"
+                    html = html.replace(Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE), """src="$newSrc"""")
+                }
 
-                    html = html.replace(
-                        Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE),
-                        """class="graphic_view"""
-                    )
-
-                    val fullHtml = """
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes">
-                        <style>$graphicCss</style>
-                    </head>
-                    <body>$html</body>
-                    </html>
-                    """.trimIndent()
-
-                    webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            if (isLoading) {
-                LoadingIndicator(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .align(Alignment.Center)
+                html = html.replace(
+                    Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE),
+                    """class="graphic_view"""
                 )
-            }
+
+                val fullHtml = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes">
+                    <style>$graphicCss</style>
+                </head>
+                <body>$html</body>
+                </html>
+                """.trimIndent()
+
+                webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (isLoading) {
+            LoadingIndicator(
+                modifier = Modifier
+                    .size(48.dp)
+                    .align(Alignment.Center)
+            )
         }
     }
 }
