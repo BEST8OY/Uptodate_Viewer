@@ -310,7 +310,7 @@ private fun ContentFloatingToolbar(
                 )
             }
         },
-        modifier = modifier,
+        modifier = modifier.fillMaxWidth(),
         colors = vibrantColors,
         content = {
             if (showSearch) {
@@ -319,6 +319,7 @@ private fun ContentFloatingToolbar(
                     onValueChange = onSearchQueryChange,
                     modifier = Modifier
                         .weight(1f)
+                        .height(48.dp)
                         .focusRequester(searchFocusRequester),
                     placeholder = { Text("Find in page") },
                     singleLine = true
