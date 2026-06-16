@@ -772,7 +772,6 @@ body {
     color: ${colors.text};
     background: ${colors.bg};
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
 }
 
 .graphic_view {
@@ -782,6 +781,11 @@ body {
     align-items: stretch;
 }
 .figure { margin: 0; text-align: center; }
+
+img {
+    max-width: 100%;
+    height: auto;
+}
 
 .ttl {
     font-size: 1.125rem;
