@@ -18,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scrim
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
@@ -60,11 +59,6 @@ fun GraphicSheet(
         sheetState.show()
     }
 
-    Scrim(
-        onClick = onDismiss,
-        visible = sheetState.targetValue != SheetValue.Hidden
-    )
-
     BottomSheet(
         state = sheetState,
         onDismissRequest = onDismiss,
@@ -96,6 +90,7 @@ fun GraphicSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ColumnScope.GraphicSheetContent(
     graphicData: GraphicData,

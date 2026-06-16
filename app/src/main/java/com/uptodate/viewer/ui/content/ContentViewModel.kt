@@ -293,6 +293,13 @@ class ContentViewModel @Inject constructor(
         _activeSectionId.value = sectionId
     }
 
+    fun resetNavigationHistory() {
+        _navigationHistory.value = emptyList()
+        _historyIndex.value = -1
+        _canGoBack.value = false
+        _canGoForward.value = false
+    }
+
     fun goBack() {
         val idx = _historyIndex.value
         if (idx > 0) {

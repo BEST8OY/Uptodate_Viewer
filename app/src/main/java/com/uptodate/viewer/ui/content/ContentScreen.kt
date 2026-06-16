@@ -80,6 +80,7 @@ fun ContentScreen(
 ) {
     // Load topic when screen appears
     LaunchedEffect(topicId) {
+        viewModel.resetNavigationHistory()
         viewModel.loadTopic(topicId)
     }
 
