@@ -27,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.uptodate.viewer.R
 import com.uptodate.viewer.domain.GraphicData
-import kotlinx.coroutines.launch
 
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -57,7 +55,8 @@ fun GraphicSheet(
     }
 
     val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Expanded
+        initialValue = SheetValue.Expanded,
+        confirmValueChange = { it != SheetValue.Hidden }
     )
     val coroutineScope = rememberCoroutineScope()
     var isLoading by remember(graphicData) { mutableStateOf(true) }
@@ -91,33 +90,30 @@ fun GraphicSheet(
         state = sheetState,
         onDismissRequest = onDismiss,
         gesturesEnabled = false,
-        dragHandle = null
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            GraphicSheetContent(
-                fullHtml = fullHtml,
-                isLoading = isLoading,
-                onLoadingFinished = { isLoading = false },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            IconButton(
-                onClick = {
-                    coroutineScope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                    }
-                },
+        dragHandle = {
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(id = R.string.close_sheet)
-                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(id = R.string.close_sheet)
+                    )
+                }
             }
         }
+    ) {
+        GraphicSheetContent(
+            fullHtml = fullHtml,
+            isLoading = isLoading,
+            onLoadingFinished = { isLoading = false },
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 

@@ -21,7 +21,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -155,6 +156,7 @@ fun ContentScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Content area
@@ -475,6 +477,9 @@ private fun HtmlContentWebView(
     AndroidView(
         factory = { context ->
             WebView(context).apply {
+                setOnApplyWindowInsetsListener { _, insets ->
+                    insets
+                }
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
