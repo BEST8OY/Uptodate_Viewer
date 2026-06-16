@@ -453,6 +453,7 @@ fun ContentScreen(
                     }
                 }
             }
+            } // Column
         }
 
         // Floating action toolbar
