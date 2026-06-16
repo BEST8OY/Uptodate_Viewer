@@ -65,9 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -75,7 +73,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import kotlinx.coroutines.delay
 
 private sealed class OutlineItem {
     data class Section(val section: OutlineSection) : OutlineItem()
@@ -118,13 +115,8 @@ fun ContentScreen(
     val activeSectionId by viewModel.activeSectionId.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    var showSearch by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var searchResultCount by remember { mutableStateOf(0) }
-    var searchResultIndex by remember { mutableStateOf(0) }
-    val searchFocusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
 
     // Scroll to section when requested
     LaunchedEffect(scrollToSection) {
@@ -134,21 +126,6 @@ fun ContentScreen(
                 null
             )
             viewModel.clearScrollToSection()
-        }
-    }
-
-    // Auto-focus search field when opened, with window focus reset
-    val windowInfo = LocalWindowInfo.current
-    val focusManager = LocalFocusManager.current
-
-    LaunchedEffect(windowInfo.isWindowFocused, showSearch) {
-        if (showSearch) {
-            if (windowInfo.isWindowFocused) {
-                focusManager.clearFocus()
-                delay(100)
-                searchFocusRequester.requestFocus()
-                keyboardController?.show()
-            }
         }
     }
 
@@ -212,49 +189,8 @@ fun ContentScreen(
                 }
             }
 
-            // Floating action toolbar
-            ContentFloatingToolbar(
-                showSearch = showSearch,
-                canGoBack = canGoBack,
-                canGoForward = canGoForward,
-                isFavorite = isFavorite,
-                outlineEnabled = outlineSections.isNotEmpty(),
-                searchQuery = searchQuery,
-                searchResultCount = searchResultCount,
-                searchResultIndex = searchResultIndex,
-                onBackClick = { viewModel.goBack() },
-                onForwardClick = { viewModel.goForward() },
-                onFavoriteClick = { viewModel.toggleFavorite() },
-                onOutlineClick = { viewModel.toggleOutline() },
-                onSearchClick = { showSearch = !showSearch },
-                onSearchQueryChange = {
-                    searchQuery = it
-                    searchResultIndex = 0
-                    webView?.findAllAsync(it)
-                },
-                onSearchPrevious = {
-                    if (searchResultCount > 0) {
-                        webView?.findNext(false)
-                        searchResultIndex = if (searchResultIndex > 0) searchResultIndex - 1 else searchResultCount - 1
-                    }
-                },
-                onSearchNext = {
-                    if (searchResultCount > 0) {
-                        webView?.findNext(true)
-                        searchResultIndex = if (searchResultIndex < searchResultCount - 1) searchResultIndex + 1 else 0
-                    }
-                },
-                onSearchClose = {
-                    showSearch = false
-                    searchQuery = ""
-                    searchResultIndex = 0
-                    webView?.clearMatches()
-                },
-                searchFocusRequester = searchFocusRequester,
-                modifier = modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 16.dp)
-            )
+            // Floating action toolbar - removed for testing
+            // ContentFloatingToolbar(...)
         }
     }
 
