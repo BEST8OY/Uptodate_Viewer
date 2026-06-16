@@ -290,36 +290,24 @@ private fun ContentFloatingToolbar(
     modifier: Modifier = Modifier
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
-    val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
-    HorizontalFloatingToolbar(
-        expanded = true,
-        floatingActionButton = {
-            FloatingToolbarDefaults.VibrantFloatingActionButton(
-                onClick = {
-                    if (showSearch) {
-                        onSearchClose()
-                        keyboardController?.hide()
-                    } else {
-                        onSearchClick()
-                    }
+    if (showSearch) {
+        HorizontalFloatingToolbar(
+            expanded = true,
+            modifier = modifier,
+            leadingContent = {
+                IconButton(onClick = {
+                    onSearchClose()
+                    keyboardController?.hide()
+                }) {
+                    Icon(Icons.Default.Close, contentDescription = "Close Search", modifier = Modifier.size(20.dp))
                 }
-            ) {
-                Icon(
-                    imageVector = if (showSearch) Icons.Default.Close else Icons.Default.Search,
-                    contentDescription = if (showSearch) "Close Search" else "Search"
-                )
-            }
-        },
-        modifier = modifier.fillMaxWidth(),
-        colors = vibrantColors,
-        content = {
-            if (showSearch) {
+            },
+            content = {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = onSearchQueryChange,
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
                         .focusRequester(searchFocusRequester),
                     placeholder = { Text("Find in page") },
                     singleLine = true
@@ -337,7 +325,22 @@ private fun ContentFloatingToolbar(
                 IconButton(onClick = onSearchNext, enabled = searchQuery.isNotEmpty()) {
                     Icon(Icons.Default.ArrowDropDown, contentDescription = "Find Next", modifier = Modifier.size(20.dp))
                 }
-            } else {
+            }
+        )
+    } else {
+        val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
+        HorizontalFloatingToolbar(
+            expanded = true,
+            floatingActionButton = {
+                FloatingToolbarDefaults.VibrantFloatingActionButton(
+                    onClick = onSearchClick
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = "Search")
+                }
+            },
+            modifier = modifier,
+            colors = vibrantColors,
+            content = {
                 IconButton(onClick = onBackClick, enabled = canGoBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
@@ -357,8 +360,8 @@ private fun ContentFloatingToolbar(
                     )
                 }
             }
-        }
-    )
+        )
+    }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
