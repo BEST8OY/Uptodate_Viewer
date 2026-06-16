@@ -779,14 +779,8 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 }
-.figure {
-    margin: 0;
-    text-align: center;
-    min-width: 0;
-}
+.figure { margin: 0; text-align: center; }
 
 .ttl {
     font-size: 1.125rem;
@@ -799,6 +793,8 @@ body {
 
 .cntnt {
     margin-bottom: 16px;
+    width: 100%;
+    max-width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -806,7 +802,7 @@ body {
 .cntnt img {
     display: block;
     margin: 0 auto;
-    max-width: none !important;
+    max-width: 100% !important;
     height: auto !important;
     border: 1px solid ${colors.border};
     border-radius: 4px;
@@ -815,6 +811,7 @@ body {
 /* Graphic Tables */
 .cntnt table {
     width: auto;
+    max-width: 100%;
     border-collapse: collapse;
     font-size: 0.875rem;
     border: 1px solid ${colors.border};
