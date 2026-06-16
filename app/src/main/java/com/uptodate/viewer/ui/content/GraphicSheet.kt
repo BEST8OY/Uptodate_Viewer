@@ -62,7 +62,7 @@ fun GraphicSheet(
         sheetState = sheetState,
         dragHandle = null,
         sheetGesturesEnabled = false,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
     ) {
         Box(
             modifier = Modifier
