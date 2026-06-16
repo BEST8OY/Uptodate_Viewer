@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -61,6 +62,7 @@ fun GraphicSheet(
         sheetState = sheetState,
         dragHandle = null,
         sheetGesturesEnabled = false,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) {
         Box(
             modifier = Modifier
