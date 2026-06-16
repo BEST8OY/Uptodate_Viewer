@@ -780,7 +780,7 @@ body {
     flex-direction: column;
     align-items: stretch;
 }
-.figure { margin: 0; text-align: center; }
+.figure { margin: 0; text-align: center; width: 100% !important; }
 
 img {
     max-width: 100%;
@@ -809,7 +809,7 @@ img {
 .cntnt img {
     display: block;
     margin: 0 auto;
-    max-width: 100% !important;
+    max-width: none;
     height: auto !important;
     border: 1px solid ${colors.border};
     border-radius: 4px;
