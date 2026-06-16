@@ -27,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,7 +58,6 @@ fun GraphicSheet(
         initialValue = SheetValue.Expanded,
         confirmValueChange = { it != SheetValue.Hidden }
     )
-    val coroutineScope = rememberCoroutineScope()
     var isLoading by remember(graphicData) { mutableStateOf(true) }
 
     val fullHtml = remember(graphicData, graphicCss) {
