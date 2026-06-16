@@ -128,6 +128,7 @@ fun GraphicSheet(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun GraphicSheetContent(
     fullHtml: String,
