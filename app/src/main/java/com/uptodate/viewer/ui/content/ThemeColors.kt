@@ -22,7 +22,11 @@ data class ThemeColors(
     val danger: String,
     val caution: String,
     val grade: String,
-    val selection: String
+    val selection: String,
+    val primaryContainer: String,
+    val onPrimaryContainer: String,
+    val tertiaryContainer: String,
+    val onTertiaryContainer: String
 ) {
     companion object {
         fun fromColorScheme(colorScheme: ColorScheme): ThemeColors {
@@ -74,7 +78,11 @@ data class ThemeColors(
                 danger = medicalColors.danger,
                 caution = medicalColors.caution,
                 grade = medicalColors.grade,
-                selection = selection
+                selection = selection,
+                primaryContainer = colorScheme.primaryContainer.toHexString(),
+                onPrimaryContainer = colorScheme.onPrimaryContainer.toHexString(),
+                tertiaryContainer = colorScheme.tertiaryContainer.toHexString(),
+                onTertiaryContainer = colorScheme.onTertiaryContainer.toHexString()
             )
         }
     }

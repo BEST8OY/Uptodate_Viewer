@@ -27,7 +27,7 @@ strong, b { font-weight: 600; }
 i, em { font-style: italic; }
 sup { font-size: 0.7em; vertical-align: super; }
 sub { font-size: 0.7em; vertical-align: sub; }
-img { max-width: 100%; height: auto; display: block; }
+img { max-width: 100% !important; height: auto !important; display: block; }
 
 .visuallyHidden, #formulinkBodyPlaceholder { display: none !important; }
 .view { display: none; }
@@ -39,6 +39,8 @@ img { max-width: 100%; height: auto; display: block; }
     max-width: 860px;
     margin: 0 auto;
     padding: 32px 40px 64px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 #topicWhatsNewContainer { margin: 16px 0; min-height: 4px; }
 #topicText { margin-top: 12px; }
@@ -300,8 +302,6 @@ table {
     margin: 20px 0;
     font-size: 0.9rem;
     border: 1px solid ${colors.border};
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 }
 
 th, td {
@@ -783,8 +783,8 @@ body {
 .figure { margin: 0; text-align: center; width: 100% !important; }
 
 img {
-    max-width: 100%;
-    height: auto;
+    max-width: 100% !important;
+    height: auto !important;
 }
 
 .ttl {
@@ -865,10 +865,10 @@ tr.border_bottom_thick td { border-bottom: 2px solid ${colors.borderEmphasis} !i
 tr.border_top_thick td { border-top: 2px solid ${colors.borderEmphasis} !important; }
 .border_right_thick { border-right: 2px solid ${colors.borderEmphasis} !important; }
 
-.highlight_blue_text { background: #e3f2fd !important; }
-.highlight_lght_orange_text { background: #fff3e0 !important; }
+.highlight_blue_text { background: ${colors.primaryContainer} !important; color: ${colors.onPrimaryContainer} !important; }
+.highlight_lght_orange_text { background: ${colors.tertiaryContainer} !important; color: ${colors.onTertiaryContainer} !important; }
 
-.subtitle2_left_white { background: #fff !important; color: ${colors.heading}; font-weight: 600; padding: 8px 12px; text-align: left; }
+.subtitle2_left_white { background: ${colors.surface} !important; color: ${colors.heading}; font-weight: 600; padding: 8px 12px; text-align: left; }
 
 .sublist1_start, .sublist1 {
     padding-left: 24px !important;

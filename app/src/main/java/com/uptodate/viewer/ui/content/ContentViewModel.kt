@@ -343,7 +343,11 @@ class ContentViewModel @Inject constructor(
             danger = "#e11d48",
             caution = "#d97706",
             grade = "#7c3aed",
-            selection = "#1976D2"
+            selection = "#1976D2",
+            primaryContainer = "#d1e4ff",
+            onPrimaryContainer = "#001d36",
+            tertiaryContainer = "#f3deff",
+            onTertiaryContainer = "#31004a"
         )
         val builder = CssBuilder(colors)
         return builder.build(
