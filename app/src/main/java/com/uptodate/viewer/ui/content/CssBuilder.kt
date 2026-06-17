@@ -809,7 +809,7 @@ img {
 .cntnt img {
     display: block;
     margin: 0 auto;
-    max-width: none;
+    max-width: 100% !important;
     height: auto !important;
     border: 1px solid ${colors.border};
     border-radius: 4px;
