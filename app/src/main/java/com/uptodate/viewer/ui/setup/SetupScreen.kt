@@ -31,7 +31,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 private const val DEFAULT_DB_PATH = "/storage/emulated/0/UpToDateDB"
 
@@ -54,9 +54,9 @@ fun SetupScreen(
     onSetupComplete: () -> Unit,
     viewModel: SetupViewModel = hiltViewModel()
 ) {
-    val isConfigured by viewModel.isConfigured.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val isValidating by viewModel.isValidating.collectAsState()
+    val isConfigured by viewModel.isConfigured.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val isValidating by viewModel.isValidating.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var navigated by remember { mutableStateOf(false) }
 

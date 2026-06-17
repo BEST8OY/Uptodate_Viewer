@@ -1,12 +1,12 @@
 package com.uptodate.viewer.ui.history
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -24,14 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.uptodate.viewer.domain.HistoryEntry
 import com.uptodate.viewer.util.formatTimestamp
 
@@ -39,11 +37,13 @@ import com.uptodate.viewer.util.formatTimestamp
 @Composable
 fun HistoryScreen(
     onTopicSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: HistoryViewModel = hiltViewModel()
 ) {
-    val history by viewModel.history.collectAsState()
+    val history by viewModel.history.collectAsStateWithLifecycle()
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("History") },
@@ -96,7 +96,8 @@ fun HistoryScreen(
                     HistoryItem(
                         entry = entry,
                         onTopicSelected = { onTopicSelected(entry.topicId) },
-                        onSwipeToDelete = { viewModel.removeHistory(entry.topicId) }
+                        onSwipeToDelete = { viewModel.removeHistory(entry.topicId) },
+                        modifier = Modifier.animateItem()
                     )
                 }
             }
@@ -109,20 +110,22 @@ fun HistoryScreen(
 private fun HistoryItem(
     entry: HistoryEntry,
     onTopicSelected: () -> Unit,
-    onSwipeToDelete: () -> Unit
+    onSwipeToDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val dismissState = rememberSwipeToDismissBoxState()
-
-    LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-            onSwipeToDelete()
-            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = {
+            if (it == SwipeToDismissBoxValue.EndToStart) {
+                onSwipeToDelete()
+            }
+            false
         }
-    }
+    )
 
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
+        modifier = modifier,
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -130,7 +133,7 @@ private fun HistoryItem(
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
-                if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                     Icon(
                         imageVector = Icons.Default.DeleteSweep,
                         contentDescription = "Delete",
@@ -141,6 +144,7 @@ private fun HistoryItem(
         }
     ) {
         ListItem(
+            onClick = onTopicSelected,
             headlineContent = { Text(entry.title) },
             supportingContent = {
                 Text(
@@ -148,10 +152,7 @@ private fun HistoryItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            },
-            modifier = Modifier.clickable { onTopicSelected() }
+            }
         )
     }
 }
-
-

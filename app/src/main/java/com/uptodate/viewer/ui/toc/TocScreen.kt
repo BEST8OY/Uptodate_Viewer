@@ -293,7 +293,11 @@ fun TocScreen(
                     }
                 }
                 else -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 80.dp)
+                    ) {
                         items(
                             items = visibleTocItems,
                             key = { (item, _) -> item.id }

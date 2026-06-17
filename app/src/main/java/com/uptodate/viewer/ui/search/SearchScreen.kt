@@ -27,7 +27,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,8 +45,8 @@ fun SearchScreen(
     onTopicSelected: (String) -> Unit,
     viewModel: SearchViewModel = hiltViewModel()
 ) {
-    val suggestions by viewModel.suggestions.collectAsState()
-    val searchResults by viewModel.searchResults.collectAsState()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
+    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
     var hasSearched by remember { mutableStateOf(false) }

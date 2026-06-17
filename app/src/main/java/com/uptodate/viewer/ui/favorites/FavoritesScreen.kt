@@ -1,6 +1,5 @@
 package com.uptodate.viewer.ui.favorites
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -25,13 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.uptodate.viewer.domain.FavoriteEntry
 import com.uptodate.viewer.util.formatTimestamp
 
@@ -39,11 +37,13 @@ import com.uptodate.viewer.util.formatTimestamp
 @Composable
 fun FavoritesScreen(
     onTopicSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: FavoritesViewModel = hiltViewModel()
 ) {
-    val favorites by viewModel.favorites.collectAsState()
+    val favorites by viewModel.favorites.collectAsStateWithLifecycle()
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("Favorites") }
@@ -92,7 +92,8 @@ fun FavoritesScreen(
                     FavoriteItem(
                         entry = entry,
                         onTopicSelected = { onTopicSelected(entry.topicId) },
-                        onSwipeToRemove = { viewModel.removeFavorite(entry.topicId) }
+                        onSwipeToRemove = { viewModel.removeFavorite(entry.topicId) },
+                        modifier = Modifier.animateItem()
                     )
                 }
             }
@@ -105,20 +106,22 @@ fun FavoritesScreen(
 private fun FavoriteItem(
     entry: FavoriteEntry,
     onTopicSelected: () -> Unit,
-    onSwipeToRemove: () -> Unit
+    onSwipeToRemove: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val dismissState = rememberSwipeToDismissBoxState()
-
-    LaunchedEffect(dismissState.currentValue) {
-        if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
-            onSwipeToRemove()
-            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = {
+            if (it == SwipeToDismissBoxValue.EndToStart) {
+                onSwipeToRemove()
+            }
+            false
         }
-    }
+    )
 
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
+        modifier = modifier,
         backgroundContent = {
             Box(
                 modifier = Modifier
@@ -126,7 +129,7 @@ private fun FavoriteItem(
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterEnd
             ) {
-                if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                     Icon(
                         imageVector = Icons.Default.DeleteSweep,
                         contentDescription = "Remove from favorites",
@@ -137,6 +140,7 @@ private fun FavoriteItem(
         }
     ) {
         ListItem(
+            onClick = onTopicSelected,
             headlineContent = { Text(entry.title) },
             leadingContent = {
                 Icon(
@@ -152,10 +156,7 @@ private fun FavoriteItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            },
-            modifier = Modifier.clickable { onTopicSelected() }
+            }
         )
     }
 }
-
-
