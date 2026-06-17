@@ -3,6 +3,7 @@ package com.uptodate.viewer.ui.content
 import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -19,14 +20,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -55,9 +56,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,7 +67,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -76,6 +74,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 
 private sealed class OutlineItem {
@@ -93,31 +92,29 @@ fun ContentScreen(
     viewModel: ContentViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
-    // Load topic when screen appears
     LaunchedEffect(topicId) {
         viewModel.resetNavigationHistory()
         viewModel.loadTopic(topicId)
     }
 
-    // Set theme colors for CSS generation
     val colorScheme = MaterialTheme.colorScheme
     LaunchedEffect(colorScheme) {
         viewModel.setThemeColors(ThemeColors.fromColorScheme(colorScheme))
     }
 
-    val processedHtml by viewModel.processedHtml.collectAsState()
-    val isFavorite by viewModel.isFavorite.collectAsState()
-    val showOutline by viewModel.showOutline.collectAsState()
-    val outlineSections by viewModel.outlineSections.collectAsState()
-    val graphicDialog by viewModel.graphicDialog.collectAsState()
-    val contributorsDialog by viewModel.contributorsDialog.collectAsState()
-    val scrollToSection by viewModel.scrollToSection.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val canGoBack by viewModel.canGoBack.collectAsState()
-    val canGoForward by viewModel.canGoForward.collectAsState()
-    val articleTitle by viewModel.articleTitle.collectAsState()
-    val activeSectionId by viewModel.activeSectionId.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val processedHtml by viewModel.processedHtml.collectAsStateWithLifecycle()
+    val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+    val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
+    val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
+    val graphicDialog by viewModel.graphicDialog.collectAsStateWithLifecycle()
+    val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
+    val scrollToSection by viewModel.scrollToSection.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
+    val canGoForward by viewModel.canGoForward.collectAsStateWithLifecycle()
+    val articleTitle by viewModel.articleTitle.collectAsStateWithLifecycle()
+    val activeSectionId by viewModel.activeSectionId.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
 
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -126,8 +123,16 @@ fun ContentScreen(
     var searchResultIndex by remember { mutableStateOf(0) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
-    // Scroll to section when requested
+    BackHandler(enabled = showOutline || canGoBack) {
+        if (showOutline) {
+            viewModel.toggleOutline()
+        } else {
+            viewModel.goBack()
+        }
+    }
+
     LaunchedEffect(scrollToSection) {
         scrollToSection?.let { section ->
             webView?.evaluateJavascript(
@@ -138,18 +143,12 @@ fun ContentScreen(
         }
     }
 
-    // Auto-focus search field when opened, with window focus reset
-    val windowInfo = LocalWindowInfo.current
-    val focusManager = LocalFocusManager.current
-
-    LaunchedEffect(windowInfo.isWindowFocused, showSearch) {
+    LaunchedEffect(showSearch) {
         if (showSearch) {
-            if (windowInfo.isWindowFocused) {
-                focusManager.clearFocus()
-                delay(100)
-                searchFocusRequester.requestFocus()
-                keyboardController?.show()
-            }
+            focusManager.clearFocus()
+            delay(80)
+            searchFocusRequester.requestFocus()
+            keyboardController?.show()
         }
     }
 
@@ -160,7 +159,6 @@ fun ContentScreen(
                 onBackClick = onBack
             )
         }
-
     ) { padding ->
         Box(
             modifier = Modifier
@@ -168,7 +166,6 @@ fun ContentScreen(
                 .padding(padding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Content area
                 Box(modifier = Modifier.weight(1f)) {
                     HtmlContentWebView(
                         processedHtml = processedHtml,
@@ -193,7 +190,6 @@ fun ContentScreen(
                         }
                     }
 
-                    // Outline overlay
                     OutlineOverlay(
                         showOutline = showOutline,
                         outlineSections = outlineSections,
@@ -214,7 +210,6 @@ fun ContentScreen(
                 }
             }
 
-            // Floating action toolbar
             ContentFloatingToolbar(
                 showSearch = showSearch,
                 canGoBack = canGoBack,
@@ -256,11 +251,11 @@ fun ContentScreen(
                 modifier = modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp)
+                    .imePadding()
             )
         }
     }
 
-    // Graphic dialog
     graphicDialog?.let { data ->
         GraphicSheet(
             graphicData = data,
@@ -268,7 +263,6 @@ fun ContentScreen(
         )
     }
 
-    // Contributors dialog
     contributorsDialog?.let { data ->
         ContributorsDialog(
             contributors = data,
@@ -481,8 +475,6 @@ private fun HtmlContentWebView(
     onWebViewCreated: (WebView) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-
     AndroidView(
         factory = { context ->
             WebView(context).apply {
@@ -527,7 +519,6 @@ private fun HtmlContentWebView(
                     },
                     "Android"
                 )
-                webViewRef = this
                 onWebViewCreated(this)
             }
         },
@@ -536,17 +527,12 @@ private fun HtmlContentWebView(
                 wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
             }
         },
+        onRelease = { wv ->
+            wv.stopLoading()
+            wv.destroy()
+        },
         modifier = modifier
     )
-
-    DisposableEffect(Unit) {
-        onDispose {
-            webViewRef?.apply {
-                stopLoading()
-                destroy()
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -638,7 +624,6 @@ private fun OutlineOverlay(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Scrim
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -646,7 +631,6 @@ private fun OutlineOverlay(
                 .clickable { onDismiss() }
         )
 
-        // Outline panel
         Column(
             modifier = Modifier
                 .width(260.dp)
@@ -655,7 +639,16 @@ private fun OutlineOverlay(
                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(displayItems) { item ->
+                itemsIndexed(
+                    items = displayItems,
+                    key = { index, item ->
+                        when (item) {
+                            is OutlineItem.Section -> "section_${item.section.id}"
+                            is OutlineItem.GroupHeader -> "header_${item.title}_$index"
+                            is OutlineItem.Spacer -> "spacer_${item.dp}_$index"
+                        }
+                    }
+                ) { _, item ->
                     when (item) {
                         is OutlineItem.Spacer -> {
                             Spacer(modifier = Modifier.height(item.dp.dp))
