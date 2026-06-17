@@ -139,6 +139,7 @@ class SearchDao @Inject constructor(
                 SELECT Text as title, URL as topic_id
                 FROM search
                 WHERE search MATCH ?
+                ORDER BY rank(matchinfo(search)) DESC
                 LIMIT 20
                 """,
                 arrayOf(ftsQuery)
@@ -155,7 +156,30 @@ class SearchDao @Inject constructor(
                 results
             }
         } catch (_: Exception) {
-            emptyList()
+            try {
+                val cursor = db.rawQuery(
+                    """
+                    SELECT Text as title, URL as topic_id
+                    FROM search
+                    WHERE search MATCH ?
+                    LIMIT 20
+                    """,
+                    arrayOf(ftsQuery)
+                )
+
+                cursor.use {
+                    val results = mutableListOf<Map<String, String>>()
+                    while (it.moveToNext()) {
+                        results.add(mapOf(
+                            "topic_id" to it.getString(1),
+                            "title" to it.getString(0)
+                        ))
+                    }
+                    results
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
         }
     }
 }

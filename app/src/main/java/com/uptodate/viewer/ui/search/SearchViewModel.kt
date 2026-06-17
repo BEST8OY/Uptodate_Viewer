@@ -2,6 +2,7 @@ package com.uptodate.viewer.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.uptodate.viewer.domain.Audience
 import com.uptodate.viewer.domain.SearchResult
 import com.uptodate.viewer.repository.SearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,10 +24,15 @@ class SearchViewModel @Inject constructor(
     private val _searchResults = MutableStateFlow<List<SearchResult>>(emptyList())
     val searchResults: StateFlow<List<SearchResult>> = _searchResults
 
+    private val _selectedAudience = MutableStateFlow(Audience.ALL)
+    val selectedAudience: StateFlow<Audience> = _selectedAudience
+
     private var searchJob: Job? = null
+    private var lastQuery: String = ""
 
     fun onQueryChanged(query: String) {
         searchJob?.cancel()
+        lastQuery = query
         if (query.length > 2) {
             searchJob = viewModelScope.launch {
                 delay(300)
@@ -38,9 +44,17 @@ class SearchViewModel @Inject constructor(
     }
 
     fun search(query: String) {
+        lastQuery = query
         viewModelScope.launch {
-            _searchResults.value = searchRepository.searchTopics(query)
+            _searchResults.value = searchRepository.searchTopics(query, _selectedAudience.value)
             _suggestions.value = emptyList()
+        }
+    }
+
+    fun onAudienceChanged(audience: Audience) {
+        _selectedAudience.value = audience
+        if (lastQuery.isNotEmpty()) {
+            search(lastQuery)
         }
     }
 

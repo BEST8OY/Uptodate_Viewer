@@ -1,8 +1,11 @@
 package com.uptodate.viewer.ui.toc
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +30,7 @@ import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExpandedFullScreenSearchBar
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -57,11 +61,12 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.uptodate.viewer.domain.Audience
 import com.uptodate.viewer.domain.TocItem
 import com.uptodate.viewer.ui.search.SearchViewModel
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun TocScreen(
     onTopicSelected: (String) -> Unit,
@@ -76,6 +81,7 @@ fun TocScreen(
 
     val suggestions by searchViewModel.suggestions.collectAsStateWithLifecycle()
     val searchResults by searchViewModel.searchResults.collectAsStateWithLifecycle()
+    val selectedAudience by searchViewModel.selectedAudience.collectAsStateWithLifecycle()
 
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
@@ -84,12 +90,13 @@ fun TocScreen(
 
     val visibleTocItems by remember(tocItems, expandedIds) {
         derivedStateOf {
-            fun flatten(items: List<TocItem>, level: Int): List<Pair<TocItem, Int>> {
-                val list = mutableListOf<Pair<TocItem, Int>>()
+            fun flatten(items: List<TocItem>, level: Int, parentPath: String = ""): List<Triple<TocItem, Int, String>> {
+                val list = mutableListOf<Triple<TocItem, Int, String>>()
                 for (item in items) {
-                    list.add(item to level)
+                    val key = if (parentPath.isEmpty()) item.id else "${parentPath}/${item.id}"
+                    list.add(Triple(item, level, key))
                     if (item.id in expandedIds && item.childrenInfo != null) {
-                        list.addAll(flatten(item.childrenInfo, level + 1))
+                        list.addAll(flatten(item.childrenInfo, level + 1, key))
                     }
                 }
                 return list
@@ -174,6 +181,23 @@ fun TocScreen(
 
             ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        FlowRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Audience.entries.forEach { audience ->
+                                FilterChip(
+                                    selected = selectedAudience == audience,
+                                    onClick = { searchViewModel.onAudienceChanged(audience) },
+                                    label = { Text(audience.label) }
+                                )
+                            }
+                        }
+                    }
+
                     if (suggestions.isNotEmpty()) {
                         items(suggestions) { suggestion ->
                             ListItem(
@@ -300,8 +324,8 @@ fun TocScreen(
                     ) {
                         items(
                             items = visibleTocItems,
-                            key = { (item, _) -> item.id }
-                        ) { (item, level) ->
+                            key = { (_, _, uniqueKey) -> uniqueKey }
+                        ) { (item, level, _) ->
                             TocItemRow(
                                 item = item,
                                 level = level,

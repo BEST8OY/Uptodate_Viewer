@@ -1,10 +1,14 @@
 package com.uptodate.viewer.ui.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,6 +21,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExpandedFullScreenSearchBar
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -38,8 +43,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.uptodate.viewer.domain.Audience
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     onTopicSelected: (String) -> Unit,
@@ -47,6 +53,7 @@ fun SearchScreen(
 ) {
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val selectedAudience by viewModel.selectedAudience.collectAsStateWithLifecycle()
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
     var hasSearched by remember { mutableStateOf(false) }
@@ -94,6 +101,23 @@ fun SearchScreen(
 
         ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
             LazyColumn(modifier = Modifier.padding(bottom = 80.dp)) {
+                item {
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Audience.entries.forEach { audience ->
+                            FilterChip(
+                                selected = selectedAudience == audience,
+                                onClick = { viewModel.onAudienceChanged(audience) },
+                                label = { Text(audience.label) }
+                            )
+                        }
+                    }
+                }
+
                 if (suggestions.isNotEmpty()) {
                     items(suggestions) { suggestion ->
                         ListItem(
