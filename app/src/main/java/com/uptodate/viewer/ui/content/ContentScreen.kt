@@ -489,6 +489,8 @@ private fun HtmlContentWebView(
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
+    var currentTopicId by remember { mutableStateOf(topicId) }
+    currentTopicId = topicId
 
     AndroidView(
         factory = { context ->
@@ -498,6 +500,14 @@ private fun HtmlContentWebView(
                     insets
                 }
                 webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        val savedScrollY = ContentViewModel.getScrollPosition(currentTopicId)
+                        if (savedScrollY > 0) {
+                            view?.scrollTo(0, savedScrollY)
+                        }
+                    }
+
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
                         request: android.webkit.WebResourceRequest?
@@ -541,12 +551,6 @@ private fun HtmlContentWebView(
         update = { wv ->
             processedHtml?.let { html ->
                 wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
-                val savedScrollY = ContentViewModel.getScrollPosition(topicId)
-                if (savedScrollY > 0) {
-                    wv.post {
-                        wv.scrollTo(0, savedScrollY)
-                    }
-                }
             }
         },
         onRelease = { wv ->
