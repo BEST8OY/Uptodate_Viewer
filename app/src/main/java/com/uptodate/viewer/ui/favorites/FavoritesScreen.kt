@@ -1,5 +1,6 @@
 package com.uptodate.viewer.ui.favorites
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -137,26 +138,27 @@ private fun FavoriteItem(
                     )
                 }
             }
+        },
+        content = {
+            ListItem(
+                headlineContent = { Text(entry.title) },
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = "Favorited",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = formatTimestamp(entry.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                modifier = Modifier.clickable { onTopicSelected() }
+            )
         }
-    ) {
-        ListItem(
-            onClick = onTopicSelected,
-            headlineContent = { Text(entry.title) },
-            leadingContent = {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = "Favorited",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            },
-            supportingContent = {
-                Text(
-                    text = formatTimestamp(entry.timestamp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        )
-    }
+    )
 }

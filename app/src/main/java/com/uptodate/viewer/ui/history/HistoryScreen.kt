@@ -1,5 +1,6 @@
 package com.uptodate.viewer.ui.history
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -141,18 +142,19 @@ private fun HistoryItem(
                     )
                 }
             }
+        },
+        content = {
+            ListItem(
+                headlineContent = { Text(entry.title) },
+                supportingContent = {
+                    Text(
+                        text = formatTimestamp(entry.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                modifier = Modifier.clickable { onTopicSelected() }
+            )
         }
-    ) {
-        ListItem(
-            onClick = onTopicSelected,
-            headlineContent = { Text(entry.title) },
-            supportingContent = {
-                Text(
-                    text = formatTimestamp(entry.timestamp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        )
-    }
+    )
 }
