@@ -47,12 +47,14 @@ class TocDao @Inject constructor(
     }
 
     private fun processChildren(children: kotlinx.serialization.json.JsonArray): List<TocItem> {
-        return children.map { child ->
+        return children.mapIndexed { index, child ->
             val obj = child.jsonObject
             val type = obj["type"]?.jsonPrimitive?.content
+            val rawId = obj["id"]?.jsonPrimitive?.content
+            val title = obj["title"]?.jsonPrimitive?.content ?: ""
             TocItem(
-                id = obj["id"]?.jsonPrimitive?.content ?: "",
-                title = obj["title"]?.jsonPrimitive?.content ?: "",
+                id = rawId ?: "${type}_${index}_$title",
+                title = title,
                 isLeaf = type == "TOPIC",
                 type = type,
                 childrenInfo = obj["childrenInfo"]?.jsonArray?.let { processChildren(it) }
