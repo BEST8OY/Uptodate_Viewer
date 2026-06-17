@@ -53,6 +53,12 @@ class FavoriteRepository @Inject constructor(
         }
     }
 
+    suspend fun clearAll() {
+        context.favoritesDataStore.edit { prefs ->
+            prefs[favoritesKey] = "[]"
+        }
+    }
+
     suspend fun isFavorite(topicId: String): Boolean {
         val normalizedId = topicId.removePrefix("topic-")
         return favorites.first().any { it.topicId == normalizedId }
