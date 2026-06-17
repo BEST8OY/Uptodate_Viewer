@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
@@ -32,6 +33,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -57,6 +59,28 @@ fun HistoryScreen(
     val history by viewModel.history.collectAsStateWithLifecycle()
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedIds.isNotEmpty()
+    var showClearAllDialog by remember { mutableStateOf(false) }
+
+    if (showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllDialog = false },
+            title = { Text("Clear all history?") },
+            text = { Text("This will remove all items from your history.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearHistory()
+                    showClearAllDialog = false
+                }) {
+                    Text("Clear all")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         modifier = modifier,
@@ -65,7 +89,7 @@ fun HistoryScreen(
                 title = { Text(if (isSelectionMode) "${selectedIds.size} selected" else "History") },
                 actions = {
                     if (!isSelectionMode && history.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.clearHistory() }) {
+                        IconButton(onClick = { showClearAllDialog = true }) {
                             Icon(
                                 Icons.Default.DeleteSweep,
                                 contentDescription = "Clear all history"

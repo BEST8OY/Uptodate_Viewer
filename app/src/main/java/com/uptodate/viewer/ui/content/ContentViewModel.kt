@@ -30,6 +30,16 @@ class ContentViewModel @Inject constructor(
     private val assetRepository: AssetRepository
 ) : ViewModel() {
 
+    companion object {
+        private val scrollPositions = mutableMapOf<String, Int>()
+
+        fun saveScrollPosition(topicId: String, scrollY: Int) {
+            scrollPositions[topicId] = scrollY
+        }
+
+        fun getScrollPosition(topicId: String): Int = scrollPositions[topicId] ?: 0
+    }
+
     private var _themeColors: ThemeColors? = null
     private var _rawHtml: String? = null
     private var currentLoadJob: Job? = null
@@ -183,6 +193,13 @@ class ContentViewModel @Inject constructor(
             _isFavorite.value = favoriteRepository.isFavorite(topicId)
             _isLoading.value = false
             updateNavigationState()
+        }
+    }
+
+    fun saveScrollPositionToHistory(scrollY: Int) {
+        val topicId = _currentTopicId.value ?: return
+        viewModelScope.launch {
+            historyRepository.updateScrollPosition(topicId, scrollY)
         }
     }
 

@@ -13,7 +13,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -43,7 +42,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Surface
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,10 +51,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -126,6 +127,15 @@ fun ContentScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
+    DisposableEffect(topicId) {
+        onDispose {
+            webView?.scrollY?.let { scrollY ->
+                ContentViewModel.saveScrollPosition(topicId, scrollY)
+                viewModel.saveScrollPositionToHistory(scrollY)
+            }
+        }
+    }
+
     BackHandler(enabled = showOutline || canGoBack) {
         if (showOutline) {
             viewModel.toggleOutline()
@@ -170,6 +180,7 @@ fun ContentScreen(
                 Box(modifier = Modifier.weight(1f)) {
                     HtmlContentWebView(
                         processedHtml = processedHtml,
+                        topicId = topicId,
                         onAction = { viewModel.handleAction(it) },
                         onFindResult = { searchResultCount = it },
                         onWebViewCreated = { webView = it },
@@ -471,6 +482,7 @@ private fun ContentFloatingToolbar(
 @Composable
 private fun HtmlContentWebView(
     processedHtml: String?,
+    topicId: String,
     onAction: (String) -> Unit,
     onFindResult: (Int) -> Unit,
     onWebViewCreated: (WebView) -> Unit,
@@ -529,6 +541,12 @@ private fun HtmlContentWebView(
         update = { wv ->
             processedHtml?.let { html ->
                 wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+                val savedScrollY = ContentViewModel.getScrollPosition(topicId)
+                if (savedScrollY > 0) {
+                    wv.post {
+                        wv.scrollTo(0, savedScrollY)
+                    }
+                }
             }
         },
         onRelease = { wv ->
@@ -574,6 +592,7 @@ private fun ContentErrorView(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OutlineOverlay(
     showOutline: Boolean,
@@ -627,95 +646,92 @@ private fun OutlineOverlay(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
-                .clickable { onDismiss() }
-        )
+    val sheetState = rememberModalBottomSheetState()
 
-        Column(
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        LazyColumn(
             modifier = Modifier
-                .width(260.dp)
-                .fillMaxHeight()
-                .shadow(8.dp)
-                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .fillMaxWidth()
+                .padding(bottom = 16.dp)
         ) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                itemsIndexed(
-                    items = displayItems,
-                    key = { index, item ->
-                        when (item) {
-                            is OutlineItem.Section -> "section_${item.section.id}"
-                            is OutlineItem.GroupHeader -> "header_${item.title}_$index"
-                            is OutlineItem.Spacer -> "spacer_${item.dp}_$index"
-                        }
-                    }
-                ) { _, item ->
+            itemsIndexed(
+                items = displayItems,
+                key = { index, item ->
                     when (item) {
-                        is OutlineItem.Spacer -> {
-                            Spacer(modifier = Modifier.height(item.dp.dp))
-                        }
-                        is OutlineItem.GroupHeader -> {
-                            Text(
-                                text = item.title.uppercase(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(
-                                    start = if (item.indented) 28.dp else 16.dp,
-                                    top = 12.dp,
-                                    bottom = 6.dp
-                                )
+                        is OutlineItem.Section -> "section_${item.section.id}"
+                        is OutlineItem.GroupHeader -> "header_${item.title}_$index"
+                        is OutlineItem.Spacer -> "spacer_${item.dp}_$index"
+                    }
+                }
+            ) { _, item ->
+                when (item) {
+                    is OutlineItem.Spacer -> {
+                        Spacer(modifier = Modifier.height(item.dp.dp))
+                    }
+                    is OutlineItem.GroupHeader -> {
+                        Text(
+                            text = item.title.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(
+                                start = if (item.indented) 28.dp else 16.dp,
+                                top = 12.dp,
+                                bottom = 6.dp
                             )
-                        }
-                        is OutlineItem.Section -> {
-                            val section = item.section
-                            val isTopic = section.sectionType == SectionType.TOPIC
-                            val isActive = section.id == activeSectionId
-                            Surface(
-                                onClick = { onSectionClick(section) },
-                                color = if (isActive) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceContainerLow
-                                },
-                                shape = MaterialTheme.shapes.small
+                        )
+                    }
+                    is OutlineItem.Section -> {
+                        val section = item.section
+                        val isTopic = section.sectionType == SectionType.TOPIC
+                        val isActive = section.id == activeSectionId
+                        Surface(
+                            onClick = {
+                                onSectionClick(section)
+                                onDismiss()
+                            },
+                            color = if (isActive) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerLow
+                            },
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = (12 + section.depth * 16).dp,
+                                        end = 12.dp,
+                                        top = 10.dp,
+                                        bottom = 10.dp
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(
-                                            start = (12 + section.depth * 16).dp,
-                                            end = 12.dp,
-                                            top = 10.dp,
-                                            bottom = 10.dp
-                                        ),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (isTopic && section.depth == 0) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(4.dp)
-                                                .background(
-                                                    MaterialTheme.colorScheme.primary,
-                                                    MaterialTheme.shapes.extraSmall
-                                                )
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                    }
-                                    Text(
-                                        text = section.title,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = when {
-                                            isActive -> MaterialTheme.colorScheme.onPrimaryContainer
-                                            section.sectionType == SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
-                                            section.sectionType == SectionType.RELATED -> MaterialTheme.colorScheme.primary
-                                            else -> MaterialTheme.colorScheme.onSurface
-                                        },
-                                        fontWeight = if ((isTopic && section.depth == 0) || isActive) FontWeight.Medium else FontWeight.Normal
+                                if (isTopic && section.depth == 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(4.dp)
+                                            .background(
+                                                MaterialTheme.colorScheme.primary,
+                                                MaterialTheme.shapes.extraSmall
+                                            )
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                 }
+                                Text(
+                                    text = section.title,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = when {
+                                        isActive -> MaterialTheme.colorScheme.onPrimaryContainer
+                                        section.sectionType == SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
+                                        section.sectionType == SectionType.RELATED -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    },
+                                    fontWeight = if ((isTopic && section.depth == 0) || isActive) FontWeight.Medium else FontWeight.Normal
+                                )
                             }
                         }
                     }

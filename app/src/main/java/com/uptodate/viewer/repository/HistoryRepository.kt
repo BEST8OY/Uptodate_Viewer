@@ -43,6 +43,17 @@ class HistoryRepository @Inject constructor(
         }
     }
 
+    suspend fun updateScrollPosition(topicId: String, scrollPosition: Int) {
+        context.historyDataStore.edit { prefs ->
+            val current = getHistory(prefs)
+            val normalizedId = topicId.removePrefix("topic-")
+            val updated = current.map { entry ->
+                if (entry.topicId == normalizedId) entry.copy(scrollPosition = scrollPosition) else entry
+            }
+            prefs[historyKey] = json.encodeToString(updated)
+        }
+    }
+
     suspend fun remove(topicId: String) {
         context.historyDataStore.edit { prefs ->
             val current = getHistory(prefs)
