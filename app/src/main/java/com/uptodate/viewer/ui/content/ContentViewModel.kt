@@ -125,6 +125,20 @@ class ContentViewModel @Inject constructor(
             _error.value = null
             _currentTopicId.value = topicId
 
+            if (topicId.startsWith("Graphic-")) {
+                val graphicId = topicId.removePrefix("Graphic-")
+                val graphic = assetRepository.getGraphic(graphicId)
+                if (graphic != null) {
+                    _graphicDialog.value = graphic
+                    _articleTitle.value = graphic.title
+                    _isLoading.value = false
+                } else {
+                    _error.value = "Graphic not found"
+                    _isLoading.value = false
+                }
+                return@launch
+            }
+
             val content = try {
                 contentRepository.getTopicContent(topicId)
             } catch (e: Exception) {

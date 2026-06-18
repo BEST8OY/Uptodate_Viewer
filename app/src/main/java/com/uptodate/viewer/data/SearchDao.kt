@@ -22,6 +22,20 @@ class SearchDao @Inject constructor(
     }
 
     fun getSuggestions(query: String): List<String> {
+        val unidexAvailable = try {
+            dbManager.getUnidexDb()
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+        if (unidexAvailable) {
+            return getUnidexSuggestions(query)
+        }
+        return getQfSuggestions(query)
+    }
+
+    private fun getUnidexSuggestions(query: String): List<String> {
         val db = dbManager.getUnidexDb()
         val queryLen = query.length
 
@@ -45,6 +59,36 @@ class SearchDao @Inject constructor(
             val results = mutableListOf<String>()
             while (it.moveToNext()) {
                 results.add(it.getString(0))
+            }
+            results
+        }
+    }
+
+    private fun getQfSuggestions(query: String): List<String> {
+        val db = dbManager.getQfDb()
+        val queryLen = query.length
+
+        val whereClause = when (queryLen) {
+            1 -> "q1 = ?"
+            2 -> "q2 = ?"
+            3 -> "q3 = ?"
+            else -> "q LIKE ?"
+        }
+        val params = if (queryLen <= 3) arrayOf(query) else arrayOf("$query%")
+
+        val sql = """
+            SELECT q as _id, u as word
+            FROM qf
+            WHERE $whereClause
+            ORDER BY f DESC, q ASC
+            LIMIT 30
+        """
+
+        val cursor = db.rawQuery(sql, params)
+        return cursor.use {
+            val results = mutableListOf<String>()
+            while (it.moveToNext()) {
+                results.add(it.getString(1))
             }
             results
         }

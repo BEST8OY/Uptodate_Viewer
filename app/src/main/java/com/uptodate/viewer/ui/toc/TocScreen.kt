@@ -332,7 +332,8 @@ fun TocScreen(
                                 isExpanded = item.id in expandedIds,
                                 onTopicSelected = onTopicSelected,
                                 onLoadChildren = viewModel::loadChildren,
-                                onToggleExpand = viewModel::toggleExpanded
+                                onToggleExpand = viewModel::toggleExpanded,
+                                onResolveTopicId = { tocId -> viewModel.resolveTopicId(tocId) }
                             )
                         }
                     }
@@ -351,12 +352,18 @@ fun TocItemRow(
     onTopicSelected: (String) -> Unit,
     onLoadChildren: (String) -> Unit,
     onToggleExpand: (String) -> Unit,
+    onResolveTopicId: (String) -> String? = { null },
     modifier: Modifier = Modifier
 ) {
     ListItem(
         onClick = {
             if (item.isLeaf) {
-                onTopicSelected(item.id)
+                val topicId = if (item.type == "GRAPHIC") {
+                    item.id
+                } else {
+                    onResolveTopicId(item.id) ?: item.id
+                }
+                onTopicSelected(topicId)
             } else {
                 if (item.childrenInfo == null) {
                     onLoadChildren(item.id)

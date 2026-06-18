@@ -70,6 +70,10 @@ class TocViewModel @Inject constructor(
 
     fun isExpanded(id: String): Boolean = id in _expandedIds.value
 
+    fun resolveTopicId(tocId: String): String? {
+        return tocRepository.getTopicIdFromTocId(tocId)
+    }
+
     private fun updateTree(items: List<TocItem>, parentId: String, children: List<TocItem>): List<TocItem> {
         return items.map { item ->
             if (item.id == parentId) {

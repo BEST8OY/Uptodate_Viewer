@@ -5,5 +5,6 @@ data class TocItem(
     val title: String,
     val isLeaf: Boolean,
     val type: String?,
-    val childrenInfo: List<TocItem>?
+    val childrenInfo: List<TocItem>?,
+    val section: String? = null
 )

@@ -12,4 +12,8 @@ class TocRepository @Inject constructor(
     fun getTocItems(parentId: String? = null): List<TocItem> {
         return tocDao.getTocItems(parentId)
     }
+
+    fun getTopicIdFromTocId(tocId: String): String? {
+        return tocDao.getTopicIdFromTocId(tocId)
+    }
 }
