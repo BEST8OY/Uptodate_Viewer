@@ -141,10 +141,7 @@ fun ContentScreen(
         if (showOutline) {
             viewModel.toggleOutline()
         } else {
-            webView?.scrollY?.let { scrollY ->
-                ContentViewModel.saveScrollPosition(topicId, scrollY)
-                viewModel.saveScrollPositionToHistory(scrollY)
-            }
+            webView?.scrollY?.let { viewModel.saveScrollPositionToHistory(it) }
             viewModel.goBack()
         }
     }
@@ -187,10 +184,7 @@ fun ContentScreen(
                         processedHtml = processedHtml,
                         topicId = topicId,
                         onAction = { actionId ->
-                            webView?.scrollY?.let { scrollY ->
-                                ContentViewModel.saveScrollPosition(topicId, scrollY)
-                                viewModel.saveScrollPositionToHistory(scrollY)
-                            }
+                            webView?.scrollY?.let { viewModel.saveScrollPositionToHistory(it) }
                             viewModel.handleAction(actionId)
                         },
                         onFindResult = { searchResultCount = it },
@@ -220,10 +214,7 @@ fun ContentScreen(
                         onSectionClick = { section ->
                             viewModel.setActiveSection(section.id)
                             if (section.actionJson != null) {
-                                webView?.scrollY?.let { scrollY ->
-                                    ContentViewModel.saveScrollPosition(topicId, scrollY)
-                                    viewModel.saveScrollPositionToHistory(scrollY)
-                                }
+                                webView?.scrollY?.let { viewModel.saveScrollPositionToHistory(it) }
                                 viewModel.handleOutlineAction(section.actionJson)
                             } else {
                                 webView?.evaluateJavascript(
@@ -247,17 +238,11 @@ fun ContentScreen(
                 searchResultCount = searchResultCount,
                 searchResultIndex = searchResultIndex,
                 onBackClick = {
-                    webView?.scrollY?.let { scrollY ->
-                        ContentViewModel.saveScrollPosition(topicId, scrollY)
-                        viewModel.saveScrollPositionToHistory(scrollY)
-                    }
+                    webView?.scrollY?.let { viewModel.saveScrollPositionToHistory(it) }
                     viewModel.goBack()
                 },
                 onForwardClick = {
-                    webView?.scrollY?.let { scrollY ->
-                        ContentViewModel.saveScrollPosition(topicId, scrollY)
-                        viewModel.saveScrollPositionToHistory(scrollY)
-                    }
+                    webView?.scrollY?.let { viewModel.saveScrollPositionToHistory(it) }
                     viewModel.goForward()
                 },
                 onHomeClick = onHome,

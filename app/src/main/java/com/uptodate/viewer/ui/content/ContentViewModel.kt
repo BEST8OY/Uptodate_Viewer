@@ -33,10 +33,6 @@ class ContentViewModel @Inject constructor(
     companion object {
         private val scrollPositions = mutableMapOf<String, Int>()
 
-        fun saveScrollPosition(topicId: String, scrollY: Int) {
-            scrollPositions[topicId] = scrollY
-        }
-
         fun getScrollPosition(topicId: String): Int = scrollPositions[topicId] ?: 0
     }
 
