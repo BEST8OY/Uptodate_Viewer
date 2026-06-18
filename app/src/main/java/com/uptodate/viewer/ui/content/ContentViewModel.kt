@@ -125,6 +125,11 @@ class ContentViewModel @Inject constructor(
             _error.value = null
             _currentTopicId.value = topicId
 
+            val savedScrollY = historyRepository.getScrollPosition(topicId)
+            if (savedScrollY > 0) {
+                scrollPositions[topicId] = savedScrollY
+            }
+
             if (topicId.startsWith("Graphic-")) {
                 val graphicId = topicId.removePrefix("Graphic-")
                 val graphic = assetRepository.getGraphic(graphicId)

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -91,6 +92,7 @@ private sealed class OutlineItem {
 fun ContentScreen(
     topicId: String,
     onBack: () -> Unit,
+    onHome: () -> Unit,
     viewModel: ContentViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -130,7 +132,6 @@ fun ContentScreen(
     DisposableEffect(topicId) {
         onDispose {
             webView?.scrollY?.let { scrollY ->
-                ContentViewModel.saveScrollPosition(topicId, scrollY)
                 viewModel.saveScrollPositionToHistory(scrollY)
             }
         }
@@ -140,6 +141,10 @@ fun ContentScreen(
         if (showOutline) {
             viewModel.toggleOutline()
         } else {
+            webView?.scrollY?.let { scrollY ->
+                ContentViewModel.saveScrollPosition(topicId, scrollY)
+                viewModel.saveScrollPositionToHistory(scrollY)
+            }
             viewModel.goBack()
         }
     }
@@ -181,7 +186,13 @@ fun ContentScreen(
                     HtmlContentWebView(
                         processedHtml = processedHtml,
                         topicId = topicId,
-                        onAction = { viewModel.handleAction(it) },
+                        onAction = { actionId ->
+                            webView?.scrollY?.let { scrollY ->
+                                ContentViewModel.saveScrollPosition(topicId, scrollY)
+                                viewModel.saveScrollPositionToHistory(scrollY)
+                            }
+                            viewModel.handleAction(actionId)
+                        },
                         onFindResult = { searchResultCount = it },
                         onWebViewCreated = { webView = it },
                         modifier = Modifier.fillMaxSize()
@@ -209,6 +220,10 @@ fun ContentScreen(
                         onSectionClick = { section ->
                             viewModel.setActiveSection(section.id)
                             if (section.actionJson != null) {
+                                webView?.scrollY?.let { scrollY ->
+                                    ContentViewModel.saveScrollPosition(topicId, scrollY)
+                                    viewModel.saveScrollPositionToHistory(scrollY)
+                                }
                                 viewModel.handleOutlineAction(section.actionJson)
                             } else {
                                 webView?.evaluateJavascript(
@@ -231,8 +246,21 @@ fun ContentScreen(
                 searchQuery = searchQuery,
                 searchResultCount = searchResultCount,
                 searchResultIndex = searchResultIndex,
-                onBackClick = { viewModel.goBack() },
-                onForwardClick = { viewModel.goForward() },
+                onBackClick = {
+                    webView?.scrollY?.let { scrollY ->
+                        ContentViewModel.saveScrollPosition(topicId, scrollY)
+                        viewModel.saveScrollPositionToHistory(scrollY)
+                    }
+                    viewModel.goBack()
+                },
+                onForwardClick = {
+                    webView?.scrollY?.let { scrollY ->
+                        ContentViewModel.saveScrollPosition(topicId, scrollY)
+                        viewModel.saveScrollPositionToHistory(scrollY)
+                    }
+                    viewModel.goForward()
+                },
+                onHomeClick = onHome,
                 onFavoriteClick = { viewModel.toggleFavorite() },
                 onOutlineClick = { viewModel.toggleOutline() },
                 onSearchClick = { showSearch = !showSearch },
@@ -320,6 +348,7 @@ private fun ContentFloatingToolbar(
     searchResultIndex: Int,
     onBackClick: () -> Unit,
     onForwardClick: () -> Unit,
+    onHomeClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onOutlineClick: () -> Unit,
     onSearchClick: () -> Unit,
@@ -459,6 +488,9 @@ private fun ContentFloatingToolbar(
                     }
                     IconButton(onClick = onForwardClick, enabled = canGoForward) {
                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                    }
+                    IconButton(onClick = onHomeClick) {
+                        Icon(Icons.Default.Home, contentDescription = "Contents")
                     }
                     IconButton(
                         onClick = onOutlineClick,

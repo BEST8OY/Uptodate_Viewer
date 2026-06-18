@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.uptodate.viewer.domain.HistoryEntry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -51,6 +52,18 @@ class HistoryRepository @Inject constructor(
                 if (entry.topicId == normalizedId) entry.copy(scrollPosition = scrollPosition) else entry
             }
             prefs[historyKey] = json.encodeToString(updated)
+        }
+    }
+
+    suspend fun getScrollPosition(topicId: String): Int {
+        val current = getHistoryFromDataStore()
+        val normalizedId = topicId.removePrefix("topic-")
+        return current.find { it.topicId == normalizedId }?.scrollPosition ?: 0
+    }
+
+    private suspend fun getHistoryFromDataStore(): List<HistoryEntry> {
+        return context.historyDataStore.data.first().let { prefs ->
+            getHistory(prefs)
         }
     }
 

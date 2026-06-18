@@ -20,7 +20,11 @@ class TopLevelBackStack<T : Any>(startKey: T) {
     private fun updateBackStack() =
         backStack.apply {
             clear()
-            addAll(topLevelStacks.flatMap { it.value })
+            val startKey = topLevelStacks.keys.first()
+            addAll(topLevelStacks[startKey].orEmpty())
+            if (topLevelKey != startKey) {
+                addAll(topLevelStacks[topLevelKey].orEmpty())
+            }
         }
 
     fun addTopLevel(key: T) {
@@ -47,7 +51,7 @@ class TopLevelBackStack<T : Any>(startKey: T) {
         if (currentStack.size <= 1) {
             if (topLevelKey != topLevelStacks.keys.first()) {
                 topLevelStacks.remove(topLevelKey)
-                topLevelKey = topLevelStacks.keys.last()
+                topLevelKey = topLevelStacks.keys.first()
             }
         } else {
             currentStack.removeLast()

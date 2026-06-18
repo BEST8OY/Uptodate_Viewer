@@ -125,7 +125,8 @@ fun NavGraph(
                 entry<ContentRoute> { key ->
                     ContentScreen(
                         topicId = key.topicId,
-                        onBack = { topLevelBackStack.removeLast() }
+                        onBack = { topLevelBackStack.removeLast() },
+                        onHome = { topLevelBackStack.addTopLevel(TocRoute) }
                     )
                 }
             },
