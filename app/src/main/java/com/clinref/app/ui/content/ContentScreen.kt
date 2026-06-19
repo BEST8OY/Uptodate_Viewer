@@ -52,11 +52,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -92,6 +90,7 @@ fun ContentScreen(
     topicId: String,
     onBack: () -> Unit,
     onHome: () -> Unit,
+    onGraphicSelected: (String) -> Unit,
     viewModel: ContentViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -109,7 +108,6 @@ fun ContentScreen(
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
-    val graphicDialog by viewModel.graphicDialog.collectAsStateWithLifecycle()
     val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
     val scrollToSection by viewModel.scrollToSection.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -118,6 +116,7 @@ fun ContentScreen(
     val articleTitle by viewModel.articleTitle.collectAsStateWithLifecycle()
     val activeSectionId by viewModel.activeSectionId.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val navigateToGraphic by viewModel.onNavigateToGraphic.collectAsStateWithLifecycle()
 
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -143,6 +142,13 @@ fun ContentScreen(
                 null
             )
             viewModel.clearScrollToSection()
+        }
+    }
+
+    LaunchedEffect(navigateToGraphic) {
+        navigateToGraphic?.let { graphicId ->
+            onGraphicSelected(graphicId)
+            viewModel.clearNavigationToGraphic()
         }
     }
 
@@ -265,13 +271,6 @@ fun ContentScreen(
                     .imePadding()
             )
         }
-    }
-
-    graphicDialog?.let { data ->
-        GraphicSheet(
-            graphicData = data,
-            onDismiss = { viewModel.dismissGraphicDialog() }
-        )
     }
 
     contributorsDialog?.let { data ->

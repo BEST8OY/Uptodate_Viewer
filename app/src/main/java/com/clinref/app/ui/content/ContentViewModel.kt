@@ -3,7 +3,6 @@ package com.clinref.app.ui.content
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.ContributorGroup
-import com.clinref.app.domain.GraphicData
 import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.FavoriteRepository
@@ -26,8 +25,7 @@ import javax.inject.Inject
 class ContentViewModel @Inject constructor(
     private val contentRepository: ContentRepository,
     private val favoriteRepository: FavoriteRepository,
-    private val historyRepository: HistoryRepository,
-    private val assetRepository: AssetRepository
+    private val historyRepository: HistoryRepository
 ) : ViewModel() {
 
     private var _themeColors: ThemeColors? = null
@@ -52,8 +50,8 @@ class ContentViewModel @Inject constructor(
     private val _outlineSections = MutableStateFlow<List<OutlineSection>>(emptyList())
     val outlineSections: StateFlow<List<OutlineSection>> = _outlineSections
 
-    private val _graphicDialog = MutableStateFlow<GraphicData?>(null)
-    val graphicDialog: StateFlow<GraphicData?> = _graphicDialog
+    private val _onNavigateToGraphic = MutableStateFlow<String?>(null)
+    val onNavigateToGraphic: StateFlow<String?> = _onNavigateToGraphic
 
     private val _contributorsDialog = MutableStateFlow<List<ContributorGroup>?>(null)
     val contributorsDialog: StateFlow<List<ContributorGroup>?> = _contributorsDialog
@@ -114,20 +112,6 @@ class ContentViewModel @Inject constructor(
             _isLoading.value = true
             _error.value = null
             _currentTopicId.value = topicId
-
-            if (topicId.startsWith("Graphic-")) {
-                val graphicId = topicId.removePrefix("Graphic-")
-                val graphic = assetRepository.getGraphic(graphicId)
-                if (graphic != null) {
-                    _graphicDialog.value = graphic
-                    _articleTitle.value = graphic.title
-                    _isLoading.value = false
-                } else {
-                    _error.value = "Graphic not found"
-                    _isLoading.value = false
-                }
-                return@launch
-            }
 
             val content = try {
                 contentRepository.getTopicContent(topicId)
@@ -223,8 +207,7 @@ class ContentViewModel @Inject constructor(
                 assetType == "graphic" -> {
                     val graphicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
                     if (graphicId != null) {
-                        val graphic = assetRepository.getGraphic(graphicId)
-                        _graphicDialog.value = graphic
+                        _onNavigateToGraphic.value = graphicId
                     }
                 }
                 assetType == "topic" -> {
@@ -256,8 +239,7 @@ class ContentViewModel @Inject constructor(
                 "graphic" -> {
                     val graphicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
                     if (graphicId != null) {
-                        val graphic = assetRepository.getGraphic(graphicId)
-                        _graphicDialog.value = graphic
+                        _onNavigateToGraphic.value = graphicId
                     }
                 }
                 "topic" -> {
@@ -291,8 +273,8 @@ class ContentViewModel @Inject constructor(
         }
     }
 
-    fun dismissGraphicDialog() {
-        _graphicDialog.value = null
+    fun clearNavigationToGraphic() {
+        _onNavigateToGraphic.value = null
     }
 
     fun dismissContributorsDialog() {

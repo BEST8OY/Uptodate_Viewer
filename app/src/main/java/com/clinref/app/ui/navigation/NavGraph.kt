@@ -34,6 +34,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.content.ContentScreen
+import com.clinref.app.ui.content.GraphicScreen
 import com.clinref.app.ui.favorites.FavoritesScreen
 import com.clinref.app.ui.history.HistoryScreen
 import com.clinref.app.ui.setup.SetupScreen
@@ -65,6 +66,9 @@ data object FavoritesRoute : TopLevelRoute {
 
 @Serializable
 data class ContentRoute(val topicId: String) : NavKey
+
+@Serializable
+data class GraphicRoute(val graphicId: String) : NavKey
 
 @Serializable
 data object SetupRoute : NavKey
@@ -105,20 +109,31 @@ fun NavGraph(
                     TocScreen(
                         onTopicSelected = { topicId ->
                             topLevelBackStack.add(ContentRoute(topicId))
+                        },
+                        onGraphicSelected = { graphicId ->
+                            topLevelBackStack.add(GraphicRoute(graphicId))
                         }
                     )
                 }
                 entry<HistoryRoute> {
                     HistoryScreen(
                         onTopicSelected = { topicId ->
-                            topLevelBackStack.add(ContentRoute(topicId))
+                            if (topicId.startsWith("Graphic-")) {
+                                topLevelBackStack.add(GraphicRoute(topicId.removePrefix("Graphic-")))
+                            } else {
+                                topLevelBackStack.add(ContentRoute(topicId))
+                            }
                         }
                     )
                 }
                 entry<FavoritesRoute> {
                     FavoritesScreen(
                         onTopicSelected = { topicId ->
-                            topLevelBackStack.add(ContentRoute(topicId))
+                            if (topicId.startsWith("Graphic-")) {
+                                topLevelBackStack.add(GraphicRoute(topicId.removePrefix("Graphic-")))
+                            } else {
+                                topLevelBackStack.add(ContentRoute(topicId))
+                            }
                         }
                     )
                 }
@@ -126,7 +141,16 @@ fun NavGraph(
                     ContentScreen(
                         topicId = key.topicId,
                         onBack = { topLevelBackStack.removeLast() },
-                        onHome = { topLevelBackStack.addTopLevel(TocRoute) }
+                        onHome = { topLevelBackStack.addTopLevel(TocRoute) },
+                        onGraphicSelected = { graphicId ->
+                            topLevelBackStack.add(GraphicRoute(graphicId))
+                        }
+                    )
+                }
+                entry<GraphicRoute> { key ->
+                    GraphicScreen(
+                        graphicId = key.graphicId,
+                        onBack = { topLevelBackStack.removeLast() }
                     )
                 }
             },

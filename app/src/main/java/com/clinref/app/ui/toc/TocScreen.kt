@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun TocScreen(
     onTopicSelected: (String) -> Unit,
+    onGraphicSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: TocViewModel = hiltViewModel(),
     searchViewModel: SearchViewModel = hiltViewModel()
@@ -251,7 +252,12 @@ fun TocScreen(
                             ListItem(
                                 headlineContent = { Text(result.title) },
                                 modifier = Modifier.clickable {
-                                    onTopicSelected(result.topicId)
+                                    if (result.topicId.startsWith("Graphic-")) {
+                                        val id = result.topicId.removePrefix("Graphic-")
+                                        onGraphicSelected(id)
+                                    } else {
+                                        onTopicSelected(result.topicId)
+                                    }
                                 }
                             )
                         }
@@ -331,6 +337,14 @@ fun TocScreen(
                                 level = level,
                                 isExpanded = item.id in expandedIds,
                                 onTopicSelected = onTopicSelected,
+                                onGraphicSelected = { graphicId ->
+                                    val id = if (graphicId.startsWith("Graphic-")) {
+                                        graphicId.removePrefix("Graphic-")
+                                    } else {
+                                        graphicId
+                                    }
+                                    onGraphicSelected(id)
+                                },
                                 onLoadChildren = viewModel::loadChildren,
                                 onToggleExpand = viewModel::toggleExpanded,
                                 onResolveTopicId = { tocId -> viewModel.resolveTopicId(tocId) }
@@ -350,6 +364,7 @@ fun TocItemRow(
     level: Int,
     isExpanded: Boolean,
     onTopicSelected: (String) -> Unit,
+    onGraphicSelected: (String) -> Unit,
     onLoadChildren: (String) -> Unit,
     onToggleExpand: (String) -> Unit,
     onResolveTopicId: (String) -> String? = { null },
@@ -358,12 +373,12 @@ fun TocItemRow(
     ListItem(
         onClick = {
             if (item.isLeaf) {
-                val topicId = if (item.type == "GRAPHIC") {
-                    item.id
+                if (item.type == "GRAPHIC") {
+                    onGraphicSelected(item.id)
                 } else {
-                    onResolveTopicId(item.id) ?: item.id
+                    val topicId = onResolveTopicId(item.id) ?: item.id
+                    onTopicSelected(topicId)
                 }
-                onTopicSelected(topicId)
             } else {
                 if (item.childrenInfo == null) {
                     onLoadChildren(item.id)

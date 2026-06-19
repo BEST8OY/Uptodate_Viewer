@@ -105,7 +105,7 @@ private val SRC_REGEX = Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE)
 private val GRAPHIC_CLASS_REGEX = Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE)
 private val BASE64_VALIDATION_REGEX = Regex("^[A-Za-z0-9+/=\n\r ]+$")
 
-private fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
+internal fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
     var html = graphicData.imageHtml
 
     if (graphicData.base64Image != null && BASE64_VALIDATION_REGEX.matches(graphicData.base64Image)) {
