@@ -6,12 +6,12 @@
 
 -keep class kotlinx.serialization.** { *; }
 -keepclassmembers class * implements kotlinx.serialization.KSerializer { *; }
--keep,includedescriptorclasses class com.uptodate.viewer.**$$serializer { *; }
--keepclassmembers class com.uptodate.viewer.** { *** Companion; }
--keepclasseswithmembers class com.uptodate.viewer.** { kotlinx.serialization.KSerializer serializer(...); }
--keepclassmembers class com.uptodate.viewer.**$$serializer { *; }
--keep class com.uptodate.viewer.ui.navigation.** { *; }
--keep class com.uptodate.viewer.domain.** { *; }
+-keep,includedescriptorclasses class com.clinref.app.**$$serializer { *; }
+-keepclassmembers class com.clinref.app.** { *** Companion; }
+-keepclasseswithmembers class com.clinref.app.** { kotlinx.serialization.KSerializer serializer(...); }
+-keepclassmembers class com.clinref.app.**$$serializer { *; }
+-keep class com.clinref.app.ui.navigation.** { *; }
+-keep class com.clinref.app.domain.** { *; }
 
 # Hilt
 -keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
@@ -20,6 +20,6 @@
 -dontwarn androidx.compose.**
 
 # WebView JavaScript Interface
--keepclassmembers class com.uptodate.viewer.ui.content.JsBridge {
+-keepclassmembers class com.clinref.app.ui.content.JsBridge {
     @android.webkit.JavascriptInterface <methods>;
 }

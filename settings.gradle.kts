@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "UptodateViewer"
+rootProject.name = "ClinRef"
 include(":app")

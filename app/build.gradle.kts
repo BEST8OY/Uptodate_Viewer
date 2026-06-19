@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.uptodate.viewer"
+    namespace = "com.clinref.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.uptodate.viewer"
+        applicationId = "com.clinref.app"
         minSdk = 31
         targetSdk = 37
         versionCode = 1

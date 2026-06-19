@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Themed Ribbon Silhouette -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M 52,32 H 56 V 76 L 54,72 L 52,76 Z" />
+
+    <!-- Left Page with Cutouts (Using Even-Odd Fill to subtract text lines) -->
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M 51,32 C 43,32 35,35 29,39 V 71 C 35,67 43,64 51,64 Z 
+                          M 34,44 H 46 V 46 H 34 Z 
+                          M 34,50 H 44 V 52 H 34 Z 
+                          M 34,56 H 40 V 58 H 34 Z" />
+
+    <!-- Right Page with Cutouts (Using Even-Odd Fill to subtract the medical cross) -->
+    <path
+        android:fillColor="#000000"
+        android:fillType="evenOdd"
+        android:pathData="M 57,32 C 65,32 73,35 79,39 V 71 C 73,67 65,64 57,64 Z 
+                          M 66,43 H 70 V 48 H 75 V 52 H 70 V 57 H 66 V 52 H 61 V 48 H 66 Z" />
+</vector>

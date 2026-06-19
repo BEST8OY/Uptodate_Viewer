@@ -7,18 +7,18 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <application
-        android:name=".UptodateApp"
+        android:name=".ClinRefApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.UptodateViewer"
+        android:theme="@style/Theme.ClinRef"
         android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustNothing"
-            android:theme="@style/Theme.UptodateViewer">
+            android:theme="@style/Theme.ClinRef">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
