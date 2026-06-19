@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.content.ContentScreen
@@ -92,79 +91,89 @@ fun NavGraph(
         return
     }
 
-    val topLevelBackStack = remember { TopLevelBackStack<Any>(TocRoute) }
+    val navigationState = rememberNavigationState(
+        startRoute = TocRoute,
+        topLevelRoutes = topLevelRoutes.toSet()
+    )
+
+    val navigator = remember { Navigator(navigationState) }
+
     val isOnContentScreen by remember {
-        derivedStateOf { topLevelBackStack.backStack.lastOrNull() is ContentRoute }
+        derivedStateOf {
+            val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
+            currentBackStack?.lastOrNull() is ContentRoute ||
+                currentBackStack?.lastOrNull() is GraphicRoute
+        }
+    }
+
+    val entryProvider = entryProvider {
+        entry<TocRoute> {
+            TocScreen(
+                onTopicSelected = { topicId ->
+                    navigator.navigate(ContentRoute(topicId))
+                },
+                onGraphicSelected = { graphicId ->
+                    navigator.navigate(GraphicRoute(graphicId))
+                }
+            )
+        }
+        entry<HistoryRoute> {
+            HistoryScreen(
+                onTopicSelected = { topicId ->
+                    if (topicId.startsWith("Graphic-")) {
+                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
+                    } else {
+                        navigator.navigate(ContentRoute(topicId))
+                    }
+                }
+            )
+        }
+        entry<FavoritesRoute> {
+            FavoritesScreen(
+                onTopicSelected = { topicId ->
+                    if (topicId.startsWith("Graphic-")) {
+                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
+                    } else {
+                        navigator.navigate(ContentRoute(topicId))
+                    }
+                }
+            )
+        }
+        entry<ContentRoute> { key ->
+            ContentScreen(
+                topicId = key.topicId,
+                onBack = { navigator.goBack() },
+                onHome = { navigator.navigate(TocRoute) },
+                onGraphicSelected = { graphicId ->
+                    navigator.navigate(GraphicRoute(graphicId))
+                }
+            )
+        }
+        entry<GraphicRoute> { key ->
+            GraphicScreen(
+                graphicId = key.graphicId,
+                onBack = { navigator.goBack() }
+            )
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val motionScheme = MaterialTheme.motionScheme
+
         NavDisplay(
-            backStack = topLevelBackStack.backStack,
-            onBack = { topLevelBackStack.removeLast() },
-            entryDecorators = listOf(
-                rememberSaveableStateHolderNavEntryDecorator()
-            ),
-            entryProvider = entryProvider {
-                entry<TocRoute> {
-                    TocScreen(
-                        onTopicSelected = { topicId ->
-                            topLevelBackStack.add(ContentRoute(topicId))
-                        },
-                        onGraphicSelected = { graphicId ->
-                            topLevelBackStack.add(GraphicRoute(graphicId))
-                        }
-                    )
-                }
-                entry<HistoryRoute> {
-                    HistoryScreen(
-                        onTopicSelected = { topicId ->
-                            if (topicId.startsWith("Graphic-")) {
-                                topLevelBackStack.add(GraphicRoute(topicId.removePrefix("Graphic-")))
-                            } else {
-                                topLevelBackStack.add(ContentRoute(topicId))
-                            }
-                        }
-                    )
-                }
-                entry<FavoritesRoute> {
-                    FavoritesScreen(
-                        onTopicSelected = { topicId ->
-                            if (topicId.startsWith("Graphic-")) {
-                                topLevelBackStack.add(GraphicRoute(topicId.removePrefix("Graphic-")))
-                            } else {
-                                topLevelBackStack.add(ContentRoute(topicId))
-                            }
-                        }
-                    )
-                }
-                entry<ContentRoute> { key ->
-                    ContentScreen(
-                        topicId = key.topicId,
-                        onBack = { topLevelBackStack.removeLast() },
-                        onHome = { topLevelBackStack.addTopLevel(TocRoute) },
-                        onGraphicSelected = { graphicId ->
-                            topLevelBackStack.add(GraphicRoute(graphicId))
-                        }
-                    )
-                }
-                entry<GraphicRoute> { key ->
-                    GraphicScreen(
-                        graphicId = key.graphicId,
-                        onBack = { topLevelBackStack.removeLast() }
-                    )
-                }
-            },
+            entries = navigationState.toDecoratedEntries(entryProvider),
+            onBack = { navigator.goBack() },
             transitionSpec = {
-                slideInHorizontally(initialOffsetX = { it }) togetherWith
-                    slideOutHorizontally(targetOffsetX = { -it })
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
             },
             popTransitionSpec = {
-                slideInHorizontally(initialOffsetX = { -it }) togetherWith
-                    slideOutHorizontally(targetOffsetX = { it })
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
             },
             predictivePopTransitionSpec = {
-                slideInHorizontally(initialOffsetX = { -it }) togetherWith
-                    slideOutHorizontally(targetOffsetX = { it })
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -182,8 +191,8 @@ fun NavGraph(
                     topLevelRoutes.forEach { route ->
                         NavBarItem(
                             route = route,
-                            isSelected = route == topLevelBackStack.topLevelKey,
-                            onClick = { topLevelBackStack.addTopLevel(route) }
+                            isSelected = route == navigationState.topLevelRoute,
+                            onClick = { navigator.navigate(route) }
                         )
                     }
                 }

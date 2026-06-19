@@ -205,8 +205,8 @@ private fun GraphicSheetContent(
 
         AnimatedVisibility(
             visible = isLoading,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
             modifier = Modifier.fillMaxSize(),
         ) {
             Box(

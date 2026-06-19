@@ -5,7 +5,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -331,12 +330,13 @@ private fun ContentFloatingToolbar(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
+    val motionScheme = MaterialTheme.motionScheme
 
     AnimatedContent(
         targetState = showSearch,
         transitionSpec = {
-            fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = 90)) togetherWith
-                    fadeOut(animationSpec = tween(durationMillis = 90))
+            fadeIn(motionScheme.defaultEffectsSpec()) togetherWith
+                    fadeOut(motionScheme.defaultEffectsSpec())
         },
         label = "SearchToolbarTransition",
         modifier = modifier
