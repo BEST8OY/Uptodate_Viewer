@@ -1,5 +1,6 @@
 package com.clinref.app.ui.toc
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.domain.TocItem
@@ -12,8 +13,13 @@ import javax.inject.Inject
 
 @HiltViewModel
 class TocViewModel @Inject constructor(
-    private val tocRepository: TocRepository
+    private val tocRepository: TocRepository,
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    companion object {
+        private const val KEY_EXPANDED_IDS = "expanded_ids"
+    }
 
     private val _tocItems = MutableStateFlow<List<TocItem>>(emptyList())
     val tocItems: StateFlow<List<TocItem>> = _tocItems
@@ -24,7 +30,9 @@ class TocViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    private val _expandedIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _expandedIds = MutableStateFlow<Set<String>>(
+        savedStateHandle.get<List<String>>(KEY_EXPANDED_IDS)?.toSet() ?: emptySet()
+    )
     val expandedIds: StateFlow<Set<String>> = _expandedIds
 
     init {
@@ -36,7 +44,13 @@ class TocViewModel @Inject constructor(
             _isLoading.value = true
             _error.value = null
             try {
-                _tocItems.value = tocRepository.getTocItems()
+                val roots = tocRepository.getTocItems()
+                _tocItems.value = roots
+                for (root in roots) {
+                    if (root.id in _expandedIds.value) {
+                        loadChildren(root.id)
+                    }
+                }
             } catch (e: Exception) {
                 _error.value = e.message ?: "Failed to load table of contents"
             } finally {
@@ -54,6 +68,11 @@ class TocViewModel @Inject constructor(
             try {
                 val children = tocRepository.getTocItems(parentId)
                 _tocItems.value = updateTree(_tocItems.value, parentId, children)
+                for (child in children) {
+                    if (child.id in _expandedIds.value) {
+                        loadChildren(child.id)
+                    }
+                }
             } catch (e: Exception) {
                 _error.value = e.message ?: "Failed to load children"
             }
@@ -61,14 +80,11 @@ class TocViewModel @Inject constructor(
     }
 
     fun toggleExpanded(id: String) {
-        _expandedIds.value = if (id in _expandedIds.value) {
-            _expandedIds.value - id
-        } else {
-            _expandedIds.value + id
-        }
+        val current = _expandedIds.value
+        val newSet = if (id in current) current - id else current + id
+        _expandedIds.value = newSet
+        savedStateHandle[KEY_EXPANDED_IDS] = newSet.toList()
     }
-
-    fun isExpanded(id: String): Boolean = id in _expandedIds.value
 
     fun resolveTopicId(tocId: String): String? {
         return tocRepository.getTopicIdFromTocId(tocId)

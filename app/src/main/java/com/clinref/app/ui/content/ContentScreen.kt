@@ -60,6 +60,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -94,14 +95,20 @@ fun ContentScreen(
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(topicId) {
-        viewModel.resetNavigationHistory()
-        viewModel.loadTopic(topicId)
+        if (viewModel.currentTopicId.value != topicId) {
+            viewModel.resetNavigationHistory()
+            viewModel.loadTopic(topicId)
+        }
     }
 
     val colorScheme = MaterialTheme.colorScheme
     LaunchedEffect(colorScheme) {
         viewModel.setThemeColors(ThemeColors.fromColorScheme(colorScheme))
     }
+
+    val currentTopicId by viewModel.currentTopicId.collectAsStateWithLifecycle()
+    val scrollPositions by viewModel.scrollPositions.collectAsStateWithLifecycle()
+    val savedScrollPosition = currentTopicId?.let { scrollPositions[it] } ?: 0
 
     val processedHtml by viewModel.processedHtml.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
@@ -178,6 +185,10 @@ fun ContentScreen(
                     HtmlContentWebView(
                         processedHtml = processedHtml,
                         topicId = topicId,
+                        savedScrollPosition = savedScrollPosition,
+                        onScrollChanged = { scrollY ->
+                            currentTopicId?.let { viewModel.saveScrollPosition(it, scrollY) }
+                        },
                         onAction = { actionId ->
                             viewModel.handleAction(actionId)
                         },
@@ -485,14 +496,16 @@ private fun ContentFloatingToolbar(
 private fun HtmlContentWebView(
     processedHtml: String?,
     topicId: String,
+    savedScrollPosition: Int,
+    onScrollChanged: (Int) -> Unit,
     onAction: (String) -> Unit,
     onFindResult: (Int) -> Unit,
     onWebViewCreated: (WebView) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
-    var currentTopicId by remember { mutableStateOf(topicId) }
-    currentTopicId = topicId
+
+    val currentSavedScrollPosition by rememberUpdatedState(savedScrollPosition)
 
     AndroidView(
         factory = { context ->
@@ -501,9 +514,18 @@ private fun HtmlContentWebView(
                 setOnApplyWindowInsetsListener { _, insets ->
                     insets
                 }
+                setOnScrollChangeListener { _, _, _, scrollY, _ ->
+                    onScrollChanged(scrollY)
+                }
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        val scrollPos = currentSavedScrollPosition
+                        if (scrollPos > 0) {
+                            view?.post {
+                                view.scrollTo(0, scrollPos)
+                            }
+                        }
                     }
 
                     override fun shouldOverrideUrlLoading(
@@ -547,8 +569,10 @@ private fun HtmlContentWebView(
             }
         },
         update = { wv ->
-            processedHtml?.let { html ->
-                wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+            val htmlHash = processedHtml?.hashCode()?.toString()
+            if (htmlHash != null && wv.tag != htmlHash) {
+                wv.tag = htmlHash
+                wv.loadDataWithBaseURL(null, processedHtml!!, "text/html", "UTF-8", null)
             }
         },
         onRelease = { wv ->
