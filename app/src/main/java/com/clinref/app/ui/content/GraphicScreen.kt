@@ -67,8 +67,8 @@ fun GraphicScreen(
                 )
         ) {
             graphicData?.let { data ->
-                val fullHtml = remember(data) {
-                    val themeColors = ThemeColors.fromColorScheme(MaterialTheme.colorScheme)
+                val themeColors = ThemeColors.fromColorScheme(MaterialTheme.colorScheme)
+                val fullHtml = remember(data, themeColors) {
                     val graphicCss = CssBuilder(themeColors).graphicViewer()
                     buildGraphicHtml(data, graphicCss)
                 }
