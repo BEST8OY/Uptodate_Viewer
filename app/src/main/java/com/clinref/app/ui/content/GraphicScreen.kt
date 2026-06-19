@@ -67,13 +67,14 @@ fun GraphicScreen(
                 )
         ) {
             graphicData?.let { data ->
+                val fullHtml = remember(data) {
+                    val themeColors = ThemeColors.fromColorScheme(MaterialTheme.colorScheme)
+                    val graphicCss = CssBuilder(themeColors).graphicViewer()
+                    buildGraphicHtml(data, graphicCss)
+                }
                 GraphicSheetContent(
                     graphicId = data.id,
-                    fullHtml = remember(data) {
-                        val themeColors = ThemeColors.fromColorScheme(MaterialTheme.colorScheme)
-                        val graphicCss = CssBuilder(themeColors).graphicViewer()
-                        buildGraphicHtml(data, graphicCss)
-                    },
+                    fullHtml = fullHtml,
                     isLoading = isLoading,
                     onLoadingFinished = { },
                     onLoadingError = { },
