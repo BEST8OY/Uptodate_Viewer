@@ -135,7 +135,7 @@ internal fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun GraphicSheetContent(
+internal fun GraphicSheetContent(
     graphicId: String,
     fullHtml: String,
     isLoading: Boolean,
