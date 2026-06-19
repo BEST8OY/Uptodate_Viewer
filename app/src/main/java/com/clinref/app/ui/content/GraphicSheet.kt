@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
@@ -27,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,22 +38,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.clinref.app.R
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.GraphicData
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun GraphicSheet(
-    graphicData: GraphicData?,
+    graphicId: String,
     onDismiss: () -> Unit,
+    viewModel: GraphicViewModel = hiltViewModel()
 ) {
-    graphicData ?: return
+    val graphicData by viewModel.graphicData.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+
+    LaunchedEffect(graphicId) {
+        viewModel.loadGraphic(graphicId)
+    }
 
     val colorScheme = MaterialTheme.colorScheme
     val themeColors = remember(colorScheme) { ThemeColors.fromColorScheme(colorScheme) }
@@ -59,9 +67,11 @@ fun GraphicSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    var isLoading by remember(graphicData) { mutableStateOf(true) }
+    var sheetLoading by remember(graphicData) { mutableStateOf(true) }
 
-    val fullHtml = remember(graphicData, graphicCss) { buildGraphicHtml(graphicData, graphicCss) }
+    val fullHtml = graphicData?.let { data ->
+        remember(data, graphicCss) { buildGraphicHtml(data, graphicCss) }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -83,21 +93,32 @@ fun GraphicSheet(
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.close_sheet),
+                    contentDescription = "Close",
                 )
             }
         }
 
-        GraphicSheetContent(
-            graphicId = graphicData.id,
-            fullHtml = fullHtml,
-            isLoading = isLoading,
-            onLoadingFinished = { isLoading = false },
-            onLoadingError = { isLoading = false },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        )
+        if (graphicData != null && fullHtml != null) {
+            GraphicSheetContent(
+                graphicId = graphicId,
+                fullHtml = fullHtml,
+                isLoading = sheetLoading,
+                onLoadingFinished = { sheetLoading = false },
+                onLoadingError = { sheetLoading = false },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        } else if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                LoadingIndicator(modifier = Modifier.size(48.dp))
+            }
+        }
     }
 }
 

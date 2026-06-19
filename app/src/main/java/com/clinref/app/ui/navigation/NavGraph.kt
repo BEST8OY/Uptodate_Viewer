@@ -25,7 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -34,7 +36,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.content.ContentScreen
-import com.clinref.app.ui.content.GraphicScreen
+import com.clinref.app.ui.content.GraphicSheet
 import com.clinref.app.ui.favorites.FavoritesScreen
 import com.clinref.app.ui.history.HistoryScreen
 import com.clinref.app.ui.setup.SetupScreen
@@ -68,9 +70,6 @@ data object FavoritesRoute : TopLevelRoute {
 data class ContentRoute(val topicId: String) : NavKey
 
 @Serializable
-data class GraphicRoute(val graphicId: String) : NavKey
-
-@Serializable
 data object SetupRoute : NavKey
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
@@ -102,10 +101,11 @@ fun NavGraph(
     val isOnContentScreen by remember {
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
-            currentBackStack?.lastOrNull() is ContentRoute ||
-                currentBackStack?.lastOrNull() is GraphicRoute
+            currentBackStack?.lastOrNull() is ContentRoute
         }
     }
+
+    var selectedGraphicId by remember { mutableStateOf<String?>(null) }
 
     val entryProvider = entryProvider {
         entry<TocRoute> {
@@ -114,7 +114,7 @@ fun NavGraph(
                     navigator.navigate(ContentRoute(topicId))
                 },
                 onGraphicSelected = { graphicId ->
-                    navigator.navigate(GraphicRoute(graphicId))
+                    selectedGraphicId = graphicId
                 }
             )
         }
@@ -122,7 +122,7 @@ fun NavGraph(
             HistoryScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
-                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
+                        selectedGraphicId = topicId.removePrefix("Graphic-")
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
@@ -133,7 +133,7 @@ fun NavGraph(
             FavoritesScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
-                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
+                        selectedGraphicId = topicId.removePrefix("Graphic-")
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
@@ -146,14 +146,8 @@ fun NavGraph(
                 onBack = { navigator.goBack() },
                 onHome = { navigator.navigate(TocRoute) },
                 onGraphicSelected = { graphicId ->
-                    navigator.navigate(GraphicRoute(graphicId))
+                    selectedGraphicId = graphicId
                 }
-            )
-        }
-        entry<GraphicRoute> { key ->
-            GraphicScreen(
-                graphicId = key.graphicId,
-                onBack = { navigator.goBack() }
             )
         }
     }
@@ -197,6 +191,13 @@ fun NavGraph(
                         )
                     }
                 }
+            )
+        }
+
+        selectedGraphicId?.let { graphicId ->
+            GraphicSheet(
+                graphicId = graphicId,
+                onDismiss = { selectedGraphicId = null }
             )
         }
     }
