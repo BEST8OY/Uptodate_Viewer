@@ -24,6 +24,7 @@ class GraphicViewModel @Inject constructor(
     fun loadGraphic(graphicId: String) {
         viewModelScope.launch {
             _isLoading.value = true
+            _graphicData.value = null
             _graphicData.value = assetRepository.getGraphic(graphicId)
             _isLoading.value = false
         }

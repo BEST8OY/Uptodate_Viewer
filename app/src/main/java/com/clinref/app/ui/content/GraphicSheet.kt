@@ -67,7 +67,7 @@ fun GraphicSheet(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    var sheetLoading by remember(graphicData) { mutableStateOf(true) }
+    var sheetLoading by remember(graphicId) { mutableStateOf(true) }
 
     val fullHtml = graphicData?.let { data ->
         remember(data, graphicCss) { buildGraphicHtml(data, graphicCss) }
@@ -215,8 +215,9 @@ internal fun GraphicSheetContent(
                 }
             },
             update = { webView ->
-                if (webView.tag != graphicId) {
-                    webView.tag = graphicId
+                val htmlHash = fullHtml.hashCode()
+                if (webView.tag != htmlHash) {
+                    webView.tag = htmlHash
                     webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
                 }
             },
