@@ -30,6 +30,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -99,16 +100,18 @@ fun GraphicSheet(
         }
 
         if (graphicData != null && fullHtml != null) {
-            GraphicSheetContent(
-                graphicId = graphicId,
-                fullHtml = fullHtml,
-                isLoading = sheetLoading,
-                onLoadingFinished = { sheetLoading = false },
-                onLoadingError = { sheetLoading = false },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
+            key(graphicId) {
+                GraphicSheetContent(
+                    graphicId = graphicId,
+                    fullHtml = fullHtml,
+                    isLoading = sheetLoading,
+                    onLoadingFinished = { sheetLoading = false },
+                    onLoadingError = { sheetLoading = false },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
         } else if (isLoading) {
             Box(
                 modifier = Modifier
@@ -215,11 +218,7 @@ internal fun GraphicSheetContent(
                 }
             },
             update = { webView ->
-                val htmlHash = fullHtml.hashCode()
-                if (webView.tag != htmlHash) {
-                    webView.tag = htmlHash
-                    webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
-                }
+                webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
             },
             onRelease = { webView -> webView.destroy() },
             modifier = Modifier.fillMaxSize(),
