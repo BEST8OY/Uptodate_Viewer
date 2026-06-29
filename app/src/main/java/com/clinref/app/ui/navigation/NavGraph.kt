@@ -1,6 +1,8 @@
 package com.clinref.app.ui.navigation
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -163,12 +165,12 @@ fun NavGraph(
                     slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
             },
             popTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                fadeIn(motionScheme.defaultSpatialSpec()) togetherWith
+                    fadeOut(motionScheme.defaultSpatialSpec())
             },
             predictivePopTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                fadeIn(motionScheme.defaultSpatialSpec()) togetherWith
+                    fadeOut(motionScheme.defaultSpatialSpec())
             },
             modifier = Modifier.fillMaxSize()
         )
