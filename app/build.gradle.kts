@@ -84,6 +84,7 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
+    implementation("com.google.errorprone:error_prone_annotations:2.50.0")
 
     // DataStore
     implementation(libs.datastore.preferences)

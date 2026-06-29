@@ -26,7 +26,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,7 +67,7 @@ fun GraphicSheet(
     val themeColors = remember(colorScheme) { ThemeColors.fromColorScheme(colorScheme) }
     val graphicCss = remember(themeColors) { CssBuilder(themeColors).graphicViewer() }
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Expanded)
     val scope = rememberCoroutineScope()
     var sheetLoading by remember(graphicId) { mutableStateOf(true) }
 
@@ -209,8 +210,6 @@ internal fun GraphicSheetContent(
                     with(settings) {
                         javaScriptEnabled = false
                         allowFileAccess = false
-                        allowFileAccessFromFileURLs = false
-                        allowUniversalAccessFromFileURLs = false
                         setSupportZoom(true)
                         builtInZoomControls = true
                         displayZoomControls = false
