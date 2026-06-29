@@ -5,7 +5,6 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -46,23 +45,24 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -92,12 +92,15 @@ fun ContentScreen(
     topicId: String,
     onBack: () -> Unit,
     onHome: () -> Unit,
+    onGraphicSelected: (String) -> Unit,
     viewModel: ContentViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(topicId) {
-        viewModel.resetNavigationHistory()
-        viewModel.loadTopic(topicId)
+        if (viewModel.currentTopicId.value != topicId) {
+            viewModel.resetNavigationHistory()
+            viewModel.loadTopic(topicId)
+        }
     }
 
     val colorScheme = MaterialTheme.colorScheme
@@ -105,11 +108,14 @@ fun ContentScreen(
         viewModel.setThemeColors(ThemeColors.fromColorScheme(colorScheme))
     }
 
+    val currentTopicId by viewModel.currentTopicId.collectAsStateWithLifecycle()
+    val scrollPositions by viewModel.scrollPositions.collectAsStateWithLifecycle()
+    val savedScrollPosition = currentTopicId?.let { scrollPositions[it] } ?: 0
+
     val processedHtml by viewModel.processedHtml.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
-    val graphicDialog by viewModel.graphicDialog.collectAsStateWithLifecycle()
     val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
     val scrollToSection by viewModel.scrollToSection.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -118,6 +124,7 @@ fun ContentScreen(
     val articleTitle by viewModel.articleTitle.collectAsStateWithLifecycle()
     val activeSectionId by viewModel.activeSectionId.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val navigateToGraphic by viewModel.onNavigateToGraphic.collectAsStateWithLifecycle()
 
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -143,6 +150,13 @@ fun ContentScreen(
                 null
             )
             viewModel.clearScrollToSection()
+        }
+    }
+
+    LaunchedEffect(navigateToGraphic) {
+        navigateToGraphic?.let { graphicId ->
+            onGraphicSelected(graphicId)
+            viewModel.clearNavigationToGraphic()
         }
     }
 
@@ -173,6 +187,10 @@ fun ContentScreen(
                     HtmlContentWebView(
                         processedHtml = processedHtml,
                         topicId = topicId,
+                        savedScrollPosition = savedScrollPosition,
+                        onScrollChanged = { scrollY ->
+                            currentTopicId?.let { viewModel.saveScrollPosition(it, scrollY) }
+                        },
                         onAction = { actionId ->
                             viewModel.handleAction(actionId)
                         },
@@ -267,13 +285,6 @@ fun ContentScreen(
         }
     }
 
-    graphicDialog?.let { data ->
-        GraphicSheet(
-            graphicData = data,
-            onDismiss = { viewModel.dismissGraphicDialog() }
-        )
-    }
-
     contributorsDialog?.let { data ->
         ContributorsDialog(
             contributors = data,
@@ -332,12 +343,13 @@ private fun ContentFloatingToolbar(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
+    val motionScheme = MaterialTheme.motionScheme
 
     AnimatedContent(
         targetState = showSearch,
         transitionSpec = {
-            fadeIn(animationSpec = tween(durationMillis = 220, delayMillis = 90)) togetherWith
-                    fadeOut(animationSpec = tween(durationMillis = 90))
+            fadeIn(motionScheme.defaultEffectsSpec()) togetherWith
+                    fadeOut(motionScheme.defaultEffectsSpec())
         },
         label = "SearchToolbarTransition",
         modifier = modifier
@@ -486,14 +498,16 @@ private fun ContentFloatingToolbar(
 private fun HtmlContentWebView(
     processedHtml: String?,
     topicId: String,
+    savedScrollPosition: Int,
+    onScrollChanged: (Int) -> Unit,
     onAction: (String) -> Unit,
     onFindResult: (Int) -> Unit,
     onWebViewCreated: (WebView) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
-    var currentTopicId by remember { mutableStateOf(topicId) }
-    currentTopicId = topicId
+
+    val currentSavedScrollPosition by rememberUpdatedState(savedScrollPosition)
 
     AndroidView(
         factory = { context ->
@@ -502,9 +516,18 @@ private fun HtmlContentWebView(
                 setOnApplyWindowInsetsListener { _, insets ->
                     insets
                 }
+                setOnScrollChangeListener { _, _, _, scrollY, _ ->
+                    onScrollChanged(scrollY)
+                }
                 webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
+                        val scrollPos = currentSavedScrollPosition
+                        if (scrollPos > 0) {
+                            view?.post {
+                                view.scrollTo(0, scrollPos)
+                            }
+                        }
                     }
 
                     override fun shouldOverrideUrlLoading(
@@ -548,8 +571,10 @@ private fun HtmlContentWebView(
             }
         },
         update = { wv ->
-            processedHtml?.let { html ->
-                wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+            val htmlHash = processedHtml?.hashCode()?.toString()
+            if (htmlHash != null && wv.tag != htmlHash) {
+                wv.tag = htmlHash
+                wv.loadDataWithBaseURL(null, processedHtml!!, "text/html", "UTF-8", null)
             }
         },
         onRelease = { wv ->

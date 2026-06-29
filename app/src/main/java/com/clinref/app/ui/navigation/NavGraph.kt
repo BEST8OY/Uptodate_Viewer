@@ -6,6 +6,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
@@ -24,16 +25,18 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.content.ContentScreen
+import com.clinref.app.ui.content.GraphicSheet
 import com.clinref.app.ui.favorites.FavoritesScreen
 import com.clinref.app.ui.history.HistoryScreen
 import com.clinref.app.ui.setup.SetupScreen
@@ -88,59 +91,84 @@ fun NavGraph(
         return
     }
 
-    val topLevelBackStack = remember { TopLevelBackStack<Any>(TocRoute) }
+    val navigationState = rememberNavigationState(
+        startRoute = TocRoute,
+        topLevelRoutes = topLevelRoutes.toSet()
+    )
+
+    val navigator = remember { Navigator(navigationState) }
+
     val isOnContentScreen by remember {
-        derivedStateOf { topLevelBackStack.backStack.lastOrNull() is ContentRoute }
+        derivedStateOf {
+            val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
+            currentBackStack?.lastOrNull() is ContentRoute
+        }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    var selectedGraphicId by remember { mutableStateOf<String?>(null) }
+
+    val entryProvider = entryProvider {
+        entry<TocRoute> {
+            TocScreen(
+                onTopicSelected = { topicId ->
+                    navigator.navigate(ContentRoute(topicId))
+                },
+                onGraphicSelected = { graphicId ->
+                    selectedGraphicId = graphicId
+                }
+            )
+        }
+        entry<HistoryRoute> {
+            HistoryScreen(
+                onTopicSelected = { topicId ->
+                    if (topicId.startsWith("Graphic-")) {
+                        selectedGraphicId = topicId.removePrefix("Graphic-")
+                    } else {
+                        navigator.navigate(ContentRoute(topicId))
+                    }
+                }
+            )
+        }
+        entry<FavoritesRoute> {
+            FavoritesScreen(
+                onTopicSelected = { topicId ->
+                    if (topicId.startsWith("Graphic-")) {
+                        selectedGraphicId = topicId.removePrefix("Graphic-")
+                    } else {
+                        navigator.navigate(ContentRoute(topicId))
+                    }
+                }
+            )
+        }
+        entry<ContentRoute> { key ->
+            ContentScreen(
+                topicId = key.topicId,
+                onBack = { navigator.goBack() },
+                onHome = { navigator.navigate(TocRoute) },
+                onGraphicSelected = { graphicId ->
+                    selectedGraphicId = graphicId
+                }
+            )
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        val motionScheme = MaterialTheme.motionScheme
+
         NavDisplay(
-            backStack = topLevelBackStack.backStack,
-            onBack = { topLevelBackStack.removeLast() },
-            entryDecorators = listOf(
-                rememberSaveableStateHolderNavEntryDecorator()
-            ),
-            entryProvider = entryProvider {
-                entry<TocRoute> {
-                    TocScreen(
-                        onTopicSelected = { topicId ->
-                            topLevelBackStack.add(ContentRoute(topicId))
-                        }
-                    )
-                }
-                entry<HistoryRoute> {
-                    HistoryScreen(
-                        onTopicSelected = { topicId ->
-                            topLevelBackStack.add(ContentRoute(topicId))
-                        }
-                    )
-                }
-                entry<FavoritesRoute> {
-                    FavoritesScreen(
-                        onTopicSelected = { topicId ->
-                            topLevelBackStack.add(ContentRoute(topicId))
-                        }
-                    )
-                }
-                entry<ContentRoute> { key ->
-                    ContentScreen(
-                        topicId = key.topicId,
-                        onBack = { topLevelBackStack.removeLast() },
-                        onHome = { topLevelBackStack.addTopLevel(TocRoute) }
-                    )
-                }
-            },
+            entries = navigationState.toDecoratedEntries(entryProvider),
+            onBack = { navigator.goBack() },
             transitionSpec = {
-                slideInHorizontally(initialOffsetX = { it }) togetherWith
-                    slideOutHorizontally(targetOffsetX = { -it })
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
             },
             popTransitionSpec = {
-                slideInHorizontally(initialOffsetX = { -it }) togetherWith
-                    slideOutHorizontally(targetOffsetX = { it })
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
             },
             predictivePopTransitionSpec = {
-                slideInHorizontally(initialOffsetX = { -it }) togetherWith
-                    slideOutHorizontally(targetOffsetX = { it })
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -158,11 +186,18 @@ fun NavGraph(
                     topLevelRoutes.forEach { route ->
                         NavBarItem(
                             route = route,
-                            isSelected = route == topLevelBackStack.topLevelKey,
-                            onClick = { topLevelBackStack.addTopLevel(route) }
+                            isSelected = route == navigationState.topLevelRoute,
+                            onClick = { navigator.navigate(route) }
                         )
                     }
                 }
+            )
+        }
+
+        selectedGraphicId?.let { graphicId ->
+            GraphicSheet(
+                graphicId = graphicId,
+                onDismiss = { selectedGraphicId = null }
             )
         }
     }

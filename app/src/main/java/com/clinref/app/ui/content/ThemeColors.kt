@@ -9,7 +9,6 @@ data class ThemeColors(
     val isDark: Boolean,
     val bg: String,
     val surface: String,
-    val surfaceAlt: String,
     val text: String,
     val textSecondary: String,
     val textTertiary: String,
@@ -35,7 +34,6 @@ data class ThemeColors(
 
             val bgHex = bg.toHexString()
             val surface = colorScheme.surface.toHexString()
-            val surfaceAlt = colorScheme.surfaceVariant.toHexString()
             val text = colorScheme.onBackground.toHexString()
             val textSecondary = colorScheme.onSurfaceVariant.toHexString()
             val textTertiary = colorScheme.outline.toHexString()
@@ -47,10 +45,10 @@ data class ThemeColors(
 
             val medicalColors = if (isDark) {
                 MedicalColors(
-                    drug = "#34d399",
-                    danger = "#fb7185",
-                    caution = "#fbbf24",
-                    grade = "#a78bfa"
+                    drug = colorScheme.primary.copy(alpha = 0.8f).toHexString(),
+                    danger = colorScheme.error.copy(alpha = 0.85f).toHexString(),
+                    caution = colorScheme.tertiary.copy(alpha = 0.85f).toHexString(),
+                    grade = colorScheme.secondary.copy(alpha = 0.85f).toHexString()
                 )
             } else {
                 MedicalColors(
@@ -65,7 +63,6 @@ data class ThemeColors(
                 isDark = isDark,
                 bg = bgHex,
                 surface = surface,
-                surfaceAlt = surfaceAlt,
                 text = text,
                 textSecondary = textSecondary,
                 textTertiary = textTertiary,
@@ -73,7 +70,7 @@ data class ThemeColors(
                 borderEmphasis = borderEmphasis,
                 primary = primary,
                 onPrimary = onPrimary,
-                heading = primary,
+                heading = colorScheme.onBackground.toHexString(),
                 drug = medicalColors.drug,
                 danger = medicalColors.danger,
                 caution = medicalColors.caution,

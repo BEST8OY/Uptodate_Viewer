@@ -2,6 +2,13 @@ package com.clinref.app.ui.content
 
 class CssBuilder(private val colors: ThemeColors) {
 
+    private fun hexToRgba(hex: String, alpha: Float): String {
+        val r = hex.substring(1, 3).toInt(16)
+        val g = hex.substring(3, 5).toInt(16)
+        val b = hex.substring(5, 7).toInt(16)
+        return "rgba($r, $g, $b, $alpha)"
+    }
+
     fun build(vararg sections: String): String {
         return "<style>\n${sections.joinToString("\n")}\n</style>"
     }
@@ -27,7 +34,12 @@ strong, b { font-weight: 600; }
 i, em { font-style: italic; }
 sup { font-size: 0.7em; vertical-align: super; }
 sub { font-size: 0.7em; vertical-align: sub; }
-img { max-width: 100% !important; height: auto !important; display: block; }
+img { height: auto !important; display: block; }
+
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid ${colors.primary};
+    outline-offset: 2px;
+}
 
 .visuallyHidden, #formulinkBodyPlaceholder { display: none !important; }
 .view { display: none; }
@@ -40,7 +52,6 @@ img { max-width: 100% !important; height: auto !important; display: block; }
     margin: 0 auto;
     padding: 32px 40px 64px;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 }
 #topicWhatsNewContainer { margin: 16px 0; min-height: 4px; }
 #topicText { margin-top: 12px; }
@@ -50,12 +61,13 @@ img { max-width: 100% !important; height: auto !important; display: block; }
     fun headings(): String = """
 /* Headings */
 h1.h1, h1.topic-title {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
     font-weight: 700;
+    line-height: 1.3;
     color: ${colors.primary};
     border-bottom: 3px solid ${colors.primary};
     padding-bottom: 8px;
-    margin: 36px 0 16px;
+    margin: 32px 0 16px;
     letter-spacing: -0.01em;
 }
 
@@ -66,52 +78,47 @@ h1.topic-title {
 }
 
 h2.h2 {
-    font-size: 1.2rem;
+    font-size: 1.3rem;
     font-weight: 600;
+    line-height: 1.35;
     color: ${colors.heading};
     padding: 8px 14px;
-    margin: 32px 0 14px;
+    margin: 28px 0 14px;
     border-left: 4px solid ${colors.primary};
     background: ${colors.surface};
     border-radius: 0 6px 6px 0;
 }
 
 h3.h3 {
-    font-size: 1.05rem;
+    font-size: 1.1rem;
     font-weight: 600;
+    line-height: 1.4;
     color: ${colors.heading};
-    margin: 24px 0 12px;
+    margin: 24px 0 10px;
 }
 
 h4.h4 {
-    font-size: 0.95rem;
+    font-size: 1rem;
     font-weight: 600;
+    line-height: 1.4;
     color: ${colors.textSecondary};
-    font-style: italic;
-    margin: 20px 0 10px;
+    margin: 20px 0 8px;
 }
 
 h5.h5 {
     font-size: 0.9rem;
     font-weight: 600;
+    line-height: 1.4;
     color: ${colors.textSecondary};
-    margin: 16px 0 8px;
+    margin: 16px 0 6px;
 }
 
 h6.h6 {
     font-size: 0.85rem;
     font-weight: 600;
+    line-height: 1.4;
     color: ${colors.textTertiary};
     margin: 14px 0 6px;
-}
-
-#topicTitle {
-    font-size: 2rem;
-    font-weight: 700;
-    color: ${colors.primary};
-    line-height: 1.25;
-    margin-bottom: 20px;
-    letter-spacing: -0.02em;
 }
 """.trimIndent()
 
@@ -153,7 +160,7 @@ a:hover { text-decoration: underline; }
     font-size: 0.8rem;
     font-weight: 600;
     text-decoration: none;
-    transition: all 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .graphic:hover, .graphic_table:hover, .graphic_figure:hover {
@@ -318,17 +325,12 @@ th {
 }
 
 .graphic table, .figure table {
-    width: 100%;
-    border-collapse: collapse;
     margin: 16px 0;
     font-size: 0.875rem;
-    border: 1px solid ${colors.border};
 }
 
 .graphic td, .figure td {
     padding: 10px 12px;
-    border: 1px solid ${colors.border};
-    vertical-align: top;
     line-height: 1.5;
 }
 
@@ -493,7 +495,7 @@ th {
     transition: background 0.15s;
 }
 
-.collapsible-indication-title:hover { background: ${colors.surface}; }
+.collapsible-indication-title:hover { background: ${colors.bg}; }
 .collapsible-indication-wrap, .collapsible-wrap { padding: 14px 18px; line-height: 1.65; }
 
 .ref-callout-list { display: inline; white-space: nowrap; }
@@ -508,7 +510,7 @@ th {
     border-radius: 3px;
     color: ${colors.primary};
     text-decoration: none;
-    transition: all 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
     white-space: nowrap;
 }
 
@@ -564,7 +566,7 @@ th {
     fun calculator(): String = """
 /* Calculator Styles */
 #topicContentCalculator { padding-top: 24px; }
-#mc3k { font-family: inherit; color: ${colors.text}; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+#mc3k { font-family: inherit; color: ${colors.text}; overflow-x: auto; }
 
 .medCalcFontTitleBox {
     display: block;
@@ -603,7 +605,6 @@ th {
     border-radius: 6px;
     padding: 12px 16px;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 }
 
 .medCalcFormuliBoxWhite {
@@ -639,7 +640,7 @@ th {
 #mc3k table[border] { border: 1px solid ${colors.border}; }
 #mc3k table[border] td, #mc3k table[border] th { border: 1px solid ${colors.border}; }
 
-#calc_main { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+#calc_main { overflow-x: auto; }
 #calc_main table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 #calc_main td, #calc_main th { padding: 10px 12px; border: 1px solid ${colors.border}; }
 #calc_main tr:first-child td { background: ${colors.surface} !important; }
@@ -675,7 +676,7 @@ th {
 #calc_main input[type="number"]:focus {
     outline: none;
     border-color: ${colors.primary};
-    box-shadow: 0 0 0 2px ${colors.primary}33;
+    box-shadow: 0 0 0 2px ${hexToRgba(colors.primary, 0.2f)};
 }
 
 #calc_main input[readonly] { background: ${colors.surface}; font-weight: 600; }
@@ -691,7 +692,7 @@ th {
     font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 #calc_buttons input[type="submit"]:hover,
@@ -705,59 +706,6 @@ th {
     background: ${colors.surface};
     color: ${colors.danger};
     border-color: ${colors.danger};
-}
-""".trimIndent()
-
-    fun outlineSidebar(): String = """
-/* Outline Sidebar Mode */
-body.outline-mode {
-    background: ${colors.surface};
-    padding: 16px 14px;
-    font-size: 14px;
-}
-
-body.outline-mode .topic-outline { padding: 0; }
-
-body.outline-mode h2 {
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: ${colors.textTertiary};
-    margin: 0 0 12px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid ${colors.border};
-}
-
-body.outline-mode ul { list-style: none; padding: 0; margin: 0; }
-
-body.outline-mode a {
-    display: block;
-    padding: 8px 12px;
-    color: ${colors.text};
-    border-radius: 5px;
-    border-left: 3px solid transparent;
-    transition: all 0.12s ease;
-    font-size: 0.85rem;
-}
-
-body.outline-mode a:hover {
-    background: ${colors.bg};
-    border-left-color: ${colors.primary};
-    color: ${colors.primary};
-    text-decoration: none;
-}
-
-body.outline-mode ul ul {
-    margin-left: 12px;
-    padding-left: 12px;
-    border-left: 1px solid ${colors.border};
-}
-
-body.outline-mode ul ul a {
-    font-size: 0.8rem;
-    color: ${colors.textSecondary};
-    padding: 6px 10px;
 }
 """.trimIndent()
 
@@ -782,7 +730,7 @@ body {
 }
 .figure { margin: 0; text-align: center; width: 100% !important; }
 
-img {
+.cntnt img, .graphic_view img {
     max-width: 100% !important;
     height: auto !important;
 }
@@ -803,14 +751,11 @@ img {
     width: 100%;
     max-width: 100%;
     overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 }
 
 .cntnt img {
     display: block;
     margin: 0 auto;
-    max-width: 100% !important;
-    height: auto !important;
     border: 1px solid ${colors.border};
     border-radius: 4px;
 }
