@@ -67,7 +67,10 @@ fun GraphicSheet(
     val themeColors = remember(colorScheme) { ThemeColors.fromColorScheme(colorScheme) }
     val graphicCss = remember(themeColors) { CssBuilder(themeColors).graphicViewer() }
 
-    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Expanded)
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Expanded,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
     val scope = rememberCoroutineScope()
     var sheetLoading by remember(graphicId) { mutableStateOf(true) }
 
