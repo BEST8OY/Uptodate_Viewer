@@ -690,9 +690,9 @@ private fun OutlineOverlay(
                 items = displayItems,
                 key = { index, item ->
                     when (item) {
-                        is OutlineItem.Section -> "section_${item.section.id}"
-                        is OutlineItem.GroupHeader -> "header_${item.title}_$index"
-                        is OutlineItem.Spacer -> "spacer_${item.dp}_$index"
+                        is OutlineItem.Section -> "section_${index}_${item.section.id}"
+                        is OutlineItem.GroupHeader -> "header_${index}_${item.title}"
+                        is OutlineItem.Spacer -> "spacer_${index}_${item.dp}"
                     }
                 }
             ) { _, item ->
