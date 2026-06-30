@@ -43,21 +43,12 @@ data class ThemeColors(
             val onPrimary = colorScheme.onPrimary.toHexString()
             val selection = colorScheme.primary.toHexString()
 
-            val medicalColors = if (isDark) {
-                MedicalColors(
-                    drug = colorScheme.primary.copy(alpha = 0.8f).toHexString(),
-                    danger = colorScheme.error.copy(alpha = 0.85f).toHexString(),
-                    caution = colorScheme.tertiary.copy(alpha = 0.85f).toHexString(),
-                    grade = colorScheme.secondary.copy(alpha = 0.85f).toHexString()
-                )
-            } else {
-                MedicalColors(
-                    drug = "#059669",
-                    danger = "#e11d48",
-                    caution = "#d97706",
-                    grade = "#7c3aed"
-                )
-            }
+            val medicalColors = MedicalColors(
+                drug = "#059669",
+                danger = "#e11d48",
+                caution = "#d97706",
+                grade = "#7c3aed"
+            )
 
             return ThemeColors(
                 isDark = isDark,
