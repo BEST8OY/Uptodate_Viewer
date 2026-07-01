@@ -65,7 +65,7 @@ fun GraphicSheet(
 
     val colorScheme = MaterialTheme.colorScheme
     val themeColors = remember(colorScheme) { ThemeColors.fromColorScheme(colorScheme) }
-    val graphicCss = remember(themeColors) { CssBuilder(themeColors).graphicViewer() }
+    val graphicCss = remember(themeColors) { CssBuilder(themeColors).buildGraphicPopupCss() }
 
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Expanded,

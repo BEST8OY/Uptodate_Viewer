@@ -3,15 +3,117 @@ package com.clinref.app.ui.content
 class CssBuilder(private val colors: ThemeColors) {
 
     private fun hexToRgba(hex: String, alpha: Float): String {
-        val r = hex.substring(1, 3).toInt(16)
-        val g = hex.substring(3, 5).toInt(16)
-        val b = hex.substring(5, 7).toInt(16)
+        val clean = hex.removePrefix("#")
+        val (r, g, b) = when (clean.length) {
+            3 -> listOf(
+                clean[0].toString().repeat(2).toInt(16),
+                clean[1].toString().repeat(2).toInt(16),
+                clean[2].toString().repeat(2).toInt(16),
+            )
+            6 -> listOf(
+                clean.substring(0, 2).toInt(16),
+                clean.substring(2, 4).toInt(16),
+                clean.substring(4, 6).toInt(16),
+            )
+            else -> return "rgba(0, 0, 0, $alpha)"
+        }
         return "rgba($r, $g, $b, $alpha)"
     }
 
-    fun build(vararg sections: String): String {
+    fun buildDocumentCss(): String {
+        val sections = listOf(
+            rootVariables(),
+            resetAndBase(),
+            layoutContainers(),
+            headings(),
+            links(),
+            contributors(),
+            bulletLists(),
+            tables(),
+            references(),
+            drugMonograph(),
+            patientEducation(),
+            calculator(),
+            responsive(),
+            printStyles(),
+        )
         return "<style>\n${sections.joinToString("\n")}\n</style>"
     }
+
+    fun buildGraphicPopupCss(): String {
+        val sections = listOf(
+            rootVariables(),
+            graphicReset(),
+            graphicLayout(),
+            sharedTableStyles(),
+            graphicTableSpecifics(),
+            graphicNavigation(),
+            responsive(),
+            printStyles(),
+        )
+        return "<style>\n${sections.joinToString("\n")}\n</style>"
+    }
+
+    // ── Theme tokens as CSS custom properties ────────────────────────
+
+    private fun rootVariables(): String = """
+/* Theme Tokens */
+:root {
+    --bg: ${colors.bg};
+    --surface: ${colors.surface};
+    --text: ${colors.text};
+    --text-secondary: ${colors.textSecondary};
+    --text-tertiary: ${colors.textTertiary};
+    --border: ${colors.border};
+    --border-emphasis: ${colors.borderEmphasis};
+    --primary: ${colors.primary};
+    --on-primary: ${colors.onPrimary};
+    --heading: ${colors.heading};
+    --drug: ${colors.drug};
+    --danger: ${colors.danger};
+    --caution: ${colors.caution};
+    --grade: ${colors.grade};
+    --selection: ${colors.selection};
+    --primary-container: ${colors.primaryContainer};
+    --on-primary-container: ${colors.onPrimaryContainer};
+    --tertiary-container: ${colors.tertiaryContainer};
+    --on-tertiary-container: ${colors.onTertiaryContainer};
+}
+""".trimIndent()
+
+    // ── Shared table/typography styles (used by both entry points) ──
+
+    private fun sharedTableStyles(): String = """
+/* Shared Table & Typography Styles */
+.subtitle1 {
+    background: var(--primary) !important;
+    color: var(--on-primary) !important;
+    font-weight: 600;
+    text-align: center;
+    padding: 10px 12px;
+}
+
+.subtitle2, .subtitle2_left {
+    background: var(--surface) !important;
+    color: var(--heading);
+    font-weight: 600;
+    padding: 8px 12px;
+}
+
+.subtitle2 { text-align: center; }
+.subtitle2_left { text-align: left; }
+
+.indent1 { padding-left: 24px !important; font-weight: 500; }
+.indent2 { padding-left: 40px !important; }
+
+.divider_bottom { border-bottom: 2px solid var(--border-emphasis) !important; }
+.divider_top { border-top: 2px solid var(--border-emphasis) !important; }
+
+.nowrap_whitespace { white-space: nowrap; }
+.extra_spacing_top { margin-top: 12px; }
+""".trimIndent()
+
+    // ── Reset & Base ─────────────────────────────────────────────────
 
     fun resetAndBase(): String = """
 /* Reset & Base */
@@ -21,14 +123,14 @@ html { scroll-behavior: smooth; }
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: 16px;
-    line-height: 1.7;
-    color: ${colors.text};
-    background: ${colors.bg};
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--bg);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
 }
 
-::selection { background: ${colors.selection}; color: ${colors.onPrimary}; }
+::selection { background: var(--selection); color: var(--on-primary); }
 
 strong, b { font-weight: 600; }
 i, em { font-style: italic; }
@@ -37,55 +139,75 @@ sub { font-size: 0.7em; vertical-align: sub; }
 img { height: auto !important; display: block; }
 
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
-    outline: 2px solid ${colors.primary};
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
-.visuallyHidden, #formulinkBodyPlaceholder { display: none !important; }
+.visuallyHidden, #formulinkBodyPlaceholder {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
 .view { display: none; }
 """.trimIndent()
+
+    // ── Layout ───────────────────────────────────────────────────────
 
     fun layoutContainers(): String = """
 /* Layout Containers */
 .utdArticleSection, #topicContent, #topicContentCalculator {
     max-width: 860px;
     margin: 0 auto;
-    padding: 32px 40px 64px;
+    padding: 24px 20px 48px;
     overflow-x: auto;
 }
 #topicWhatsNewContainer { margin: 16px 0; min-height: 4px; }
 #topicText { margin-top: 12px; }
 #topicText p { margin: 14px 0; text-align: left; }
+
+@media (min-width: 600px) {
+    .utdArticleSection, #topicContent, #topicContentCalculator {
+        padding: 32px 40px 64px;
+    }
+}
 """.trimIndent()
+
+    // ── Headings ─────────────────────────────────────────────────────
 
     fun headings(): String = """
 /* Headings */
-h1.h1, h1.topic-title {
-    font-size: 1.75rem;
+h1 {
+    font-size: 1.5rem;
     font-weight: 700;
     line-height: 1.3;
-    color: ${colors.primary};
-    border-bottom: 3px solid ${colors.primary};
+    color: var(--primary);
+    border-bottom: 3px solid var(--primary);
     padding-bottom: 8px;
     margin: 32px 0 16px;
     letter-spacing: -0.01em;
 }
 
 h1.topic-title {
-    font-size: 2rem;
+    font-size: 1.75rem;
     margin-top: 0;
     margin-bottom: 20px;
 }
 
 h2.h2 {
-    font-size: 1.3rem;
+    font-size: 1.25rem;
     font-weight: 600;
-    line-height: 1.35;
-    color: ${colors.heading};
+    line-height: 1.4;
+    color: var(--heading);
     padding: 8px 14px;
     margin: 28px 0 14px;
-    border-left: 4px solid ${colors.primary};
-    background: ${colors.surface};
+    border-left: 4px solid var(--primary);
+    background: var(--surface);
     border-radius: 0 6px 6px 0;
 }
 
@@ -93,7 +215,7 @@ h3.h3 {
     font-size: 1.1rem;
     font-weight: 600;
     line-height: 1.4;
-    color: ${colors.heading};
+    color: var(--heading);
     margin: 24px 0 10px;
 }
 
@@ -101,7 +223,7 @@ h4.h4 {
     font-size: 1rem;
     font-weight: 600;
     line-height: 1.4;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     margin: 20px 0 8px;
 }
 
@@ -109,7 +231,7 @@ h5.h5 {
     font-size: 0.9rem;
     font-weight: 600;
     line-height: 1.4;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     margin: 16px 0 6px;
 }
 
@@ -117,21 +239,23 @@ h6.h6 {
     font-size: 0.85rem;
     font-weight: 600;
     line-height: 1.4;
-    color: ${colors.textTertiary};
+    color: var(--text-tertiary);
     margin: 14px 0 6px;
 }
 """.trimIndent()
 
+    // ── Links ────────────────────────────────────────────────────────
+
     fun links(): String = """
 /* Links */
-a { color: ${colors.primary}; text-decoration: none; transition: color 0.15s; }
+a { color: var(--primary); text-decoration: none; transition: color 0.15s; }
 a:hover { text-decoration: underline; }
 
-.medical, .medical_review, .abstract_t, .external, .contributor { color: ${colors.primary}; }
+.medical, .medical_review, .abstract_t, .external, .contributor { color: var(--primary); }
 .abstract_t { font-weight: 500; }
 
 .drug, .drug_general, .drug_patient, .drug_pediatric {
-    color: ${colors.drug};
+    color: var(--drug);
     font-weight: 600;
 }
 
@@ -139,8 +263,8 @@ a:hover { text-decoration: underline; }
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
-    background: ${colors.grade};
-    color: ${colors.onPrimary};
+    background: var(--grade);
+    color: var(--on-primary);
     font-size: 0.75rem;
     font-weight: 700;
     text-decoration: none;
@@ -153,10 +277,10 @@ a:hover { text-decoration: underline; }
     align-items: center;
     padding: 3px 10px;
     margin: 0 3px;
-    background: ${colors.surface};
-    border: 1px solid ${colors.border};
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    color: ${colors.primary};
+    color: var(--primary);
     font-size: 0.8rem;
     font-weight: 600;
     text-decoration: none;
@@ -164,29 +288,31 @@ a:hover { text-decoration: underline; }
 }
 
 .graphic:hover, .graphic_table:hover, .graphic_figure:hover {
-    background: ${colors.primary};
-    color: ${colors.bg};
-    border-color: ${colors.primary};
+    background: var(--primary);
+    color: var(--bg);
+    border-color: var(--primary);
     text-decoration: none;
 }
 """.trimIndent()
+
+    // ── Contributors ─────────────────────────────────────────────────
 
     fun contributors(): String = """
 /* Contributors Block */
 #topicContributors {
     margin: 16px 0;
     padding: 16px 20px;
-    background: ${colors.surface};
+    background: var(--surface);
     border-radius: 8px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
 }
 
 #topicDisclosures {
     margin: 16px 0;
     padding: 16px 20px;
-    background: ${colors.surface};
+    background: var(--surface);
     border-radius: 8px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
 }
 
 #topicContributors dl { margin: 0; }
@@ -197,7 +323,7 @@ a:hover { text-decoration: underline; }
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: ${colors.textTertiary};
+    color: var(--text-tertiary);
     margin-top: 12px;
 }
 
@@ -207,26 +333,24 @@ a:hover { text-decoration: underline; }
     display: inline;
     margin: 0;
     font-size: 0.9rem;
-    color: ${colors.text};
+    color: var(--text);
 }
 
-#topicContributors dd::after { content: ", "; color: ${colors.textTertiary}; }
-#topicContributors dd:last-of-type::after { content: ""; }
-#topicContributors a { color: ${colors.primary}; font-weight: 500; }
+#topicContributors a { color: var(--primary); font-weight: 500; }
 
 .disclosureLink, #reviewProcess, #literatureReviewDate {
     display: block;
     margin: 10px 0;
     padding: 12px 16px;
-    background: ${colors.surface};
-    border: 1px solid ${colors.border};
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 0.875rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
 }
 
-.policy { color: ${colors.primary}; font-weight: 600; }
-.emphasis { font-weight: 600; color: ${colors.text}; }
+.policy { color: var(--primary); font-weight: 600; }
+.emphasis { font-weight: 600; color: var(--text); }
 
 .meta-links-row {
     display: flex;
@@ -238,14 +362,14 @@ a:hover { text-decoration: underline; }
     font-weight: 600;
 }
 
-.meta-links-row a { color: ${colors.primary}; padding: 6px 0; }
+.meta-links-row a { color: var(--primary); padding: 6px 0; }
 .meta-links-row a:hover { text-decoration: underline; }
 
 .meta-separator {
     display: inline-block;
     width: 1px;
     height: 14px;
-    background: ${colors.border};
+    background: var(--border);
     margin: 0 14px;
 }
 
@@ -254,7 +378,7 @@ a:hover { text-decoration: underline; }
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: ${colors.textTertiary};
+    color: var(--text-tertiary);
     margin: 16px 0 8px;
 }
 
@@ -265,17 +389,19 @@ a:hover { text-decoration: underline; }
 
 .contributor-name {
     font-weight: 600;
-    color: ${colors.heading};
+    color: var(--heading);
     font-size: 0.9rem;
 }
 
 .contributor-associations, .contributor-disclosure {
     font-size: 0.85rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     margin-top: 2px;
     line-height: 1.5;
 }
 """.trimIndent()
+
+    // ── Bullet Lists ─────────────────────────────────────────────────
 
     fun bulletLists(): String = """
 /* Bullet Lists */
@@ -291,15 +417,17 @@ a:hover { text-decoration: underline; }
 .glyph {
     position: absolute;
     left: 8px;
-    color: ${colors.primary};
+    color: var(--primary);
     font-weight: 700;
     font-size: 0.9em;
 }
 
-.bulletIndent2 .glyph { left: 32px; color: ${colors.textSecondary}; }
-.bulletIndent3 .glyph { left: 56px; color: ${colors.textTertiary}; }
+.bulletIndent2 .glyph { left: 32px; color: var(--text-secondary); }
+.bulletIndent3 .glyph { left: 56px; color: var(--text-tertiary); }
 .utd-adt-pathwys { font-size: 0.9rem; }
 """.trimIndent()
+
+    // ── Tables ───────────────────────────────────────────────────────
 
     fun tables(): String = """
 /* Tables */
@@ -308,19 +436,19 @@ table {
     border-collapse: collapse;
     margin: 20px 0;
     font-size: 0.9rem;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
 }
 
 th, td {
     padding: 12px 14px;
     text-align: left;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     vertical-align: top;
 }
 
 th {
-    background: ${colors.surface};
-    color: ${colors.heading};
+    background: var(--surface);
+    color: var(--heading);
     font-weight: 600;
 }
 
@@ -334,44 +462,21 @@ th {
     line-height: 1.5;
 }
 
-.subtitle1 {
-    background: ${colors.primary} !important;
-    color: ${colors.onPrimary} !important;
-    font-weight: 600;
-    text-align: center;
-    padding: 10px 12px;
-}
-
-.subtitle2, .subtitle2_left {
-    background: ${colors.surface} !important;
-    color: ${colors.heading};
-    font-weight: 600;
-    padding: 8px 12px;
-}
-
-.subtitle2 { text-align: center; }
-.subtitle2_left { text-align: left; }
-
-.indent1 { padding-left: 24px !important; font-weight: 500; }
-.indent2 { padding-left: 40px !important; }
-
-.divider_bottom { border-bottom: 2px solid ${colors.borderEmphasis} !important; }
-.divider_top { border-top: 2px solid ${colors.borderEmphasis} !important; }
-
-.nowrap_whitespace { white-space: nowrap; }
-.extra_spacing_top { margin-top: 12px; }
+${sharedTableStyles()}
 
 .graphic tbody tr:nth-child(even) td:not(.subtitle1):not(.subtitle2):not(.subtitle2_left) {
-    background: ${colors.surface};
+    background: var(--surface);
 }
 """.trimIndent()
+
+    // ── References ───────────────────────────────────────────────────
 
     fun references(): String = """
 /* References */
 #references {
     margin-top: 48px;
     padding-top: 24px;
-    border-top: 2px solid ${colors.border};
+    border-top: 2px solid var(--border);
 }
 
 #references h1 {
@@ -379,7 +484,7 @@ th {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: ${colors.textTertiary};
+    color: var(--text-tertiary);
     margin: 0 0 16px;
 }
 
@@ -395,9 +500,9 @@ th {
     position: relative;
     padding-left: 32px;
     margin-bottom: 10px;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     font-size: 0.85rem;
-    line-height: 1.55;
+    line-height: 1.5;
 }
 
 #reference li::before {
@@ -406,7 +511,7 @@ th {
     left: 0;
     width: 24px;
     text-align: right;
-    color: ${colors.textTertiary};
+    color: var(--text-tertiary);
     font-weight: 500;
 }
 
@@ -415,34 +520,41 @@ th {
     padding-top: 16px;
     text-align: center;
     font-size: 0.78rem;
-    color: ${colors.textTertiary};
-    border-top: 1px solid ${colors.border};
+    color: var(--text-tertiary);
+    border-top: 1px solid var(--border);
+}
+
+/* Long references with raw URLs */
+.breakAll {
+    word-break: break-all;
 }
 """.trimIndent()
+
+    // ── Drug Monograph ───────────────────────────────────────────────
 
     fun drugMonograph(): String = """
 /* Drug Monograph Styles */
 .lexiSectionElem {
     margin: 20px 0;
     padding-bottom: 16px;
-    border-bottom: 1px solid ${colors.border};
+    border-bottom: 1px solid var(--border);
 }
 
 .lexiElementsLeft {
     font-size: 0.9rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
 }
 
 #drugTitle {
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 700;
-    color: ${colors.drug};
+    color: var(--drug);
     margin-bottom: 12px;
 }
 
 #contributorsSectionWeb {
     font-size: 0.8rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     margin-bottom: 8px;
 }
 
@@ -450,24 +562,24 @@ th {
 
 .lexiAdditionalInfoAndAbbr {
     font-size: 0.85rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     line-height: 1.6;
     padding: 14px 18px;
-    background: ${colors.surface};
-    border: 1px solid ${colors.border};
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     margin-top: 12px;
 }
 
 .drugH1 {
     display: block;
-    font-size: 1.05rem;
+    font-size: 1rem;
     font-weight: 700;
-    color: ${colors.drug};
+    color: var(--drug);
     margin: 28px 0 12px;
     padding: 10px 0 10px 14px;
-    border-left: 4px solid ${colors.drug};
-    background: ${colors.surface};
+    border-left: 4px solid var(--drug);
+    background: var(--surface);
     border-radius: 0 6px 6px 0;
 }
 
@@ -479,24 +591,41 @@ th {
 .block p { margin: 10px 0; }
 
 .collapsible-indication, .collapsible {
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
     margin: 14px 0;
 }
 
 .collapsible-indication-title, .collapsible-title {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 12px 16px;
-    background: ${colors.surface};
+    background: var(--surface);
     font-weight: 600;
-    color: ${colors.heading};
+    color: var(--heading);
     cursor: pointer;
     transition: background 0.15s;
+    user-select: none;
 }
 
-.collapsible-indication-title:hover { background: ${colors.bg}; }
-.collapsible-indication-wrap, .collapsible-wrap { padding: 14px 18px; line-height: 1.65; }
+.collapsible-indication-title::after,
+.collapsible-title::after {
+    content: "\25B6";
+    font-size: 0.6em;
+    color: var(--text-tertiary);
+    margin-left: auto;
+    transition: transform 0.2s;
+}
+
+.collapsible-indication.open .collapsible-indication-title::after,
+.collapsible.open .collapsible-title::after {
+    transform: rotate(90deg);
+}
+
+.collapsible-indication-title:hover { background: var(--bg); }
+.collapsible-indication-wrap, .collapsible-wrap { padding: 14px 18px; line-height: 1.6; }
 
 .ref-callout-list { display: inline; white-space: nowrap; }
 
@@ -505,37 +634,67 @@ th {
     padding: 1px 6px;
     font-size: 0.75rem;
     font-weight: 600;
-    background: ${colors.surface};
-    border: 1px solid ${colors.border};
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 3px;
-    color: ${colors.primary};
+    color: var(--primary);
     text-decoration: none;
     transition: background 0.15s, color 0.15s, border-color 0.15s;
     white-space: nowrap;
 }
 
 .ref-callout-list-link:hover {
-    background: ${colors.primary};
-    color: ${colors.bg};
-    border-color: ${colors.primary};
+    background: var(--primary);
+    color: var(--bg);
+    border-color: var(--primary);
     text-decoration: none;
 }
 
 .drugBrandNames { font-size: 0.9rem; }
 .drugBrandNames ul { list-style: none; padding: 0; margin: 8px 0; }
-.drugBrandNames li { padding: 8px 0; border-bottom: 1px solid ${colors.border}; }
+.drugBrandNames li { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .drugBrandNames li:last-child { border-bottom: none; }
 
 .block.coi .drugH1 {
-    color: ${colors.danger};
-    border-left-color: ${colors.danger};
+    color: var(--danger);
+    border-left-color: var(--danger);
+}
+
+.block.coi .drugH1::before {
+    content: "COI";
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    background: var(--danger);
+    color: var(--on-primary);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 8px;
+    vertical-align: middle;
 }
 
 .block.war .drugH1 {
-    color: ${colors.caution};
-    border-left-color: ${colors.caution};
+    color: var(--caution);
+    border-left-color: var(--caution);
+}
+
+.block.war .drugH1::before {
+    content: "WARNING";
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    background: var(--caution);
+    color: #1a1a1a;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 8px;
+    vertical-align: middle;
 }
 """.trimIndent()
+
+    // ── Patient Education ────────────────────────────────────────────
 
     fun patientEducation(): String = """
 /* Patient Education */
@@ -548,68 +707,70 @@ th {
 #disclaimer, #disclaimerContent {
     margin-top: 24px;
     padding: 18px 20px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: ${colors.surface};
+    background: var(--surface);
     font-size: 0.85rem;
-    line-height: 1.65;
-    color: ${colors.textSecondary};
+    line-height: 1.6;
+    color: var(--text-secondary);
 }
 
 #topicRetrievedDate {
     margin-top: 16px;
     font-size: 0.85rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
 }
 """.trimIndent()
+
+    // ── Calculator ───────────────────────────────────────────────────
 
     fun calculator(): String = """
 /* Calculator Styles */
 #topicContentCalculator { padding-top: 24px; }
-#mc3k { font-family: inherit; color: ${colors.text}; overflow-x: auto; }
+#mc3k { font-family: inherit; color: var(--text); overflow-x: auto; }
 
 .medCalcFontTitleBox {
     display: block;
     font-size: 1.4rem;
     font-weight: 700;
-    color: ${colors.primary};
+    color: var(--primary);
     padding: 16px 0;
 }
 
-.medCalcFontIO { font-size: 1rem; font-weight: 700; color: ${colors.primary}; }
-.medCalcFontCCTabBold, .medCalcFontOneBold { font-size: 0.95rem; font-weight: 600; color: ${colors.heading}; }
-.medCalcFontOne { font-size: 0.9rem; color: ${colors.text}; }
+.medCalcFontIO { font-size: 1rem; font-weight: 700; color: var(--primary); }
+.medCalcFontCCTabBold, .medCalcFontOneBold { font-size: 0.95rem; font-weight: 600; color: var(--heading); }
+.medCalcFontOne { font-size: 0.9rem; color: var(--text); }
 
 .medCalcFontSelect {
     padding: 8px 12px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: ${colors.surface};
-    color: ${colors.text};
+    background: var(--surface);
+    color: var(--text);
     min-width: 240px;
     font-size: 0.9rem;
 }
 
-.medCalcFontResultParam { font-weight: 600; color: ${colors.heading}; }
+.medCalcFontResultParam { font-weight: 600; color: var(--heading); }
 
 .medCalcResultBox {
-    background: ${colors.surface};
-    border: 2px solid ${colors.primary};
+    background: var(--surface);
+    border: 2px solid var(--primary);
     border-radius: 8px;
     padding: 8px;
 }
 
 .medCalcFormuliBox {
-    background: ${colors.surface};
-    border: 1px solid ${colors.border};
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px 16px;
     overflow-x: auto;
 }
 
 .medCalcFormuliBoxWhite {
-    background: ${colors.bg};
-    border: 1px solid ${colors.border};
+    background: var(--bg);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px 16px;
     width: 100%;
@@ -618,32 +779,32 @@ th {
 .medCalcFontFormuli {
     font-family: "SF Mono", Monaco, Inconsolata, "Fira Mono", monospace;
     font-size: 0.85rem;
-    color: ${colors.text};
+    color: var(--text);
     white-space: nowrap;
 }
 
-.medCalcFontRef { font-size: 0.85rem; color: ${colors.textSecondary}; }
+.medCalcFontRef { font-size: 0.85rem; color: var(--text-secondary); }
 
 .medCalcFontTwo {
     font-size: 0.85rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     line-height: 1.6;
 }
 
-.medCalcFontTwo .header { font-weight: 700; color: ${colors.heading}; margin-bottom: 8px; }
+.medCalcFontTwo .header { font-weight: 700; color: var(--heading); margin-bottom: 8px; }
 .medCalcFontTwo .copy { font-size: 0.8rem; margin-top: 12px; }
-.medCalcDisclaimerLink { color: ${colors.primary}; }
+.medCalcDisclaimerLink { color: var(--primary); }
 
 #mc3k table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 #mc3k td, #mc3k th { padding: 10px 12px; }
-#mc3k td[bgcolor], #mc3k tr[bgcolor] td { background-color: ${colors.surface} !important; }
-#mc3k table[border] { border: 1px solid ${colors.border}; }
-#mc3k table[border] td, #mc3k table[border] th { border: 1px solid ${colors.border}; }
+#mc3k td[bgcolor], #mc3k tr[bgcolor] td { background-color: var(--surface) !important; }
+#mc3k table[border] { border: 1px solid var(--border); }
+#mc3k table[border] td, #mc3k table[border] th { border: 1px solid var(--border); }
 
 #calc_main { overflow-x: auto; }
 #calc_main table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-#calc_main td, #calc_main th { padding: 10px 12px; border: 1px solid ${colors.border}; }
-#calc_main tr:first-child td { background: ${colors.surface} !important; }
+#calc_main td, #calc_main th { padding: 10px 12px; border: 1px solid var(--border); }
+#calc_main tr:first-child td { background: var(--surface) !important; }
 
 #calc_tables_above_notes { margin-top: 20px; }
 #pretextrefs { margin-top: 16px; min-height: 8px; }
@@ -655,19 +816,19 @@ th {
 #printDisclaimer, #disclaimerCalculator {
     margin-top: 24px;
     padding: 18px 20px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: ${colors.surface};
+    background: var(--surface);
     font-size: 0.85rem;
     line-height: 1.6;
 }
 
 #calc_main input[type="number"] {
     padding: 8px 12px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: ${colors.bg};
-    color: ${colors.text};
+    background: var(--bg);
+    color: var(--text);
     font-size: 1rem;
     max-width: 100%;
     transition: border-color 0.15s;
@@ -675,20 +836,26 @@ th {
 
 #calc_main input[type="number"]:focus {
     outline: none;
-    border-color: ${colors.primary};
+    border-color: var(--primary);
     box-shadow: 0 0 0 2px ${hexToRgba(colors.primary, 0.2f)};
 }
 
-#calc_main input[readonly] { background: ${colors.surface}; font-weight: 600; }
+#calc_main input[readonly] {
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: default;
+}
 
 #calc_buttons input[type="submit"],
 #calc_buttons input[type="button"],
 #calc_buttons input[type="reset"] {
     padding: 10px 24px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: ${colors.surface};
-    color: ${colors.text};
+    background: var(--surface);
+    color: var(--text);
     font-size: 0.9rem;
     font-weight: 600;
     cursor: pointer;
@@ -697,31 +864,44 @@ th {
 
 #calc_buttons input[type="submit"]:hover,
 #calc_buttons input[type="button"]:hover {
-    background: ${colors.primary};
-    color: ${colors.bg};
-    border-color: ${colors.primary};
+    background: var(--primary);
+    color: var(--bg);
+    border-color: var(--primary);
+}
+
+#calc_buttons input[type="reset"] {
+    color: var(--danger);
+    border-color: var(--danger);
 }
 
 #calc_buttons input[type="reset"]:hover {
-    background: ${colors.surface};
-    color: ${colors.danger};
-    border-color: ${colors.danger};
+    background: var(--danger);
+    color: var(--on-primary);
+    border-color: var(--danger);
 }
 """.trimIndent()
 
-    fun graphicViewer(): String = """
-/* Graphic Viewer Styles */
+    // ── Graphic Viewer (standalone popup) ────────────────────────────
+
+    private fun graphicReset(): String = """
+/* Graphic Viewer Reset */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: 15px;
-    line-height: 1.65;
-    color: ${colors.text};
-    background: ${colors.bg};
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--bg);
     -webkit-font-smoothing: antialiased;
 }
 
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+""".trimIndent()
+
+    private fun graphicLayout(): String = """
+/* Graphic Viewer Layout */
 .graphic_view {
     padding: 24px;
     display: flex;
@@ -738,10 +918,10 @@ body {
 .ttl {
     font-size: 1.125rem;
     font-weight: 600;
-    color: ${colors.heading};
+    color: var(--heading);
     margin-bottom: 16px;
     padding-bottom: 12px;
-    border-bottom: 2px solid ${colors.primary};
+    border-bottom: 2px solid var(--primary);
     text-align: center;
     width: 100%;
 }
@@ -756,88 +936,65 @@ body {
 .cntnt img {
     display: block;
     margin: 0 auto;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     border-radius: 4px;
 }
+""".trimIndent()
 
-/* Graphic Tables */
+    private fun graphicTableSpecifics(): String = """
+/* Graphic Table Specifics */
 .cntnt table {
     width: auto;
     max-width: 100%;
     border-collapse: collapse;
     font-size: 0.875rem;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     margin: 0 auto;
 }
 
 .cntnt td {
     padding: 10px 12px;
-    border: 1px solid ${colors.border};
+    border: 1px solid var(--border);
     vertical-align: top;
     line-height: 1.5;
 }
 
-.subtitle1 {
-    background: ${colors.primary} !important;
-    color: ${colors.onPrimary} !important;
-    font-weight: 600;
-    text-align: center;
-    padding: 10px 12px;
-}
-
 .subtitle1_single, .subtitle1_left {
-    background: ${colors.primary} !important;
-    color: ${colors.onPrimary} !important;
+    background: var(--primary) !important;
+    color: var(--on-primary) !important;
     font-weight: 600;
     text-align: left;
     padding: 10px 12px;
 }
 
-.subtitle2, .subtitle2_left {
-    background: ${colors.surface} !important;
-    color: ${colors.heading};
-    font-weight: 600;
-    padding: 8px 12px;
-}
+.indent2 { color: var(--text-secondary); }
 
-.subtitle2 { text-align: center; }
-.subtitle2_left { text-align: left; }
+tr.border_bottom_thick td { border-bottom: 2px solid var(--border-emphasis) !important; }
+tr.border_top_thick td { border-top: 2px solid var(--border-emphasis) !important; }
+.border_right_thick { border-right: 2px solid var(--border-emphasis) !important; }
 
-.indent1 { padding-left: 24px !important; font-weight: 500; }
-.indent2 { padding-left: 40px !important; color: ${colors.textSecondary}; }
+.highlight_blue_text { background: var(--primary-container) !important; color: var(--on-primary-container) !important; }
+.highlight_lght_orange_text { background: var(--tertiary-container) !important; color: var(--on-tertiary-container) !important; }
 
-tr.border_bottom_thick td { border-bottom: 2px solid ${colors.borderEmphasis} !important; }
-tr.border_top_thick td { border-top: 2px solid ${colors.borderEmphasis} !important; }
-.border_right_thick { border-right: 2px solid ${colors.borderEmphasis} !important; }
-
-.highlight_blue_text { background: ${colors.primaryContainer} !important; color: ${colors.onPrimaryContainer} !important; }
-.highlight_lght_orange_text { background: ${colors.tertiaryContainer} !important; color: ${colors.onTertiaryContainer} !important; }
-
-.subtitle2_left_white { background: ${colors.surface} !important; color: ${colors.heading}; font-weight: 600; padding: 8px 12px; text-align: left; }
+.subtitle2_left_white { background: var(--surface) !important; color: var(--heading); font-weight: 600; padding: 8px 12px; text-align: left; }
 
 .sublist1_start, .sublist1 {
     padding-left: 24px !important;
     font-weight: 500;
     border-top: none !important;
 }
-.sublist1_start { border-top: 1px solid ${colors.border} !important; }
+.sublist1_start { border-top: 1px solid var(--border) !important; }
 
 .sublist_other_start, .sublist_other {
     border-top: none !important;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     font-size: 0.9em;
 }
 .sublist_other_start {
-    border-top: 1px solid ${colors.border} !important;
-    color: ${colors.text};
+    border-top: 1px solid var(--border) !important;
+    color: var(--text);
     font-size: 1em;
 }
-
-.divider_bottom { border-bottom: 2px solid ${colors.borderEmphasis} !important; }
-.divider_top { border-top: 2px solid ${colors.borderEmphasis} !important; }
-
-.nowrap_whitespace { white-space: nowrap; }
-.extra_spacing_top { margin-top: 12px; }
 
 .cntnt td ul, .cntnt td ol {
     margin: 4px 0;
@@ -854,33 +1011,35 @@ tr.border_top_thick td { border-top: 2px solid ${colors.borderEmphasis} !importa
 .cntnt td p.extra_spacing_top { margin-top: 16px; }
 .cntnt td p + ul, .cntnt td p + ol { margin-top: 4px; }
 
-.cntnt td strong { font-weight: 600; color: ${colors.heading}; }
-.cntnt td em { font-style: italic; color: ${colors.textSecondary}; }
+.cntnt td strong { font-weight: 600; color: var(--heading); }
+.cntnt td em { font-style: italic; color: var(--text-secondary); }
+""".trimIndent()
 
-/* Legend & footnotes */
+    private fun graphicNavigation(): String = """
+/* Graphic Viewer Navigation */
 .graphic_lgnd {
     font-size: 0.875rem;
-    color: ${colors.text};
+    color: var(--text);
     margin-top: 12px;
     padding: 12px;
-    background: ${colors.surface};
-    border: 1px solid ${colors.border};
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 4px;
     line-height: 1.6;
 }
 
 .graphic_footnotes {
     font-size: 0.8125rem;
-    color: ${colors.textSecondary};
+    color: var(--text-secondary);
     margin-top: 14px;
     padding-top: 10px;
-    border-top: 1px solid ${colors.border};
+    border-top: 1px solid var(--border);
     line-height: 1.5;
 }
 
 .graphic_reference {
     font-size: 0.8rem;
-    color: ${colors.textTertiary};
+    color: var(--text-tertiary);
     margin-top: 10px;
     line-height: 1.5;
 }
@@ -889,13 +1048,63 @@ tr.border_top_thick td { border-top: 2px solid ${colors.borderEmphasis} !importa
 
 #graphicVersion {
     font-size: 0.75rem;
-    color: ${colors.textTertiary};
+    color: var(--text-tertiary);
     margin-top: 16px;
     padding-top: 10px;
-    border-top: 1px solid ${colors.border};
+    border-top: 1px solid var(--border);
+}
+""".trimIndent()
+
+    // ── Responsive ───────────────────────────────────────────────────
+
+    private fun responsive(): String = """
+/* Responsive */
+@media (max-width: 480px) {
+    .utdArticleSection, #topicContent, #topicContentCalculator {
+        padding: 16px 12px 32px;
+    }
+
+    h1 { font-size: 1.3rem; }
+    h1.topic-title { font-size: 1.5rem; }
+    h2.h2 { font-size: 1.1rem; }
+
+    .grade { font-size: 0.7rem; padding: 1px 6px; }
+    .graphic, .graphic_table, .graphic_figure { font-size: 0.75rem; padding: 2px 8px; }
+
+    #topicContributors { padding: 12px 14px; }
+    .meta-links-row { font-size: 0.85rem; }
+
+    #calc_main input[type="number"] { font-size: 0.9rem; }
 }
 
-a { color: ${colors.primary}; text-decoration: none; }
-a:hover { text-decoration: underline; }
+@media (min-width: 481px) and (max-width: 768px) {
+    .utdArticleSection, #topicContent, #topicContentCalculator {
+        padding: 24px 20px 48px;
+    }
+}
+""".trimIndent()
+
+    // ── Print ────────────────────────────────────────────────────────
+
+    private fun printStyles(): String = """
+/* Print */
+@media print {
+    body { background: white; color: black; }
+
+    .collapsible-indication-title, .collapsible-title { cursor: default; }
+    .collapsible-indication-title::after, .collapsible-title::after { display: none; }
+
+    #calc_buttons { display: none; }
+
+    a[href]::after { content: " (" attr(href) ")"; font-size: 0.75em; color: #666; }
+    a[href^="#"]::after { content: ""; }
+
+    .grade { background: #eee; color: black; }
+    .graphic, .graphic_table, .graphic_figure { border-color: #ccc; color: black; }
+
+    .block.coi .drugH1, .block.war .drugH1 { break-inside: avoid; }
+
+    .visuallyHidden { position: absolute !important; width: 1px !important; height: 1px !important; clip: rect(0,0,0,0) !important; }
+}
 """.trimIndent()
 }
