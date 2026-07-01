@@ -63,7 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberUpdatedState
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -110,8 +110,6 @@ fun ContentScreen(
     }
 
     val currentTopicId by viewModel.currentTopicId.collectAsStateWithLifecycle()
-    val scrollPositions by viewModel.scrollPositions.collectAsStateWithLifecycle()
-    val savedScrollPosition = currentTopicId?.let { scrollPositions[it] } ?: 0
 
     val processedHtml by viewModel.processedHtml.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
@@ -188,10 +186,6 @@ fun ContentScreen(
                     HtmlContentWebView(
                         processedHtml = processedHtml,
                         topicId = topicId,
-                        savedScrollPosition = savedScrollPosition,
-                        onScrollChanged = { scrollY ->
-                            currentTopicId?.let { viewModel.saveScrollPosition(it, scrollY) }
-                        },
                         onAction = { actionId ->
                             viewModel.handleAction(actionId)
                         },
@@ -499,16 +493,12 @@ private fun ContentFloatingToolbar(
 private fun HtmlContentWebView(
     processedHtml: String?,
     topicId: String,
-    savedScrollPosition: Int,
-    onScrollChanged: (Int) -> Unit,
     onAction: (String) -> Unit,
     onFindResult: (Int) -> Unit,
     onWebViewCreated: (WebView) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
-
-    val currentSavedScrollPosition by rememberUpdatedState(savedScrollPosition)
 
     AndroidView(
         factory = { context ->
@@ -517,20 +507,7 @@ private fun HtmlContentWebView(
                 setOnApplyWindowInsetsListener { _, insets ->
                     insets
                 }
-                setOnScrollChangeListener { _, _, _, scrollY, _ ->
-                    onScrollChanged(scrollY)
-                }
                 webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        val scrollPos = currentSavedScrollPosition
-                        if (scrollPos > 0) {
-                            view?.post {
-                                view.scrollTo(0, scrollPos)
-                            }
-                        }
-                    }
-
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
                         request: android.webkit.WebResourceRequest?
@@ -658,6 +635,8 @@ private fun OutlineOverlay(
                         "graphic_figure" -> "Figures"
                         "graphic_algorithm" -> "Algorithms"
                         "graphic_picture" -> "Pictures"
+                        "graphic_movie" -> "Movies"
+                        "graphic_waveform" -> "Waveforms"
                         "graphic_diagnosticimage" -> "Diagnostic Images"
                         else -> "Other"
                     }

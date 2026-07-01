@@ -33,7 +33,6 @@ class ContentViewModel @Inject constructor(
         private const val KEY_CURRENT_TOPIC_ID = "current_topic_id"
         private const val KEY_NAVIGATION_HISTORY = "navigation_history"
         private const val KEY_HISTORY_INDEX = "history_index"
-        private const val KEY_SCROLL_POSITIONS = "scroll_positions"
     }
 
     private var _themeColors: ThemeColors? = null
@@ -94,11 +93,6 @@ class ContentViewModel @Inject constructor(
         savedStateHandle.get<Int>(KEY_HISTORY_INDEX) ?: -1
     )
     val historyIndex: StateFlow<Int> = _historyIndex
-
-    private val _scrollPositions = MutableStateFlow<Map<String, Int>>(
-        savedStateHandle.get<Map<String, Int>>(KEY_SCROLL_POSITIONS) ?: emptyMap()
-    )
-    val scrollPositions: StateFlow<Map<String, Int>> = _scrollPositions
 
     private val actions = mutableMapOf<String, String>()
 
@@ -318,19 +312,6 @@ class ContentViewModel @Inject constructor(
         }
     }
 
-    fun saveScrollPosition(topicId: String, scrollY: Int) {
-        val current = _scrollPositions.value
-        if (current[topicId] != scrollY) {
-            val updated = current + (topicId to scrollY)
-            _scrollPositions.value = updated
-            savedStateHandle[KEY_SCROLL_POSITIONS] = updated
-        }
-    }
-
-    fun getScrollPosition(topicId: String): Int {
-        return _scrollPositions.value[topicId] ?: 0
-    }
-
     private fun updateNavigationState() {
         val idx = _historyIndex.value
         val history = _navigationHistory.value
@@ -361,19 +342,6 @@ class ContentViewModel @Inject constructor(
             tertiaryContainer = "#f3deff",
             onTertiaryContainer = "#31004a"
         )
-        val builder = CssBuilder(colors)
-        return builder.build(
-            builder.resetAndBase(),
-            builder.layoutContainers(),
-            builder.headings(),
-            builder.links(),
-            builder.contributors(),
-            builder.bulletLists(),
-            builder.tables(),
-            builder.references(),
-            builder.drugMonograph(),
-            builder.patientEducation(),
-            builder.calculator()
-        )
+        return CssBuilder(colors).buildDocumentCss()
     }
 }
