@@ -2,8 +2,6 @@ package com.clinref.app.ui.navigation
 
 import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -26,7 +24,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -113,7 +110,6 @@ fun NavGraph(
     }
 
     var selectedGraphicId by remember { mutableStateOf<String?>(null) }
-    var activeSharedElementKey by remember { mutableStateOf<String?>(null) }
 
     val activity = LocalContext.current as? Activity
 
@@ -126,10 +122,7 @@ fun NavGraph(
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
                 },
-                onSearchClick = {
-                    activeSharedElementKey = "search_bar"
-                    navigator.navigate(SearchRoute)
-                }
+                onSearchClick = { navigator.navigate(SearchRoute) }
             )
         }
         entry<SearchRoute> {
@@ -140,11 +133,7 @@ fun NavGraph(
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
                 },
-                onBack = {
-                    activeSharedElementKey = null
-                    navigator.goBack()
-                },
-                activeSharedElementKey = activeSharedElementKey
+                onBack = { navigator.goBack() }
             )
         }
         entry<HistoryRoute> {
@@ -184,37 +173,31 @@ fun NavGraph(
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val motionScheme = MaterialTheme.motionScheme
 
-        @OptIn(ExperimentalSharedTransitionApi::class)
-        SharedTransitionLayout {
-            CompositionLocalProvider(LocalSharedTransitionScope provides this@SharedTransitionLayout) {
-                NavDisplay(
-                    entries = navigationState.toDecoratedEntries(entryProvider),
-                    onBack = {
-                        val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
-                        val currentRoute = currentStack?.lastOrNull()
-                        if (currentRoute == navigationState.topLevelRoute && navigationState.topLevelRoute == navigationState.startRoute) {
-                            activity?.finish()
-                        } else {
-                            navigator.goBack()
-                        }
-                    },
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    transitionSpec = {
-                        slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
-                            slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
-                    },
-                    popTransitionSpec = {
-                        slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                            slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
-                    },
-                    predictivePopTransitionSpec = {
-                        slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                            slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-        }
+        NavDisplay(
+            entries = navigationState.toDecoratedEntries(entryProvider),
+            onBack = {
+                val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
+                val currentRoute = currentStack?.lastOrNull()
+                if (currentRoute == navigationState.topLevelRoute && navigationState.topLevelRoute == navigationState.startRoute) {
+                    activity?.finish()
+                } else {
+                    navigator.goBack()
+                }
+            },
+            transitionSpec = {
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
+            },
+            popTransitionSpec = {
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+            },
+            predictivePopTransitionSpec = {
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
 
         AnimatedVisibility(
             visible = !isOnOverlayScreen,

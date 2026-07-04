@@ -1,9 +1,5 @@
 package com.clinref.app.ui.toc
 
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.rememberSharedContentState
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,17 +41,14 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import com.clinref.app.domain.TocItem
-import com.clinref.app.ui.navigation.LocalSharedTransitionScope
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TocScreen(
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
-    activeSharedElementKey: String? = null,
     modifier: Modifier = Modifier,
     viewModel: TocViewModel = hiltViewModel()
 ) {
@@ -89,22 +82,6 @@ fun TocScreen(
             )
         }
     ) { padding ->
-        val sharedTransitionScope = LocalSharedTransitionScope.current
-        val animatedVisibilityScope = LocalNavAnimatedContentScope.current
-
-        val sharedElementModifier = if (
-            sharedTransitionScope != null &&
-            animatedVisibilityScope != null &&
-            activeSharedElementKey == "search_bar"
-        ) {
-            with(sharedTransitionScope) {
-                Modifier.sharedElement(
-                    sharedContentState = rememberSharedContentState(key = "search_bar"),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                )
-            }
-        } else Modifier
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -118,7 +95,6 @@ fun TocScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .then(sharedElementModifier)
             ) {
                 Row(
                     modifier = Modifier
