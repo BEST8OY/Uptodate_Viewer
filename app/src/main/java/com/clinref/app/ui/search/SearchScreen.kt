@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,7 +70,7 @@ fun SearchScreen(
     val searchError by viewModel.error.collectAsStateWithLifecycle()
 
     val textFieldState = rememberTextFieldState()
-    val searchBarState = SearchBarDefaults.rememberContainedSearchBarState()
+    val searchBarState = rememberSearchBarState()
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     var hasSearched by remember { mutableStateOf(false) }
