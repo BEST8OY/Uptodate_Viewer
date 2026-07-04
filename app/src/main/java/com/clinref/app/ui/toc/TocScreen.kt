@@ -1,9 +1,8 @@
 package com.clinref.app.ui.toc
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,10 +27,8 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -39,7 +36,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -91,34 +87,34 @@ fun TocScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            val searchBarState = rememberSearchBarState()
-
-            Box(
+            Surface(
+                onClick = onSearchClick,
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                tonalElevation = 2.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onSearchClick)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                SearchBar(
-                    state = searchBarState,
-                    inputField = {
-                        SearchBarDefaults.InputField(
-                            textFieldState = rememberTextFieldState(),
-                            searchBarState = searchBarState,
-                            onSearch = {},
-                            placeholder = {
-                                Text(
-                                    modifier = Modifier.clearAndSetSemantics {},
-                                    text = "Search topics..."
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(Icons.Default.Search, contentDescription = null)
-                            },
-                            enabled = false
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Search topics...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
             }
 
             when {
