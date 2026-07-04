@@ -1,5 +1,6 @@
 package com.clinref.app.ui.search
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,7 +38,6 @@ import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,9 +50,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.Audience
 import com.clinref.app.domain.SearchResult
@@ -75,19 +72,6 @@ fun SearchScreen(
     val searchBarState = rememberSearchBarState(initialValue = SearchBarValue.Expanded)
     val focusManager = LocalFocusManager.current
     var hasSearched by remember { mutableStateOf(false) }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                focusManager.clearFocus()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
 
     LaunchedEffect(Unit) {
         snapshotFlow { textFieldState.text.toString() }
@@ -309,4 +293,6 @@ fun SearchScreen(
             }
         }
     }
+
+    BackHandler(enabled = true) { onBack() }
 }
