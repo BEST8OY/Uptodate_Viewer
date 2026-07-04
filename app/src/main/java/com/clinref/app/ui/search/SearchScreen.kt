@@ -1,5 +1,8 @@
 package com.clinref.app.ui.search
 
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.rememberSharedContentState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,16 +54,19 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import com.clinref.app.domain.Audience
 import com.clinref.app.domain.SearchResult
+import com.clinref.app.ui.navigation.LocalSharedTransitionScope
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun SearchScreen(
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onBack: () -> Unit,
+    activeSharedElementKey: String? = null,
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
@@ -119,11 +125,28 @@ fun SearchScreen(
         )
     }
 
+    val sharedTransitionScope = LocalSharedTransitionScope.current
+    val animatedVisibilityScope = LocalNavAnimatedContentScope.current
+
+    val sharedElementModifier = if (
+        sharedTransitionScope != null &&
+        animatedVisibilityScope != null &&
+        activeSharedElementKey == "search_bar"
+    ) {
+        with(sharedTransitionScope) {
+            Modifier.sharedElement(
+                sharedContentState = rememberSharedContentState(key = "search_bar"),
+                animatedVisibilityScope = animatedVisibilityScope,
+            )
+        }
+    } else Modifier
+
     Scaffold(
         topBar = {
             AppBarWithSearch(
                 state = searchBarState,
-                inputField = inputField
+                inputField = inputField,
+                modifier = sharedElementModifier
             )
             ExpandedFullScreenContainedSearchBar(
                 state = searchBarState,
