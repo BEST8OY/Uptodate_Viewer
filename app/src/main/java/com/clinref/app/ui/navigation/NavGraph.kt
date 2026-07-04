@@ -2,6 +2,7 @@ package com.clinref.app.ui.navigation
 
 import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.content.ContentScreen
@@ -113,91 +115,99 @@ fun NavGraph(
 
     val activity = LocalContext.current as? Activity
 
-    val entryProvider = entryProvider {
-        entry<TocRoute> {
-            TocScreen(
-                onTopicSelected = { topicId ->
-                    navigator.navigate(ContentRoute(topicId))
-                },
-                onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId
-                },
-                onSearchClick = { navigator.navigate(SearchRoute) }
-            )
-        }
-        entry<SearchRoute> {
-            SearchScreen(
-                onTopicSelected = { topicId ->
-                    navigator.navigate(ContentRoute(topicId))
-                },
-                onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId
-                },
-                onBack = { navigator.goBack() }
-            )
-        }
-        entry<HistoryRoute> {
-            HistoryScreen(
-                onTopicSelected = { topicId ->
-                    if (topicId.startsWith("Graphic-")) {
-                        selectedGraphicId = topicId.removePrefix("Graphic-")
-                    } else {
-                        navigator.navigate(ContentRoute(topicId))
-                    }
-                }
-            )
-        }
-        entry<FavoritesRoute> {
-            FavoritesScreen(
-                onTopicSelected = { topicId ->
-                    if (topicId.startsWith("Graphic-")) {
-                        selectedGraphicId = topicId.removePrefix("Graphic-")
-                    } else {
-                        navigator.navigate(ContentRoute(topicId))
-                    }
-                }
-            )
-        }
-        entry<ContentRoute> { key ->
-            ContentScreen(
-                topicId = key.topicId,
-                onBack = { navigator.goBack() },
-                onHome = { navigator.navigate(TocRoute) },
-                onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId
-                }
-            )
-        }
-    }
-
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val motionScheme = MaterialTheme.motionScheme
 
-        NavDisplay(
-            entries = navigationState.toDecoratedEntries(entryProvider),
-            onBack = {
-                val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
-                val currentRoute = currentStack?.lastOrNull()
-                if (currentRoute == navigationState.topLevelRoute && navigationState.topLevelRoute == navigationState.startRoute) {
-                    activity?.finish()
-                } else {
-                    navigator.goBack()
+        SharedTransitionLayout {
+            val entryProvider = entryProvider {
+                entry<TocRoute> {
+                    val animatedVisibilityScope = LocalNavAnimatedContentScope.current
+                    TocScreen(
+                        onTopicSelected = { topicId ->
+                            navigator.navigate(ContentRoute(topicId))
+                        },
+                        onGraphicSelected = { graphicId ->
+                            selectedGraphicId = graphicId
+                        },
+                        onSearchClick = { navigator.navigate(SearchRoute) },
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = animatedVisibilityScope
+                    )
                 }
-            },
-            transitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
-            },
-            popTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
-            },
-            predictivePopTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+                entry<SearchRoute> {
+                    val animatedVisibilityScope = LocalNavAnimatedContentScope.current
+                    SearchScreen(
+                        onTopicSelected = { topicId ->
+                            navigator.navigate(ContentRoute(topicId))
+                        },
+                        onGraphicSelected = { graphicId ->
+                            selectedGraphicId = graphicId
+                        },
+                        onBack = { navigator.goBack() },
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = animatedVisibilityScope
+                    )
+                }
+                entry<HistoryRoute> {
+                    HistoryScreen(
+                        onTopicSelected = { topicId ->
+                            if (topicId.startsWith("Graphic-")) {
+                                selectedGraphicId = topicId.removePrefix("Graphic-")
+                            } else {
+                                navigator.navigate(ContentRoute(topicId))
+                            }
+                        }
+                    )
+                }
+                entry<FavoritesRoute> {
+                    FavoritesScreen(
+                        onTopicSelected = { topicId ->
+                            if (topicId.startsWith("Graphic-")) {
+                                selectedGraphicId = topicId.removePrefix("Graphic-")
+                            } else {
+                                navigator.navigate(ContentRoute(topicId))
+                            }
+                        }
+                    )
+                }
+                entry<ContentRoute> { key ->
+                    ContentScreen(
+                        topicId = key.topicId,
+                        onBack = { navigator.goBack() },
+                        onHome = { navigator.navigate(TocRoute) },
+                        onGraphicSelected = { graphicId ->
+                            selectedGraphicId = graphicId
+                        }
+                    )
+                }
+            }
+
+            NavDisplay(
+                entries = navigationState.toDecoratedEntries(entryProvider),
+                onBack = {
+                    val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
+                    val currentRoute = currentStack?.lastOrNull()
+                    if (currentRoute == navigationState.topLevelRoute && navigationState.topLevelRoute == navigationState.startRoute) {
+                        activity?.finish()
+                    } else {
+                        navigator.goBack()
+                    }
+                },
+                transitionSpec = {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
+                },
+                popTransitionSpec = {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                },
+                predictivePopTransitionSpec = {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         AnimatedVisibility(
             visible = !isOnOverlayScreen,

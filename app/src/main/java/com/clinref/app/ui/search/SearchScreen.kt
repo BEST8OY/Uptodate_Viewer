@@ -1,5 +1,11 @@
 package com.clinref.app.ui.search
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.SharedTransitionScope.ResizeMode
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberSharedContentState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -65,6 +72,8 @@ fun SearchScreen(
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onBack: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
@@ -124,13 +133,24 @@ fun SearchScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            AppBarWithSearch(
-                state = searchBarState,
-                inputField = inputField
-            )
-            ExpandedFullScreenContainedSearchBar(
+    with(sharedTransitionScope) {
+        Scaffold(
+            topBar = {
+                AppBarWithSearch(
+                    state = searchBarState,
+                    inputField = inputField,
+                    modifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "search-bar"),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                        enter = fadeIn(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                        exit = fadeOut(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                        boundsTransform = BoundsTransform { initialBounds, targetBounds ->
+                            MaterialTheme.motionScheme.defaultSpatialSpec().animate(initialBounds, targetBounds)
+                        },
+                        resizeMode = ResizeMode.scaleToBounds()
+                    )
+                )
+                ExpandedFullScreenContainedSearchBar(
                 state = searchBarState,
                 inputField = inputField
             ) {
@@ -351,5 +371,6 @@ fun SearchScreen(
                 }
             }
         }
+    }
     }
 }

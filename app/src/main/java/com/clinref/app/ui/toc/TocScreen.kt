@@ -1,5 +1,11 @@
 package com.clinref.app.ui.toc
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.SharedTransitionScope.ResizeMode
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberSharedContentState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -49,6 +56,8 @@ fun TocScreen(
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
     modifier: Modifier = Modifier,
     viewModel: TocViewModel = hiltViewModel()
 ) {
@@ -87,33 +96,45 @@ fun TocScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            Surface(
-                onClick = onSearchClick,
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                tonalElevation = 2.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Row(
+            with(sharedTransitionScope) {
+                Surface(
+                    onClick = onSearchClick,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    tonalElevation = 2.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .sharedBounds(
+                            sharedContentState = rememberSharedContentState(key = "search-bar"),
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            enter = fadeIn(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                            exit = fadeOut(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                            boundsTransform = BoundsTransform { initialBounds, targetBounds ->
+                                MaterialTheme.motionScheme.defaultSpatialSpec().animate(initialBounds, targetBounds)
+                            },
+                            resizeMode = ResizeMode.scaleToBounds()
+                        )
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Search topics...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Search topics...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
                 }
             }
 
