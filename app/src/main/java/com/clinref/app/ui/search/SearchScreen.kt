@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode
 import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
@@ -52,7 +53,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberSharedContentState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -142,11 +142,9 @@ fun SearchScreen(
                     modifier = Modifier.sharedBounds(
                         sharedContentState = rememberSharedContentState(key = "search-bar"),
                         animatedVisibilityScope = animatedVisibilityScope,
-                        enter = fadeIn(MaterialTheme.motionScheme.defaultSpatialSpec()),
-                        exit = fadeOut(MaterialTheme.motionScheme.defaultSpatialSpec()),
-                        boundsTransform = BoundsTransform { initialBounds, targetBounds ->
-                            MaterialTheme.motionScheme.defaultSpatialSpec().animate(initialBounds, targetBounds)
-                        },
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        boundsTransform = BoundsTransform { _, _ -> spring() },
                         resizeMode = ResizeMode.scaleToBounds()
                     )
                 )
