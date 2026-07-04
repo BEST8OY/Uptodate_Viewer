@@ -161,17 +161,7 @@ fun NavGraph(
         entry<ContentRoute> { key ->
             ContentScreen(
                 topicId = key.topicId,
-                onBack = {
-                    val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
-                    val entries = currentStack?.toList() ?: emptyList()
-                    val contentIndex = entries.indexOfLast { it is ContentRoute }
-                    if (contentIndex > 0 && entries[contentIndex - 1] is SearchRoute) {
-                        navigator.goBack()
-                        navigator.goBack()
-                    } else {
-                        navigator.goBack()
-                    }
-                },
+                onBack = { navigator.goBack() },
                 onHome = { navigator.navigate(TocRoute) },
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
