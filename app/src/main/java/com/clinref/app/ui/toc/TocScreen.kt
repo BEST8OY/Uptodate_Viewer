@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.Audience
+import com.clinref.app.domain.SearchResult
 import com.clinref.app.domain.TocItem
 import com.clinref.app.ui.search.SearchViewModel
 import kotlinx.coroutines.launch
@@ -83,6 +84,8 @@ fun TocScreen(
     val suggestions by searchViewModel.suggestions.collectAsStateWithLifecycle()
     val searchResults by searchViewModel.searchResults.collectAsStateWithLifecycle()
     val selectedAudience by searchViewModel.selectedAudience.collectAsStateWithLifecycle()
+    val isSearchLoading by searchViewModel.isLoading.collectAsStateWithLifecycle()
+    val searchError by searchViewModel.error.collectAsStateWithLifecycle()
 
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
@@ -117,7 +120,6 @@ fun TocScreen(
     LaunchedEffect(searchBarState.currentValue) {
         if (searchBarState.currentValue == SearchBarValue.Collapsed) {
             textFieldState.clearText()
-            searchViewModel.onQueryChanged("")
             hasSearched = false
         }
     }
@@ -221,7 +223,33 @@ fun TocScreen(
                         }
                     }
 
-                    if (hasSearched && searchResults.isEmpty() && textFieldState.text.isNotEmpty()) {
+                    if (searchError != null) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.ErrorOutline,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = searchError ?: "",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (hasSearched && searchResults.isEmpty() && searchError == null && !isSearchLoading && textFieldState.text.isNotEmpty()) {
                         item {
                             Box(
                                 modifier = Modifier
@@ -238,7 +266,8 @@ fun TocScreen(
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = "No results found",
+                                        text = "No results found" +
+                                            if (selectedAudience != Audience.ALL) " for ${selectedAudience.label}" else "",
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -252,11 +281,9 @@ fun TocScreen(
                             ListItem(
                                 headlineContent = { Text(result.title) },
                                 modifier = Modifier.clickable {
-                                    if (result.topicId.startsWith("Graphic-")) {
-                                        val id = result.topicId.removePrefix("Graphic-")
-                                        onGraphicSelected(id)
-                                    } else {
-                                        onTopicSelected(result.topicId)
+                                    when (result) {
+                                        is SearchResult.Topic -> onTopicSelected(result.topicId)
+                                        is SearchResult.Graphic -> onGraphicSelected(result.graphicId)
                                     }
                                 }
                             )

@@ -20,10 +20,13 @@ class SearchRepository @Inject constructor(
 
     fun searchTopics(query: String, audience: Audience = Audience.ALL): List<SearchResult> {
         return searchDao.searchTopics(query, audience.code).map { map ->
-            SearchResult(
-                topicId = map["topic_id"] ?: "",
-                title = map["title"] ?: ""
-            )
+            val rawId = map["topic_id"] ?: ""
+            val title = map["title"] ?: ""
+            if (rawId.startsWith("Graphic-")) {
+                SearchResult.Graphic(title, rawId.removePrefix("Graphic-"))
+            } else {
+                SearchResult.Topic(title, rawId)
+            }
         }
     }
 }

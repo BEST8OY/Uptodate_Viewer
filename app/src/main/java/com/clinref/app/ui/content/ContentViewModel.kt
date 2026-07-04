@@ -133,7 +133,9 @@ class ContentViewModel @Inject constructor(
             savedStateHandle[KEY_CURRENT_TOPIC_ID] = topicId
 
             val content = try {
-                contentRepository.getTopicContent(topicId)
+                withContext(Dispatchers.IO) {
+                    contentRepository.getTopicContent(topicId)
+                }
             } catch (e: Exception) {
                 _error.value = e.message ?: "Failed to load content"
                 _isLoading.value = false
@@ -149,7 +151,7 @@ class ContentViewModel @Inject constructor(
                 return@launch
             }
 
-            val title = contentRepository.getTopicTitle(topicId) ?: topicId
+            val title = withContext(Dispatchers.IO) { contentRepository.getTopicTitle(topicId) } ?: topicId
             _articleTitle.value = title
 
             var html = content.bodyHtml

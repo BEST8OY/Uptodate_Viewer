@@ -7,11 +7,14 @@ import com.clinref.app.domain.Audience
 import com.clinref.app.domain.SearchResult
 import com.clinref.app.repository.SearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -36,6 +39,12 @@ class SearchViewModel @Inject constructor(
     )
     val selectedAudience: StateFlow<Audience> = _selectedAudience
 
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
     private var searchJob: Job? = null
     private var lastQuery: String = savedStateHandle.get<String>(KEY_QUERY) ?: ""
 
@@ -52,7 +61,15 @@ class SearchViewModel @Inject constructor(
         if (query.length > 2) {
             searchJob = viewModelScope.launch {
                 delay(300)
-                _suggestions.value = searchRepository.getSuggestions(query)
+                try {
+                    _suggestions.value = withContext(Dispatchers.IO) {
+                        searchRepository.getSuggestions(query)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // suggestions are best-effort; silently ignore failures
+                }
             }
         } else {
             _suggestions.value = emptyList()
@@ -60,12 +77,26 @@ class SearchViewModel @Inject constructor(
     }
 
     fun search(query: String) {
+        if (query.isBlank()) return
         lastQuery = query
         savedStateHandle[KEY_QUERY] = query
         savedStateHandle[KEY_AUDIENCE] = _selectedAudience.value.name
+        _searchResults.value = emptyList()
+        _error.value = null
+        _isLoading.value = true
         viewModelScope.launch {
-            _searchResults.value = searchRepository.searchTopics(query, _selectedAudience.value)
-            _suggestions.value = emptyList()
+            try {
+                _searchResults.value = withContext(Dispatchers.IO) {
+                    searchRepository.searchTopics(query, _selectedAudience.value)
+                }
+                _suggestions.value = emptyList()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _error.value = e.message ?: "Search failed"
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 

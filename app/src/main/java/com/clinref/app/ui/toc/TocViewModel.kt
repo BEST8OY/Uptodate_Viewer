@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.clinref.app.domain.TocItem
 import com.clinref.app.repository.TocRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -44,7 +46,7 @@ class TocViewModel @Inject constructor(
             _isLoading.value = true
             _error.value = null
             try {
-                val roots = tocRepository.getTocItems()
+                val roots = withContext(Dispatchers.IO) { tocRepository.getTocItems() }
                 _tocItems.value = roots
                 for (root in roots) {
                     if (root.id in _expandedIds.value) {
@@ -66,7 +68,7 @@ class TocViewModel @Inject constructor(
     fun loadChildren(parentId: String) {
         viewModelScope.launch {
             try {
-                val children = tocRepository.getTocItems(parentId)
+                val children = withContext(Dispatchers.IO) { tocRepository.getTocItems(parentId) }
                 _tocItems.value = updateTree(_tocItems.value, parentId, children)
                 for (child in children) {
                     if (child.id in _expandedIds.value) {
