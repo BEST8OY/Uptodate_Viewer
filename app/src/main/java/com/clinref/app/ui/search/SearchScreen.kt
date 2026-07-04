@@ -1,18 +1,10 @@
 package com.clinref.app.ui.search
 
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.SharedTransitionScope.ResizeMode
-import androidx.compose.animation.BoundsTransform
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,15 +33,14 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSearchBarState
-import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -61,7 +52,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.Audience
 import com.clinref.app.domain.SearchResult
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -69,8 +59,6 @@ fun SearchScreen(
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onBack: () -> Unit,
-    sharedTransitionScope: SharedTransitionScope,
-    animatedVisibilityScope: AnimatedVisibilityScope,
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
@@ -80,8 +68,7 @@ fun SearchScreen(
     val searchError by viewModel.error.collectAsStateWithLifecycle()
 
     val textFieldState = rememberTextFieldState()
-    val searchBarState = rememberSearchBarState()
-    val scope = rememberCoroutineScope()
+    val searchBarState = rememberSearchBarState(initialValue = SearchBarValue.Expanded)
     val focusManager = LocalFocusManager.current
     var hasSearched by remember { mutableStateOf(false) }
 
@@ -129,22 +116,9 @@ fun SearchScreen(
         )
     }
 
-    with(sharedTransitionScope) {
-        Scaffold(
-            topBar = {
-                AppBarWithSearch(
-                    state = searchBarState,
-                    inputField = inputField,
-                    modifier = Modifier.sharedBounds(
-                        sharedContentState = rememberSharedContentState(key = "search-bar"),
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                        boundsTransform = BoundsTransform { _, _ -> spring() },
-                        resizeMode = ResizeMode.scaleToBounds()
-                    )
-                )
-                ExpandedFullScreenContainedSearchBar(
+    Scaffold(
+        topBar = {
+            ExpandedFullScreenContainedSearchBar(
                 state = searchBarState,
                 inputField = inputField
             ) {
@@ -317,6 +291,5 @@ fun SearchScreen(
                 }
             }
         }
-    }
     }
 }
