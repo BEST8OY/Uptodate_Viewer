@@ -26,8 +26,6 @@ class SearchViewModel @Inject constructor(
     companion object {
         private const val KEY_QUERY = "search_query"
         private const val KEY_AUDIENCE = "selected_audience"
-        private const val KEY_RECENT_SEARCHES = "recent_searches"
-        private const val MAX_RECENT_SEARCHES = 10
     }
 
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
@@ -46,11 +44,6 @@ class SearchViewModel @Inject constructor(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
-
-    private val _recentSearches = MutableStateFlow(
-        savedStateHandle.get<List<String>>(KEY_RECENT_SEARCHES) ?: emptyList()
-    )
-    val recentSearches: StateFlow<List<String>> = _recentSearches
 
     private var searchJob: Job? = null
     private var lastQuery: String = savedStateHandle.get<String>(KEY_QUERY) ?: ""
@@ -97,13 +90,6 @@ class SearchViewModel @Inject constructor(
                     searchRepository.searchTopics(query, _selectedAudience.value)
                 }
                 _suggestions.value = emptyList()
-
-                val current = _recentSearches.value.toMutableList()
-                current.remove(query)
-                current.add(0, query)
-                if (current.size > MAX_RECENT_SEARCHES) current.removeLast()
-                _recentSearches.value = current
-                savedStateHandle[KEY_RECENT_SEARCHES] = current
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -120,17 +106,5 @@ class SearchViewModel @Inject constructor(
         if (lastQuery.isNotEmpty()) {
             search(lastQuery)
         }
-    }
-
-    fun clearRecentSearches() {
-        _recentSearches.value = emptyList()
-        savedStateHandle[KEY_RECENT_SEARCHES] = emptyList<String>()
-    }
-
-    fun removeRecentSearch(query: String) {
-        val current = _recentSearches.value.toMutableList()
-        current.remove(query)
-        _recentSearches.value = current
-        savedStateHandle[KEY_RECENT_SEARCHES] = current
     }
 }

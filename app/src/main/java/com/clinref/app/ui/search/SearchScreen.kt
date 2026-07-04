@@ -27,9 +27,7 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,7 +42,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.runtime.Composable
@@ -81,7 +78,6 @@ fun SearchScreen(
     val selectedAudience by viewModel.selectedAudience.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val searchError by viewModel.error.collectAsStateWithLifecycle()
-    val recentSearches by viewModel.recentSearches.collectAsStateWithLifecycle()
 
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
@@ -186,54 +182,6 @@ fun SearchScreen(
                                     textFieldState.clearText()
                                     textFieldState.edit { append(suggestion) }
                                     viewModel.search(suggestion)
-                                    hasSearched = true
-                                    focusManager.clearFocus()
-                                }
-                            )
-                        }
-                    }
-
-                    if (suggestions.isEmpty() && !hasSearched && recentSearches.isNotEmpty()) {
-                        item {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "Recent searches",
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                                TextButton(onClick = { viewModel.clearRecentSearches() }) {
-                                    Text("Clear all")
-                                }
-                            }
-                        }
-                        items(recentSearches) { query ->
-                            ListItem(
-                                headlineContent = { Text(query) },
-                                leadingContent = {
-                                    Icon(
-                                        imageVector = Icons.Default.History,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                },
-                                trailingContent = {
-                                    IconButton(onClick = { viewModel.removeRecentSearch(query) }) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Remove"
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.clickable {
-                                    textFieldState.clearText()
-                                    textFieldState.edit { append(query) }
-                                    viewModel.search(query)
                                     hasSearched = true
                                     focusManager.clearFocus()
                                 }
