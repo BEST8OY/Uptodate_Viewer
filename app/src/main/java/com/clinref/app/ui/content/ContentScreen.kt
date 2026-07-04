@@ -134,11 +134,16 @@ fun ContentScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
-    BackHandler(enabled = showOutline || canGoBack) {
-        if (showOutline) {
-            viewModel.toggleOutline()
-        } else {
-            viewModel.goBack()
+    BackHandler(enabled = showSearch || showOutline || canGoBack) {
+        when {
+            showSearch -> {
+                showSearch = false
+                searchQuery = ""
+                searchResultIndex = 0
+                webView?.clearMatches()
+            }
+            showOutline -> viewModel.toggleOutline()
+            canGoBack -> viewModel.goBack()
         }
     }
 
@@ -172,7 +177,19 @@ fun ContentScreen(
         topBar = {
             ContentTopBar(
                 title = articleTitle,
-                onBackClick = onBack
+                onBackClick = {
+                    when {
+                        showSearch -> {
+                            showSearch = false
+                            searchQuery = ""
+                            searchResultIndex = 0
+                            webView?.clearMatches()
+                        }
+                        showOutline -> viewModel.toggleOutline()
+                        canGoBack -> viewModel.goBack()
+                        else -> onBack()
+                    }
+                }
             )
         }
     ) { padding ->

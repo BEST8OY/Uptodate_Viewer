@@ -1,12 +1,11 @@
 package com.clinref.app.ui.navigation
 
+import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -33,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -41,6 +41,7 @@ import com.clinref.app.ui.content.ContentScreen
 import com.clinref.app.ui.content.GraphicSheet
 import com.clinref.app.ui.favorites.FavoritesScreen
 import com.clinref.app.ui.history.HistoryScreen
+import com.clinref.app.ui.search.SearchScreen
 import com.clinref.app.ui.setup.SetupScreen
 import com.clinref.app.ui.toc.TocScreen
 import kotlinx.serialization.Serializable
@@ -72,7 +73,7 @@ data object FavoritesRoute : TopLevelRoute {
 data class ContentRoute(val topicId: String) : NavKey
 
 @Serializable
-data object SetupRoute : NavKey
+data object SearchRoute : NavKey
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
@@ -100,14 +101,17 @@ fun NavGraph(
 
     val navigator = remember { Navigator(navigationState) }
 
-    val isOnContentScreen by remember {
+    val isOnOverlayScreen by remember {
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
-            currentBackStack?.lastOrNull() is ContentRoute
+            val current = currentBackStack?.lastOrNull()
+            current is ContentRoute || current is SearchRoute
         }
     }
 
     var selectedGraphicId by remember { mutableStateOf<String?>(null) }
+
+    val activity = LocalContext.current as? Activity
 
     val entryProvider = entryProvider {
         entry<TocRoute> {
@@ -117,7 +121,19 @@ fun NavGraph(
                 },
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
-                }
+                },
+                onSearchClick = { navigator.navigate(SearchRoute) }
+            )
+        }
+        entry<SearchRoute> {
+            SearchScreen(
+                onTopicSelected = { topicId ->
+                    navigator.navigate(ContentRoute(topicId))
+                },
+                onGraphicSelected = { graphicId ->
+                    selectedGraphicId = graphicId
+                },
+                onBack = { navigator.goBack() }
             )
         }
         entry<HistoryRoute> {
@@ -159,26 +175,34 @@ fun NavGraph(
 
         NavDisplay(
             entries = navigationState.toDecoratedEntries(entryProvider),
-            onBack = { navigator.goBack() },
+            onBack = {
+                val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
+                val currentRoute = currentStack?.lastOrNull()
+                if (currentRoute == navigationState.topLevelRoute && navigationState.topLevelRoute == navigationState.startRoute) {
+                    activity?.finish()
+                } else {
+                    navigator.goBack()
+                }
+            },
             transitionSpec = {
                 slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
                     slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
             },
             popTransitionSpec = {
-                fadeIn(motionScheme.defaultSpatialSpec()) togetherWith
-                    fadeOut(motionScheme.defaultSpatialSpec())
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
             },
             predictivePopTransitionSpec = {
-                fadeIn(motionScheme.defaultSpatialSpec()) togetherWith
-                    fadeOut(motionScheme.defaultSpatialSpec())
+                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
             },
             modifier = Modifier.fillMaxSize()
         )
 
         AnimatedVisibility(
-            visible = !isOnContentScreen,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
+            visible = !isOnOverlayScreen,
+            enter = fadeIn(motionScheme.defaultSpatialSpec()),
+            exit = fadeOut(motionScheme.defaultSpatialSpec()),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.navigationBars)
