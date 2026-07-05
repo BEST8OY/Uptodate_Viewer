@@ -41,7 +41,6 @@ import com.clinref.app.ui.content.ContentScreen
 import com.clinref.app.ui.content.GraphicSheet
 import com.clinref.app.ui.favorites.FavoritesScreen
 import com.clinref.app.ui.history.HistoryScreen
-import com.clinref.app.ui.search.SearchScreen
 import com.clinref.app.ui.setup.SetupScreen
 import com.clinref.app.ui.toc.TocScreen
 import kotlinx.serialization.Serializable
@@ -71,9 +70,6 @@ data object FavoritesRoute : TopLevelRoute {
 
 @Serializable
 data class ContentRoute(val topicId: String) : NavKey
-
-@Serializable
-data object SearchRoute : NavKey
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
@@ -105,7 +101,7 @@ fun NavGraph(
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
             val current = currentBackStack?.lastOrNull()
-            current is ContentRoute || current is SearchRoute
+            current is ContentRoute
         }
     }
 
@@ -121,19 +117,7 @@ fun NavGraph(
                 },
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
-                },
-                onSearchClick = { navigator.navigate(SearchRoute) }
-            )
-        }
-        entry<SearchRoute> {
-            SearchScreen(
-                onTopicSelected = { topicId ->
-                    navigator.navigate(ContentRoute(topicId))
-                },
-                onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId
-                },
-                onBack = { navigator.goBack() }
+                }
             )
         }
         entry<HistoryRoute> {
