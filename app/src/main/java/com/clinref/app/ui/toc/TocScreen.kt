@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExpandedFullScreenSearchBar
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,9 +58,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,6 +65,7 @@ import com.clinref.app.domain.Audience
 import com.clinref.app.domain.SearchResult
 import com.clinref.app.domain.TocItem
 import com.clinref.app.ui.search.SearchViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -264,18 +265,18 @@ private fun SearchOverlay(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val searchError by viewModel.error.collectAsStateWithLifecycle()
 
-    var query by rememberSaveable { mutableStateOf("") }
-    val searchBarState = rememberSearchBarState()
-    val expanded = searchBarState.status == SearchBarValue.Expanded
+    val textFieldState = rememberTextFieldState()
+    val searchBarState = rememberSearchBarState(initialValue = SearchBarValue.Expanded)
+    val scope = rememberCoroutineScope()
     var hasSearched by rememberSaveable { mutableStateOf(false) }
 
-    BackHandler(enabled = expanded) {
-        searchBarState.status = SearchBarValue.Collapsed
+    BackHandler(enabled = searchBarState.status == SearchBarValue.Expanded) {
+        scope.launch { searchBarState.animateToCollapsed() }
     }
-    BackHandler(enabled = !expanded) { onBack() }
+    BackHandler(enabled = searchBarState.status != SearchBarValue.Expanded) { onBack() }
 
     LaunchedEffect(Unit) {
-        snapshotFlow { query }
+        snapshotFlow { textFieldState.text.toString() }
             .collect { q ->
                 viewModel.onQueryChanged(q)
                 hasSearched = false
@@ -284,21 +285,20 @@ private fun SearchOverlay(
 
     val inputField = @Composable {
         SearchBarDefaults.InputField(
-            query = query,
-            onQueryChange = { query = it },
+            searchBarState = searchBarState,
+            textFieldState = textFieldState,
             onSearch = {
+                val query = textFieldState.text.toString()
                 if (query.isNotBlank()) {
                     viewModel.search(query)
                     hasSearched = true
                 }
             },
-            expanded = expanded,
-            onExpandedChange = { searchBarState.status = if (it) SearchBarValue.Expanded else SearchBarValue.Collapsed },
             placeholder = { Text("Search topics...") },
             leadingIcon = {
                 IconButton(onClick = {
-                    if (expanded) {
-                        searchBarState.status = SearchBarValue.Collapsed
+                    if (searchBarState.status == SearchBarValue.Expanded) {
+                        scope.launch { searchBarState.animateToCollapsed() }
                     } else {
                         onBack()
                     }
@@ -310,9 +310,9 @@ private fun SearchOverlay(
                 }
             },
             trailingIcon = {
-                if (query.isNotEmpty()) {
+                if (textFieldState.text.isNotEmpty()) {
                     IconButton(onClick = {
-                        query = ""
+                        textFieldState.edit { replace(0, length, "") }
                         viewModel.onQueryChanged("")
                         hasSearched = false
                     }) {
@@ -323,10 +323,8 @@ private fun SearchOverlay(
         )
     }
 
-    SearchBar(
-        state = searchBarState,
-        inputField = inputField
-    ) {
+    SearchBar(state = searchBarState, inputField = inputField)
+    ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
                 FlowRow(
@@ -358,7 +356,7 @@ private fun SearchOverlay(
                             )
                         },
                         modifier = Modifier.clickable {
-                            query = suggestion
+                            textFieldState.edit { replace(0, length, suggestion) }
                             viewModel.search(suggestion)
                             hasSearched = true
                         }
@@ -392,7 +390,7 @@ private fun SearchOverlay(
                 }
             }
 
-            if (hasSearched && searchResults.isEmpty() && searchError == null && !isLoading && query.isNotEmpty()) {
+            if (hasSearched && searchResults.isEmpty() && searchError == null && !isLoading && textFieldState.text.isNotEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
