@@ -51,7 +51,7 @@ class CssBuilder(private val colors: ThemeColors) {
             responsive(),
             printStyles(),
         )
-        return "<style>\n${sections.joinToString("\n")}\n</style>"
+        return sections.joinToString("\n")
     }
 
     // ── Theme tokens as CSS custom properties ────────────────────────
