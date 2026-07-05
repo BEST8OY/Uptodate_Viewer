@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -39,23 +37,24 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -265,11 +264,15 @@ private fun SearchOverlay(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val searchError by viewModel.error.collectAsStateWithLifecycle()
 
-    var query by remember { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
-    var hasSearched by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val searchBarState = rememberSearchBarState()
+    val expanded = searchBarState.status == SearchBarValue.Expanded
+    var hasSearched by rememberSaveable { mutableStateOf(false) }
 
-    BackHandler { onBack() }
+    BackHandler(enabled = expanded) {
+        searchBarState.status = SearchBarValue.Collapsed
+    }
+    BackHandler(enabled = !expanded) { onBack() }
 
     LaunchedEffect(Unit) {
         snapshotFlow { query }
@@ -279,59 +282,52 @@ private fun SearchOverlay(
             }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    TextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        placeholder = { Text("Search topics...") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = {
-                            if (query.isNotBlank()) {
-                                viewModel.search(query)
-                                hasSearched = true
-                                focusManager.clearFocus()
-                            }
-                        }),
-                        trailingIcon = {
-                            if (query.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    query = ""
-                                    viewModel.onQueryChanged("")
-                                    hasSearched = false
-                                }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            }
-                        },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        ),
-                        modifier = Modifier.fillMaxWidth()
+    val inputField = @Composable {
+        SearchBarDefaults.InputField(
+            query = query,
+            onQueryChange = { query = it },
+            onSearch = {
+                if (query.isNotBlank()) {
+                    viewModel.search(query)
+                    hasSearched = true
+                }
+            },
+            expanded = expanded,
+            onExpandedChange = { searchBarState.status = if (it) SearchBarValue.Expanded else SearchBarValue.Collapsed },
+            placeholder = { Text("Search topics...") },
+            leadingIcon = {
+                IconButton(onClick = {
+                    if (expanded) {
+                        searchBarState.status = SearchBarValue.Collapsed
+                    } else {
+                        onBack()
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                }
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = {
+                        query = ""
+                        viewModel.onQueryChanged("")
+                        hasSearched = false
+                    }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear")
                     }
                 }
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+            }
+        )
+    }
+
+    SearchBar(
+        state = searchBarState,
+        inputField = inputField
+    ) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
             item {
                 FlowRow(
                     modifier = Modifier
@@ -365,7 +361,6 @@ private fun SearchOverlay(
                             query = suggestion
                             viewModel.search(suggestion)
                             hasSearched = true
-                            focusManager.clearFocus()
                         }
                     )
                 }
