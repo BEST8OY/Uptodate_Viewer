@@ -182,11 +182,8 @@ fun TocScreen(
                 .padding(padding)
         ) {
             SearchBar(
-                inputField = inputField,
-                expanded = expanded,
-                onExpandedChange = { },
-                modifier = Modifier.fillMaxWidth(),
-                windowInsets = SearchBarDefaults.windowInsets
+                state = searchBarState,
+                inputField = inputField
             )
             ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
