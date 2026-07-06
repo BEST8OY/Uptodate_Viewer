@@ -26,23 +26,23 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExpandedFullScreenSearchBar
+import androidx.compose.material3.ExpandedFullScreenContainedSearchBar
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberSearchBarState
+import androidx.compose.material3.rememberContainedSearchBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -88,15 +88,22 @@ fun TocScreen(
     val isSearchLoading by searchViewModel.isLoading.collectAsStateWithLifecycle()
     val searchError by searchViewModel.error.collectAsStateWithLifecycle()
 
-    val searchBarState = rememberSearchBarState()
+    val searchBarState = rememberContainedSearchBarState()
     val textFieldState = rememberTextFieldState()
     val scope = rememberCoroutineScope()
     val expanded = searchBarState.currentValue == SearchBarValue.Expanded
     var hasSearched by rememberSaveable { mutableStateOf(false) }
     var skipNextQuery by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = expanded) {
-        scope.launch { searchBarState.animateToCollapsed() }
+    val isShowingResults = !expanded && hasSearched
+
+    BackHandler(enabled = expanded || isShowingResults) {
+        if (isShowingResults) {
+            hasSearched = false
+            searchViewModel.onQueryChanged("")
+        } else {
+            scope.launch { searchBarState.animateToCollapsed() }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -139,6 +146,7 @@ fun TocScreen(
                     skipNextQuery = true
                     searchViewModel.search(query)
                     hasSearched = true
+                    scope.launch { searchBarState.animateToCollapsed() }
                 }
             },
             placeholder = { Text("Search topics...") },
@@ -160,107 +168,30 @@ fun TocScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = { Text("Contents") }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            SearchBar(
+            AppBarWithSearch(
                 state = searchBarState,
                 inputField = inputField,
-                modifier = Modifier.fillMaxWidth()
             )
-            ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
+            ExpandedFullScreenContainedSearchBar(state = searchBarState, inputField = inputField) {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item {
-                        FlowRow(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Audience.entries.forEach { audience ->
-                                FilterChip(
-                                    selected = selectedAudience == audience,
-                                    onClick = { searchViewModel.onAudienceChanged(audience) },
-                                    label = { Text(audience.label) }
-                                )
-                            }
-                        }
-                    }
-
-                    if (suggestions.isNotEmpty()) {
-                        items(suggestions) { suggestion ->
-                            ListItem(
-                                headlineContent = { Text(suggestion) },
-                                leadingContent = {
+                    if (textFieldState.text.isEmpty() && suggestions.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
                                         imageVector = Icons.Default.Search,
                                         contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                },
-                                modifier = Modifier.clickable {
-                                    skipNextQuery = true
-                                    textFieldState.edit { replace(0, length, suggestion) }
-                                    searchViewModel.search(suggestion)
-                                    hasSearched = true
-                                }
-                            )
-                        }
-                    }
-
-                    if (searchError != null) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.ErrorOutline,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(48.dp),
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = searchError ?: "",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (hasSearched && searchResults.isEmpty() && searchError == null && !isSearchLoading && textFieldState.text.isNotEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.SearchOff,
-                                        contentDescription = null,
                                         modifier = Modifier.size(48.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = "No results found" +
-                                            if (selectedAudience != Audience.ALL) " for ${selectedAudience.label}" else "",
+                                        text = "Search for topics",
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -269,116 +200,235 @@ fun TocScreen(
                         }
                     }
 
-                    if (searchResults.isNotEmpty()) {
-                        items(searchResults) { result ->
-                            ListItem(
-                                headlineContent = { Text(result.title) },
-                                modifier = Modifier.clickable {
-                                    when (result) {
-                                        is SearchResult.Topic -> {
-                                            skipNextQuery = true
-                                            scope.launch { searchBarState.animateToCollapsed() }
-                                            onTopicSelected(result.topicId)
-                                        }
-                                        is SearchResult.Graphic -> {
-                                            skipNextQuery = true
-                                            scope.launch { searchBarState.animateToCollapsed() }
-                                            onGraphicSelected(result.graphicId)
-                                        }
-                                    }
-                                }
+                    if (suggestions.isNotEmpty()) {
+                        items(suggestions.size) { idx ->
+                            val suggestion = suggestions[idx]
+                            SegmentedListItem(
+                                onClick = {
+                                    skipNextQuery = true
+                                    textFieldState.edit { replace(0, length, suggestion) }
+                                    searchViewModel.search(suggestion)
+                                    hasSearched = true
+                                    scope.launch { searchBarState.animateToCollapsed() }
+                                },
+                                shapes = ListItemDefaults.segmentedShapes(index = idx, count = suggestions.size),
+                                leadingContent = {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                content = { Text(suggestion) }
                             )
                         }
                     }
                 }
             }
-
-            if (!expanded) {
-                when {
-                    isLoading -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            LoadingIndicator()
+        }
+    ) { padding ->
+        if (isShowingResults) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                item {
+                    FlowRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Audience.entries.forEach { audience ->
+                            FilterChip(
+                                selected = selectedAudience == audience,
+                                onClick = { searchViewModel.onAudienceChanged(audience) },
+                                label = { Text(audience.label) }
+                            )
                         }
                     }
-                    error != null -> {
+                }
+
+                if (searchError != null) {
+                    item {
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
                                     imageVector = Icons.Default.ErrorOutline,
-                                    contentDescription = "Error",
+                                    contentDescription = null,
                                     modifier = Modifier.size(48.dp),
                                     tint = MaterialTheme.colorScheme.error
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = error ?: "Unknown error",
+                                    text = searchError ?: "",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.error
                                 )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                OutlinedButton(onClick = { viewModel.retry() }) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Retry")
-                                }
                             }
                         }
                     }
-                    tocItems.isEmpty() -> {
+                }
+
+                if (searchResults.isEmpty() && searchError == null && !isSearchLoading) {
+                    item {
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Icon(
-                                    imageVector = Icons.Default.FolderOpen,
+                                    imageVector = Icons.Default.SearchOff,
                                     contentDescription = null,
                                     modifier = Modifier.size(48.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "No topics found",
+                                    text = "No results found" +
+                                        if (selectedAudience != Audience.ALL) " for ${selectedAudience.label}" else "",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                     }
-                    else -> {
-                        LazyColumn(
+                }
+
+                if (isSearchLoading) {
+                    item {
+                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(bottom = 80.dp)
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            items(
-                                items = visibleTocItems,
-                                key = { (_, _, uniqueKey) -> uniqueKey }
-                            ) { (item, level, _) ->
-                                TocItemRow(
-                                    item = item,
-                                    level = level,
-                                    isExpanded = item.id in expandedIds,
-                                    onTopicSelected = onTopicSelected,
-                                    onGraphicSelected = { graphicId ->
-                                        val id = if (graphicId.startsWith("Graphic-")) {
-                                            graphicId.removePrefix("Graphic-")
-                                        } else {
-                                            graphicId
-                                        }
-                                        onGraphicSelected(id)
-                                    },
-                                    onLoadChildren = viewModel::loadChildren,
-                                    onToggleExpand = viewModel::toggleExpanded,
-                                    onResolveTopicId = { tocId -> viewModel.resolveTopicId(tocId) }
-                                )
+                            LoadingIndicator()
+                        }
+                    }
+                }
+
+                if (searchResults.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "${searchResults.size} result${if (searchResults.size != 1) "s" else ""} found",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                    items(searchResults.size) { idx ->
+                        val result = searchResults[idx]
+                        SegmentedListItem(
+                            onClick = {
+                                when (result) {
+                                    is SearchResult.Topic -> onTopicSelected(result.topicId)
+                                    is SearchResult.Graphic -> onGraphicSelected(result.graphicId)
+                                }
+                            },
+                            shapes = ListItemDefaults.segmentedShapes(index = idx, count = searchResults.size),
+                            content = { Text(result.title) }
+                        )
+                    }
+                }
+            }
+        } else if (!expanded) {
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LoadingIndicator()
+                    }
+                }
+                error != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.ErrorOutline,
+                                contentDescription = "Error",
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = error ?: "Unknown error",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            OutlinedButton(onClick = { viewModel.retry() }) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Retry")
                             }
+                        }
+                    }
+                }
+                tocItems.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "No topics found",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(bottom = 80.dp)
+                    ) {
+                        items(
+                            items = visibleTocItems,
+                            key = { (_, _, uniqueKey) -> uniqueKey }
+                        ) { (item, level, uniqueKey) ->
+                            TocItemRow(
+                                item = item,
+                                level = level,
+                                index = visibleTocItems.indexOfFirst { it.third == uniqueKey },
+                                totalCount = visibleTocItems.size,
+                                isExpanded = item.id in expandedIds,
+                                onTopicSelected = onTopicSelected,
+                                onGraphicSelected = { graphicId ->
+                                    val id = if (graphicId.startsWith("Graphic-")) {
+                                        graphicId.removePrefix("Graphic-")
+                                    } else {
+                                        graphicId
+                                    }
+                                    onGraphicSelected(id)
+                                },
+                                onLoadChildren = viewModel::loadChildren,
+                                onToggleExpand = viewModel::toggleExpanded,
+                                onResolveTopicId = { tocId -> viewModel.resolveTopicId(tocId) }
+                            )
                         }
                     }
                 }
@@ -392,6 +442,8 @@ fun TocScreen(
 fun TocItemRow(
     item: TocItem,
     level: Int,
+    index: Int,
+    totalCount: Int,
     isExpanded: Boolean,
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
@@ -400,7 +452,7 @@ fun TocItemRow(
     onResolveTopicId: (String) -> String? = { null },
     modifier: Modifier = Modifier
 ) {
-    ListItem(
+    SegmentedListItem(
         onClick = {
             if (item.isLeaf) {
                 if (item.type == "GRAPHIC") {
@@ -416,6 +468,7 @@ fun TocItemRow(
                 onToggleExpand(item.id)
             }
         },
+        shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
         modifier = modifier
             .padding(start = (16 + level * 24).dp)
             .semantics(mergeDescendants = true) {

@@ -28,8 +28,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -162,8 +163,11 @@ fun FavoritesScreen(
                     key = { it.topicId }
                 ) { entry ->
                     val isSelected = entry.topicId in selectedIds
+                    val idx = favorites.indexOf(entry)
                     FavoriteItem(
                         entry = entry,
+                        index = idx,
+                        totalCount = favorites.size,
                         isSelected = isSelected,
                         isSelectionMode = isSelectionMode,
                         onTopicSelected = {
@@ -190,10 +194,12 @@ fun FavoritesScreen(
 }
 
 @SuppressLint("MissingSuperCall")
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FavoriteItem(
     entry: FavoriteEntry,
+    index: Int,
+    totalCount: Int,
     isSelected: Boolean,
     isSelectionMode: Boolean,
     onTopicSelected: () -> Unit,
@@ -238,8 +244,8 @@ private fun FavoriteItem(
             }
         },
         content = {
-            ListItem(
-                headlineContent = { Text(entry.title) },
+            SegmentedListItem(
+                shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
                 leadingContent = {
                     Icon(
                         imageVector = Icons.Default.Favorite,
@@ -258,7 +264,8 @@ private fun FavoriteItem(
                 modifier = Modifier.combinedClickable(
                     onClick = onTopicSelected,
                     onLongClick = onLongPress
-                )
+                ),
+                content = { Text(entry.title) }
             )
         }
     )
