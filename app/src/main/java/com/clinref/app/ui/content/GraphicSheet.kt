@@ -1,6 +1,5 @@
 package com.clinref.app.ui.content
 
-import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.webkit.WebResourceError
@@ -160,7 +159,6 @@ internal fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
     """.trimIndent()
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun GraphicSheetContent(

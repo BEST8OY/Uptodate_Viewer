@@ -1,6 +1,5 @@
 package com.clinref.app.ui.content
 
-import android.annotation.SuppressLint
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -17,7 +16,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
 import com.clinref.app.data.ContributorGroup
 
-@SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContributorsDialog(
@@ -36,7 +34,6 @@ fun ContributorsDialog(
                 factory = { context ->
                     WebView(context).apply {
                         webViewClient = WebViewClient()
-                        settings.javaScriptEnabled = true
                     }
                 },
                 update = { webView ->

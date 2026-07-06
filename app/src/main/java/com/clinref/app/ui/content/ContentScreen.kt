@@ -87,7 +87,6 @@ private sealed class OutlineItem {
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun ContentScreen(
     topicId: String,
