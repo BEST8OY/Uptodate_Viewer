@@ -2,15 +2,16 @@ package com.clinref.app.ui.content
 
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
@@ -24,7 +25,7 @@ fun ContributorsDialog(
 ) {
     if (contributors.isNullOrEmpty()) return
 
-    val isDark = isSystemInDarkTheme()
+    val colorScheme = MaterialTheme.colorScheme
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -37,13 +38,13 @@ fun ContributorsDialog(
                     }
                 },
                 update = { webView ->
-                    val bgColor = if (isDark) "#121212" else "#ffffff"
-                    val textColor = if (isDark) "#e0e0e0" else "#333333"
-                    val headingColor = if (isDark) "#90caf9" else "#2c3e50"
-                    val nameColor = if (isDark) "#64b5f6" else "#2980b9"
-                    val assocColor = if (isDark) "#bbbbbb" else "#555555"
-                    val disclosureColor = if (isDark) "#999999" else "#7f8c8d"
-                    val borderColor = if (isDark) "#333333" else "#eeeeee"
+                    val bgColor = colorScheme.surface.toHexString()
+                    val textColor = colorScheme.onSurface.toHexString()
+                    val headingColor = colorScheme.primary.toHexString()
+                    val nameColor = colorScheme.primary.toHexString()
+                    val assocColor = colorScheme.onSurfaceVariant.toHexString()
+                    val disclosureColor = colorScheme.outline.toHexString()
+                    val borderColor = colorScheme.outlineVariant.toHexString()
 
                     val html = buildString {
                         append("""
@@ -99,4 +100,9 @@ fun ContributorsDialog(
             .fillMaxWidth(0.95f)
             .heightIn(max = 500.dp)
     )
+}
+
+private fun androidx.compose.ui.graphics.Color.toHexString(): String {
+    val argb = toArgb()
+    return String.format("#%06X", argb and 0xFFFFFF)
 }

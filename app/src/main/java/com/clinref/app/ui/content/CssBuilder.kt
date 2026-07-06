@@ -686,7 +686,7 @@ ${sharedTableStyles()}
     font-weight: 700;
     letter-spacing: 0.05em;
     background: var(--caution);
-    color: #1a1a1a;
+    color: var(--text);
     padding: 1px 6px;
     border-radius: 3px;
     margin-right: 8px;

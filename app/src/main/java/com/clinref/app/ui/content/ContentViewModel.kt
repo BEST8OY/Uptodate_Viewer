@@ -322,28 +322,7 @@ class ContentViewModel @Inject constructor(
     }
 
     private fun getCss(): String {
-        val colors = _themeColors ?: ThemeColors(
-            isDark = false,
-            bg = "#ffffff",
-            surface = "#f5f5f5",
-            text = "#000000",
-            textSecondary = "#666666",
-            textTertiary = "#999999",
-            border = "#e0e0e0",
-            borderEmphasis = "#cccccc",
-            primary = "#1976D2",
-            onPrimary = "#ffffff",
-            heading = "#1a1a1a",
-            drug = "#059669",
-            danger = "#e11d48",
-            caution = "#d97706",
-            grade = "#7c3aed",
-            selection = "#1976D2",
-            primaryContainer = "#d1e4ff",
-            onPrimaryContainer = "#001d36",
-            tertiaryContainer = "#f3deff",
-            onTertiaryContainer = "#31004a"
-        )
+        val colors = _themeColors ?: ThemeColors.light()
         return CssBuilder(colors).buildDocumentCss()
     }
 }

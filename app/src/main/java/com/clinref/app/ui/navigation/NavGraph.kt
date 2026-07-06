@@ -9,7 +9,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
@@ -18,10 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -191,17 +190,21 @@ fun NavGraph(
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
-            BottomAppBar(
-                actions = {
-                    topLevelRoutes.forEach { route ->
-                        NavBarItem(
-                            route = route,
-                            isSelected = route == navigationState.topLevelRoute,
-                            onClick = { navigator.navigate(route) }
-                        )
-                    }
+            NavigationBar {
+                topLevelRoutes.forEach { route ->
+                    NavigationBarItem(
+                        selected = route == navigationState.topLevelRoute,
+                        onClick = { navigator.navigate(route) },
+                        icon = {
+                            Icon(
+                                imageVector = route.icon,
+                                contentDescription = route.title
+                            )
+                        },
+                        label = { Text(route.title) }
+                    )
                 }
-            )
+            }
         }
 
         selectedGraphicId?.let { graphicId ->
@@ -213,24 +216,3 @@ fun NavGraph(
     }
 }
 
-@Composable
-private fun RowScope.NavBarItem(
-    route: TopLevelRoute,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.weight(1f)
-    ) {
-        Icon(
-            imageVector = route.icon,
-            contentDescription = route.title,
-            tint = if (isSelected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
-    }
-}

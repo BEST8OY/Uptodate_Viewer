@@ -55,7 +55,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -172,7 +174,7 @@ fun TocScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.testTag("toc_screen"),
         topBar = {
             AppBarWithSearch(
                 state = searchBarState,
@@ -319,7 +321,7 @@ fun TocScreen(
                                 .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            LoadingIndicator()
+                            LoadingIndicator(modifier = Modifier.size(48.dp))
                         }
                     }
                 }
@@ -330,7 +332,9 @@ fun TocScreen(
                             text = "${searchResults.size} result${if (searchResults.size != 1) "s" else ""} found",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
                         )
                     }
                     items(searchResults.size) { idx ->
@@ -355,7 +359,7 @@ fun TocScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        LoadingIndicator()
+                        LoadingIndicator(modifier = Modifier.size(48.dp))
                     }
                 }
                 error != null -> {

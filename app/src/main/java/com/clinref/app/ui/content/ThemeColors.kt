@@ -28,6 +28,29 @@ data class ThemeColors(
     val onTertiaryContainer: String
 ) {
     companion object {
+        fun light() = ThemeColors(
+            isDark = false,
+            bg = "#ffffff",
+            surface = "#f5f5f5",
+            text = "#000000",
+            textSecondary = "#666666",
+            textTertiary = "#999999",
+            border = "#e0e0e0",
+            borderEmphasis = "#cccccc",
+            primary = "#1976D2",
+            onPrimary = "#ffffff",
+            heading = "#1a1a1a",
+            drug = "#059669",
+            danger = "#e11d48",
+            caution = "#d97706",
+            grade = "#7c3aed",
+            selection = "#1976D2",
+            primaryContainer = "#d1e4ff",
+            onPrimaryContainer = "#001d36",
+            tertiaryContainer = "#f3deff",
+            onTertiaryContainer = "#31004a"
+        )
+
         fun fromColorScheme(colorScheme: ColorScheme): ThemeColors {
             val bg = colorScheme.background
             val isDark = bg.luminance() < 0.5f

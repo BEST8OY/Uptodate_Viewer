@@ -5,6 +5,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -66,6 +67,7 @@ import androidx.compose.runtime.setValue
 
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
@@ -211,10 +213,13 @@ fun ContentScreen(
                     )
 
                     if (!showOutline) {
-                        if (isLoading) {
-                            ContentLoadingView(
-                                modifier = Modifier.align(Alignment.Center)
-                            )
+                        AnimatedVisibility(
+                            visible = isLoading,
+                            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                            modifier = Modifier.align(Alignment.Center),
+                        ) {
+                            ContentLoadingView()
                         }
 
                         error?.let { errorMsg ->
@@ -595,7 +600,9 @@ private fun ContentErrorView(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.padding(32.dp),
+        modifier = modifier
+            .padding(32.dp)
+            .testTag("content_error"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(
