@@ -78,6 +78,7 @@ class NavigationState(
 class Navigator(val state: NavigationState) {
     fun navigate(route: NavKey) {
         if (route in state.backStacks.keys) {
+            state.backStacks[route]?.clear()
             state.topLevelRoute = route
         } else {
             state.backStacks[state.topLevelRoute]?.add(route)
