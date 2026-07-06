@@ -94,6 +94,7 @@ fun TocScreen(
     val expanded = searchBarState.currentValue == SearchBarValue.Expanded
     var hasSearched by rememberSaveable { mutableStateOf(false) }
     var skipNextQuery by remember { mutableStateOf(false) }
+    var lastQuery by rememberSaveable { mutableStateOf("") }
 
     val isShowingResults = !expanded && hasSearched
 
@@ -114,8 +115,11 @@ fun TocScreen(
                     skipNextQuery = false
                     return@collect
                 }
-                searchViewModel.onQueryChanged(q)
-                hasSearched = false
+                if (q != lastQuery) {
+                    lastQuery = q
+                    searchViewModel.onQueryChanged(q)
+                    hasSearched = false
+                }
             }
     }
 
@@ -144,6 +148,7 @@ fun TocScreen(
                 val query = textFieldState.text.toString()
                 if (query.isNotBlank()) {
                     skipNextQuery = true
+                    lastQuery = query
                     searchViewModel.search(query)
                     hasSearched = true
                     scope.launch { searchBarState.animateToCollapsed() }
@@ -155,6 +160,7 @@ fun TocScreen(
                     IconButton(onClick = {
                         textFieldState.edit { replace(0, length, "") }
                         skipNextQuery = true
+                        lastQuery = ""
                         searchViewModel.onQueryChanged("")
                         hasSearched = false
                     }) {
@@ -206,6 +212,7 @@ fun TocScreen(
                             SegmentedListItem(
                                 onClick = {
                                     skipNextQuery = true
+                                    lastQuery = suggestion
                                     textFieldState.edit { replace(0, length, suggestion) }
                                     searchViewModel.search(suggestion)
                                     hasSearched = true
