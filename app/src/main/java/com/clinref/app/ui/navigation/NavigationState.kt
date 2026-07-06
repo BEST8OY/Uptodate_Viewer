@@ -78,7 +78,10 @@ class NavigationState(
 class Navigator(val state: NavigationState) {
     fun navigate(route: NavKey) {
         if (route in state.backStacks.keys) {
-            state.backStacks[route]?.clear()
+            val stack = state.backStacks[route] ?: return
+            while (stack.size > 1) {
+                stack.removeLastOrNull()
+            }
             state.topLevelRoute = route
         } else {
             state.backStacks[state.topLevelRoute]?.add(route)
