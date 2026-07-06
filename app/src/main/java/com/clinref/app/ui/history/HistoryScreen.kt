@@ -24,11 +24,13 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -155,8 +157,11 @@ fun HistoryScreen(
                     key = { it.topicId }
                 ) { entry ->
                     val isSelected = entry.topicId in selectedIds
+                    val idx = history.indexOf(entry)
                     HistoryItem(
                         entry = entry,
+                        index = idx,
+                        totalCount = history.size,
                         isSelected = isSelected,
                         isSelectionMode = isSelectionMode,
                         onTopicSelected = {
@@ -183,10 +188,12 @@ fun HistoryScreen(
 }
 
 @SuppressLint("MissingSuperCall")
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HistoryItem(
     entry: HistoryEntry,
+    index: Int,
+    totalCount: Int,
     isSelected: Boolean,
     isSelectionMode: Boolean,
     onTopicSelected: () -> Unit,
@@ -231,8 +238,10 @@ private fun HistoryItem(
             }
         },
         content = {
-            ListItem(
-                headlineContent = { Text(entry.title) },
+            SegmentedListItem(
+                onClick = onTopicSelected,
+                onLongClick = onLongPress,
+                shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
                 leadingContent = {
                     if (isSelected) {
                         Icon(
@@ -250,10 +259,7 @@ private fun HistoryItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                modifier = Modifier.combinedClickable(
-                    onClick = onTopicSelected,
-                    onLongClick = onLongPress
-                )
+                content = { Text(entry.title) }
             )
         }
     )
