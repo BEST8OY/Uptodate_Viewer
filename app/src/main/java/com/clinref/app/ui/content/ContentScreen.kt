@@ -213,7 +213,7 @@ fun ContentScreen(
                     )
 
                     if (!showOutline) {
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible = isLoading,
                             enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
                             exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
