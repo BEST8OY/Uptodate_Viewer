@@ -213,15 +213,6 @@ fun ContentScreen(
                     )
 
                     if (!showOutline) {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = isLoading,
-                            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                            modifier = Modifier.align(Alignment.Center),
-                        ) {
-                            ContentLoadingView()
-                        }
-
                         error?.let { errorMsg ->
                             ContentErrorView(
                                 errorMsg = errorMsg,
@@ -247,6 +238,17 @@ fun ContentScreen(
                         },
                         onDismiss = { viewModel.toggleOutline() }
                     )
+                }
+            }
+
+            if (!showOutline) {
+                AnimatedVisibility(
+                    visible = isLoading,
+                    enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                    exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                    modifier = Modifier.align(Alignment.Center),
+                ) {
+                    ContentLoadingView()
                 }
             }
 
