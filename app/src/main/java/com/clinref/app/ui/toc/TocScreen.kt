@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -143,16 +142,6 @@ fun TocScreen(
                 }
             },
             placeholder = { Text("Search topics...") },
-            leadingIcon = {
-                IconButton(onClick = {
-                    scope.launch { searchBarState.animateToCollapsed() }
-                }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back"
-                    )
-                }
-            },
             trailingIcon = {
                 if (textFieldState.text.isNotEmpty()) {
                     IconButton(onClick = {
