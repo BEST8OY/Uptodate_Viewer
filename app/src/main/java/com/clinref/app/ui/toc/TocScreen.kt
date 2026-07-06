@@ -182,9 +182,11 @@ fun TocScreen(
                 .padding(padding)
         ) {
             SearchBar(
-                state = searchBarState,
                 inputField = inputField,
-                modifier = Modifier.fillMaxWidth()
+                expanded = expanded,
+                onExpandedChange = { },
+                modifier = Modifier.fillMaxWidth(),
+                windowInsets = SearchBarDefaults.windowInsets
             )
             ExpandedFullScreenSearchBar(state = searchBarState, inputField = inputField) {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -288,12 +290,10 @@ fun TocScreen(
                                     when (result) {
                                         is SearchResult.Topic -> {
                                             skipNextQuery = true
-                                            scope.launch { searchBarState.animateToCollapsed() }
                                             onTopicSelected(result.topicId)
                                         }
                                         is SearchResult.Graphic -> {
                                             skipNextQuery = true
-                                            scope.launch { searchBarState.animateToCollapsed() }
                                             onGraphicSelected(result.graphicId)
                                         }
                                     }
