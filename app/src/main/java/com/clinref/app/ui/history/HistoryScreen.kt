@@ -35,10 +35,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -64,6 +62,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.R
 import com.clinref.app.domain.HistoryEntry
+import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.util.formatTimestamp
 import kotlinx.coroutines.launch
 
@@ -213,12 +212,10 @@ fun HistoryScreen(
                         onSwipeToDelete = {
                             viewModel.removeHistory(entry.topicId)
                             scope.launch {
-                                val result = snackbarHostState.showSnackbar(
-                                    message = "History entry deleted",
-                                    actionLabel = "Undo",
-                                    duration = SnackbarDuration.Short
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
+                                showUndoSnackbar(
+                                    snackbarHostState = snackbarHostState,
+                                    message = "History entry deleted"
+                                ) {
                                     viewModel.addHistory(entry.topicId, entry.title)
                                 }
                             }
