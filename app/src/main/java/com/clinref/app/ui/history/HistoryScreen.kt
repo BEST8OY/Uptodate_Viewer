@@ -65,6 +65,7 @@ import com.clinref.app.R
 import com.clinref.app.domain.HistoryEntry
 import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.util.formatTimestamp
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +80,7 @@ fun HistoryScreen(
     var showClearAllDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
+    var isFabDelete by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         onDispose { pendingDelete = emptyList() }
@@ -129,15 +131,7 @@ fun HistoryScreen(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                         navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    actions = {
-                        IconButton(onClick = { showClearAllDialog = true }) {
-                            Icon(
-                                Icons.Default.DeleteSweep,
-                                contentDescription = "Delete selected"
-                            )
-                        }
-                    }
+                    )
                 )
             } else {
                 TopAppBar(
@@ -169,6 +163,7 @@ fun HistoryScreen(
                         val entries = history.filter { it.topicId in selectedIds }
                         selectedIds.forEach { viewModel.removeHistory(it) }
                         pendingDelete = entries
+                        isFabDelete = true
                         selectedIds = emptySet()
                     },
                     containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -233,9 +228,13 @@ fun HistoryScreen(
 
     LaunchedEffect(pendingDelete) {
         pendingDelete.takeIf { it.isNotEmpty() }?.let { entries ->
+            if (isFabDelete) {
+                delay(300)
+                isFabDelete = false
+            }
             showUndoSnackbar(
                 snackbarHostState = snackbarHostState,
-                message = "${entries.size} history entry/entries deleted"
+                message = "History entry deleted"
             ) {
                 entries.forEach { viewModel.addHistory(it.topicId, it.title, it.timestamp) }
             }
