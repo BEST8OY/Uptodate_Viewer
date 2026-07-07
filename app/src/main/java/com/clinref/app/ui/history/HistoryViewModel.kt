@@ -25,6 +25,12 @@ class HistoryViewModel @Inject constructor(
         }
     }
 
+    fun addHistory(topicId: String, title: String) {
+        viewModelScope.launch {
+            historyRepository.addOrPromote(topicId, title)
+        }
+    }
+
     fun clearHistory() {
         viewModelScope.launch {
             historyRepository.clear()

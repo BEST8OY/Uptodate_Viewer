@@ -35,6 +35,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -50,11 +54,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.clinref.app.R
 import com.clinref.app.domain.HistoryEntry
 import com.clinref.app.util.formatTimestamp
 import kotlinx.coroutines.launch
@@ -70,6 +78,8 @@ fun HistoryScreen(
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     BackHandler(enabled = isSelectionMode) {
         selectedIds = emptySet()
@@ -98,6 +108,7 @@ fun HistoryScreen(
 
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (isSelectionMode) {
                 TopAppBar(
@@ -199,7 +210,19 @@ fun HistoryScreen(
                         onLongPress = {
                             selectedIds = selectedIds + entry.topicId
                         },
-                        onSwipeToDelete = { viewModel.removeHistory(entry.topicId) },
+                        onSwipeToDelete = {
+                            viewModel.removeHistory(entry.topicId)
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "History entry deleted",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.addHistory(entry.topicId, entry.title)
+                                }
+                            }
+                        },
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -254,16 +277,16 @@ private fun HistoryItem(
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
     val scope = rememberCoroutineScope()
+    val deleteHistoryDescription = stringResource(R.string.delete_history)
 
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
-        modifier = modifier,
+        gesturesEnabled = !isSelectionMode,
+        modifier = modifier.semantics { contentDescription = deleteHistoryDescription },
         onDismiss = { direction ->
             if (direction == SwipeToDismissBoxValue.EndToStart) {
                 onSwipeToDelete()
-            } else {
-                scope.launch { dismissState.reset() }
             }
         },
         backgroundContent = {
@@ -284,7 +307,7 @@ private fun HistoryItem(
                 if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                     Icon(
                         imageVector = Icons.Default.DeleteSweep,
-                        contentDescription = "Delete",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }

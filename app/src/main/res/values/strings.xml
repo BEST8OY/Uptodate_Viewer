@@ -2,4 +2,9 @@
 <resources>
     <string name="app_name">ClinRef</string>
     <string name="close_sheet">Close</string>
+    <string name="remove_favorite">Remove favorite</string>
+    <string name="delete_history">Delete from history</string>
+    <string name="favorite_removed">Favorite removed</string>
+    <string name="history_deleted">History entry deleted</string>
+    <string name="undo">Undo</string>
 </resources>

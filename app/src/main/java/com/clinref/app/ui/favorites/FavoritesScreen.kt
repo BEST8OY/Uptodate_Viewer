@@ -36,12 +36,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,11 +59,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.clinref.app.R
 import com.clinref.app.domain.FavoriteEntry
 import com.clinref.app.util.formatTimestamp
 import kotlinx.coroutines.launch
@@ -71,6 +83,8 @@ fun FavoritesScreen(
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     BackHandler(enabled = isSelectionMode) {
         selectedIds = emptySet()
@@ -99,6 +113,7 @@ fun FavoritesScreen(
 
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (isSelectionMode) {
                 TopAppBar(
@@ -200,7 +215,19 @@ fun FavoritesScreen(
                         onLongPress = {
                             selectedIds = selectedIds + entry.topicId
                         },
-                        onSwipeToRemove = { viewModel.removeFavorite(entry.topicId) },
+                        onSwipeToRemove = {
+                            viewModel.removeFavorite(entry.topicId)
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Favorite removed",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.addFavorite(entry.topicId, entry.title)
+                                }
+                            }
+                        },
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -255,16 +282,16 @@ private fun FavoriteItem(
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
     val scope = rememberCoroutineScope()
+    val removeFavoriteDescription = stringResource(R.string.remove_favorite)
 
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
-        modifier = modifier,
+        gesturesEnabled = !isSelectionMode,
+        modifier = modifier.semantics { contentDescription = removeFavoriteDescription },
         onDismiss = { direction ->
             if (direction == SwipeToDismissBoxValue.EndToStart) {
                 onSwipeToRemove()
-            } else {
-                scope.launch { dismissState.reset() }
             }
         },
         backgroundContent = {
@@ -285,7 +312,7 @@ private fun FavoriteItem(
                 if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                     Icon(
                         imageVector = Icons.Default.DeleteSweep,
-                        contentDescription = "Remove",
+                        contentDescription = null,
                         tint = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }

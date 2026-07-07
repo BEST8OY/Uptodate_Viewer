@@ -25,6 +25,12 @@ class FavoritesViewModel @Inject constructor(
         }
     }
 
+    fun addFavorite(topicId: String, title: String) {
+        viewModelScope.launch {
+            favoriteRepository.add(topicId, title)
+        }
+    }
+
     fun clearFavorites() {
         viewModelScope.launch {
             favoriteRepository.clearAll()
