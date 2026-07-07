@@ -161,7 +161,7 @@ fun NavGraph(
             onBack = {
                 val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
                 val currentRoute = currentStack?.lastOrNull()
-                if (currentRoute == navigationState.topLevelRoute && navigationState.topLevelRoute == navigationState.startRoute) {
+                if (currentRoute == navigationState.topLevelRoute) {
                     activity?.finish()
                 } else {
                     navigator.goBack()

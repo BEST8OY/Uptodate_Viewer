@@ -723,7 +723,6 @@ private fun OutlineOverlay(
                         Surface(
                             onClick = {
                                 onSectionClick(section)
-                                onDismiss()
                             },
                             color = if (isActive) {
                                 MaterialTheme.colorScheme.primaryContainer
