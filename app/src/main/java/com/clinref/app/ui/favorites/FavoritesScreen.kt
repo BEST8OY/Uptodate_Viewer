@@ -285,6 +285,10 @@ private fun FavoriteItem(
     val dismissState = rememberSwipeToDismissBoxState()
     val removeFavoriteDescription = stringResource(R.string.remove_favorite)
 
+    LaunchedEffect(entry.topicId) {
+        dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+    }
+
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,

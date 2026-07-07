@@ -284,6 +284,10 @@ private fun HistoryItem(
     val dismissState = rememberSwipeToDismissBoxState()
     val deleteHistoryDescription = stringResource(R.string.delete_history)
 
+    LaunchedEffect(entry.topicId) {
+        dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+    }
+
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
