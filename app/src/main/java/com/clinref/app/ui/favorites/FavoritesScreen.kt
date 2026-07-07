@@ -45,6 +45,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -78,7 +79,11 @@ fun FavoritesScreen(
     val isSelectionMode = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    var pendingDelete by remember { mutableStateOf<FavoriteEntry?>(null) }
+    var pendingDelete by remember { mutableStateOf<List<FavoriteEntry>>(emptyList()) }
+
+    DisposableEffect(Unit) {
+        onDispose { pendingDelete = emptyList() }
+    }
 
     BackHandler(enabled = isSelectionMode) {
         selectedIds = emptySet()
@@ -162,7 +167,9 @@ fun FavoritesScreen(
             ) {
                 FloatingActionButton(
                     onClick = {
+                        val entries = favorites.filter { it.topicId in selectedIds }
                         selectedIds.forEach { viewModel.removeFavorite(it) }
+                        pendingDelete = entries
                         selectedIds = emptySet()
                     },
                     containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -216,7 +223,7 @@ fun FavoritesScreen(
                         },
                         onSwipeToRemove = {
                             viewModel.removeFavorite(entry.topicId)
-                            pendingDelete = entry
+                            pendingDelete = listOf(entry)
                         },
                         modifier = Modifier.animateItem()
                     )
@@ -226,14 +233,14 @@ fun FavoritesScreen(
     }
 
     LaunchedEffect(pendingDelete) {
-        pendingDelete?.let { entry ->
+        pendingDelete.takeIf { it.isNotEmpty() }?.let { entries ->
             showUndoSnackbar(
                 snackbarHostState = snackbarHostState,
-                message = "Favorite removed"
+                message = "${entries.size} favorite(s) removed"
             ) {
-                viewModel.addFavorite(entry.topicId, entry.title, entry.timestamp)
+                entries.forEach { viewModel.addFavorite(it.topicId, it.title, it.timestamp) }
             }
-            pendingDelete = null
+            pendingDelete = emptyList()
         }
     }
 }
@@ -301,7 +308,7 @@ private fun FavoriteItem(
         },
         backgroundContent = {
             val color by animateColorAsState(
-                targetValue = when (dismissState.targetValue) {
+                targetValue = when (dismissState.dismissDirection) {
                     SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
                     else -> Color.Transparent
                 },

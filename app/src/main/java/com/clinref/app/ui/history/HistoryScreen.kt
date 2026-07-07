@@ -44,6 +44,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +78,11 @@ fun HistoryScreen(
     val isSelectionMode = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    var pendingDelete by remember { mutableStateOf<HistoryEntry?>(null) }
+    var pendingDelete by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
+
+    DisposableEffect(Unit) {
+        onDispose { pendingDelete = emptyList() }
+    }
 
     BackHandler(enabled = isSelectionMode) {
         selectedIds = emptySet()
@@ -161,7 +166,9 @@ fun HistoryScreen(
             ) {
                 FloatingActionButton(
                     onClick = {
+                        val entries = history.filter { it.topicId in selectedIds }
                         selectedIds.forEach { viewModel.removeHistory(it) }
+                        pendingDelete = entries
                         selectedIds = emptySet()
                     },
                     containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -215,7 +222,7 @@ fun HistoryScreen(
                         },
                         onSwipeToDelete = {
                             viewModel.removeHistory(entry.topicId)
-                            pendingDelete = entry
+                            pendingDelete = listOf(entry)
                         },
                         modifier = Modifier.animateItem()
                     )
@@ -225,14 +232,14 @@ fun HistoryScreen(
     }
 
     LaunchedEffect(pendingDelete) {
-        pendingDelete?.let { entry ->
+        pendingDelete.takeIf { it.isNotEmpty() }?.let { entries ->
             showUndoSnackbar(
                 snackbarHostState = snackbarHostState,
-                message = "History entry deleted"
+                message = "${entries.size} history entry/entries deleted"
             ) {
-                viewModel.addHistory(entry.topicId, entry.title, entry.timestamp)
+                entries.forEach { viewModel.addHistory(it.topicId, it.title, it.timestamp) }
             }
-            pendingDelete = null
+            pendingDelete = emptyList()
         }
     }
 }
@@ -300,7 +307,7 @@ private fun HistoryItem(
         },
         backgroundContent = {
             val color by animateColorAsState(
-                targetValue = when (dismissState.targetValue) {
+                targetValue = when (dismissState.dismissDirection) {
                     SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
                     else -> Color.Transparent
                 },
