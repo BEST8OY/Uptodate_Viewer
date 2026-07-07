@@ -25,9 +25,9 @@ class FavoritesViewModel @Inject constructor(
         }
     }
 
-    fun addFavorite(topicId: String, title: String) {
+    fun addFavorite(topicId: String, title: String, timestamp: Long = System.currentTimeMillis()) {
         viewModelScope.launch {
-            favoriteRepository.add(topicId, title)
+            favoriteRepository.add(topicId, title, timestamp)
         }
     }
 

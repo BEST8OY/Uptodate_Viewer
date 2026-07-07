@@ -33,12 +33,13 @@ class HistoryRepository @Inject constructor(
         }
     }
 
-    suspend fun addOrPromote(topicId: String, title: String) {
+    suspend fun addOrPromote(topicId: String, title: String, timestamp: Long = System.currentTimeMillis()) {
         context.historyDataStore.edit { prefs ->
             val current = getHistory(prefs)
             val normalizedId = topicId.removePrefix("topic-")
-            val newEntry = HistoryEntry(normalizedId, title)
-            val updated = listOf(newEntry) + current.filter { it.topicId != normalizedId }
+            val newEntry = HistoryEntry(normalizedId, title, timestamp)
+            val updated = (listOf(newEntry) + current.filter { it.topicId != normalizedId })
+                .sortedByDescending { it.timestamp }
             prefs[historyKey] = json.encodeToString(updated.take(100))
         }
     }

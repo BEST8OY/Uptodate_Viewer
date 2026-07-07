@@ -34,12 +34,13 @@ class FavoriteRepository @Inject constructor(
         }
     }
 
-    suspend fun add(topicId: String, title: String) {
+    suspend fun add(topicId: String, title: String, timestamp: Long = System.currentTimeMillis()) {
         context.favoritesDataStore.edit { prefs ->
             val current = getFavorites(prefs)
             val normalizedId = topicId.removePrefix("topic-")
-            val newEntry = FavoriteEntry(normalizedId, title)
-            val updated = listOf(newEntry) + current.filter { it.topicId != normalizedId }
+            val newEntry = FavoriteEntry(normalizedId, title, timestamp)
+            val updated = (listOf(newEntry) + current.filter { it.topicId != normalizedId })
+                .sortedByDescending { it.timestamp }
             prefs[favoritesKey] = json.encodeToString(updated)
         }
     }

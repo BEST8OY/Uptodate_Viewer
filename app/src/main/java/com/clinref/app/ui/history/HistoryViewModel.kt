@@ -25,9 +25,9 @@ class HistoryViewModel @Inject constructor(
         }
     }
 
-    fun addHistory(topicId: String, title: String) {
+    fun addHistory(topicId: String, title: String, timestamp: Long = System.currentTimeMillis()) {
         viewModelScope.launch {
-            historyRepository.addOrPromote(topicId, title)
+            historyRepository.addOrPromote(topicId, title, timestamp)
         }
     }
 

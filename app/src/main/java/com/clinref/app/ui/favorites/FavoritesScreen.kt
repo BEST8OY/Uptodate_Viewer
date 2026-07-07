@@ -231,7 +231,7 @@ fun FavoritesScreen(
                 snackbarHostState = snackbarHostState,
                 message = "Favorite removed"
             ) {
-                viewModel.addFavorite(entry.topicId, entry.title)
+                viewModel.addFavorite(entry.topicId, entry.title, entry.timestamp)
             }
             pendingDelete = null
         }

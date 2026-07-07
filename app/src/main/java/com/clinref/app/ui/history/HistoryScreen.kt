@@ -230,7 +230,7 @@ fun HistoryScreen(
                 snackbarHostState = snackbarHostState,
                 message = "History entry deleted"
             ) {
-                viewModel.addHistory(entry.topicId, entry.title)
+                viewModel.addHistory(entry.topicId, entry.title, entry.timestamp)
             }
             pendingDelete = null
         }
