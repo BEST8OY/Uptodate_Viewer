@@ -107,7 +107,11 @@ fun FavoritesScreen(
 
     Scaffold(
         modifier = modifier,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            Box(modifier = Modifier.padding(bottom = 80.dp)) {
+                SnackbarHost(snackbarHostState)
+            }
+        },
         topBar = {
             if (isSelectionMode) {
                 TopAppBar(
