@@ -46,9 +46,9 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,7 +65,6 @@ import com.clinref.app.R
 import com.clinref.app.domain.FavoriteEntry
 import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.util.formatTimestamp
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +78,7 @@ fun FavoritesScreen(
     val isSelectionMode = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    var pendingDelete by remember { mutableStateOf<FavoriteEntry?>(null) }
 
     BackHandler(enabled = isSelectionMode) {
         selectedIds = emptySet()
@@ -151,6 +150,7 @@ fun FavoritesScreen(
         floatingActionButton = {
             AnimatedVisibility(
                 visible = isSelectionMode,
+                modifier = Modifier.padding(bottom = 80.dp),
                 enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
                     slideInHorizontally(MaterialTheme.motionScheme.defaultEffectsSpec()) { it / 2 },
                 exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()) +
@@ -212,19 +212,24 @@ fun FavoritesScreen(
                         },
                         onSwipeToRemove = {
                             viewModel.removeFavorite(entry.topicId)
-                            scope.launch {
-                                showUndoSnackbar(
-                                    snackbarHostState = snackbarHostState,
-                                    message = "Favorite removed"
-                                ) {
-                                    viewModel.addFavorite(entry.topicId, entry.title)
-                                }
-                            }
+                            pendingDelete = entry
                         },
                         modifier = Modifier.animateItem()
                     )
                 }
             }
+        }
+    }
+
+    LaunchedEffect(pendingDelete) {
+        pendingDelete?.let { entry ->
+            showUndoSnackbar(
+                snackbarHostState = snackbarHostState,
+                message = "Favorite removed"
+            ) {
+                viewModel.addFavorite(entry.topicId, entry.title)
+            }
+            pendingDelete = null
         }
     }
 }
@@ -274,7 +279,6 @@ private fun FavoriteItem(
     modifier: Modifier = Modifier
 ) {
     val dismissState = rememberSwipeToDismissBoxState()
-    val scope = rememberCoroutineScope()
     val removeFavoriteDescription = stringResource(R.string.remove_favorite)
 
     SwipeToDismissBox(
