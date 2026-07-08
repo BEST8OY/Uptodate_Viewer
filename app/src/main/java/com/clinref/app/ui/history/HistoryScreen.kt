@@ -83,7 +83,10 @@ fun HistoryScreen(
     var isFabDelete by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
-        onDispose { pendingDelete = emptyList() }
+        onDispose {
+            pendingDelete = emptyList()
+            selectedIds = emptySet()
+        }
     }
 
     BackHandler(enabled = isSelectionMode) {

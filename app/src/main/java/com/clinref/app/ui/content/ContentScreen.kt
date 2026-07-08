@@ -235,6 +235,9 @@ fun ContentScreen(
                                     null
                                 )
                             }
+                            if (section.sectionType != SectionType.GRAPHIC) {
+                                viewModel.toggleOutline()
+                            }
                         },
                         onDismiss = { viewModel.toggleOutline() }
                     )

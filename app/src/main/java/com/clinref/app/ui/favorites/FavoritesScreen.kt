@@ -84,7 +84,10 @@ fun FavoritesScreen(
     var isFabDelete by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
-        onDispose { pendingDelete = emptyList() }
+        onDispose {
+            pendingDelete = emptyList()
+            selectedIds = emptySet()
+        }
     }
 
     BackHandler(enabled = isSelectionMode) {
