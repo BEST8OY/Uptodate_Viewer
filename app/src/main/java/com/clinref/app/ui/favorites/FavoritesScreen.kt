@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.navigation3.runtime.NavKey
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.R
 import com.clinref.app.domain.FavoriteEntry
@@ -72,6 +73,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun FavoritesScreen(
     onTopicSelected: (String) -> Unit,
+    currentRoute: NavKey,
     modifier: Modifier = Modifier,
     viewModel: FavoritesViewModel = hiltViewModel()
 ) {
@@ -82,6 +84,10 @@ fun FavoritesScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<List<FavoriteEntry>>(emptyList()) }
     var isFabDelete by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentRoute) {
+        selectedIds = emptySet()
+    }
 
     DisposableEffect(Unit) {
         onDispose {

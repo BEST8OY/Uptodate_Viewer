@@ -118,11 +118,11 @@ object HtmlNormalizer {
 
     private fun buildMetaLinksHtml(): String = """
         <div class="meta-links-row">
-            <a href="#" onclick="var el = document.getElementById('topicContributors'); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; return false;">Contributors</a>
+            <a href="#" onclick="var c=document.getElementById('topicContributors');var d=document.getElementById('topicDisclosures');var t=document.getElementById('literatureReviewDate');var wasOpen=c&&c.style.display!=='none';c&&(c.style.display='none');d&&(d.style.display='none');t&&(t.style.display='none');if(!wasOpen&&c)c.style.display='block';return false;">Contributors</a>
             <span class="meta-separator"></span>
-            <a href="#" onclick="var el = document.getElementById('topicDisclosures'); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; return false;">Disclosures</a>
+            <a href="#" onclick="var c=document.getElementById('topicContributors');var d=document.getElementById('topicDisclosures');var t=document.getElementById('literatureReviewDate');var wasOpen=d&&d.style.display!=='none';c&&(c.style.display='none');d&&(d.style.display='none');t&&(t.style.display='none');if(!wasOpen&&d)d.style.display='block';return false;">Disclosures</a>
             <span class="meta-separator"></span>
-            <a href="#" onclick="var el = document.getElementById('literatureReviewDate'); if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none'; return false;">Date</a>
+            <a href="#" onclick="var c=document.getElementById('topicContributors');var d=document.getElementById('topicDisclosures');var t=document.getElementById('literatureReviewDate');var wasOpen=t&&t.style.display!=='none';c&&(c.style.display='none');d&&(d.style.display='none');t&&(t.style.display='none');if(!wasOpen&&t)t.style.display='block';return false;">Date</a>
         </div>
     """.trimIndent()
 

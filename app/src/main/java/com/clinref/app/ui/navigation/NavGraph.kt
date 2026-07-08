@@ -127,7 +127,8 @@ fun NavGraph(
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
-                }
+                },
+                currentRoute = navigationState.topLevelRoute
             )
         }
         entry<FavoritesRoute> {
@@ -138,7 +139,8 @@ fun NavGraph(
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
-                }
+                },
+                currentRoute = navigationState.topLevelRoute
             )
         }
         entry<ContentRoute> { key ->
