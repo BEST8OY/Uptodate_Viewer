@@ -41,7 +41,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
@@ -594,7 +594,7 @@ private fun HtmlContentWebView(
 private fun ContentLoadingView(
     modifier: Modifier = Modifier
 ) {
-    LoadingIndicator(
+    ContainedLoadingIndicator(
         modifier = modifier.size(48.dp)
     )
 }

@@ -22,7 +22,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberBottomSheetState
@@ -122,7 +122,7 @@ fun GraphicSheet(
                     .height(200.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                LoadingIndicator(modifier = Modifier.size(48.dp))
+                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
             }
         }
     }
@@ -236,7 +236,7 @@ internal fun GraphicSheetContent(
                     .background(MaterialTheme.colorScheme.surface),
                 contentAlignment = Alignment.Center,
             ) {
-                LoadingIndicator(modifier = Modifier.size(48.dp))
+                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
             }
         }
     }

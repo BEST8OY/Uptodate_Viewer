@@ -34,7 +34,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -321,7 +321,7 @@ fun TocScreen(
                                 .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            LoadingIndicator(modifier = Modifier.size(48.dp))
+                            ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
                         }
                     }
                 }
@@ -359,7 +359,7 @@ fun TocScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        LoadingIndicator(modifier = Modifier.size(48.dp))
+                        ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
                     }
                 }
                 error != null -> {

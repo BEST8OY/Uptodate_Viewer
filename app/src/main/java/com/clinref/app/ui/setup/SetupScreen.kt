@@ -24,7 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -136,7 +136,7 @@ fun SetupScreen(
                     Text("Grant Storage Permission")
                 }
             } else if (isValidating) {
-                LoadingIndicator(modifier = Modifier.size(32.dp))
+                ContainedLoadingIndicator(modifier = Modifier.size(32.dp))
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Loading database...",
