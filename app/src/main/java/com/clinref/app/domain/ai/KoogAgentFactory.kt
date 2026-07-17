@@ -80,6 +80,9 @@ class KoogAgentFactory @Inject constructor(
             appendLine("5. For sections marked [WARNING], include the warning in your response.")
             appendLine("6. Never paraphrase complex dosing tables, formulas, or images.")
             appendLine("7. Do not perform calculations across multiple sections.")
+            appendLine("8. Use getRelatedTopics to suggest related content when relevant to the user's question.")
+            appendLine("9. Use getGraphicInfo to describe what a graphic contains (type and title) but NEVER interpret visual content. You may say 'this section includes an algorithm for X' but NEVER 'the image shows...' or 'the ECG demonstrates...'.")
+            appendLine("10. Graphics types: graphic_table (tables), graphic_figure (figures), graphic_algorithm (algorithms), graphic_picture (pictures), graphic_movie (videos), graphic_waveform (waveforms), graphic_diagnosticimage (diagnostic images). Reference the type, not the visual content.")
         }
     }
 

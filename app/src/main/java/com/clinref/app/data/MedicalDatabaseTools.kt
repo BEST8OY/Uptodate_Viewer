@@ -26,6 +26,18 @@ class MedicalDatabaseTools @Inject constructor(
             RegexOption.IGNORE_CASE
         )
         private val STRIP_TAGS_REGEX = Regex("<[^>]*>")
+        private val GRAPHIC_TYPE_REGEX = Regex(
+            """type(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
+            RegexOption.IGNORE_CASE
+        )
+        private val GRAPHIC_SUBTYPE_REGEX = Regex(
+            """subtype(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
+            RegexOption.IGNORE_CASE
+        )
+        private val GRAPHIC_ID_REGEX = Regex(
+            """(?:id|graphicId)(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
+            RegexOption.IGNORE_CASE
+        )
     }
 
     @Tool
@@ -64,7 +76,7 @@ class MedicalDatabaseTools @Inject constructor(
         // Recovery flow for ID drift
         if (sectionHtml == null && sectionTitle.isNotEmpty()) {
             val outline = parseOutlineList(content.outlineHtml)
-            val matched = outline.firstOrNull { 
+            val matched = outline.firstOrNull {
                 it["title"]?.equals(sectionTitle, ignoreCase = true) == true ||
                 it["title"]?.contains(sectionTitle, ignoreCase = true) == true ||
                 sectionTitle.contains(it["title"] ?: "_", ignoreCase = true)
@@ -98,6 +110,33 @@ class MedicalDatabaseTools @Inject constructor(
         }
     }
 
+    @Tool
+    @LLMDescription("Retrieve related topics for a given topic. Returns topic IDs and titles that are cross-referenced as related content.")
+    fun getRelatedTopics(
+        @LLMDescription("The unique topic ID") topicId: String
+    ): String {
+        val content = contentRepository.getTopicContent(topicId) ?: return "Topic not found"
+        val outlineHtml = content.outlineHtml
+        val relatedTopics = parseRelatedTopics(outlineHtml)
+        return Json.encodeToString(relatedTopics)
+    }
+
+    @Tool
+    @LLMDescription("Retrieve metadata about a graphic associated with a topic. Returns the graphic type, title, and capabilities. Do NOT attempt to interpret visual content — reference the type and title only.")
+    fun getGraphicInfo(
+        @LLMDescription("The graphic ID from the outline") graphicId: String
+    ): String {
+        // Graphics are stored as separate topics with IDs like "Graphic-XXXXX"
+        val content = contentRepository.getTopicContent("Graphic-$graphicId")
+            ?: contentRepository.getTopicContent(graphicId)
+            ?: return """{"error": "Graphic $graphicId not found"}"""
+        val outlineHtml = content.outlineHtml
+        val graphics = parseGraphicsFromOutline(outlineHtml)
+        val graphic = graphics.firstOrNull { it["id"] == graphicId }
+            ?: return """{"error": "Graphic $graphicId not found in outline"}"""
+        return Json.encodeToString(graphic)
+    }
+
     private fun parseOutlineList(outlineHtml: String): List<Map<String, String>> {
         val results = mutableListOf<Map<String, String>>()
         val matches = A_TAG_REGEX.findAll(outlineHtml)
@@ -111,6 +150,63 @@ class MedicalDatabaseTools @Inject constructor(
                 val text = innerHtml.replace(STRIP_TAGS_REGEX, "").trim()
                 if (text.isNotEmpty()) {
                     results.add(mapOf("id" to secId, "title" to text))
+                }
+            }
+        }
+        return results
+    }
+
+    private fun parseRelatedTopics(outlineHtml: String): List<Map<String, String>> {
+        val results = mutableListOf<Map<String, String>>()
+        val matches = A_TAG_REGEX.findAll(outlineHtml)
+        for (match in matches) {
+            val href = match.groupValues[1]
+            val innerHtml = match.groupValues[2]
+
+            val sectionMatch = SECTION_REGEX.find(href)
+            val typeMatch = GRAPHIC_TYPE_REGEX.find(href)
+
+            // Related topics are non-scrollable, non-graphic links
+            if (sectionMatch == null && typeMatch == null) {
+                val idMatch = GRAPHIC_ID_REGEX.find(href)
+                val id = idMatch?.groupValues?.get(1) ?: ""
+                val text = innerHtml.replace(STRIP_TAGS_REGEX, "").trim()
+                if (text.isNotEmpty() && id.isNotEmpty()) {
+                    results.add(mapOf("topicId" to id, "title" to text))
+                }
+            }
+        }
+        return results
+    }
+
+    private fun parseGraphicsFromOutline(outlineHtml: String): List<Map<String, Any>> {
+        val results = mutableListOf<Map<String, Any>>()
+        val matches = A_TAG_REGEX.findAll(outlineHtml)
+        for (match in matches) {
+            val href = match.groupValues[1]
+            val innerHtml = match.groupValues[2]
+
+            val typeMatch = GRAPHIC_TYPE_REGEX.find(href)
+            if (typeMatch != null && typeMatch.groupValues[1] == "graphic") {
+                val idMatch = GRAPHIC_ID_REGEX.find(href)
+                val subtypeMatch = GRAPHIC_SUBTYPE_REGEX.find(href)
+                val id = idMatch?.groupValues?.get(1) ?: ""
+                val subtype = subtypeMatch?.groupValues?.get(1) ?: ""
+                val title = innerHtml.replace(STRIP_TAGS_REGEX, "").trim()
+
+                if (id.isNotEmpty()) {
+                    val hasImage = subtype in listOf(
+                        "graphic_table", "graphic_figure", "graphic_algorithm",
+                        "graphic_picture", "graphic_diagnosticimage", "graphic_waveform"
+                    )
+                    val hasMovie = subtype == "graphic_movie"
+                    results.add(mapOf(
+                        "id" to id,
+                        "type" to subtype,
+                        "title" to title,
+                        "hasImage" to hasImage,
+                        "hasMovie" to hasMovie
+                    ))
                 }
             }
         }
@@ -158,7 +254,7 @@ class MedicalDatabaseTools @Inject constructor(
 
         // HTML entities LAST
         s = s.replace("&#160;", " ").replace("&nbsp;", " ")
-        s = s.replace("&#8212;", "—").replace("&mdash;", "—")
+        s = s.replace("&#8212;", "\u2014").replace("&mdash;", "\u2014")
         s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
 
         // Normalize whitespace and blank lines

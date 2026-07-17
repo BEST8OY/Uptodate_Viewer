@@ -35,7 +35,8 @@ class SafetyValidator {
         val citations: List<Citation>,
         val sectionWarnings: Map<String, Boolean> = emptyMap(),
         val toolResults: List<String> = emptyList(),
-        val fetchedSections: List<FetchedSection> = emptyList()
+        val fetchedSections: List<FetchedSection> = emptyList(),
+        val graphicIds: Set<String> = emptySet()
     )
 
     fun validate(context: TurnContext): ValidationResult {
@@ -66,6 +67,11 @@ class SafetyValidator {
         // Rule 5 — Citation required
         val rule5 = validateCitationRequired(context)
         if (!rule5.passed) return rule5
+
+        // Rule 6 — Graphic interpretation prohibited
+        val rule6 = validateNoGraphicInterpretation(context)
+        if (!rule6.passed) return rule6
+        warnings.addAll(rule6.warnings)
 
         return ValidationResult(passed = true, warnings = warnings)
     }
@@ -188,6 +194,32 @@ class SafetyValidator {
                 blockedReason = "No citations provided. Every clinical answer must cite its source."
             )
         }
+        return ValidationResult(passed = true, warnings = emptyList())
+    }
+
+    private val visualInterpretationPatterns = listOf(
+        Regex("""(?i)the (?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|pathology|slide|specimen|scan|film|rogram) (?:shows?|demonstrates?|reveals?|suggests?|indicates?|displays?|depicts?|illustrates?)"""),
+        Regex("""(?i)(?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|pathology|slide|specimen|scan|film) (?:findings?|abnormalities?|results?|features?|characteristics?)"""),
+        Regex("""(?i)(?:visual|visualized?|visible|appears? to show|can be seen)"""),
+        Regex("""(?i)(?:the (?:figure|table|algorithm|diagram) (?:shows?|demonstrates?|reveals?|depicts?))""")
+    )
+
+    private fun validateNoGraphicInterpretation(context: TurnContext): ValidationResult {
+        if (context.graphicIds.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
+
+        val answer = context.answer
+        val violatingPatterns = visualInterpretationPatterns.filter { it.containsMatchIn(answer) }
+
+        if (violatingPatterns.isNotEmpty()) {
+            return ValidationResult(
+                passed = false,
+                warnings = emptyList(),
+                blockedReason = "Answer contains language suggesting visual interpretation of a graphic. " +
+                    "You may reference the graphic title and type, but you may not describe visual details that were not retrieved as text. " +
+                    "Direct users to view the source directly."
+            )
+        }
+
         return ValidationResult(passed = true, warnings = emptyList())
     }
 }

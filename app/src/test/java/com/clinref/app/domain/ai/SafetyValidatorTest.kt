@@ -347,4 +347,68 @@ class SafetyValidatorTest {
         val result = validator.validate(context)
         assertFalse(result.passed)
     }
+
+    // ── Rule 6: Graphic interpretation prohibited ────────────────────
+
+    @Test
+    fun `Rule 6 blocks visual interpretation language when graphic is cited`() {
+        val context = SafetyValidator.TurnContext(
+            toolCalls = listOf(
+                SafetyValidator.ToolCallRecord("getTopicSectionText", mapOf("topicId" to "123", "sectionId" to "sec-1"), "content", true)
+            ),
+            answer = "The ECG demonstrates ST-segment elevation in leads II, III, and aVF. [Diagnosis > ECG Findings (sec-1)]",
+            citations = listOf(
+                SafetyValidator.Citation("123", "Diagnosis", "sec-1", "ECG Findings")
+            ),
+            graphicIds = setOf("G12345"),
+            fetchedSections = listOf(
+                SafetyValidator.FetchedSection("123", "Diagnosis", "sec-1", "ECG Findings")
+            ),
+            toolResults = listOf("ECG findings for acute MI include ST-segment changes.")
+        )
+        val result = validator.validate(context)
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("visual interpretation"))
+    }
+
+    @Test
+    fun `Rule 6 passes when referencing graphic type without interpretation`() {
+        val context = SafetyValidator.TurnContext(
+            toolCalls = listOf(
+                SafetyValidator.ToolCallRecord("getGraphicInfo", mapOf("graphicId" to "G12345"), "result", true),
+                SafetyValidator.ToolCallRecord("getTopicSectionText", mapOf("topicId" to "123", "sectionId" to "sec-1"), "content", true)
+            ),
+            answer = "This section includes a diagnostic image for evaluating acute chest pain. Please review the source directly. [Diagnosis > ECG Findings (sec-1)]",
+            citations = listOf(
+                SafetyValidator.Citation("123", "Diagnosis", "sec-1", "ECG Findings")
+            ),
+            graphicIds = setOf("G12345"),
+            fetchedSections = listOf(
+                SafetyValidator.FetchedSection("123", "Diagnosis", "sec-1", "ECG Findings")
+            ),
+            toolResults = listOf("ECG findings for acute MI.")
+        )
+        val result = validator.validate(context)
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `Rule 6 passes when no graphics involved`() {
+        val context = SafetyValidator.TurnContext(
+            toolCalls = listOf(
+                SafetyValidator.ToolCallRecord("getTopicSectionText", mapOf("topicId" to "123", "sectionId" to "sec-1"), "content", true)
+            ),
+            answer = "Metformin 500mg twice daily is recommended. [Diabetes > Treatment (sec-1)]",
+            citations = listOf(
+                SafetyValidator.Citation("123", "Diabetes", "sec-1", "Treatment")
+            ),
+            graphicIds = emptySet(),
+            fetchedSections = listOf(
+                SafetyValidator.FetchedSection("123", "Diabetes", "sec-1", "Treatment")
+            ),
+            toolResults = listOf("Metformin 500mg twice daily.")
+        )
+        val result = validator.validate(context)
+        assertTrue(result.passed)
+    }
 }
