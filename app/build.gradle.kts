@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.room3)
 }
 
 android {
@@ -54,14 +55,14 @@ kotlin {
     }
 }
 
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
-}
-
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:compose-group-mapping:2.4.0")
     }
+}
+
+room3 {
+    schemaDirectory("$projectDir/schemas")
 }
 
 dependencies {
@@ -103,10 +104,10 @@ dependencies {
     implementation(libs.koog.agents)
     implementation(libs.koog.agents.additions)
 
-    // Room database
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    ksp(libs.room.compiler)
+    // Room database (3.0)
+    implementation(libs.room3.runtime)
+    ksp(libs.room3.compiler)
+    implementation(libs.room3.sqlite.android)
 
     // Security (encrypted key storage)
     implementation(libs.security.crypto)

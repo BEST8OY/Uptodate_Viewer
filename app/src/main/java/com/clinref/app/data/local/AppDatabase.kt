@@ -1,8 +1,8 @@
 package com.clinref.app.data.local
 
-import androidx.room.Database
-import androidx.room.RoomDatabase
-import androidx.room.TypeConverters
+import androidx.room3.Database
+import androidx.room3.RoomDatabase
+import androidx.room3.TypeConverters
 import com.clinref.app.data.local.dao.ConversationDao
 import com.clinref.app.data.local.dao.MessageDao
 import com.clinref.app.data.local.entity.ConversationEntity

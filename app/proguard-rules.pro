@@ -27,7 +27,6 @@
 # Koog AI agents — broad keep for now; narrow once reflection surface is known
 -keep class ai.koog.** { *; }
 
-# Room database
--keep class * extends androidx.room.RoomDatabase
--keep @androidx.room.Entity class *
--dontwarn androidx.room.paging.**
+# Room database (3.0)
+-keep class * extends androidx.room3.RoomDatabase
+-keep @androidx.room3.Entity class *
