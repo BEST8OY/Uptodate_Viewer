@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.clinref.app"
-        minSdk = 31
+        minSdk = 35
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
