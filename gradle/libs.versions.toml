@@ -17,7 +17,8 @@ zstdJni = "1.5.7-11"
 koog = "1.0.0"
 room = "2.7.1"
 securityCrypto = "1.1.0-alpha06"
-richtext = "0.5.1"
+richtext = "1.0.0-alpha02"
+koogAdditions = "1.0.0-beta"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -43,7 +44,7 @@ zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJ
 
 # Koog AI agents
 koog-agents = { group = "ai.koog", name = "koog-agents", version.ref = "koog" }
-koog-agents-additions = { group = "ai.koog", name = "koog-agents-additions", version.ref = "koog" }
+koog-agents-additions = { group = "ai.koog", name = "koog-agents-additions", version.ref = "koogAdditions" }
 
 # Room database
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
@@ -54,8 +55,8 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
 # Markdown in Compose
-richtext-commonmark = { group = "com.mikepenz", name = "richtext-commonmark", version.ref = "richtext" }
-richtext-material3 = { group = "com.mikepenz", name = "richtext-material3", version.ref = "richtext" }
+richtext-commonmark = { group = "com.halilibo.compose-richtext", name = "richtext-commonmark", version.ref = "richtext" }
+richtext-material3 = { group = "com.halilibo.compose-richtext", name = "richtext-ui-material3-android", version.ref = "richtext" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
