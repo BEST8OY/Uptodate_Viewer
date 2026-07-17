@@ -17,7 +17,7 @@ zstdJni = "1.5.7-11"
 koog = "1.0.0"
 room = "2.7.1"
 securityCrypto = "1.1.0-alpha06"
-richtext = "1.0.0-alpha02"
+markdownRenderer = "0.43.0"
 koogAdditions = "1.0.0-beta"
 
 [libraries]
@@ -55,8 +55,7 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
 # Markdown in Compose
-richtext-commonmark = { group = "com.halilibo.compose-richtext", name = "richtext-commonmark", version.ref = "richtext" }
-richtext-material3 = { group = "com.halilibo.compose-richtext", name = "richtext-ui-material3-android", version.ref = "richtext" }
+multiplatform-markdown-renderer = { group = "com.mikepenz", name = "multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

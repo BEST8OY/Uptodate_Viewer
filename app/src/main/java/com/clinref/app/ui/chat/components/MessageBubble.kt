@@ -1,8 +1,6 @@
 package com.clinref.app.ui.chat.components
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -15,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.chat.MessageUiModel
+import com.mikepenz.markdown.m3.Markdown
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,21 +48,23 @@ fun MessageBubble(
             modifier = modifier.widthIn(max = 320.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                if (isCancelled) {
+                if (isCancelled || isUser || message.isError) {
                     Text(
                         text = message.content,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = if (isCancelled) MaterialTheme.typography.bodySmall
+                            else MaterialTheme.typography.bodyMedium,
                         color = when {
                             message.isError -> MaterialTheme.colorScheme.onErrorContainer
                             isUser -> MaterialTheme.colorScheme.onPrimaryContainer
+                            isCancelled -> MaterialTheme.colorScheme.onSurfaceVariant
                             else -> MaterialTheme.colorScheme.onSecondaryContainer
                         }
+                    )
+                } else {
+                    // Assistant messages render as markdown
+                    Markdown(
+                        content = message.content,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
                     )
                 }
             }

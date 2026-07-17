@@ -112,6 +112,5 @@ dependencies {
     implementation(libs.security.crypto)
 
     // Markdown rendering in Compose
-    implementation(libs.richtext.commonmark)
-    implementation(libs.richtext.material3)
+    implementation(libs.multiplatform.markdown.renderer)
 }
