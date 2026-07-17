@@ -19,6 +19,8 @@
 *.zip
 *.tar.gz
 *.rar
+*.sqlite
+*.db
 
 # Gradle
 .gradle/

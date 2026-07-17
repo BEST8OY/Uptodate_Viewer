@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.List
@@ -42,6 +43,10 @@ import com.clinref.app.ui.favorites.FavoritesScreen
 import com.clinref.app.ui.history.HistoryScreen
 import com.clinref.app.ui.setup.SetupScreen
 import com.clinref.app.ui.toc.TocScreen
+import com.clinref.app.ui.chat.ChatScreen
+import com.clinref.app.ui.conversations.ConversationListScreen
+import com.clinref.app.ui.settings.AiSettingsScreen
+import com.clinref.app.domain.ai.PatientProfile
 import kotlinx.serialization.Serializable
 
 sealed interface TopLevelRoute : NavKey {
@@ -70,10 +75,26 @@ data object FavoritesRoute : TopLevelRoute {
 @Serializable
 data class ContentRoute(val topicId: String) : NavKey
 
+@Serializable
+data object AiRoute : TopLevelRoute {
+    override val title = "AI"
+    override val icon = Icons.Default.Chat
+}
+
+@Serializable
+data object AiSettingsRoute : NavKey
+
+@Serializable
+data object ConversationListRoute : NavKey
+
+@Serializable
+data class ChatRoute(val conversationId: String) : NavKey
+
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
     HistoryRoute,
-    FavoritesRoute
+    FavoritesRoute,
+    AiRoute
 )
 
 @Composable
@@ -100,7 +121,7 @@ fun NavGraph(
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
             val current = currentBackStack?.lastOrNull()
-            current is ContentRoute
+            current is ContentRoute || current is ChatRoute || current is AiSettingsRoute
         }
     }
 
@@ -151,6 +172,31 @@ fun NavGraph(
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
                 }
+            )
+        }
+        entry<AiRoute> {
+            ConversationListScreen(
+                onConversationSelected = { conversationId ->
+                    navigator.navigate(ChatRoute(conversationId))
+                },
+                onStartNewConversation = { patientProfile ->
+                    // Create conversation and navigate to chat
+                    // This will be handled by the ViewModel
+                }
+            )
+        }
+        entry<AiSettingsRoute> {
+            AiSettingsScreen(
+                onBack = { navigator.goBack() }
+            )
+        }
+        entry<ChatRoute> { key ->
+            ChatScreen(
+                conversationId = key.conversationId,
+                onNavigateToContent = { topicId ->
+                    navigator.navigate(ContentRoute(topicId))
+                },
+                onBack = { navigator.goBack() }
             )
         }
     }

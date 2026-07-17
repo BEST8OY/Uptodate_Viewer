@@ -54,6 +54,10 @@ kotlin {
     }
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:compose-group-mapping:2.4.0")
@@ -94,4 +98,20 @@ dependencies {
 
     // JSON
     implementation(libs.kotlinx.serialization.json)
+
+    // Koog AI agents
+    implementation(libs.koog.agents)
+    implementation(libs.koog.agents.additions)
+
+    // Room database
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    // Security (encrypted key storage)
+    implementation(libs.security.crypto)
+
+    // Markdown rendering in Compose
+    implementation(libs.richtext.commonmark)
+    implementation(libs.richtext.material3)
 }

@@ -23,3 +23,11 @@
 -keepclassmembers class com.clinref.app.ui.content.JsBridge {
     @android.webkit.JavascriptInterface <methods>;
 }
+
+# Koog AI agents — broad keep for now; narrow once reflection surface is known
+-keep class ai.koog.** { *; }
+
+# Room database
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class *
+-dontwarn androidx.room.paging.**
