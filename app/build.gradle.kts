@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
-    // alias(libs.plugins.room3)  // TEMPORARILY REMOVED
+    alias(libs.plugins.room3)
 }
 
 android {
@@ -55,6 +55,10 @@ kotlin {
     }
 }
 
+room3 {
+    schemaDirectory("$projectDir/schemas")
+}
+
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:compose-group-mapping:2.3.10")
@@ -102,10 +106,18 @@ dependencies {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
 
-    // Room database (3.0) — TEMPORARILY REMOVED FOR DIAGNOSIS
-    // implementation(libs.room3.runtime)
-    // ksp(libs.room3.compiler)
-    // implementation(libs.sqlite.bundled)
+    // Room database (3.0)
+    implementation(libs.room3.runtime) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+    }
+    ksp(libs.room3.compiler) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    implementation(libs.sqlite.bundled)
 
     // Security (encrypted key storage)
     implementation(libs.security.crypto)
