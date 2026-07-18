@@ -3,10 +3,13 @@ package com.clinref.app.domain.ai
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.http.client.java.JavaKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
+import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
+import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
@@ -29,13 +32,8 @@ class KoogAgentFactory @Inject constructor(
     private val safetyValidator: SafetyValidator
 ) {
 
-    /**
-     * Creates a fresh AIAgent for a single conversation turn.
-     *
-     * NOTE: This uses simple*Executor convenience functions which create and own
-     * the HTTP client internally. The agent must be used within the executor's
-     * lifecycle. For production, consider managing executor lifecycle explicitly.
-     */
+    private val httpClientFactory = JavaKoogHttpClient.Factory()
+
     suspend fun createAgent(
         config: AiConfiguration,
         conversationId: String,
@@ -118,7 +116,6 @@ class KoogAgentFactory @Inject constructor(
     }
 
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
-        // TODO: Implement dynamic model listing once we verify client.models() works.
         return getStaticFallback(provider)
     }
 
@@ -145,17 +142,18 @@ class KoogAgentFactory @Inject constructor(
 
     /**
      * Create provider-specific executor using convenience functions.
-     * These handle HTTP client creation internally.
+     * All require KoogHttpClient.Factory — provided by JavaKoogHttpClient.Factory().
      */
     private suspend fun executorFor(config: AiConfiguration): PromptExecutor? {
         val apiKey = securePreferences.getApiKey(config.provider)
         return when (config.provider) {
-            AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey)
-            AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey)
-            AiProvider.OLLAMA -> simpleOllamaAIExecutor()
-            // Google/DeepSeek/OpenRouter need their own client modules.
-            // The convenience executors for these may exist in prompt-executor-llms-all.
-            // If not, we'll need to construct them manually once we verify the API.
+            AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
+            AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
+            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
+            AiProvider.OPENROUTER -> simpleOpenRouterExecutor(apiKey, httpClientFactory)
+            AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
+            // DeepSeek has no convenience function — needs manual construction.
+            // TODO: Verify DeepSeek constructor when we test it.
             else -> null
         }
     }

@@ -141,6 +141,10 @@ dependencies {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
+    implementation(libs.koog.http.client.java) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
 
     // Room database (3.0)
     implementation(libs.room3.runtime) {

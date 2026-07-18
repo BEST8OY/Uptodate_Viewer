@@ -54,6 +54,7 @@ koog-prompt-executor-deepseek-client = { group = "ai.koog", name = "prompt-execu
 koog-prompt-executor-openrouter-client = { group = "ai.koog", name = "prompt-executor-openrouter-client", version.ref = "koog" }
 koog-prompt-executor-ollama-client = { group = "ai.koog", name = "prompt-executor-ollama-client", version.ref = "koog" }
 koog-prompt-executor-llms-all = { group = "ai.koog", name = "prompt-executor-llms-all", version.ref = "koog" }
+koog-http-client-java = { group = "ai.koog", name = "http-client-java", version.ref = "koog" }
 
 # Room database (3.0)
 room3-runtime = { group = "androidx.room3", name = "room3-runtime-android", version.ref = "room" }
