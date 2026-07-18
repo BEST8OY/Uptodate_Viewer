@@ -101,8 +101,12 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Koog AI agents
-    implementation(libs.koog.agents)
-    implementation(libs.koog.agents.additions)
+    implementation(libs.koog.agents) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+    }
+    implementation(libs.koog.agents.additions) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+    }
 
     // Room database (3.0)
     implementation(libs.room3.runtime)
