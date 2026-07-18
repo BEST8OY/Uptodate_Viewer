@@ -45,8 +45,12 @@ class MedicalDatabaseTools @Inject constructor(
     fun searchTopics(
         @LLMDescription("The search query keywords") query: String
     ): String {
-        val results = searchRepository.searchTopics(query).map {
-            mapOf("id" to it.id, "title" to it.title)
+        val results = searchRepository.searchTopics(query).map { result ->
+            val id = when (result) {
+                is com.clinref.app.domain.SearchResult.Topic -> result.topicId
+                is com.clinref.app.domain.SearchResult.Graphic -> result.graphicId
+            }
+            mapOf("id" to id, "title" to result.title)
         }
         return Json.encodeToString(results)
     }

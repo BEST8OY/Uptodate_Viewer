@@ -1,5 +1,15 @@
 package com.clinref.app.domain.ai
 
+import ai.koog.agents.core.agent.AIAgent
+import ai.koog.agents.core.tools.reflect.ToolRegistry
+import ai.koog.prompt.executor.clients.LLMClient
+import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
+import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
+import ai.koog.prompt.executor.clients.google.GoogleLLMClient
+import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
+import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
+import ai.koog.prompt.executor.clients.ollama.OllamaClient
+import ai.koog.prompt.executor.MultiLLMPromptExecutor
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
 import javax.inject.Inject
@@ -11,6 +21,45 @@ class KoogAgentFactory @Inject constructor(
     private val medicalDatabaseTools: MedicalDatabaseTools,
     private val safetyValidator: SafetyValidator
 ) {
+    fun createAgent(
+        config: AiConfiguration,
+        streamingManager: StreamingManager
+    ): AIAgent<String, String> {
+        val apiKey = securePreferences.getApiKey(config.provider)
+        val client = buildClient(config.provider, apiKey, config.baseUrl)
+        val executor = MultiLLMPromptExecutor(client)
+        val toolRegistry = ToolRegistry { tools(medicalDatabaseTools) }
+
+        return AIAgent(
+            promptExecutor = executor,
+            systemPrompt = buildSystemPrompt(PatientProfile()),
+            llmModel = resolveModel(config),
+            toolRegistry = toolRegistry
+        ) {
+            handleEvents {
+                onToolCallStarting { ctx ->
+                    streamingManager.onToolCallStarting(ctx.toolName, ctx.toolArgs.toString())
+                }
+
+                onAgentCompleted { ctx ->
+                    val result = ctx.result.toString()
+                    val turnContext = SafetyValidator.TurnContext(
+                        toolCalls = emptyList(),
+                        answer = result,
+                        citations = extractCitations(result),
+                        fetchedSections = emptyList()
+                    )
+                    val validation = safetyValidator.validate(turnContext)
+                    streamingManager.onCompleted(result, validation)
+                }
+
+                onLLMStreamingFailed { ctx ->
+                    streamingManager.onError(ctx.error?.message ?: "Unknown error")
+                }
+            }
+        }
+    }
+
     fun buildSystemPrompt(patientProfile: PatientProfile): String {
         val profileBlock = patientProfile.toSystemBlock()
         return buildString {
@@ -45,6 +94,19 @@ class KoogAgentFactory @Inject constructor(
         AiProvider.DEEPSEEK -> listOf("deepseek-v4-flash", "deepseek-v3")
         AiProvider.OPENROUTER -> listOf("gpt-4o", "claude-sonnet-4-5", "gemini-2.5-pro")
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
+    }
+
+    private fun buildClient(
+        provider: AiProvider,
+        apiKey: String,
+        baseUrl: String
+    ): LLMClient = when (provider) {
+        AiProvider.OPENAI -> OpenAILLMClient(apiKey)
+        AiProvider.ANTHROPIC -> AnthropicLLMClient(apiKey)
+        AiProvider.GOOGLE -> GoogleLLMClient(apiKey)
+        AiProvider.DEEPSEEK -> DeepSeekLLMClient(apiKey)
+        AiProvider.OPENROUTER -> OpenRouterLLMClient(apiKey)
+        AiProvider.OLLAMA -> OllamaClient(baseUrl.ifEmpty { "http://localhost:11434" })
     }
 
     private fun resolveModel(config: AiConfiguration): String {

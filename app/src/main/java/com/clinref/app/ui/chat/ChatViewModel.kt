@@ -10,6 +10,7 @@ import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
+import com.clinref.app.data.secure.SecurePreferences
 import com.clinref.app.repository.ConversationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,7 @@ class ChatViewModel @Inject constructor(
     private val koogAgentFactory: KoogAgentFactory,
     private val streamingManager: StreamingManager,
     private val reliabilityManager: ReliabilityManager,
+    private val securePreferences: SecurePreferences,
     private val secureLogger: SecureLogger
 ) : ViewModel() {
 
@@ -55,7 +57,7 @@ class ChatViewModel @Inject constructor(
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
 
-    private val _configuration = MutableStateFlow(AiConfiguration())
+    private val _configuration = MutableStateFlow(securePreferences.configuration.value)
     val configuration: StateFlow<AiConfiguration> = _configuration.asStateFlow()
 
     private var generationJob: Job? = null
