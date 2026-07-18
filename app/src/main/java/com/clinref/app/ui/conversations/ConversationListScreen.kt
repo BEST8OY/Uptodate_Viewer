@@ -53,6 +53,7 @@ fun ConversationListScreen(
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    var showProfileSheet by remember { mutableStateOf(false) }
 
     pendingDeleteId?.let { deleteId ->
         val conversation = conversations.find { it.id == deleteId }
@@ -78,6 +79,19 @@ fun ConversationListScreen(
         )
     }
 
+    if (showProfileSheet) {
+        PatientProfileSheet(
+            onDismiss = { showProfileSheet = false },
+            onStart = { profile ->
+                viewModel.createConversation(
+                    title = buildConversationTitle(profile),
+                    patientProfile = profile,
+                    onCreated = onConversationSelected
+                )
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -93,11 +107,7 @@ fun ConversationListScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = {
-                viewModel.createConversation("New Conversation", PatientProfile()) { conversationId ->
-                    onConversationSelected(conversationId)
-                }
-            }) {
+            FloatingActionButton(onClick = { showProfileSheet = true }) {
                 Icon(Icons.Default.Add, contentDescription = "New Conversation")
             }
         }
@@ -190,6 +200,14 @@ private fun ConversationItem(
             }
         }
     }
+}
+
+private fun buildConversationTitle(profile: PatientProfile): String {
+    val parts = mutableListOf<String>()
+    if (profile.age.isNotBlank()) parts.add(profile.age)
+    if (profile.sex.isNotBlank()) parts.add(profile.sex)
+    if (profile.conditions.isNotEmpty()) parts.add(profile.conditions.first())
+    return if (parts.isNotEmpty()) parts.joinToString(", ") else "New Conversation"
 }
 
 private fun formatConversationDate(timestamp: Long): String {

@@ -6,6 +6,9 @@ import com.clinref.app.data.secure.SecurePreferences
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
 import com.clinref.app.domain.ai.KoogAgentFactory
+import com.clinref.app.domain.ai.PatientProfile
+import com.clinref.app.domain.ai.ReliabilityManager
+import com.clinref.app.domain.ai.StreamingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +20,8 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val securePreferences: SecurePreferences,
-    private val koogAgentFactory: KoogAgentFactory
+    private val koogAgentFactory: KoogAgentFactory,
+    private val reliabilityManager: ReliabilityManager
 ) : ViewModel() {
 
     private val _configuration = MutableStateFlow(AiConfiguration())
@@ -82,17 +86,29 @@ class SettingsViewModel @Inject constructor(
             try {
                 val config = _configuration.value
                 securePreferences.saveApiKey(config.provider, _apiKey.value)
+
+                val testConfig = config.copy(isConfigured = true)
+                val testStreamingManager = StreamingManager()
+
                 val agent = koogAgentFactory.createAgent(
-                    config.copy(isConfigured = true),
-                    com.clinref.app.domain.ai.StreamingManager()
+                    config = testConfig,
+                    conversationId = "test-connection",
+                    patientProfile = PatientProfile(),
+                    streamingManager = testStreamingManager
                 )
                 if (agent == null) {
-                    _testResult.value = TestResult.Error("AI agent not yet implemented")
+                    _testResult.value = TestResult.Error("Could not create agent. Check your API key.")
                     return@launch
                 }
+
                 @Suppress("UNCHECKED_CAST")
                 val typedAgent = agent as ai.koog.agents.core.agent.AIAgent<String, String>
-                val result = typedAgent.run("Say 'Connection successful' in exactly those words.")
+
+                // Wrap in timeout to prevent hung network calls
+                val result = reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
+                    typedAgent.run("Say 'Connection successful' in exactly those words.")
+                }
+
                 _testResult.value = if (result.contains("Connection successful", ignoreCase = true)) {
                     TestResult.Success
                 } else {

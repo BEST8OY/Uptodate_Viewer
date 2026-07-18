@@ -62,11 +62,6 @@ class ChatViewModel @Inject constructor(
 
     private var generationJob: Job? = null
 
-    init {
-        // Configuration is now collected live from SecurePreferences
-        // No need to snapshot — changes in AiSettings are picked up automatically
-    }
-
     fun loadConversation(conversationId: String) {
         _currentConversationId.value = conversationId
         viewModelScope.launch {
@@ -106,7 +101,6 @@ class ChatViewModel @Inject constructor(
                 return@launch
             }
 
-            // Build prompt from history
             val history = conversationRepository.getMessagesList(conversationId)
             val patientProfile = conversationRepository.getPatientProfile(conversationId)
             val config = configuration.value
@@ -128,17 +122,22 @@ class ChatViewModel @Inject constructor(
             streamingManager.reset()
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val agent = koogAgentFactory.createAgent(config, streamingManager)
+                    val agent = koogAgentFactory.createAgent(
+                        config = config,
+                        conversationId = conversationId,
+                        patientProfile = patientProfile,
+                        streamingManager = streamingManager
+                    )
                     if (agent == null) {
                         withContext(Dispatchers.Main) {
-                            streamingManager.onError("AI agent not yet implemented. Koog integration pending.")
+                            streamingManager.onError("Could not create AI agent. Check your API key and settings.")
                         }
                         return@launch
                     }
-                    @Suppress("UNCHECKED_CAST")
-                    val typedAgent = agent as ai.koog.agents.core.agent.AIAgent<String, String>
+
+                    // Build the full prompt with conversation history
+                    // TODO: Replace with ChatMemory once Koog's ChatHistoryProvider is wired
                     val systemPrompt = koogAgentFactory.buildSystemPrompt(patientProfile)
-                    // Build prompt from history
                     val promptBuilder = StringBuilder()
                     promptBuilder.appendLine(systemPrompt)
                     promptBuilder.appendLine()
@@ -151,6 +150,8 @@ class ChatViewModel @Inject constructor(
                     }
                     promptBuilder.appendLine("User: $content")
 
+                    @Suppress("UNCHECKED_CAST")
+                    val typedAgent = agent as ai.koog.agents.core.agent.AIAgent<String, String>
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
                             typedAgent.run(promptBuilder.toString())

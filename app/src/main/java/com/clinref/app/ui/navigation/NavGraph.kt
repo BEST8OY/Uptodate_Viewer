@@ -33,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -46,7 +48,7 @@ import com.clinref.app.ui.toc.TocScreen
 import com.clinref.app.ui.chat.ChatScreen
 import com.clinref.app.ui.conversations.ConversationListScreen
 import com.clinref.app.ui.settings.AiSettingsScreen
-import com.clinref.app.domain.ai.PatientProfile
+import com.clinref.app.ui.settings.SettingsViewModel
 import kotlinx.serialization.Serializable
 
 sealed interface TopLevelRoute : NavKey {
@@ -175,14 +177,24 @@ fun NavGraph(
             )
         }
         entry<AiRoute> {
-            ConversationListScreen(
-                onConversationSelected = { conversationId ->
-                    navigator.navigate(ChatRoute(conversationId))
-                },
-                onOpenSettings = {
-                    navigator.navigate(AiSettingsRoute)
-                }
-            )
+            // First-run settings gate: show settings if not configured
+            val settingsViewModel: SettingsViewModel = hiltViewModel()
+            val config by settingsViewModel.configuration.collectAsStateWithLifecycle()
+
+            if (config.isConfigured) {
+                ConversationListScreen(
+                    onConversationSelected = { conversationId ->
+                        navigator.navigate(ChatRoute(conversationId))
+                    },
+                    onOpenSettings = {
+                        navigator.navigate(AiSettingsRoute)
+                    }
+                )
+            } else {
+                AiSettingsScreen(
+                    onBack = { navigator.goBack() }
+                )
+            }
         }
         entry<AiSettingsRoute> {
             AiSettingsScreen(
@@ -262,4 +274,3 @@ fun NavGraph(
         }
     }
 }
-
