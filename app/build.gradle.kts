@@ -107,7 +107,6 @@ dependencies {
     // Room database (3.0)
     implementation(libs.room3.runtime)
     ksp(libs.room3.compiler)
-    implementation(libs.room3.sqlite.android)
 
     // Security (encrypted key storage)
     implementation(libs.security.crypto)

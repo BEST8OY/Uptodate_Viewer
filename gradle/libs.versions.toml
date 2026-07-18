@@ -49,7 +49,6 @@ koog-agents-additions = { group = "ai.koog", name = "koog-agents-additions", ver
 # Room database (3.0)
 room3-runtime = { group = "androidx.room3", name = "room3-runtime", version.ref = "room" }
 room3-compiler = { group = "androidx.room3", name = "room3-compiler", version.ref = "room" }
-room3-sqlite-android = { group = "androidx.room3", name = "room3-sqlite-android", version.ref = "room" }
 
 # Security
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
