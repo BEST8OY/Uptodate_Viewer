@@ -91,34 +91,55 @@ class SettingsViewModel @Inject constructor(
                 val testConfig = config.copy(isConfigured = true)
                 val testStreamingManager = StreamingManager()
 
-                val agent: AIAgent<String, String>? = koogAgentFactory.createAgent(
-                    config = testConfig,
-                    conversationId = "test-connection",
-                    patientProfile = PatientProfile(),
-                    streamingManager = testStreamingManager
-                )
+                val agent: AIAgent<String, String>?
+                try {
+                    agent = koogAgentFactory.createAgent(
+                        config = testConfig,
+                        conversationId = "test-connection",
+                        patientProfile = PatientProfile(),
+                        streamingManager = testStreamingManager
+                    )
+                } catch (e: Exception) {
+                    val rootCause = e.cause ?: e
+                    _testResult.value = TestResult.Error(
+                        "Failed to create agent: ${rootCause.message ?: rootCause.javaClass.simpleName}"
+                    )
+                    return@launch
+                }
+
                 if (agent == null) {
                     val msg = when (config.provider) {
                         com.clinref.app.domain.ai.AiProvider.DEEPSEEK,
                         com.clinref.app.domain.ai.AiProvider.OPENROUTER ->
                             "${config.provider.displayName} is not yet supported in this build. Use OpenAI, Anthropic, Google, or Ollama."
-                        else -> "Could not create agent. Check your API key."
+                        else -> "Could not create agent. Check your API key and settings."
                     }
                     _testResult.value = TestResult.Error(msg)
                     return@launch
                 }
 
-                val result = reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
-                    agent.run("Say 'Connection successful' in exactly those words.")
+                val result = try {
+                    reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
+                        agent.run("Say 'Connection successful' in exactly those words.")
+                    }
+                } catch (e: Exception) {
+                    val rootCause = e.cause ?: e
+                    _testResult.value = TestResult.Error(
+                        "Request failed: ${rootCause.message ?: rootCause.javaClass.simpleName}"
+                    )
+                    return@launch
                 }
 
                 _testResult.value = if (result.contains("Connection successful", ignoreCase = true)) {
                     TestResult.Success
                 } else {
-                    TestResult.Error("Unexpected response from model")
+                    TestResult.Error("Unexpected response: ${result.take(200)}")
                 }
             } catch (e: Exception) {
-                _testResult.value = TestResult.Error(e.message ?: "Connection failed")
+                val rootCause = e.cause ?: e
+                _testResult.value = TestResult.Error(
+                    "Connection failed: ${rootCause.message ?: rootCause.javaClass.simpleName}"
+                )
             }
         }
     }
