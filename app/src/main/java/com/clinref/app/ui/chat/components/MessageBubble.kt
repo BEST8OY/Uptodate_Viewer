@@ -62,10 +62,7 @@ fun MessageBubble(
                     )
                 } else {
                     // Assistant messages render as markdown
-                    Markdown(
-                        content = message.content,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
+                    Markdown(message.content)
                 }
             }
         }
