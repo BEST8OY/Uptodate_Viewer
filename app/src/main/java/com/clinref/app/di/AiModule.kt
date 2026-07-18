@@ -1,6 +1,5 @@
 package com.clinref.app.di
 
-import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.StreamingManager
@@ -25,10 +24,4 @@ object AiModule {
     @Provides
     @Singleton
     fun provideReliabilityManager(): ReliabilityManager = ReliabilityManager()
-
-    @Provides
-    @Singleton
-    fun provideKoogAgentFactory(
-        koogAgentFactory: KoogAgentFactory
-    ): KoogAgentFactory = koogAgentFactory
 }

@@ -3,6 +3,8 @@ package com.clinref.app.domain.ai
 import android.util.Log
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import javax.inject.Inject
+import javax.inject.Singleton
 
 class ReliabilityManager {
 
@@ -42,7 +44,8 @@ class ReliabilityManager {
     }
 }
 
-class SecureLogger {
+@Singleton
+class SecureLogger @Inject constructor() {
 
     private val phiPatterns = listOf(
         Regex("\\b\\d{3}-\\d{2}-\\d{4}\\b"),
