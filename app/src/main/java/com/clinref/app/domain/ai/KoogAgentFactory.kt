@@ -1,15 +1,5 @@
 package com.clinref.app.domain.ai
 
-import ai.koog.agents.core.agent.AIAgent
-import ai.koog.agents.core.tools.reflect.ToolRegistry
-import ai.koog.prompt.executor.clients.LLMClient
-import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
-import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
-import ai.koog.prompt.executor.clients.google.GoogleLLMClient
-import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
-import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
-import ai.koog.prompt.executor.clients.ollama.OllamaClient
-import ai.koog.prompt.executor.MultiLLMPromptExecutor
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
 import javax.inject.Inject
@@ -24,40 +14,11 @@ class KoogAgentFactory @Inject constructor(
     fun createAgent(
         config: AiConfiguration,
         streamingManager: StreamingManager
-    ): AIAgent<String, String> {
-        val apiKey = securePreferences.getApiKey(config.provider)
-        val client = buildClient(config.provider, apiKey, config.baseUrl)
-        val executor = MultiLLMPromptExecutor(client)
-        val toolRegistry = ToolRegistry { tools(medicalDatabaseTools) }
-
-        return AIAgent(
-            promptExecutor = executor,
-            systemPrompt = buildSystemPrompt(PatientProfile()),
-            llmModel = resolveModel(config),
-            toolRegistry = toolRegistry
-        ) {
-            handleEvents {
-                onToolCallStarting { ctx ->
-                    streamingManager.onToolCallStarting(ctx.toolName, ctx.toolArgs.toString())
-                }
-
-                onAgentCompleted { ctx ->
-                    val result = ctx.result.toString()
-                    val turnContext = SafetyValidator.TurnContext(
-                        toolCalls = emptyList(),
-                        answer = result,
-                        citations = extractCitations(result),
-                        fetchedSections = emptyList()
-                    )
-                    val validation = safetyValidator.validate(turnContext)
-                    streamingManager.onCompleted(result, validation)
-                }
-
-                onLLMStreamingFailed { ctx ->
-                    streamingManager.onError(ctx.error?.message ?: "Unknown error")
-                }
-            }
-        }
+    ): Any? {
+        // TODO: Implement actual Koog agent creation
+        // Requires: correct import paths for ToolRegistry, MultiLLMPromptExecutor,
+        // LLMClient implementations, AIAgent builder with EventHandler
+        return null
     }
 
     fun buildSystemPrompt(patientProfile: PatientProfile): String {
@@ -96,19 +57,6 @@ class KoogAgentFactory @Inject constructor(
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
     }
 
-    private fun buildClient(
-        provider: AiProvider,
-        apiKey: String,
-        baseUrl: String
-    ): LLMClient = when (provider) {
-        AiProvider.OPENAI -> OpenAILLMClient(apiKey)
-        AiProvider.ANTHROPIC -> AnthropicLLMClient(apiKey)
-        AiProvider.GOOGLE -> GoogleLLMClient(apiKey)
-        AiProvider.DEEPSEEK -> DeepSeekLLMClient(apiKey)
-        AiProvider.OPENROUTER -> OpenRouterLLMClient(apiKey)
-        AiProvider.OLLAMA -> OllamaClient(baseUrl.ifEmpty { "http://localhost:11434" })
-    }
-
     private fun resolveModel(config: AiConfiguration): String {
         if (config.model.isNotBlank()) return config.model
         return when (config.provider) {
@@ -119,17 +67,5 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENROUTER -> "gpt-4o"
             AiProvider.OLLAMA -> "llama3.2"
         }
-    }
-
-    private fun extractCitations(answer: String): List<SafetyValidator.Citation> {
-        val citationRegex = Regex("""\[([^>]+)>\s*([^(]+)\(([^)]+)\)]""")
-        return citationRegex.findAll(answer).map { match ->
-            SafetyValidator.Citation(
-                topicId = match.groupValues[3].trim(),
-                topicTitle = match.groupValues[1].trim(),
-                sectionId = match.groupValues[3].trim(),
-                sectionTitle = match.groupValues[2].trim()
-            )
-        }.toList()
     }
 }

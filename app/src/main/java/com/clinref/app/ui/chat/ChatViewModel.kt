@@ -123,6 +123,14 @@ class ChatViewModel @Inject constructor(
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val agent = koogAgentFactory.createAgent(config, streamingManager)
+                    if (agent == null) {
+                        withContext(Dispatchers.Main) {
+                            streamingManager.onError("AI agent not yet implemented. Koog integration pending.")
+                        }
+                        return@launch
+                    }
+                    @Suppress("UNCHECKED_CAST")
+                    val typedAgent = agent as ai.koog.agents.core.agent.AIAgent<String, String>
                     val systemPrompt = koogAgentFactory.buildSystemPrompt(patientProfile)
                     // Build prompt from history
                     val promptBuilder = StringBuilder()
@@ -139,7 +147,7 @@ class ChatViewModel @Inject constructor(
 
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.withTimeout {
-                            agent.run(promptBuilder.toString())
+                            typedAgent.run(promptBuilder.toString())
                         }
                     }
 

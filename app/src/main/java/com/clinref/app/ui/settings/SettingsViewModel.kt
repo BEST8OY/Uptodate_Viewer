@@ -86,7 +86,13 @@ class SettingsViewModel @Inject constructor(
                     config.copy(isConfigured = true),
                     com.clinref.app.domain.ai.StreamingManager()
                 )
-                val result = agent.run("Say 'Connection successful' in exactly those words.")
+                if (agent == null) {
+                    _testResult.value = TestResult.Error("AI agent not yet implemented")
+                    return@launch
+                }
+                @Suppress("UNCHECKED_CAST")
+                val typedAgent = agent as ai.koog.agents.core.agent.AIAgent<String, String>
+                val result = typedAgent.run("Say 'Connection successful' in exactly those words.")
                 _testResult.value = if (result.contains("Connection successful", ignoreCase = true)) {
                     TestResult.Success
                 } else {
