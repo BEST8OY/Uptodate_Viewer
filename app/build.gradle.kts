@@ -67,6 +67,9 @@ configurations.all {
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.10")
         force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     }
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
 }
 
 dependencies {
@@ -105,19 +108,11 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Koog AI agents
-    implementation(libs.koog.agents) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.agents.additions) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
+    implementation(libs.koog.agents)
+    implementation(libs.koog.agents.additions)
 
     // Room database (3.0)
-    implementation(libs.room3.runtime) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
-    }
+    implementation(libs.room3.runtime)
     ksp(libs.room3.compiler)
     implementation(libs.sqlite.bundled)
 
