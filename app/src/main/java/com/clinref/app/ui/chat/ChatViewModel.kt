@@ -13,6 +13,7 @@ import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.data.secure.SecurePreferences
 import com.clinref.app.repository.ConversationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,10 +58,14 @@ class ChatViewModel @Inject constructor(
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
 
-    private val _configuration = MutableStateFlow(securePreferences.configuration.value)
-    val configuration: StateFlow<AiConfiguration> = _configuration.asStateFlow()
+    val configuration: StateFlow<AiConfiguration> = securePreferences.configuration
 
     private var generationJob: Job? = null
+
+    init {
+        // Configuration is now collected live from SecurePreferences
+        // No need to snapshot — changes in AiSettings are picked up automatically
+    }
 
     fun loadConversation(conversationId: String) {
         _currentConversationId.value = conversationId
@@ -85,6 +90,7 @@ class ChatViewModel @Inject constructor(
             )
             conversationRepository.addMessage(userMsg)
             _messages.value = _messages.value + userMsg.toUiModel()
+            conversationRepository.updateTokenCounts(conversationId, promptDelta = content.length / 4, completionDelta = 0, toolDelta = 0)
 
             // Check token limit
             if (conversationRepository.isOverTokenLimit(conversationId)) {
@@ -103,7 +109,7 @@ class ChatViewModel @Inject constructor(
             // Build prompt from history
             val history = conversationRepository.getMessagesList(conversationId)
             val patientProfile = conversationRepository.getPatientProfile(conversationId)
-            val config = _configuration.value
+            val config = configuration.value
 
             if (!config.isConfigured) {
                 val errorMsg = MessageEntity(
@@ -146,7 +152,7 @@ class ChatViewModel @Inject constructor(
                     promptBuilder.appendLine("User: $content")
 
                     val result = reliabilityManager.withRetry {
-                        reliabilityManager.withTimeout {
+                        reliabilityManager.runWithTimeout {
                             typedAgent.run(promptBuilder.toString())
                         }
                     }
@@ -154,6 +160,8 @@ class ChatViewModel @Inject constructor(
                     withContext(Dispatchers.Main) {
                         handleAgentResult(conversationId, result)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     secureLogger.log(SecureLogger.Level.ERROR, "ChatVM", "Agent error: ${e.message}")
                     withContext(Dispatchers.Main) {
@@ -202,10 +210,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun updateConfiguration(config: AiConfiguration) {
-        _configuration.value = config
-    }
-
     private suspend fun handleAgentResult(conversationId: String, result: String) {
         val state = streamingManager.agentState.value
         when (state) {
@@ -223,6 +227,7 @@ class ChatViewModel @Inject constructor(
                     _messages.value = _messages.value + assistantMsg.toUiModel(
                         warnings = state.validation.warnings
                     )
+                    conversationRepository.updateTokenCounts(conversationId, promptDelta = 0, completionDelta = result.length / 4, toolDelta = 0)
                 } else {
                     val blockedMsg = MessageEntity(
                         id = UUID.randomUUID().toString(),

@@ -66,7 +66,8 @@ configurations.all {
 }
 
 dependencies {
-    // Compose
+    // Compose BOM — manages versions for all Compose artifacts
+    implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.ui)
@@ -100,6 +101,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Koog AI agents
+    // WARNING: Blanket stdlib exclusions can cause runtime NoSuchMethodError if the library
+    // needs a newer stdlib feature. Prefer resolutionStrategy.force over blanket exclusion.
     implementation(libs.koog.agents) {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")

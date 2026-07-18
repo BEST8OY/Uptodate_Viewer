@@ -19,7 +19,6 @@ room = "3.0.0"
 sqlite = "2.7.0"
 securityCrypto = "1.1.0-alpha06"
 markdownRenderer = "0.43.0"
-koogAdditions = "1.0.0-beta"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -45,7 +44,6 @@ zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJ
 
 # Koog AI agents
 koog-agents = { group = "ai.koog", name = "koog-agents", version.ref = "koog" }
-koog-agents-additions = { group = "ai.koog", name = "koog-agents-additions", version.ref = "koogAdditions" }
 
 # Room database (3.0)
 room3-runtime = { group = "androidx.room3", name = "room3-runtime-android", version.ref = "room" }

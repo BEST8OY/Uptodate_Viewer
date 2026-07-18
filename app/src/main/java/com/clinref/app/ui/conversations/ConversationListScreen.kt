@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -24,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,17 +48,56 @@ import java.util.Locale
 @Composable
 fun ConversationListScreen(
     onConversationSelected: (String) -> Unit,
-    onStartNewConversation: (PatientProfile) -> Unit,
+    onOpenSettings: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel()
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+
+    pendingDeleteId?.let { deleteId ->
+        val conversation = conversations.find { it.id == deleteId }
+        AlertDialog(
+            onDismissRequest = { pendingDeleteId = null },
+            title = { Text("Delete Conversation") },
+            text = {
+                Text("Permanently delete \"${conversation?.title ?: ""}\"? This cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteConversation(deleteId)
+                    pendingDeleteId = null
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteId = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Conversations") })
+            TopAppBar(
+                title = { Text("Conversations") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "AI Settings"
+                        )
+                    }
+                }
+            )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { onStartNewConversation(PatientProfile()) }) {
+            FloatingActionButton(onClick = {
+                viewModel.createConversation("New Conversation", PatientProfile()) { conversationId ->
+                    onConversationSelected(conversationId)
+                }
+            }) {
                 Icon(Icons.Default.Add, contentDescription = "New Conversation")
             }
         }
@@ -94,7 +136,7 @@ fun ConversationListScreen(
                     ConversationItem(
                         conversation = conversation,
                         onClick = { onConversationSelected(conversation.id) },
-                        onDelete = { viewModel.deleteConversation(conversation.id) }
+                        onDelete = { pendingDeleteId = conversation.id }
                     )
                 }
             }

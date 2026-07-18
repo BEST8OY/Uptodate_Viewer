@@ -21,9 +21,10 @@ class ConversationListViewModel @Inject constructor(
         conversationRepository.getAllConversations()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun createConversation(title: String, patientProfile: PatientProfile) {
+    fun createConversation(title: String, patientProfile: PatientProfile, onCreated: (String) -> Unit) {
         viewModelScope.launch {
-            conversationRepository.createConversation(title, patientProfile)
+            val id = conversationRepository.createConversation(title, patientProfile)
+            onCreated(id)
         }
     }
 

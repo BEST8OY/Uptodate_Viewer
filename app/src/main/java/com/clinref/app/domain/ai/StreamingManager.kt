@@ -80,9 +80,9 @@ class StreamingManager {
         val lower = error.lowercase()
         return when {
             "api key" in lower || "unauthorized" in lower || "401" in lower -> ErrorType.INVALID_KEY
-            "network" in lower || "connect" in lower || "timeout" in lower -> ErrorType.NO_NETWORK
-            "rate" in lower || "429" in lower -> ErrorType.RATE_LIMIT
             "timeout" in lower || "deadline" in lower -> ErrorType.TIMEOUT
+            "rate" in lower || "429" in lower -> ErrorType.RATE_LIMIT
+            "network" in lower || "connect" in lower -> ErrorType.NO_NETWORK
             "no result" in lower || "not found" in lower -> ErrorType.NO_RESULTS
             else -> ErrorType.UNKNOWN
         }

@@ -179,9 +179,8 @@ fun NavGraph(
                 onConversationSelected = { conversationId ->
                     navigator.navigate(ChatRoute(conversationId))
                 },
-                onStartNewConversation = { patientProfile ->
-                    // Create conversation and navigate to chat
-                    // This will be handled by the ViewModel
+                onOpenSettings = {
+                    navigator.navigate(AiSettingsRoute)
                 }
             )
         }

@@ -218,7 +218,8 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     private fun extractSectionHtml(bodyHtml: String, sectionId: String): String? {
-        val startTagRegex = Regex("""<\w+\s+[^>]*id=["']${sectionId}["'][^>]*>""", setOf(RegexOption.IGNORE_CASE))
+        val escapedId = Regex.escape(sectionId)
+        val startTagRegex = Regex("""<\w+\s+[^>]*id=["']${escapedId}["'][^>]*>""", setOf(RegexOption.IGNORE_CASE))
         val startMatch = startTagRegex.find(bodyHtml) ?: return null
         val startIdx = startMatch.range.first
 
