@@ -72,8 +72,9 @@ class KoogAgentFactory @Inject constructor(
                 }
 
                 onToolCallCompleted { eventContext ->
-                    val resultText = eventContext.toolResult?.toString() ?: "Tool call failed"
-                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, true)
+                    val resultText = eventContext.toolResult?.toString() ?: ""
+                    val success = eventContext.toolResult != null
+                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, success)
                     streamingManager.onToolCallCompleted(eventContext.toolName)
                     streamingManager.onWaitingForLlm()
                 }
@@ -128,17 +129,25 @@ class KoogAgentFactory @Inject constructor(
             return LLModel(
                 provider = providerFor(config.provider),
                 id = config.model,
-                capabilities = listOf(),
+                capabilities = listOf(
+                    ai.koog.prompt.llm.LLMCapability.Completion,
+                    ai.koog.prompt.llm.LLMCapability.Tools,
+                    ai.koog.prompt.llm.LLMCapability.Temperature
+                ),
                 contextLength = 128_000
             )
         }
         return when (config.provider) {
             AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
-            AiProvider.ANTHROPIC -> AnthropicModels.Opus_4_1
+            AiProvider.ANTHROPIC -> AnthropicModels.Sonnet4_5
             else -> LLModel(
                 provider = providerFor(config.provider),
                 id = "gpt-4o",
-                capabilities = listOf(),
+                capabilities = listOf(
+                    ai.koog.prompt.llm.LLMCapability.Completion,
+                    ai.koog.prompt.llm.LLMCapability.Tools,
+                    ai.koog.prompt.llm.LLMCapability.Temperature
+                ),
                 contextLength = 128_000
             )
         }

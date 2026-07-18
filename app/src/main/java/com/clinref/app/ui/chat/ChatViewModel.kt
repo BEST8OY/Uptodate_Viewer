@@ -67,7 +67,7 @@ class ChatViewModel @Inject constructor(
         _currentConversationId.value = conversationId
         viewModelScope.launch {
             val messages = conversationRepository.getMessages(conversationId).first()
-            _messages.value = messages.map { it.toUiModel() }
+            _messages.value = messages.map { it.toUiModel() } // toUiModel parses citationsJson/warningsJson
         }
     }
 
@@ -193,6 +193,7 @@ class ChatViewModel @Inject constructor(
                 timestamp = System.currentTimeMillis()
             )
             conversationRepository.addMessage(cancelMsg)
+            _messages.value = _messages.value + cancelMsg.toUiModel()
             streamingManager.reset()
         }
     }
@@ -217,10 +218,12 @@ class ChatViewModel @Inject constructor(
                         role = "assistant",
                         content = result,
                         timestamp = System.currentTimeMillis(),
-                        citationsJson = json.encodeToString(state.validation.warnings)
+                        citationsJson = json.encodeToString(state.validation.citations),
+                        warningsJson = json.encodeToString(state.validation.warnings)
                     )
                     conversationRepository.addMessage(assistantMsg)
                     _messages.value = _messages.value + assistantMsg.toUiModel(
+                        citations = state.validation.citations,
                         warnings = state.validation.warnings
                     )
                     conversationRepository.updateTokenCounts(conversationId, promptDelta = 0, completionDelta = result.length / 4, toolDelta = 0)
@@ -269,15 +272,25 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun MessageEntity.toUiModel(
+        citations: List<SafetyValidator.Citation> = emptyList(),
         warnings: List<String> = emptyList(),
         isError: Boolean = false
     ): MessageUiModel {
+        val parsedCitations = if (citations.isEmpty() && !citationsJson.isNullOrBlank()) {
+            try { json.decodeFromString<List<SafetyValidator.Citation>>(citationsJson) } catch (_: Exception) { emptyList() }
+        } else citations
+
+        val parsedWarnings = if (warnings.isEmpty() && !warningsJson.isNullOrBlank()) {
+            try { json.decodeFromString<List<String>>(warningsJson) } catch (_: Exception) { emptyList() }
+        } else warnings
+
         return MessageUiModel(
             id = id,
             role = role,
             content = content,
             timestamp = timestamp,
-            warnings = warnings,
+            citations = parsedCitations,
+            warnings = parsedWarnings,
             isError = isError || role == "cancelled"
         )
     }

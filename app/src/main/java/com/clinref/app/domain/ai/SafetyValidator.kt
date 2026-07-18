@@ -5,6 +5,7 @@ class SafetyValidator {
     data class ValidationResult(
         val passed: Boolean,
         val warnings: List<String>,
+        val citations: List<Citation> = emptyList(),
         val blockedReason: String? = null
     )
 
@@ -73,7 +74,7 @@ class SafetyValidator {
         if (!rule6.passed) return rule6
         warnings.addAll(rule6.warnings)
 
-        return ValidationResult(passed = true, warnings = warnings)
+        return ValidationResult(passed = true, warnings = warnings, citations = context.citations)
     }
 
     private fun validateToolCallRequired(context: TurnContext): ValidationResult {
@@ -172,7 +173,11 @@ class SafetyValidator {
         val allToolText = context.toolResults.joinToString(separator = " ")
 
         val invented = answerNumerics.filter { numeric ->
-            !allToolText.contains(numeric, ignoreCase = true)
+            // Use word-boundary-aware matching to prevent substring false positives.
+            // e.g. "500mg" should NOT match inside "2500mg" — only exact token matches count.
+            val escaped = Regex.escape(numeric.trim())
+            val boundaryPattern = Regex("(?<![\\d.])$escaped(?![\\d.])", RegexOption.IGNORE_CASE)
+            !boundaryPattern.containsMatchIn(allToolText)
         }
 
         if (invented.isNotEmpty()) {
