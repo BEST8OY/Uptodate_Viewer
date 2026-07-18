@@ -61,7 +61,8 @@ room3 {
 
 configurations.all {
     resolutionStrategy {
-        force("org.jetbrains.kotlin:compose-group-mapping:2.3.10")
+        force("org.jetbrains.kotlin:compose-group-mapping:2.4.10")
+        force("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.10")
     }
 }
 
@@ -88,7 +89,6 @@ dependencies {
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    ksp("org.jetbrains.kotlin:kotlin-metadata-jvm:2.3.10")
     implementation(libs.hilt.navigation.compose)
     implementation("com.google.errorprone:error_prone_annotations:2.50.0")
 
