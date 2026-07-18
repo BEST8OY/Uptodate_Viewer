@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.clinref.app.data.local.AppDatabase
+import com.clinref.app.data.local.AppDatabaseConstructor
 import com.clinref.app.data.local.dao.ConversationDao
 import com.clinref.app.data.local.dao.MessageDao
 import dagger.Module
@@ -23,7 +24,8 @@ object DatabaseModule {
         val dbFile = context.getDatabasePath("clinref_ai.db")
         return Room.databaseBuilder<AppDatabase>(
             context = context,
-            name = dbFile.absolutePath
+            name = dbFile.absolutePath,
+            factory = AppDatabaseConstructor::initialize
         )
             .setDriver(BundledSQLiteDriver())
             .fallbackToDestructiveMigration(dropAllTables = true)
