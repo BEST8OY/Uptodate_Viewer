@@ -1,12 +1,12 @@
 package com.clinref.app.data.local
 
-import androidx.room3.ColumnTypeConverter
+import androidx.room.TypeConverter
 
 class Converters {
-    @ColumnTypeConverter
+    @TypeConverter
     fun fromStringList(value: List<String>): String = value.joinToString(separator = ",")
 
-    @ColumnTypeConverter
+    @TypeConverter
     fun toStringList(value: String): List<String> =
         if (value.isBlank()) emptyList() else value.split(",")
 }
