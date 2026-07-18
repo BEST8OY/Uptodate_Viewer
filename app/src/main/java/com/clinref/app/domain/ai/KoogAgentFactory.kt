@@ -5,6 +5,7 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.java.JavaKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
+import ai.koog.prompt.executor.clients.openai.Chat as OpenAIChat
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
@@ -180,9 +181,11 @@ class KoogAgentFactory @Inject constructor(
     }
 
     private fun getStaticFallback(provider: AiProvider): List<String> = when (provider) {
-        AiProvider.OPENAI -> listOf("gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini")
-        AiProvider.ANTHROPIC -> listOf("claude-opus-4-1", "claude-sonnet-4-5", "claude-haiku-4")
-        AiProvider.GOOGLE -> listOf("gemini-3.5-flash", "gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash")
+        AiProvider.OPENAI -> OpenAIModels.models
+            .filter { it.id.startsWith("gpt-") || it.id.startsWith("o") }
+            .map { it.id }
+        AiProvider.ANTHROPIC -> AnthropicModels.models.map { it.id }
+        AiProvider.GOOGLE -> GoogleModels.models.map { it.id }
         AiProvider.DEEPSEEK -> listOf("deepseek-v4-flash", "deepseek-v3")
         AiProvider.OPENROUTER -> listOf("gpt-4o", "claude-sonnet-4-5", "gemini-2.5-pro")
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
