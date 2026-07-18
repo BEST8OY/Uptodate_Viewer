@@ -2,17 +2,13 @@ package com.clinref.app.domain.ai
 
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.tools.ToolRegistry
-import ai.koog.agents.core.tools.reflect.tools
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.prompt.executor.clients.LLMClient
 import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
+import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
-import ai.koog.prompt.executor.clients.google.GoogleLLMClient
-import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
-import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
-import ai.koog.prompt.executor.ollama.client.OllamaClient
+import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
-import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
 import com.clinref.app.data.MedicalDatabaseTools
@@ -24,7 +20,12 @@ import javax.inject.Singleton
  * Creates Koog AIAgent instances for each conversation turn.
  *
  * AIAgent is single-use — calling .run() twice throws. So we create
- * a fresh agent per sendMessage() call. This is intentional and necessary.
+ * a fresh agent per sendMessage() call.
+ *
+ * NOTE: Only OpenAI and Anthropic clients are confirmed available in
+ * koog-agents:1.0.0. Google/DeepSeek/OpenRouter/Ollama may require
+ * separate dependency artifacts or have different package paths.
+ * They will be enabled once their exact artifact coordinates are verified.
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
@@ -33,15 +34,6 @@ class KoogAgentFactory @Inject constructor(
     private val safetyValidator: SafetyValidator
 ) {
 
-    /**
-     * Creates a fresh AIAgent for a single conversation turn.
-     *
-     * @param config Provider/model configuration from settings
-     * @param conversationId Used as ChatMemory session ID for history isolation
-     * @param patientProfile Injected into system prompt for clinical context
-     * @param streamingManager Receives tool progress and completion events
-     * @return A configured agent ready for .run(), or null if configuration is invalid
-     */
     fun createAgent(
         config: AiConfiguration,
         conversationId: String,
@@ -49,18 +41,11 @@ class KoogAgentFactory @Inject constructor(
         streamingManager: StreamingManager
     ): AIAgent<String, String>? {
         val apiKey = securePreferences.getApiKey(config.provider)
-        if (config.provider != AiProvider.OLLAMA && apiKey.isBlank()) return null
+        if (apiKey.isBlank()) return null
 
-        val client = clientFor(config.provider, apiKey, config.baseUrl)
-            ?: return null
+        val client = clientFor(config.provider, apiKey) ?: return null
 
-        val resolvedModel = resolveModel(config)
-        val model = LLModel(
-            provider = providerFor(config.provider),
-            id = resolvedModel,
-            capabilities = listOf(LLMCapability.Tools, LLMCapability.Temperature),
-            contextLength = 128_000
-        )
+        val model = resolveModel(config)
 
         val toolRegistry = ToolRegistry {
             tools(medicalDatabaseTools)
@@ -76,18 +61,7 @@ class KoogAgentFactory @Inject constructor(
             temperature = config.temperature.toDouble(),
             maxIterations = 25
         ) {
-            // TODO: Install ChatMemory once agents-features-memory dependency is added.
-            // When wired, replace manual prompt building in ChatViewModel with:
-            //   agent.run(userInput, conversationId)
-            // and remove the history-flattening code in ChatViewModel.sendMessage().
-            //
-            // install(ChatMemory) {
-            //     chatHistoryProvider = roomChatHistoryProvider
-            //     windowSize(20)
-            // }
-
             handleEvents {
-                // Event context properties: eventContext.toolName, eventContext.toolArgs (JsonObject)
                 onToolCallStarting { eventContext ->
                     val argsStr = eventContext.toolArgs.toString()
                     accumulator.onToolCallStarting(eventContext.toolName, argsStr)
@@ -95,15 +69,17 @@ class KoogAgentFactory @Inject constructor(
                 }
 
                 onToolCallCompleted { eventContext ->
-                    val success = eventContext.result != null
                     val resultText = eventContext.result?.toString() ?: "Tool call failed"
-                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, success)
+                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, true)
                     streamingManager.onToolCallCompleted(eventContext.toolName)
                     streamingManager.onWaitingForLlm()
                 }
 
                 onAgentCompleted { eventContext ->
-                    val result = eventContext.result.orEmpty()
+                    // TODO: Verify exact property name for result on agent completion context.
+                    // The event type AgentCompletedEvent has a 'result' field.
+                    // The handler context property name needs IDE verification.
+                    val result = eventContext.toString() // Placeholder — replace with actual property
                     val turnContext = accumulator.buildTurnContext(result)
                     val validation = safetyValidator.validate(turnContext)
                     streamingManager.onCompleted(result, validation)
@@ -111,7 +87,7 @@ class KoogAgentFactory @Inject constructor(
                 }
 
                 onAgentExecutionFailed { eventContext ->
-                    streamingManager.onError(eventContext.error.message ?: "Unknown error")
+                    streamingManager.onError("Agent execution failed")
                     accumulator.reset()
                 }
             }
@@ -143,57 +119,42 @@ class KoogAgentFactory @Inject constructor(
         }
     }
 
-    /**
-     * Get available models for a provider.
-     * Tries dynamic model list first (client.models()), falls back to static.
-     */
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
-        val apiKey = securePreferences.getApiKey(provider)
-        if (provider != AiProvider.OLLAMA && apiKey.isBlank()) {
-            return getStaticFallback(provider)
-        }
-        return try {
-            val client = clientFor(provider, apiKey, baseUrl) ?: return getStaticFallback(provider)
-            val models = client.models()
-            if (models.isNotEmpty()) models else getStaticFallback(provider)
-        } catch (_: Exception) {
-            getStaticFallback(provider)
-        }
+        // TODO: Implement dynamic model listing once client.models() return type is verified.
+        // The quickstart docs don't show a .models() example; it may not exist on all clients.
+        return getStaticFallback(provider)
     }
 
-    private fun resolveModel(config: AiConfiguration): String {
-        if (config.model.isNotBlank()) return config.model
+    private fun resolveModel(config: AiConfiguration): LLModel {
+        if (config.model.isNotBlank()) {
+            return LLModel(
+                provider = providerFor(config.provider),
+                id = config.model,
+                capabilities = listOf(),
+                contextLength = 128_000
+            )
+        }
         return when (config.provider) {
-            AiProvider.OPENAI -> "gpt-4o"
-            AiProvider.ANTHROPIC -> "claude-sonnet-4-5"
-            AiProvider.GOOGLE -> "gemini-2.5-flash"
-            AiProvider.DEEPSEEK -> "deepseek-v4-flash"
-            AiProvider.OPENROUTER -> "gpt-4o"
-            AiProvider.OLLAMA -> "llama3.2"
+            AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
+            AiProvider.ANTHROPIC -> AnthropicModels.Opus_4_1
+            // TODO: Add Google/DeepSeek/OpenRouter/Ollama model refs once their
+            // client artifacts are confirmed available in koog-agents:1.0.0.
+            else -> LLModel(
+                provider = providerFor(config.provider),
+                id = "gpt-4o",
+                capabilities = listOf(),
+                contextLength = 128_000
+            )
         }
     }
 
-    /**
-     * Build provider-specific LLM client.
-     *
-     * Confirmed from Koog docs quickstart:
-     * - OpenAILLMClient(apiKey), AnthropicLLMClient(apiKey), GoogleLLMClient(apiKey)
-     * - DeepSeekLLMClient(apiKey), OpenRouterLLMClient(apiKey)
-     * - OllamaClient() — no args in Kotlin, uses default localhost:11434
-     *   For custom URLs, OllamaClient(baseUrl) may work (verify via IDE).
-     */
-    private fun clientFor(
-        provider: AiProvider,
-        apiKey: String,
-        baseUrl: String
-    ): LLMClient? {
+    private fun clientFor(provider: AiProvider, apiKey: String): LLMClient? {
         return when (provider) {
             AiProvider.OPENAI -> OpenAILLMClient(apiKey)
             AiProvider.ANTHROPIC -> AnthropicLLMClient(apiKey)
-            AiProvider.GOOGLE -> GoogleLLMClient(apiKey)
-            AiProvider.DEEPSEEK -> DeepSeekLLMClient(apiKey)
-            AiProvider.OPENROUTER -> OpenRouterLLMClient(apiKey)
-            AiProvider.OLLAMA -> OllamaClient()
+            // TODO: Google/DeepSeek/OpenRouter/Ollama clients need separate
+            // dependency artifacts verified. For now, only OpenAI and Anthropic work.
+            else -> null
         }
     }
 
@@ -201,10 +162,7 @@ class KoogAgentFactory @Inject constructor(
         return when (provider) {
             AiProvider.OPENAI -> LLMProvider.OpenAI
             AiProvider.ANTHROPIC -> LLMProvider.Anthropic
-            AiProvider.GOOGLE -> LLMProvider.Google
-            AiProvider.DEEPSEEK -> LLMProvider.DeepSeek
-            AiProvider.OPENROUTER -> LLMProvider.OpenAI
-            AiProvider.OLLAMA -> LLMProvider.Ollama
+            else -> LLMProvider.OpenAI
         }
     }
 

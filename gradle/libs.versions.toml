@@ -42,8 +42,13 @@ webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
 
-# Koog AI agents
+# Koog AI agents (modular — each feature is a separate artifact)
 koog-agents = { group = "ai.koog", name = "koog-agents", version.ref = "koog" }
+koog-agents-tools = { group = "ai.koog", name = "agents-tools", version.ref = "koog" }
+koog-agents-features-event-handler = { group = "ai.koog", name = "agents-features-event-handler", version.ref = "koog" }
+koog-agents-features-memory = { group = "ai.koog", name = "agents-features-memory", version.ref = "koog" }
+koog-prompt-executor-openai-client = { group = "ai.koog", name = "prompt-executor-openai-client", version.ref = "koog" }
+koog-prompt-executor-anthropic-client = { group = "ai.koog", name = "prompt-executor-anthropic-client", version.ref = "koog" }
 
 # Room database (3.0)
 room3-runtime = { group = "androidx.room3", name = "room3-runtime-android", version.ref = "room" }

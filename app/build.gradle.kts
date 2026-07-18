@@ -100,10 +100,24 @@ dependencies {
     // JSON
     implementation(libs.kotlinx.serialization.json)
 
-    // Koog AI agents
-    // WARNING: Blanket stdlib exclusions can cause runtime NoSuchMethodError if the library
-    // needs a newer stdlib feature. Prefer resolutionStrategy.force over blanket exclusion.
+    // Koog AI agents (modular — each feature is a separate artifact)
     implementation(libs.koog.agents) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    implementation(libs.koog.agents.tools) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    implementation(libs.koog.agents.features.event.handler) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    implementation(libs.koog.prompt.executor.openai.client) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    implementation(libs.koog.prompt.executor.anthropic.client) {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
