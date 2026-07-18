@@ -1,7 +1,7 @@
 [versions]
 agp = "9.2.1"
 kotlin = "2.4.0"
-ksp = "2.3.9"
+ksp = "2.3.10"
 hilt = "2.60"
 composeBom = "2026.06.01"
 composeMaterial3 = "1.5.0-alpha23"
@@ -15,7 +15,8 @@ webkit = "1.16.0"
 kotlinxSerializationJson = "1.11.0"
 zstdJni = "1.5.7-11"
 koog = "1.0.0"
-room = "2.7.0"
+room = "2.8.4"
+sqlite = "2.7.0"
 securityCrypto = "1.1.0-alpha06"
 markdownRenderer = "0.43.0"
 koogAdditions = "1.0.0-beta"
@@ -46,10 +47,11 @@ zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJ
 koog-agents = { group = "ai.koog", name = "koog-agents", version.ref = "koog" }
 koog-agents-additions = { group = "ai.koog", name = "koog-agents-additions", version.ref = "koogAdditions" }
 
-# Room database
+# Room database (KMP)
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "sqlite" }
 
 # Security
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
@@ -63,3 +65,4 @@ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+androidx-room = { id = "androidx.room", version.ref = "room" }

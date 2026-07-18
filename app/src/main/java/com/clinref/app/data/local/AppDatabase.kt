@@ -1,5 +1,6 @@
 package com.clinref.app.data.local
 
+import androidx.room.ConstructedBy
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
@@ -14,7 +15,16 @@ import com.clinref.app.data.local.entity.MessageEntity
     exportSchema = true
 )
 @TypeConverters(Converters::class)
+@ConstructedBy(AppDatabaseConstructor::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
+}
+
+object AppDatabaseConstructor : RoomDatabaseConstructor<AppDatabase> {
+    override fun initialize(): AppDatabase {
+        throw UnsupportedOperationException(
+            "Database must be created via Hilt dependency injection"
+        )
+    }
 }

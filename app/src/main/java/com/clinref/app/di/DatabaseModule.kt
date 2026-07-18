@@ -2,6 +2,7 @@ package com.clinref.app.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.clinref.app.data.local.AppDatabase
 import com.clinref.app.data.local.dao.ConversationDao
 import com.clinref.app.data.local.dao.MessageDao
@@ -19,7 +20,12 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
-        return Room.databaseBuilder(context, AppDatabase::class.java, "clinref_ai.db")
+        val dbFile = context.getDatabasePath("clinref_ai.db")
+        return Room.databaseBuilder<AppDatabase>(
+            context = context,
+            name = dbFile.absolutePath
+        )
+            .setDriver(BundledSQLiteDriver())
             .fallbackToDestructiveMigration()
             .build()
     }
