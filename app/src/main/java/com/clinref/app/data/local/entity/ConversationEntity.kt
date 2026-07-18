@@ -1,6 +1,7 @@
 package com.clinref.app.data.local.entity
 
 import androidx.room3.Entity
+import androidx.room3.Ignore
 import androidx.room3.PrimaryKey
 
 @Entity(tableName = "conversations")
@@ -15,5 +16,6 @@ data class ConversationEntity(
     val toolTokens: Int = 0,
     val tokenLimit: Int = 100_000
 ) {
+    @Ignore
     val totalTokens: Int get() = promptTokens + completionTokens + toolTokens
 }
