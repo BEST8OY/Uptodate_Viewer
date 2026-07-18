@@ -105,11 +105,19 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Koog AI agents
-    implementation(libs.koog.agents)
-    implementation(libs.koog.agents.additions)
+    implementation(libs.koog.agents) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    implementation(libs.koog.agents.additions) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
 
     // Room database (3.0)
-    implementation(libs.room3.runtime)
+    implementation(libs.room3.runtime) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
+    }
     ksp(libs.room3.compiler)
     implementation(libs.sqlite.bundled)
 
