@@ -103,6 +103,7 @@ dependencies {
     // Koog AI agents
     implementation(libs.koog.agents) {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
 
     // Room database (3.0)
