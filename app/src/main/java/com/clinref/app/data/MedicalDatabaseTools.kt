@@ -19,24 +19,24 @@ class MedicalDatabaseTools @Inject constructor(
     companion object {
         private val A_TAG_REGEX = Regex(
             """<a\s+[^>]*href=['"]([^'"]*)['"][^>]*>(.*?)</a>""",
-            RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
         )
         private val SECTION_REGEX = Regex(
             """section(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
-            RegexOption.IGNORE_CASE
+            setOf(RegexOption.IGNORE_CASE)
         )
         private val STRIP_TAGS_REGEX = Regex("<[^>]*>")
         private val GRAPHIC_TYPE_REGEX = Regex(
             """type(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
-            RegexOption.IGNORE_CASE
+            setOf(RegexOption.IGNORE_CASE)
         )
         private val GRAPHIC_SUBTYPE_REGEX = Regex(
             """subtype(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
-            RegexOption.IGNORE_CASE
+            setOf(RegexOption.IGNORE_CASE)
         )
         private val GRAPHIC_ID_REGEX = Regex(
             """(?:id|graphicId)(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
-            RegexOption.IGNORE_CASE
+            setOf(RegexOption.IGNORE_CASE)
         )
     }
 
@@ -77,7 +77,6 @@ class MedicalDatabaseTools @Inject constructor(
         var targetId = sectionId
         var sectionHtml = extractSectionHtml(bodyHtml, targetId)
 
-        // Recovery flow for ID drift
         if (sectionHtml == null && sectionTitle.isNotEmpty()) {
             val outline = parseOutlineList(content.outlineHtml)
             val matched = outline.firstOrNull {
@@ -98,7 +97,6 @@ class MedicalDatabaseTools @Inject constructor(
             return "Section not found."
         }
 
-        // Safety warning detection (clinical safety policy)
         val hasComplexData = sectionHtml.contains("<table", ignoreCase = true) ||
                              sectionHtml.contains("<img", ignoreCase = true) ||
                              sectionHtml.contains("class=\"dosing-table\"", ignoreCase = true) ||
@@ -130,7 +128,6 @@ class MedicalDatabaseTools @Inject constructor(
     fun getGraphicInfo(
         @LLMDescription("The graphic ID from the outline") graphicId: String
     ): String {
-        // Graphics are stored as separate topics with IDs like "Graphic-XXXXX"
         val content = contentRepository.getTopicContent("Graphic-$graphicId")
             ?: contentRepository.getTopicContent(graphicId)
             ?: return """{"error": "Graphic $graphicId not found"}"""
@@ -170,7 +167,6 @@ class MedicalDatabaseTools @Inject constructor(
             val sectionMatch = SECTION_REGEX.find(href)
             val typeMatch = GRAPHIC_TYPE_REGEX.find(href)
 
-            // Related topics are non-scrollable, non-graphic links
             if (sectionMatch == null && typeMatch == null) {
                 val idMatch = GRAPHIC_ID_REGEX.find(href)
                 val id = idMatch?.groupValues?.get(1) ?: ""
@@ -222,14 +218,13 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     private fun extractSectionHtml(bodyHtml: String, sectionId: String): String? {
-        val startTagRegex = Regex("""<\w+\s+[^>]*id=["']${sectionId}["'][^>]*>""", RegexOption.IGNORE_CASE)
+        val startTagRegex = Regex("""<\w+\s+[^>]*id=["']${sectionId}["'][^>]*>""", setOf(RegexOption.IGNORE_CASE))
         val startMatch = startTagRegex.find(bodyHtml) ?: return null
         val startIdx = startMatch.range.first
 
-        // Matches headers with class headingAnchor, class drugH1Div, or id references
         val nextHeadingRegex = Regex(
             """<\w+\s+[^>]*(?:class=["'][^"']*(?:headingAnchor|drugH1Div)[^"']*["']|id=["']references["'])[^>]*>""",
-            RegexOption.IGNORE_CASE
+            setOf(RegexOption.IGNORE_CASE)
         )
 
         val nextMatch = nextHeadingRegex.find(bodyHtml, startIndex = startMatch.range.last + 1)
@@ -242,26 +237,23 @@ class MedicalDatabaseTools @Inject constructor(
 
     private fun htmlToMarkdown(html: String): String {
         var s = html
-        s = s.replace(Regex("</?p\\b[^>]*>", RegexOption.IGNORE_CASE), "\n\n")
-        s = s.replace(Regex("<li\\b[^>]*>", RegexOption.IGNORE_CASE), "\n- ")
-        s = s.replace(Regex("</li>", RegexOption.IGNORE_CASE), "\n")
-        s = s.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
-        s = s.replace(Regex("</?tr\\b[^>]*>", RegexOption.IGNORE_CASE), "\n")
-        s = s.replace(Regex("</?t[dh]\\b[^>]*>", RegexOption.IGNORE_CASE), " | ")
-        s = s.replace(Regex("</?strong\\b[^>]*>", RegexOption.IGNORE_CASE), "**")
-        s = s.replace(Regex("</?b\\b[^>]*>", RegexOption.IGNORE_CASE), "**")
-        s = s.replace(Regex("</?em\\b[^>]*>", RegexOption.IGNORE_CASE), "*")
-        s = s.replace(Regex("</?i\\b[^>]*>", RegexOption.IGNORE_CASE), "*")
+        s = s.replace(Regex("</?p\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), "\n\n")
+        s = s.replace(Regex("<li\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), "\n- ")
+        s = s.replace(Regex("</li>", setOf(RegexOption.IGNORE_CASE)), "\n")
+        s = s.replace(Regex("<br\\s*/?>", setOf(RegexOption.IGNORE_CASE)), "\n")
+        s = s.replace(Regex("</?tr\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), "\n")
+        s = s.replace(Regex("</?t[dh]\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), " | ")
+        s = s.replace(Regex("</?strong\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), "**")
+        s = s.replace(Regex("</?b\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), "**")
+        s = s.replace(Regex("</?em\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), "*")
+        s = s.replace(Regex("</?i\\b[^>]*>", setOf(RegexOption.IGNORE_CASE)), "*")
 
-        // Strip remaining HTML tags FIRST to avoid breaking text containing '<' (e.g. 'CrCl <50')
         s = s.replace(STRIP_TAGS_REGEX, "")
 
-        // HTML entities LAST
         s = s.replace("&#160;", " ").replace("&nbsp;", " ")
         s = s.replace("&#8212;", "\u2014").replace("&mdash;", "\u2014")
         s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
 
-        // Normalize whitespace and blank lines
         val lines = s.split("\n").map { it.trim() }
         val nonBg = mutableListOf<String>()
         for (line in lines) {
