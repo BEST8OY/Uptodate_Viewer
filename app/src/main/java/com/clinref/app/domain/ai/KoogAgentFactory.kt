@@ -5,7 +5,6 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.java.JavaKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
-import ai.koog.prompt.executor.clients.openai.Chat as OpenAIChat
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
@@ -142,8 +141,8 @@ class KoogAgentFactory @Inject constructor(
         }
         return when (config.provider) {
             AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
-            AiProvider.ANTHROPIC -> AnthropicModels.Sonnet4_5
-            AiProvider.GOOGLE -> GoogleModels.Gemini3_5Flash
+            AiProvider.ANTHROPIC -> AnthropicModels.Sonnet_4_5
+            AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
             else -> LLModel(
                 provider = providerFor(config.provider),
                 id = "gpt-4o",
