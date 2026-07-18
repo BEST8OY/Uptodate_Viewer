@@ -1,7 +1,7 @@
 package com.clinref.app.di
 
 import android.content.Context
-import androidx.room.Room
+import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.clinref.app.data.local.AppDatabase
 import com.clinref.app.data.local.dao.ConversationDao
@@ -26,7 +26,7 @@ object DatabaseModule {
             name = dbFile.absolutePath
         )
             .setDriver(BundledSQLiteDriver())
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
     }
 
