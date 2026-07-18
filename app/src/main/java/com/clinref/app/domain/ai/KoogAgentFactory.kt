@@ -8,8 +8,6 @@ import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
-import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
@@ -24,6 +22,12 @@ import javax.inject.Singleton
  *
  * AIAgent is single-use — calling .run() twice throws. So we create
  * a fresh agent per sendMessage() call.
+ *
+ * Provider support (confirmed from Maven Central at 1.0.0):
+ * - OpenAI: prompt-executor-openai-client:1.0.0 ✓
+ * - Anthropic: prompt-executor-anthropic-client:1.0.0 ✓
+ * - Ollama: prompt-executor-ollama-client:1.0.0 ✓
+ * - Google/DeepSeek/OpenRouter: only 1.0.0-beta on Maven Central
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
@@ -140,20 +144,14 @@ class KoogAgentFactory @Inject constructor(
         }
     }
 
-    /**
-     * Create provider-specific executor using convenience functions.
-     * All require KoogHttpClient.Factory — provided by JavaKoogHttpClient.Factory().
-     */
     private suspend fun executorFor(config: AiConfiguration): PromptExecutor? {
         val apiKey = securePreferences.getApiKey(config.provider)
         return when (config.provider) {
             AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
             AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
-            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
-            AiProvider.OPENROUTER -> simpleOpenRouterExecutor(apiKey, httpClientFactory)
             AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
-            // DeepSeek has no convenience function — needs manual construction.
-            // TODO: Verify DeepSeek constructor when we test it.
+            // Google/DeepSeek/OpenRouter: client modules only at 1.0.0-beta on Maven Central.
+            // Add back when stable 1.0.0 is published.
             else -> null
         }
     }

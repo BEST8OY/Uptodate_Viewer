@@ -121,22 +121,11 @@ dependencies {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
-    implementation(libs.koog.prompt.executor.google.client) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.prompt.executor.deepseek.client) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.prompt.executor.openrouter.client) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
     implementation(libs.koog.prompt.executor.ollama.client) {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
+    // llms-all at 1.0.0-beta (no stable 1.0.0 published yet)
     implementation(libs.koog.prompt.executor.llms.all) {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
