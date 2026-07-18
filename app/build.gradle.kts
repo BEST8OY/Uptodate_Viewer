@@ -66,10 +66,9 @@ configurations.all {
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.3.10")
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.10")
         force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.10.2")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     }
-    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
-    exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
 }
 
 dependencies {
