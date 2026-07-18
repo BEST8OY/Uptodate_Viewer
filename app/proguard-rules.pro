@@ -42,3 +42,9 @@
 # Ktor (Koog transitive)
 -dontwarn java.lang.management.**
 -dontwarn io.ktor.**
+
+# Java 11 HTTP client (used by Koog http-client-java, available on Android API 21+)
+-dontwarn java.net.http.**
+
+# Koog utils (Coroutines_jvmKt referenced by http-client-java)
+-dontwarn ai.koog.utils.io.**
