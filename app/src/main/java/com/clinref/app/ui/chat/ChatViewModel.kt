@@ -196,7 +196,7 @@ class ChatViewModel @Inject constructor(
         _configuration.value = config
     }
 
-    private fun handleAgentResult(conversationId: String, result: String) {
+    private suspend fun handleAgentResult(conversationId: String, result: String) {
         val state = streamingManager.agentState.value
         when (state) {
             is StreamingManager.AgentState.Completed -> {

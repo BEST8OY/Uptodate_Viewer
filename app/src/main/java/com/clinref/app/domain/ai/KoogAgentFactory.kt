@@ -1,15 +1,5 @@
 package com.clinref.app.domain.ai
 
-import ai.koog.agents.core.agent.AIAgent
-import ai.koog.agents.core.tools.reflect.ToolRegistry
-import ai.koog.prompt.executor.clients.LLMClient
-import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
-import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
-import ai.koog.prompt.executor.clients.google.GoogleLLMClient
-import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
-import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
-import ai.koog.prompt.executor.clients.ollama.OllamaClient
-import ai.koog.prompt.executor.MultiLLMPromptExecutor
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
 import javax.inject.Inject
@@ -21,48 +11,6 @@ class KoogAgentFactory @Inject constructor(
     private val medicalDatabaseTools: MedicalDatabaseTools,
     private val safetyValidator: SafetyValidator
 ) {
-    fun createAgent(
-        config: AiConfiguration,
-        streamingManager: StreamingManager
-    ): AIAgent<String, String> {
-        val apiKey = securePreferences.getApiKey(config.provider)
-        val client = buildClient(config.provider, apiKey, config.baseUrl)
-        val executor = MultiLLMPromptExecutor(client)
-        val toolRegistry = ToolRegistry { tools(medicalDatabaseTools) }
-
-        return AIAgent(
-            promptExecutor = executor,
-            systemPrompt = buildSystemPrompt(PatientProfile()),
-            llmModel = resolveModel(config),
-            toolRegistry = toolRegistry
-        ) {
-            handleEvents {
-                onToolCallStarting { ctx ->
-                    streamingManager.onToolCallStarting(ctx.toolName, ctx.toolArgs.toString())
-                }
-
-                onAgentCompleted { ctx ->
-                    val result = ctx.result.toString()
-                    val toolCalls = extractToolCalls(ctx)
-                    val citations = extractCitations(result)
-                    val fetchedSections = extractFetchedSections(ctx)
-                    val turnContext = SafetyValidator.TurnContext(
-                        toolCalls = toolCalls,
-                        answer = result,
-                        citations = citations,
-                        fetchedSections = fetchedSections
-                    )
-                    val validation = safetyValidator.validate(turnContext)
-                    streamingManager.onCompleted(result, validation)
-                }
-
-                onLLMStreamingFailed { ctx ->
-                    streamingManager.onError(ctx.error?.message ?: "Unknown error")
-                }
-            }
-        }
-    }
-
     fun buildSystemPrompt(patientProfile: PatientProfile): String {
         val profileBlock = patientProfile.toSystemBlock()
         return buildString {
@@ -81,24 +29,13 @@ class KoogAgentFactory @Inject constructor(
             appendLine("6. Never paraphrase complex dosing tables, formulas, or images.")
             appendLine("7. Do not perform calculations across multiple sections.")
             appendLine("8. Use getRelatedTopics to suggest related content when relevant to the user's question.")
-            appendLine("9. Use getGraphicInfo to describe what a graphic contains (type and title) but NEVER interpret visual content. You may say 'this section includes an algorithm for X' but NEVER 'the image shows...' or 'the ECG demonstrates...'.")
-            appendLine("10. Graphics types: graphic_table (tables), graphic_figure (figures), graphic_algorithm (algorithms), graphic_picture (pictures), graphic_movie (videos), graphic_waveform (waveforms), graphic_diagnosticimage (diagnostic images). Reference the type, not the visual content.")
+            appendLine("9. Use getGraphicInfo to describe what a graphic contains (type and title) but NEVER interpret visual content.")
+            appendLine("10. Graphics types: graphic_table, graphic_figure, graphic_algorithm, graphic_picture, graphic_movie, graphic_waveform, graphic_diagnosticimage. Reference the type, not the visual content.")
         }
     }
 
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
-        return when (provider) {
-            AiProvider.OPENAI, AiProvider.GOOGLE, AiProvider.DEEPSEEK, AiProvider.OPENROUTER -> {
-                try {
-                    val client = buildClient(provider, "test", baseUrl)
-                    // Koog LLM clients may expose .models() for dynamic listing
-                    getStaticFallback(provider)
-                } catch (_: Exception) {
-                    getStaticFallback(provider)
-                }
-            }
-            AiProvider.ANTHROPIC, AiProvider.OLLAMA -> getStaticFallback(provider)
-        }
+        return getStaticFallback(provider)
     }
 
     private fun getStaticFallback(provider: AiProvider): List<String> = when (provider) {
@@ -108,19 +45,6 @@ class KoogAgentFactory @Inject constructor(
         AiProvider.DEEPSEEK -> listOf("deepseek-v4-flash", "deepseek-v3")
         AiProvider.OPENROUTER -> listOf("gpt-4o", "claude-sonnet-4-5", "gemini-2.5-pro")
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
-    }
-
-    private fun buildClient(
-        provider: AiProvider,
-        apiKey: String,
-        baseUrl: String
-    ): LLMClient = when (provider) {
-        AiProvider.OPENAI -> OpenAILLMClient(apiKey)
-        AiProvider.ANTHROPIC -> AnthropicLLMClient(apiKey)
-        AiProvider.GOOGLE -> GoogleLLMClient(apiKey)
-        AiProvider.DEEPSEEK -> DeepSeekLLMClient(apiKey)
-        AiProvider.OPENROUTER -> OpenRouterLLMClient(apiKey)
-        AiProvider.OLLAMA -> OllamaClient(baseUrl.ifEmpty { "http://localhost:11434" })
     }
 
     private fun resolveModel(config: AiConfiguration): String {
@@ -135,27 +59,7 @@ class KoogAgentFactory @Inject constructor(
         }
     }
 
-    private fun extractToolCalls(ctx: Any): List<SafetyValidator.ToolCallRecord> {
-        // Extract tool call records from event context
-        return try {
-            val toolName = ctx::class.java.getMethod("getToolName").invoke(ctx)?.toString() ?: ""
-            val toolArgs = ctx::class.java.getMethod("getToolArgs").invoke(ctx)?.toString() ?: ""
-            listOf(
-                SafetyValidator.ToolCallRecord(
-                    toolName = toolName,
-                    arguments = mapOf("raw" to toolArgs),
-                    result = "",
-                    success = true
-                )
-            )
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
     private fun extractCitations(answer: String): List<SafetyValidator.Citation> {
-        // Parse citations from the answer text
-        // Citations typically appear as: [Topic Title > Section Title (section-id)]
         val citationRegex = Regex("""\[([^>]+)>\s*([^(]+)\(([^)]+)\)]""")
         return citationRegex.findAll(answer).map { match ->
             SafetyValidator.Citation(
@@ -165,11 +69,5 @@ class KoogAgentFactory @Inject constructor(
                 sectionTitle = match.groupValues[2].trim()
             )
         }.toList()
-    }
-
-    private fun extractFetchedSections(ctx: Any): List<SafetyValidator.FetchedSection> {
-        // This would need to be populated from tool call results
-        // For now return empty; the factory will be enhanced during integration
-        return emptyList()
     }
 }
