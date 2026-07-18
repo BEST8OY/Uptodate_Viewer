@@ -65,6 +65,7 @@ configurations.all {
         force("org.jetbrains.kotlin:kotlin-stdlib:2.3.10")
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.3.10")
         force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.10")
+        force("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     }
 }
 
@@ -117,4 +118,5 @@ dependencies {
 
     // Markdown rendering in Compose
     implementation(libs.multiplatform.markdown.renderer)
+    implementation(libs.multiplatform.markdown.renderer.m3)
 }
