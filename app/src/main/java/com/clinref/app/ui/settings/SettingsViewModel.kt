@@ -99,10 +99,9 @@ class SettingsViewModel @Inject constructor(
                 )
                 if (agent == null) {
                     val msg = when (config.provider) {
-                        com.clinref.app.domain.ai.AiProvider.GOOGLE,
                         com.clinref.app.domain.ai.AiProvider.DEEPSEEK,
                         com.clinref.app.domain.ai.AiProvider.OPENROUTER ->
-                            "${config.provider.displayName} is not yet supported in this build. Use OpenAI, Anthropic, or Ollama."
+                            "${config.provider.displayName} is not yet supported in this build. Use OpenAI, Anthropic, Google, or Ollama."
                         else -> "Could not create agent. Check your API key."
                     }
                     _testResult.value = TestResult.Error(msg)

@@ -6,8 +6,10 @@ import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.java.JavaKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
+import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
+import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
@@ -140,6 +142,7 @@ class KoogAgentFactory @Inject constructor(
         return when (config.provider) {
             AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
             AiProvider.ANTHROPIC -> AnthropicModels.Sonnet4_5
+            AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
             else -> LLModel(
                 provider = providerFor(config.provider),
                 id = "gpt-4o",
@@ -158,9 +161,9 @@ class KoogAgentFactory @Inject constructor(
         return when (config.provider) {
             AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
             AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
+            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
             AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
-            // Google/DeepSeek/OpenRouter: client modules only at 1.0.0-beta on Maven Central.
-            // Add back when stable 1.0.0 is published.
+            // DeepSeek/OpenRouter: client modules only at 1.0.0-beta on Maven Central.
             else -> null
         }
     }
