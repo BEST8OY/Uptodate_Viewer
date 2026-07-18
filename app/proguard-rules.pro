@@ -31,3 +31,14 @@
 -keep class * extends androidx.room3.RoomDatabase { <init>(); }
 -keep @androidx.room3.Entity class *
 -keep @androidx.room3.Database class *
+
+# OpenTelemetry (Koog transitive)
+-dontwarn com.google.auto.value.AutoValue**
+-dontwarn io.opentelemetry.api.incubator.metrics.**
+-dontwarn io.opentelemetry.sdk.metrics.internal.descriptor.**
+-dontwarn io.opentelemetry.sdk.common.**
+-dontwarn io.opentelemetry.api.internal.**
+
+# Ktor (Koog transitive)
+-dontwarn java.lang.management.**
+-dontwarn io.ktor.**
