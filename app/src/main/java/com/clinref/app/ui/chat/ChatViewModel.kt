@@ -1,5 +1,6 @@
 package com.clinref.app.ui.chat
 
+import ai.koog.agents.core.agent.AIAgent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.local.entity.MessageEntity
@@ -75,7 +76,6 @@ class ChatViewModel @Inject constructor(
         if (content.isBlank()) return
 
         viewModelScope.launch {
-            // Save user message
             val userMsg = MessageEntity(
                 id = UUID.randomUUID().toString(),
                 conversationId = conversationId,
@@ -87,7 +87,6 @@ class ChatViewModel @Inject constructor(
             _messages.value = _messages.value + userMsg.toUiModel()
             conversationRepository.updateTokenCounts(conversationId, promptDelta = content.length / 4, completionDelta = 0, toolDelta = 0)
 
-            // Check token limit
             if (conversationRepository.isOverTokenLimit(conversationId)) {
                 val errorMsg = MessageEntity(
                     id = UUID.randomUUID().toString(),
@@ -118,11 +117,10 @@ class ChatViewModel @Inject constructor(
                 return@launch
             }
 
-            // Create agent and run
             streamingManager.reset()
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val agent = koogAgentFactory.createAgent(
+                    val agent: AIAgent<String, String>? = koogAgentFactory.createAgent(
                         config = config,
                         conversationId = conversationId,
                         patientProfile = patientProfile,
@@ -135,7 +133,6 @@ class ChatViewModel @Inject constructor(
                         return@launch
                     }
 
-                    // Build the full prompt with conversation history
                     // TODO: Replace with ChatMemory once Koog's ChatHistoryProvider is wired
                     val systemPrompt = koogAgentFactory.buildSystemPrompt(patientProfile)
                     val promptBuilder = StringBuilder()
@@ -150,11 +147,9 @@ class ChatViewModel @Inject constructor(
                     }
                     promptBuilder.appendLine("User: $content")
 
-                    @Suppress("UNCHECKED_CAST")
-                    val typedAgent = agent as ai.koog.agents.core.agent.AIAgent<String, String>
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
-                            typedAgent.run(promptBuilder.toString())
+                            agent.run(promptBuilder.toString())
                         }
                     }
 

@@ -1,5 +1,20 @@
 package com.clinref.app.domain.ai
 
+import ai.koog.agents.core.agent.AIAgent
+import ai.koog.agents.core.tools.ToolRegistry
+import ai.koog.agents.core.tools.reflect.tools
+import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.prompt.executor.clients.LLMClient
+import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
+import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
+import ai.koog.prompt.executor.clients.google.GoogleLLMClient
+import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
+import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
+import ai.koog.prompt.executor.clients.ollama.OllamaClient
+import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
+import ai.koog.prompt.llm.LLMCapability
+import ai.koog.prompt.llm.LLModel
+import ai.koog.prompt.llm.LLMProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
 import javax.inject.Inject
@@ -10,27 +25,6 @@ import javax.inject.Singleton
  *
  * AIAgent is single-use — calling .run() twice throws. So we create
  * a fresh agent per sendMessage() call. This is intentional and necessary.
- *
- * IMPORTANT: The exact Koog API surface (import paths, constructor signatures,
- * ChatMemory install DSL, event handler API) must be verified against
- * ai.koog:koog-agents:1.0.0 at compile time. The imports and class names
- * below are based on the user's research and existing codebase patterns.
- * If any import fails, check the actual library structure via IDE autocomplete
- * or decompilation.
- *
- * Expected imports (verify at compile time):
- * - ai.koog.agents.core.agent.AIAgent
- * - ai.koog.agents.core.tools.ToolRegistry
- * - ai.koog.agents.core.prompt.PromptExecutor / MultiLLMPromptExecutor
- * - ai.koog.agents.features.chatmemory.ChatMemory
- * - ai.koog.agents.llm.LLModel
- * - ai.koog.agents.llm.LLMCapability
- * - ai.koog.agents.llm.openai.OpenAILLMClient
- * - ai.koog.agents.llm.anthropic.AnthropicLLMClient
- * - ai.koog.agents.llm.google.GoogleLLMClient
- * - ai.koog.agents.llm.deepseek.DeepSeekLLMClient
- * - ai.koog.agents.llm.openrouter.OpenRouterLLMClient
- * - ai.koog.agents.llm.ollama.OllamaClient
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
@@ -53,58 +47,40 @@ class KoogAgentFactory @Inject constructor(
         conversationId: String,
         patientProfile: PatientProfile,
         streamingManager: StreamingManager
-    ): Any? {
+    ): AIAgent<String, String>? {
         val apiKey = securePreferences.getApiKey(config.provider)
         if (config.provider != AiProvider.OLLAMA && apiKey.isBlank()) return null
 
-        // Build provider-specific LLM client
-        // NOTE: Exact class names verified against koog-agents:1.0.0 at compile time
         val client = clientFor(config.provider, apiKey, config.baseUrl)
             ?: return null
 
-        // Build model reference using free-text model string
         val resolvedModel = resolveModel(config)
-        val providerEnum = providerFor(config.provider)
-        val model = ai.koog.agents.llm.LLModel(
-            provider = providerEnum,
+        val model = LLModel(
+            provider = providerFor(config.provider),
             id = resolvedModel,
-            capabilities = listOf(
-                ai.koog.agents.llm.LLMCapability.Tools,
-                ai.koog.agents.llm.LLMCapability.Temperature
-            ),
+            capabilities = listOf(LLMCapability.Tools, LLMCapability.Temperature),
             contextLength = 128_000
         )
 
-        // Create tool registry with medical database tools
-        val toolRegistry = ai.koog.agents.core.tools.ToolRegistry {
+        val toolRegistry = ToolRegistry {
             tools(medicalDatabaseTools)
         }
 
-        // Build the agent
-        // NOTE: AIAgent constructor signature must be verified — the builder DSL
-        // may differ from this sketch. Check actual API via IDE autocomplete.
         val accumulator = TurnContextAccumulator()
 
-        return ai.koog.agents.core.agent.AIAgent(
-            promptExecutor = ai.koog.agents.core.prompt.MultiLLMPromptExecutor(client),
+        return AIAgent(
+            promptExecutor = MultiLLMPromptExecutor(client),
             llmModel = model,
             systemPrompt = buildSystemPrompt(patientProfile),
             toolRegistry = toolRegistry,
             temperature = config.temperature.toDouble(),
             maxIterations = 25
         ) {
-            // Install ChatMemory for multi-turn conversation support
-            // NOTE: ChatMemory feature install API must be verified at compile time
-            // install(ai.koog.agents.features.chatmemory.ChatMemory) {
-            //     chatHistoryProvider = roomChatHistoryProvider
-            //     windowSize = 20
-            // }
-
-            // Wire event handlers to StreamingManager + TurnContextAccumulator
             handleEvents {
                 onToolCallStarting { ctx ->
-                    accumulator.onToolCallStarting(ctx.tool.name, ctx.toolArgs.toString())
-                    streamingManager.onToolCallStarting(ctx.tool.name, ctx.toolArgs.toString())
+                    val argsStr = ctx.toolArgs.toString()
+                    accumulator.onToolCallStarting(ctx.tool.name, argsStr)
+                    streamingManager.onToolCallStarting(ctx.tool.name, argsStr)
                 }
 
                 onToolCallCompleted { ctx ->
@@ -144,7 +120,9 @@ class KoogAgentFactory @Inject constructor(
             appendLine("1. ALWAYS call searchTopics first to find relevant topics.")
             appendLine("2. ALWAYS call getTopicOutline to understand topic structure.")
             appendLine("3. ALWAYS call getTopicSectionText to read specific sections before answering.")
-            appendLine("4. NEVER answer without citing: topic title, section title, and section ID.")
+            appendLine("4. When citing sources, use this exact format for each citation:")
+            appendLine("   Topic: <topic title>, Section: <section title> (ID: <section id>)")
+            appendLine("   You may include multiple citations. Every clinical answer must have at least one.")
             appendLine("5. For sections marked [WARNING], include the warning in your response.")
             appendLine("6. Never paraphrase complex dosing tables, formulas, or images.")
             appendLine("7. Do not perform calculations across multiple sections.")
@@ -159,14 +137,14 @@ class KoogAgentFactory @Inject constructor(
      * Tries dynamic model list first (client.models()), falls back to static.
      */
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
+        val apiKey = securePreferences.getApiKey(provider)
+        if (provider != AiProvider.OLLAMA && apiKey.isBlank()) {
+            return getStaticFallback(provider)
+        }
         return try {
-            val client = clientFor(provider, "probe", baseUrl)
-            if (client != null) {
-                val models = client.models()
-                if (models.isNotEmpty()) models else getStaticFallback(provider)
-            } else {
-                getStaticFallback(provider)
-            }
+            val client = clientFor(provider, apiKey, baseUrl) ?: return getStaticFallback(provider)
+            val models = client.models()
+            if (models.isNotEmpty()) models else getStaticFallback(provider)
         } catch (_: Exception) {
             getStaticFallback(provider)
         }
@@ -184,40 +162,29 @@ class KoogAgentFactory @Inject constructor(
         }
     }
 
-    /**
-     * Build provider-specific LLM client.
-     * NOTE: Exact class names and constructor signatures must be verified
-     * against ai.koog:koog-agents:1.0.0 at compile time.
-     */
     private fun clientFor(
         provider: AiProvider,
         apiKey: String,
         baseUrl: String
-    ): ai.koog.agents.llm.LLMClient? {
+    ): LLMClient? {
         return when (provider) {
-            AiProvider.OPENAI -> ai.koog.agents.llm.openai.OpenAILLMClient(apiKey)
-            AiProvider.ANTHROPIC -> ai.koog.agents.llm.anthropic.AnthropicLLMClient(apiKey)
-            AiProvider.GOOGLE -> ai.koog.agents.llm.google.GoogleLLMClient(apiKey)
-            AiProvider.DEEPSEEK -> ai.koog.agents.llm.deepseek.DeepSeekLLMClient(apiKey)
-            AiProvider.OPENROUTER -> ai.koog.agents.llm.openrouter.OpenRouterLLMClient(apiKey)
-            AiProvider.OLLAMA -> ai.koog.agents.llm.ollama.OllamaClient(
-                baseUrl.ifEmpty { "http://localhost:11434" }
-            )
+            AiProvider.OPENAI -> OpenAILLMClient(apiKey)
+            AiProvider.ANTHROPIC -> AnthropicLLMClient(apiKey)
+            AiProvider.GOOGLE -> GoogleLLMClient(apiKey)
+            AiProvider.DEEPSEEK -> DeepSeekLLMClient(apiKey)
+            AiProvider.OPENROUTER -> OpenRouterLLMClient(apiKey)
+            AiProvider.OLLAMA -> OllamaClient(baseUrl.ifEmpty { "http://localhost:11434" })
         }
     }
 
-    /**
-     * Map AiProvider to Koog's provider enum for LLModel construction.
-     * NOTE: Koog's provider enum name must be verified at compile time.
-     */
-    private fun providerFor(provider: AiProvider): ai.koog.agents.llm.LLMProvider {
+    private fun providerFor(provider: AiProvider): LLMProvider {
         return when (provider) {
-            AiProvider.OPENAI -> ai.koog.agents.llm.LLMProvider.OpenAI
-            AiProvider.ANTHROPIC -> ai.koog.agents.llm.LLMProvider.Anthropic
-            AiProvider.GOOGLE -> ai.koog.agents.llm.LLMProvider.Google
-            AiProvider.DEEPSEEK -> ai.koog.agents.llm.LLMProvider.DeepSeek
-            AiProvider.OPENROUTER -> ai.koog.agents.llm.LLMProvider.OpenAI // OpenRouter uses OpenAI-compatible API
-            AiProvider.OLLAMA -> ai.koog.agents.llm.LLMProvider.Ollama
+            AiProvider.OPENAI -> LLMProvider.OpenAI
+            AiProvider.ANTHROPIC -> LLMProvider.Anthropic
+            AiProvider.GOOGLE -> LLMProvider.Google
+            AiProvider.DEEPSEEK -> LLMProvider.DeepSeek
+            AiProvider.OPENROUTER -> LLMProvider.OpenAI
+            AiProvider.OLLAMA -> LLMProvider.Ollama
         }
     }
 

@@ -1,5 +1,6 @@
 package com.clinref.app.ui.settings
 
+import ai.koog.agents.core.agent.AIAgent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.secure.SecurePreferences
@@ -90,7 +91,7 @@ class SettingsViewModel @Inject constructor(
                 val testConfig = config.copy(isConfigured = true)
                 val testStreamingManager = StreamingManager()
 
-                val agent = koogAgentFactory.createAgent(
+                val agent: AIAgent<String, String>? = koogAgentFactory.createAgent(
                     config = testConfig,
                     conversationId = "test-connection",
                     patientProfile = PatientProfile(),
@@ -101,12 +102,8 @@ class SettingsViewModel @Inject constructor(
                     return@launch
                 }
 
-                @Suppress("UNCHECKED_CAST")
-                val typedAgent = agent as ai.koog.agents.core.agent.AIAgent<String, String>
-
-                // Wrap in timeout to prevent hung network calls
                 val result = reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
-                    typedAgent.run("Say 'Connection successful' in exactly those words.")
+                    agent.run("Say 'Connection successful' in exactly those words.")
                 }
 
                 _testResult.value = if (result.contains("Connection successful", ignoreCase = true)) {
