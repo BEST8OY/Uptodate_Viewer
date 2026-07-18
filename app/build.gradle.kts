@@ -4,7 +4,6 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
-    alias(libs.plugins.room3)
 }
 
 android {
@@ -61,8 +60,8 @@ configurations.all {
     }
 }
 
-room3 {
-    schemaDirectory("$projectDir/schemas")
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -104,9 +103,10 @@ dependencies {
     implementation(libs.koog.agents)
     implementation(libs.koog.agents.additions)
 
-    // Room database (3.0)
-    implementation(libs.room3.runtime)
-    ksp(libs.room3.compiler)
+    // Room database
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
 
     // Security (encrypted key storage)
     implementation(libs.security.crypto)
