@@ -10,7 +10,7 @@ import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
 import ai.koog.prompt.executor.clients.google.GoogleLLMClient
 import ai.koog.prompt.executor.clients.deepseek.DeepSeekLLMClient
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
-import ai.koog.prompt.executor.clients.ollama.OllamaClient
+import ai.koog.prompt.executor.ollama.client.OllamaClient
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
@@ -76,31 +76,42 @@ class KoogAgentFactory @Inject constructor(
             temperature = config.temperature.toDouble(),
             maxIterations = 25
         ) {
+            // TODO: Install ChatMemory once agents-features-memory dependency is added.
+            // When wired, replace manual prompt building in ChatViewModel with:
+            //   agent.run(userInput, conversationId)
+            // and remove the history-flattening code in ChatViewModel.sendMessage().
+            //
+            // install(ChatMemory) {
+            //     chatHistoryProvider = roomChatHistoryProvider
+            //     windowSize(20)
+            // }
+
             handleEvents {
-                onToolCallStarting { ctx ->
-                    val argsStr = ctx.toolArgs.toString()
-                    accumulator.onToolCallStarting(ctx.tool.name, argsStr)
-                    streamingManager.onToolCallStarting(ctx.tool.name, argsStr)
+                // Event context properties: eventContext.toolName, eventContext.toolArgs (JsonObject)
+                onToolCallStarting { eventContext ->
+                    val argsStr = eventContext.toolArgs.toString()
+                    accumulator.onToolCallStarting(eventContext.toolName, argsStr)
+                    streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
                 }
 
-                onToolCallCompleted { ctx ->
-                    val success = ctx.result != null
-                    val resultText = ctx.result?.toString() ?: "Tool call failed"
-                    accumulator.onToolCallCompleted(ctx.tool.name, resultText, success)
-                    streamingManager.onToolCallCompleted(ctx.tool.name)
+                onToolCallCompleted { eventContext ->
+                    val success = eventContext.result != null
+                    val resultText = eventContext.result?.toString() ?: "Tool call failed"
+                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, success)
+                    streamingManager.onToolCallCompleted(eventContext.toolName)
                     streamingManager.onWaitingForLlm()
                 }
 
-                onAgentCompleted { ctx ->
-                    val result = ctx.result.orEmpty()
+                onAgentCompleted { eventContext ->
+                    val result = eventContext.result.orEmpty()
                     val turnContext = accumulator.buildTurnContext(result)
                     val validation = safetyValidator.validate(turnContext)
                     streamingManager.onCompleted(result, validation)
                     accumulator.reset()
                 }
 
-                onAgentExecutionFailed { ctx ->
-                    streamingManager.onError(ctx.throwable.message ?: "Unknown error")
+                onAgentExecutionFailed { eventContext ->
+                    streamingManager.onError(eventContext.error.message ?: "Unknown error")
                     accumulator.reset()
                 }
             }
@@ -162,6 +173,15 @@ class KoogAgentFactory @Inject constructor(
         }
     }
 
+    /**
+     * Build provider-specific LLM client.
+     *
+     * Confirmed from Koog docs quickstart:
+     * - OpenAILLMClient(apiKey), AnthropicLLMClient(apiKey), GoogleLLMClient(apiKey)
+     * - DeepSeekLLMClient(apiKey), OpenRouterLLMClient(apiKey)
+     * - OllamaClient() — no args in Kotlin, uses default localhost:11434
+     *   For custom URLs, OllamaClient(baseUrl) may work (verify via IDE).
+     */
     private fun clientFor(
         provider: AiProvider,
         apiKey: String,
@@ -173,7 +193,7 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.GOOGLE -> GoogleLLMClient(apiKey)
             AiProvider.DEEPSEEK -> DeepSeekLLMClient(apiKey)
             AiProvider.OPENROUTER -> OpenRouterLLMClient(apiKey)
-            AiProvider.OLLAMA -> OllamaClient(baseUrl.ifEmpty { "http://localhost:11434" })
+            AiProvider.OLLAMA -> OllamaClient()
         }
     }
 
