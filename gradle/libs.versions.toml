@@ -48,7 +48,7 @@ koog-agents = { group = "ai.koog", name = "koog-agents", version.ref = "koog" }
 koog-agents-additions = { group = "ai.koog", name = "koog-agents-additions", version.ref = "koogAdditions" }
 
 # Room database (3.0)
-room3-runtime = { group = "androidx.room3", name = "room3-runtime-android", version.ref = "room" }
+room3-runtime = { group = "androidx.room3", name = "room3-runtime", version.ref = "room" }
 room3-compiler = { group = "androidx.room3", name = "room3-compiler", version.ref = "room" }
 sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "sqlite" }
 
