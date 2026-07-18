@@ -69,7 +69,7 @@ class KoogAgentFactory @Inject constructor(
                 }
 
                 onToolCallCompleted { eventContext ->
-                    val resultText = eventContext.result?.toString() ?: "Tool call failed"
+                    val resultText = eventContext.toolResult?.toString() ?: "Tool call failed"
                     accumulator.onToolCallCompleted(eventContext.toolName, resultText, true)
                     streamingManager.onToolCallCompleted(eventContext.toolName)
                     streamingManager.onWaitingForLlm()
