@@ -102,7 +102,6 @@ class ChatViewModel @Inject constructor(
                 return@launch
             }
 
-            val history = conversationRepository.getMessagesList(conversationId)
             val patientProfile = conversationRepository.getPatientProfile(conversationId)
             val config = configuration.value
 
@@ -137,23 +136,10 @@ class ChatViewModel @Inject constructor(
                         return@launch
                     }
 
-                    // TODO: Replace with ChatMemory once Koog's ChatHistoryProvider is wired
-                    val systemPrompt = koogAgentFactory.buildSystemPrompt(patientProfile)
-                    val promptBuilder = StringBuilder()
-                    promptBuilder.appendLine(systemPrompt)
-                    promptBuilder.appendLine()
-                    for (msg in history) {
-                        when (msg.role) {
-                            "user" -> promptBuilder.appendLine("User: ${msg.content}")
-                            "assistant" -> promptBuilder.appendLine("Assistant: ${msg.content}")
-                        }
-                        promptBuilder.appendLine()
-                    }
-                    promptBuilder.appendLine("User: $content")
-
+                    // ChatMemory handles history loading/storing via session ID
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
-                            agent.run(promptBuilder.toString())
+                            agent.run(content, conversationId)
                         }
                     }
 

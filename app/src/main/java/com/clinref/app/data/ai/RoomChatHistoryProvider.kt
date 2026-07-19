@@ -1,61 +1,59 @@
 package com.clinref.app.data.ai
 
+import ai.koog.agents.features.memory.ChatHistoryProvider
+import ai.koog.prompt.message.Message
+import ai.koog.prompt.message.MessagePart
+import ai.koog.prompt.message.RequestMetaInfo
+import ai.koog.prompt.message.ResponseMetaInfo
 import com.clinref.app.data.local.dao.MessageDao
 import com.clinref.app.data.local.entity.MessageEntity
-import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Bridges Room [MessageDao] to Koog's ChatMemory feature.
- *
- * The exact Koog ChatHistoryProvider interface must be verified against
- * ai.koog:koog-agents:1.0.0 at compile time. This class provides the
- * data layer; the adapter to Koog's interface will be finalized once
- * the library is resolved.
- */
 @Singleton
 class RoomChatHistoryProvider @Inject constructor(
     private val messageDao: MessageDao
-) {
-    private val json = Json { ignoreUnknownKeys = true }
+) : ChatHistoryProvider {
 
-    suspend fun loadHistory(sessionId: String): List<ChatMessage> {
-        return messageDao.getMessagesList(sessionId).map { entity ->
-            ChatMessage(
-                id = entity.id,
-                role = entity.role,
-                content = entity.content,
-                timestamp = entity.timestamp
+    override suspend fun store(conversationId: String, messages: List<Message>) {
+        val existingIds = messageDao.getMessagesList(conversationId).map { it.id }.toSet()
+        for (msg in messages) {
+            val id = msg.id ?: UUID.randomUUID().toString()
+            if (id in existingIds) continue
+            messageDao.insert(
+                MessageEntity(
+                    id = id,
+                    conversationId = conversationId,
+                    role = msg.role.name.lowercase(),
+                    content = msg.textContent(),
+                    timestamp = msg.metaInfo.timestamp.toEpochMilliseconds()
+                )
             )
         }
     }
 
-    suspend fun saveMessage(sessionId: String, message: ChatMessage) {
-        messageDao.insert(
-            MessageEntity(
-                id = message.id.ifEmpty { UUID.randomUUID().toString() },
-                conversationId = sessionId,
-                role = message.role,
-                content = message.content,
-                timestamp = message.timestamp
-            )
-        )
+    override suspend fun load(conversationId: String): List<Message> {
+        return messageDao.getMessagesList(conversationId).map { entity ->
+            val timestamp = ai.koog.utils.time.KoogClock.System.now()
+                .minus((System.currentTimeMillis() - entity.timestamp) * 1_000_000)
+            when (entity.role) {
+                "user" -> Message.User(
+                    content = entity.content,
+                    metaInfo = RequestMetaInfo(timestamp),
+                    id = entity.id
+                )
+                "assistant" -> Message.Assistant(
+                    content = entity.content,
+                    metaInfo = ResponseMetaInfo(timestamp),
+                    id = entity.id
+                )
+                else -> Message.User(
+                    content = entity.content,
+                    metaInfo = RequestMetaInfo(timestamp),
+                    id = entity.id
+                )
+            }
+        }
     }
-
-    suspend fun clearHistory(sessionId: String) {
-        messageDao.deleteByConversation(sessionId)
-    }
-
-    suspend fun getRecentMessages(sessionId: String, count: Int): List<ChatMessage> {
-        return loadHistory(sessionId).takeLast(count)
-    }
-
-    data class ChatMessage(
-        val id: String = "",
-        val role: String,
-        val content: String,
-        val timestamp: Long = System.currentTimeMillis()
-    )
 }

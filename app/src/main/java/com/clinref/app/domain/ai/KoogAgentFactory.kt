@@ -3,6 +3,7 @@ package com.clinref.app.domain.ai
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.agents.features.memory.ChatMemory
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
@@ -14,6 +15,7 @@ import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
+import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
 import javax.inject.Inject
@@ -35,7 +37,8 @@ import javax.inject.Singleton
 class KoogAgentFactory @Inject constructor(
     private val securePreferences: SecurePreferences,
     private val medicalDatabaseTools: MedicalDatabaseTools,
-    private val safetyValidator: SafetyValidator
+    private val safetyValidator: SafetyValidator,
+    private val chatHistoryProvider: RoomChatHistoryProvider
 ) {
 
     private val httpClientFactory = OkHttpKoogHttpClient.Factory()
@@ -66,6 +69,12 @@ class KoogAgentFactory @Inject constructor(
             temperature = config.temperature.toDouble(),
             maxIterations = 25
         ) {
+            install(ChatMemory) {
+                chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
+                windowSize(50)
+                filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
+            }
+
             handleEvents {
                 onToolCallStarting { eventContext ->
                     val argsStr = eventContext.toolArgs.toString()
