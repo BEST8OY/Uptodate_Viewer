@@ -49,7 +49,7 @@ android {
 }
 
 dependencies {
-    implementation(projects.shared)
+    implementation(project(":shared"))
 
     // Hilt
     implementation(libs.hilt.android)
