@@ -99,7 +99,7 @@ class SettingsViewModel @Inject constructor(
                         patientProfile = PatientProfile(),
                         streamingManager = testStreamingManager
                     )
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     val rootCause = e.cause ?: e
                     _testResult.value = TestResult.Error(
                         "Failed to create agent: ${rootCause.message ?: rootCause.javaClass.simpleName}"
@@ -122,7 +122,7 @@ class SettingsViewModel @Inject constructor(
                     reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
                         agent.run("Say 'Connection successful' in exactly those words.")
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     val rootCause = e.cause ?: e
                     _testResult.value = TestResult.Error(
                         "Request failed: ${rootCause.message ?: rootCause.javaClass.simpleName}"
@@ -135,7 +135,7 @@ class SettingsViewModel @Inject constructor(
                 } else {
                     TestResult.Error("Unexpected response: ${result.take(200)}")
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 val rootCause = e.cause ?: e
                 _testResult.value = TestResult.Error(
                     "Connection failed: ${rootCause.message ?: rootCause.javaClass.simpleName}"
