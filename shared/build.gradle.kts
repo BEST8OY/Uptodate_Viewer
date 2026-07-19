@@ -2,14 +2,16 @@ plugins {
     id("org.jetbrains.kotlin.multiplatform")
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.ksp)
     alias(libs.plugins.room3)
 }
 
 kotlin {
-    androidLibrary {
+    android {
         namespace = "com.clinref.shared"
         compileSdk = 37
+        minSdk = 35
 
         compilerOptions {
             jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
@@ -40,11 +42,6 @@ kotlin {
             implementation(libs.navigation3.ui)
             implementation(libs.lifecycle.viewmodel.navigation3)
 
-            // Hilt
-            implementation(libs.hilt.android)
-            ksp(libs.hilt.compiler)
-            implementation(libs.hilt.navigation.compose)
-
             // DataStore
             implementation(libs.datastore.preferences)
 
@@ -67,7 +64,6 @@ kotlin {
 
             // Room database (3.0)
             implementation(libs.room3.runtime)
-            ksp(libs.room3.compiler)
             implementation(libs.sqlite.bundled)
 
             // Security (encrypted key storage)
@@ -78,6 +74,11 @@ kotlin {
             implementation(libs.multiplatform.markdown.renderer.m3)
         }
     }
+}
+
+// KMP + KSP requires a per-target configuration, not the plain ksp(...) shorthand
+dependencies {
+    add("kspAndroid", libs.room3.compiler)
 }
 
 room3 {

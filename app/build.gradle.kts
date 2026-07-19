@@ -1,18 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.composeCompiler)
-}
-
-kotlin {
-    target {
-        compilerOptions {
-            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-        }
-    }
-
-    dependencies {
-        implementation(projects.shared)
-    }
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -55,4 +46,63 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+dependencies {
+    implementation(projects.shared)
+
+    // Hilt
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
+
+    // Compose BOM
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
+
+    // Core
+    implementation(libs.core.ktx)
+    implementation(libs.lifecycle.runtime.ktx)
+    implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.activity.compose)
+
+    // Navigation 3
+    implementation(libs.navigation3.runtime)
+    implementation(libs.navigation3.ui)
+    implementation(libs.lifecycle.viewmodel.navigation3)
+
+    // DataStore
+    implementation(libs.datastore.preferences)
+
+    // WebView
+    implementation(libs.webkit)
+
+    // JSON
+    implementation(libs.kotlinx.serialization.json)
+
+    // Koog AI agents
+    implementation(libs.koog.agents)
+    implementation(libs.koog.agents.tools)
+    implementation(libs.koog.agents.features.event.handler)
+    implementation(libs.koog.prompt.executor.openai.client)
+    implementation(libs.koog.prompt.executor.anthropic.client)
+    implementation(libs.koog.prompt.executor.google.client)
+    implementation(libs.koog.prompt.executor.ollama.client)
+    implementation(libs.koog.prompt.executor.llms.all)
+    implementation(libs.koog.http.client.okhttp)
+
+    // Room database (3.0)
+    implementation(libs.room3.runtime)
+    ksp(libs.room3.compiler)
+    implementation(libs.sqlite.bundled)
+
+    // Security (encrypted key storage)
+    implementation(libs.security.crypto)
+
+    // Markdown rendering in Compose
+    implementation(libs.multiplatform.markdown.renderer)
+    implementation(libs.multiplatform.markdown.renderer.m3)
 }
