@@ -153,9 +153,9 @@ class KoogAgentFactory @Inject constructor(
             )
         }
         return when (config.provider) {
-            AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
-            AiProvider.ANTHROPIC -> AnthropicModels.Sonnet_4_5
-            AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
+            AiProvider.OPENAI -> OpenAIModels.models.first()
+            AiProvider.ANTHROPIC -> AnthropicModels.models.first()
+            AiProvider.GOOGLE -> GoogleModels.models.first()
             AiProvider.OPENROUTER -> OpenRouterModels.models.first()
             else -> LLModel(
                 provider = providerFor(config.provider),
@@ -196,9 +196,7 @@ class KoogAgentFactory @Inject constructor(
     }
 
     private fun getStaticFallback(provider: AiProvider): List<String> = when (provider) {
-        AiProvider.OPENAI -> OpenAIModels.models
-            .filter { it.id.startsWith("gpt-") || it.id.startsWith("o") }
-            .map { it.id }
+        AiProvider.OPENAI -> OpenAIModels.models.map { it.id }
         AiProvider.ANTHROPIC -> AnthropicModels.models.map { it.id }
         AiProvider.GOOGLE -> GoogleModels.models.map { it.id }
         AiProvider.OPENROUTER -> OpenRouterModels.models.map { it.id }
