@@ -94,6 +94,7 @@ dependencies {
     implementation(libs.koog.prompt.executor.ollama.client)
     implementation(libs.koog.prompt.executor.llms.all)
     implementation(libs.koog.http.client.okhttp)
+    implementation(libs.koog.utils.jvm)
 
     // Room database (3.0)
     implementation(libs.room3.runtime)
