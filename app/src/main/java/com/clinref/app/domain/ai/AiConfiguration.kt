@@ -9,6 +9,7 @@ data class AiConfiguration(
     val model: String = "",
     val temperature: Float = 0.3f,
     val maxTokens: Int = 4096,
+    val requestsPerMinute: Int = 0,
     val historyCompressionThreshold: Int = 8000,
     val isConfigured: Boolean = false
 )

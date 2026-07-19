@@ -209,6 +209,23 @@ fun AiSettingsScreen(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
 
+            // Requests per minute
+            Text(
+                text = "Requests per Minute: ${if (configuration.requestsPerMinute == 0) "Unlimited" else configuration.requestsPerMinute}",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Slider(
+                value = configuration.requestsPerMinute.toFloat(),
+                onValueChange = { viewModel.updateRequestsPerMinute(it.toInt()) },
+                valueRange = 0f..60f,
+                steps = 11
+            )
+            Text(
+                text = "0 = unlimited. Limits API call frequency to avoid rate limits.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             // Data handling notice
             Text("Data Handling", style = MaterialTheme.typography.titleMedium)
             Text(
