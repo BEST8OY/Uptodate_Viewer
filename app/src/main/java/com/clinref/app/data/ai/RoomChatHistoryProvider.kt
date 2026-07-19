@@ -1,6 +1,6 @@
 package com.clinref.app.data.ai
 
-import ai.koog.agents.features.memory.ChatHistoryProvider
+import ai.koog.agents.chatMemory.feature.ChatHistoryProvider
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.RequestMetaInfo
 import ai.koog.prompt.message.ResponseMetaInfo
@@ -34,8 +34,9 @@ class RoomChatHistoryProvider @Inject constructor(
 
     override suspend fun load(conversationId: String): List<Message> {
         return messageDao.getMessagesList(conversationId).map { entity ->
+            val elapsedMs = System.currentTimeMillis() - entity.timestamp
             val timestamp = ai.koog.utils.time.KoogClock.System.now()
-                .minus((System.currentTimeMillis() - entity.timestamp) * 1_000_000)
+                .minus(kotlin.time.Duration.parse("${elapsedMs}ms"))
             when (entity.role) {
                 "user" -> Message.User(
                     content = entity.content,

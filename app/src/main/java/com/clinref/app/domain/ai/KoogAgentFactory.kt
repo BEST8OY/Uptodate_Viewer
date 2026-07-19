@@ -2,8 +2,8 @@ package com.clinref.app.domain.ai
 
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.tools.ToolRegistry
+import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
-import ai.koog.agents.features.memory.ChatMemory
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
@@ -70,7 +70,7 @@ class KoogAgentFactory @Inject constructor(
             maxIterations = 25
         ) {
             install(ChatMemory) {
-                chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
+                chatHistoryProvider(this@KoogAgentFactory.chatHistoryProvider)
                 windowSize(50)
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
             }

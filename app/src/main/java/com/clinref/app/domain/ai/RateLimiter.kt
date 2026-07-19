@@ -17,25 +17,27 @@ class RateLimiter @Inject constructor() {
     suspend fun acquire() {
         if (rpmLimit <= 0) return
 
-        synchronized(timestamps) {
+        val waitMs = synchronized(timestamps) {
             val now = System.currentTimeMillis()
             val windowStart = now - 60_000L
             timestamps.removeAll { it < windowStart }
 
             if (timestamps.size >= rpmLimit) {
                 val oldestInWindow = timestamps.first()
-                val waitMs = 60_000L - (now - oldestInWindow) + 100
-                if (waitMs > 0) {
-                    synchronized(timestamps) { timestamps.add(oldestInWindow + waitMs) }
-                    delay(waitMs)
-                    synchronized(timestamps) {
-                        timestamps.removeAll { it <= System.currentTimeMillis() }
-                        timestamps.add(System.currentTimeMillis())
-                    }
-                    return
-                }
+                val wait = 60_000L - (now - oldestInWindow) + 100
+                if (wait > 0) wait else 0L
+            } else {
+                timestamps.add(now)
+                0L
             }
-            timestamps.add(now)
+        }
+
+        if (waitMs > 0) {
+            delay(waitMs)
+            synchronized(timestamps) {
+                timestamps.removeAll { it <= System.currentTimeMillis() }
+                timestamps.add(System.currentTimeMillis())
+            }
         }
     }
 }
