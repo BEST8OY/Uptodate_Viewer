@@ -138,6 +138,15 @@ dependencies {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
+    // utils-android (KMP transitive) doesn't include JVM-specific files like Coroutines.jvm.kt.
+    // utils-jvm has them. Exclude the Android variant to avoid duplicate classes.
+    implementation(libs.koog.utils) {
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
+    configurations.all {
+        exclude(group = "ai.koog", module = "utils-android")
+    }
 
     // Room database (3.0)
     implementation(libs.room3.runtime) {
