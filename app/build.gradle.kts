@@ -93,6 +93,7 @@ dependencies {
     implementation(libs.koog.prompt.executor.anthropic.client)
     implementation(libs.koog.prompt.executor.google.client)
     implementation(libs.koog.prompt.executor.mistralai.client)
+    implementation(libs.koog.prompt.executor.deepseek.client)
     implementation(libs.koog.prompt.executor.ollama.client)
     implementation(libs.koog.prompt.executor.llms.all)
     implementation(libs.koog.http.client.okhttp)
