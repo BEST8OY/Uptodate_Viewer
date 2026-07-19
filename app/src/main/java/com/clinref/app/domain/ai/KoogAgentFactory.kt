@@ -156,8 +156,7 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
             AiProvider.ANTHROPIC -> AnthropicModels.Sonnet_4_5
             AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
-            AiProvider.OPENROUTER -> OpenRouterModels.models.firstOrNull { it.id.contains("gpt-4o") }
-                ?: OpenRouterModels.models.first()
+            AiProvider.OPENROUTER -> OpenRouterModels.models.first()
             else -> LLModel(
                 provider = providerFor(config.provider),
                 id = "gpt-4o",
