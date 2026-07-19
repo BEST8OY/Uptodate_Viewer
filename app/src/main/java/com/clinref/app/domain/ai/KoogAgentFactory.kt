@@ -8,13 +8,10 @@ import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.google.GoogleModels
-import ai.koog.prompt.executor.clients.deepseek.DeepSeekModels
-import ai.koog.prompt.executor.clients.mistralai.models.MistralAIModels
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
 import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleMistralAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
@@ -36,10 +33,9 @@ import javax.inject.Singleton
  * - OpenAI: prompt-executor-openai-client:1.0.0 ✓
  * - Anthropic: prompt-executor-anthropic-client:1.0.0 ✓
  * - Google: prompt-executor-google-client:1.0.0-beta ✓
- * - Mistral: prompt-executor-mistralai-client:1.0.0-beta ✓
- * - DeepSeek: prompt-executor-deepseek-client:1.0.0-beta ✓
  * - OpenRouter: prompt-executor-openrouter-client:1.0.0 ✓
  * - Ollama: prompt-executor-ollama-client:1.0.0 ✓
+ * - Mistral/DeepSeek: not available at stable version yet
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
@@ -160,8 +156,6 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
             AiProvider.ANTHROPIC -> AnthropicModels.Sonnet_4_5
             AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
-            AiProvider.MISTRAL -> MistralAIModels.Chat.MistralLarge21
-            AiProvider.DEEPSEEK -> DeepSeekModels.DeepSeekV4Flash
             AiProvider.OPENROUTER -> OpenRouterModels.Chat.GPT4o
             else -> LLModel(
                 provider = providerFor(config.provider),
@@ -182,10 +176,9 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
             AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
             AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
-            AiProvider.MISTRAL -> simpleMistralAIExecutor(apiKey, httpClientFactory)
-            AiProvider.DEEPSEEK -> simpleDeepSeekExecutor(apiKey, httpClientFactory)
             AiProvider.OPENROUTER -> simpleOpenRouterExecutor(apiKey, httpClientFactory)
             AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
+            // Mistral/DeepSeek: client modules not available at stable version yet
             else -> null
         }
     }
@@ -195,10 +188,10 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENAI -> LLMProvider.OpenAI
             AiProvider.ANTHROPIC -> LLMProvider.Anthropic
             AiProvider.GOOGLE -> LLMProvider.Google
-            AiProvider.MISTRAL -> LLMProvider.Mistral
-            AiProvider.DEEPSEEK -> LLMProvider.DeepSeek
             AiProvider.OPENROUTER -> LLMProvider.OpenRouter
             AiProvider.OLLAMA -> LLMProvider.Ollama
+            // Mistral/DeepSeek: not available at stable version yet
+            else -> LLMProvider.OpenAI
         }
     }
 
@@ -208,9 +201,9 @@ class KoogAgentFactory @Inject constructor(
             .map { it.id }
         AiProvider.ANTHROPIC -> AnthropicModels.models.map { it.id }
         AiProvider.GOOGLE -> GoogleModels.models.map { it.id }
-        AiProvider.MISTRAL -> MistralAIModels.models.map { it.id }
-        AiProvider.DEEPSEEK -> DeepSeekModels.models.map { it.id }
         AiProvider.OPENROUTER -> OpenRouterModels.models.map { it.id }
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
+        // Mistral/DeepSeek: not available at stable version yet
+        else -> emptyList()
     }
 }
