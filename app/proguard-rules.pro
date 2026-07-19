@@ -49,4 +49,4 @@
 -dontwarn io.ktor.**
 
 # Koog utils
--dontwarn ai.koog.utils.io.**
+-keep class ai.koog.utils.io.** { *; }
