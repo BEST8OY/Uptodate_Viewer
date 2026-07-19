@@ -62,6 +62,9 @@ room3 {
 configurations.all {
     resolutionStrategy {
         force("org.jetbrains.kotlin:compose-group-mapping:2.4.10")
+        force("org.jetbrains.kotlin:kotlin-stdlib:${libs.versions.kotlin.get()}")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:${libs.versions.kotlin.get()}")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:${libs.versions.kotlin.get()}")
     }
 }
 
@@ -101,55 +104,20 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Koog AI agents (modular — each feature is a separate artifact)
-    implementation(libs.koog.agents) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.agents.tools) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.agents.features.event.handler) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.prompt.executor.openai.client) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.prompt.executor.anthropic.client) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.prompt.executor.google.client) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.prompt.executor.ollama.client) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
+    implementation(libs.koog.agents)
+    implementation(libs.koog.agents.tools)
+    implementation(libs.koog.agents.features.event.handler)
+    implementation(libs.koog.prompt.executor.openai.client)
+    implementation(libs.koog.prompt.executor.anthropic.client)
+    implementation(libs.koog.prompt.executor.google.client)
+    implementation(libs.koog.prompt.executor.ollama.client)
     // llms-all at 1.0.0-beta (no stable 1.0.0 published yet)
-    implementation(libs.koog.prompt.executor.llms.all) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
-    implementation(libs.koog.http.client.okhttp) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
+    implementation(libs.koog.prompt.executor.llms.all)
+    implementation(libs.koog.http.client.okhttp)
 
     // Room database (3.0)
-    implementation(libs.room3.runtime) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
-    }
-    ksp(libs.room3.compiler) {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
+    implementation(libs.room3.runtime)
+    ksp(libs.room3.compiler)
     implementation(libs.sqlite.bundled)
 
     // Security (encrypted key storage)

@@ -48,5 +48,4 @@
 -dontwarn java.lang.management.**
 -dontwarn io.ktor.**
 
-# Koog utils
--keep class ai.koog.utils.io.** { *; }
+
