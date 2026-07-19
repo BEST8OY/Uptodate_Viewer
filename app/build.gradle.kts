@@ -134,7 +134,7 @@ dependencies {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }
-    implementation(libs.koog.http.client.java) {
+    implementation(libs.koog.http.client.okhttp) {
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-bom")
         exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
     }

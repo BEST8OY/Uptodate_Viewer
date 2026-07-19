@@ -3,7 +3,7 @@ package com.clinref.app.domain.ai
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
-import ai.koog.http.client.java.JavaKoogHttpClient
+import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.google.GoogleModels
@@ -38,7 +38,7 @@ class KoogAgentFactory @Inject constructor(
     private val safetyValidator: SafetyValidator
 ) {
 
-    private val httpClientFactory = JavaKoogHttpClient.Factory()
+    private val httpClientFactory = OkHttpKoogHttpClient.Factory()
 
     suspend fun createAgent(
         config: AiConfiguration,
