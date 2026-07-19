@@ -10,11 +10,12 @@ import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.clients.deepseek.DeepSeekModels
 import ai.koog.prompt.executor.clients.mistralai.models.MistralAIModels
+import ai.koog.prompt.executor.clients.openrouter.OpenRouterModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
 import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleDeepSeekExecutor
 import ai.koog.prompt.executor.llms.all.simpleMistralAIExecutor
+import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
@@ -31,14 +32,14 @@ import javax.inject.Singleton
  * AIAgent is single-use — calling .run() twice throws. So we create
  * a fresh agent per sendMessage() call.
  *
- * Provider support (confirmed from Maven Central at 1.0.0):
- * - OpenAI: prompt-executor-openai-client:1.0.0 ✓
- * - Anthropic: prompt-executor-anthropic-client:1.0.0 ✓
- * - Mistral: prompt-executor-mistralai-client:1.0.0 ✓
- * - DeepSeek: prompt-executor-deepseek-client:1.0.0 ✓
- * - Ollama: prompt-executor-ollama-client:1.0.0 ✓
- * - Google: prompt-executor-google-client:1.0.0-beta
- * - OpenRouter: only 1.0.0-beta on Maven Central
+ * Provider support (all at 1.0.0):
+ * - OpenAI: prompt-executor-openai-client ✓
+ * - Anthropic: prompt-executor-anthropic-client ✓
+ * - Google: prompt-executor-google-client ✓ (1.0.0-beta)
+ * - Mistral: prompt-executor-mistralai-client ✓
+ * - DeepSeek: prompt-executor-deepseek-client ✓
+ * - OpenRouter: prompt-executor-openrouter-client ✓
+ * - Ollama: prompt-executor-ollama-client ✓
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
@@ -161,6 +162,7 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
             AiProvider.MISTRAL -> MistralAIModels.Chat.MistralLarge21
             AiProvider.DEEPSEEK -> DeepSeekModels.DeepSeekV4Flash
+            AiProvider.OPENROUTER -> OpenRouterModels.Chat.GPT4o
             else -> LLModel(
                 provider = providerFor(config.provider),
                 id = "gpt-4o",
@@ -182,8 +184,8 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
             AiProvider.MISTRAL -> simpleMistralAIExecutor(apiKey, httpClientFactory)
             AiProvider.DEEPSEEK -> simpleDeepSeekExecutor(apiKey, httpClientFactory)
+            AiProvider.OPENROUTER -> simpleOpenRouterExecutor(apiKey, httpClientFactory)
             AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
-            // OpenRouter: client module only at 1.0.0-beta on Maven Central.
             else -> null
         }
     }
@@ -208,7 +210,7 @@ class KoogAgentFactory @Inject constructor(
         AiProvider.GOOGLE -> GoogleModels.models.map { it.id }
         AiProvider.MISTRAL -> MistralAIModels.models.map { it.id }
         AiProvider.DEEPSEEK -> DeepSeekModels.models.map { it.id }
-        AiProvider.OPENROUTER -> listOf("gpt-4o", "claude-sonnet-4-5", "gemini-2.5-pro")
+        AiProvider.OPENROUTER -> OpenRouterModels.models.map { it.id }
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
     }
 }
