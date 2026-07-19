@@ -26,6 +26,7 @@
 
 # Koog AI agents — broad keep for now; narrow once reflection surface is known
 -keep class ai.koog.** { *; }
+-dontwarn ai.koog.utils.io.**
 
 # Koog tool discovery: keep MedicalDatabaseTools and its @Tool/@LLMDescription annotations
 # so reflection-based ToolSet registration works at runtime
