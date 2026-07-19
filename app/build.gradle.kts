@@ -93,8 +93,6 @@ dependencies {
     implementation(libs.koog.prompt.executor.google.client)
     implementation(libs.koog.prompt.executor.ollama.client)
     implementation(libs.koog.prompt.executor.llms.all)
-    implementation(libs.koog.http.client.okhttp)
-    implementation(libs.koog.utils)
 
     // Room database (3.0)
     implementation(libs.room3.runtime)
@@ -107,11 +105,4 @@ dependencies {
     // Markdown rendering in Compose
     implementation(libs.multiplatform.markdown.renderer)
     implementation(libs.multiplatform.markdown.renderer.m3)
-}
-
-// Koog publishes both utils-jvm (JAR) and utils-android (AAR) with identical classes.
-// utils-android AAR may not include JVM-specific file-level classes like Coroutines_jvmKt.
-// Force utils-jvm and exclude the Android variant to avoid duplicate class errors.
-configurations.configureEach {
-    exclude(group = "ai.koog", module = "utils-android")
 }
