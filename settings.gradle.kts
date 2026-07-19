@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "ClinRef"
 include(":app")
+include(":shared")
