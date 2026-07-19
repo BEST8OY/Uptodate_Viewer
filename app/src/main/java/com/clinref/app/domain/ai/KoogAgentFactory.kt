@@ -32,14 +32,14 @@ import javax.inject.Singleton
  * AIAgent is single-use — calling .run() twice throws. So we create
  * a fresh agent per sendMessage() call.
  *
- * Provider support (all at 1.0.0):
- * - OpenAI: prompt-executor-openai-client ✓
- * - Anthropic: prompt-executor-anthropic-client ✓
- * - Google: prompt-executor-google-client ✓ (1.0.0-beta)
- * - Mistral: prompt-executor-mistralai-client ✓
- * - DeepSeek: prompt-executor-deepseek-client ✓
- * - OpenRouter: prompt-executor-openrouter-client ✓
- * - Ollama: prompt-executor-ollama-client ✓
+ * Provider support:
+ * - OpenAI: prompt-executor-openai-client:1.0.0 ✓
+ * - Anthropic: prompt-executor-anthropic-client:1.0.0 ✓
+ * - Google: prompt-executor-google-client:1.0.0-beta ✓
+ * - Mistral: prompt-executor-mistralai-client:1.0.0-beta ✓
+ * - DeepSeek: prompt-executor-deepseek-client:1.0.0-beta ✓
+ * - OpenRouter: prompt-executor-openrouter-client:1.0.0 ✓
+ * - Ollama: prompt-executor-ollama-client:1.0.0 ✓
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
