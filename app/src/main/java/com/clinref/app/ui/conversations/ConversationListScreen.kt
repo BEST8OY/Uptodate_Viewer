@@ -5,11 +5,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -96,64 +93,66 @@ fun ConversationListScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Conversations") },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "AI Settings"
+    // The nav bar is a custom overlay in NavGraph, not system UI.
+    // Scaffold can't see it, so pad the entire Scaffold to push FAB above it.
+    Box(modifier = Modifier.fillMaxSize().padding(bottom = 80.dp)) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Conversations") },
+                    actions = {
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "AI Settings"
+                            )
+                        }
+                    }
+                )
+            },
+            floatingActionButton = {
+                FloatingActionButton(onClick = { showProfileSheet = true }) {
+                    Icon(Icons.Default.Add, contentDescription = "New Conversation")
+                }
+            }
+        ) { padding ->
+            if (conversations.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Chat,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "No conversations yet",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    items(
+                        items = conversations,
+                        key = { it.id }
+                    ) { conversation ->
+                        ConversationItem(
+                            conversation = conversation,
+                            onClick = { onConversationSelected(conversation.id) },
+                            onDelete = { pendingDeleteId = conversation.id }
                         )
                     }
-                }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showProfileSheet = true }) {
-                Icon(Icons.Default.Add, contentDescription = "New Conversation")
-            }
-        }
-    ) { padding ->
-        if (conversations.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .windowInsetsPadding(WindowInsets.navigationBars),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Chat,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "No conversations yet",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-            ) {
-                items(
-                    items = conversations,
-                    key = { it.id }
-                ) { conversation ->
-                    ConversationItem(
-                        conversation = conversation,
-                        onClick = { onConversationSelected(conversation.id) },
-                        onDelete = { pendingDeleteId = conversation.id }
-                    )
                 }
             }
         }
