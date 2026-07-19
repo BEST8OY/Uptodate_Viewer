@@ -2,7 +2,6 @@ package com.clinref.app.data.ai
 
 import ai.koog.agents.features.memory.ChatHistoryProvider
 import ai.koog.prompt.message.Message
-import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.message.RequestMetaInfo
 import ai.koog.prompt.message.ResponseMetaInfo
 import com.clinref.app.data.local.dao.MessageDao
