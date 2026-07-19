@@ -108,3 +108,10 @@ dependencies {
     implementation(libs.multiplatform.markdown.renderer)
     implementation(libs.multiplatform.markdown.renderer.m3)
 }
+
+// Koog publishes both utils-jvm (JAR) and utils-android (AAR) with identical classes.
+// utils-android AAR may not include JVM-specific file-level classes like Coroutines_jvmKt.
+// Force utils-jvm and exclude the Android variant to avoid duplicate class errors.
+configurations.configureEach {
+    exclude(group = "ai.koog", module = "utils-android")
+}
