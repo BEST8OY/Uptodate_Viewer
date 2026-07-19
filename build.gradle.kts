@@ -9,5 +9,4 @@ plugins {
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.room3) apply false
-    id("org.jetbrains.kotlin.multiplatform") version "2.4.10" apply false
 }
