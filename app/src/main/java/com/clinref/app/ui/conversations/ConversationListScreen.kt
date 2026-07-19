@@ -70,7 +70,7 @@ fun ConversationListScreen(
             onDismissRequest = { pendingDeleteId = null },
             title = { Text("Delete Conversation") },
             text = {
-                Text("Permanently delete \"${conversation?.entity.title ?: ""}\"? This cannot be undone.")
+                Text("Permanently delete \"${conversation?.entity?.title ?: ""}\"? This cannot be undone.")
             },
             confirmButton = {
                 TextButton(onClick = {
