@@ -3,6 +3,7 @@ package com.clinref.app.domain.ai
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.google.GoogleModels
@@ -36,6 +37,8 @@ class KoogAgentFactory @Inject constructor(
     private val medicalDatabaseTools: MedicalDatabaseTools,
     private val safetyValidator: SafetyValidator
 ) {
+
+    private val httpClientFactory = OkHttpKoogHttpClient.Factory()
 
     suspend fun createAgent(
         config: AiConfiguration,
@@ -156,10 +159,10 @@ class KoogAgentFactory @Inject constructor(
     private suspend fun executorFor(config: AiConfiguration): PromptExecutor? {
         val apiKey = securePreferences.getApiKey(config.provider)
         return when (config.provider) {
-            AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey)
-            AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey)
-            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey)
-            AiProvider.OLLAMA -> simpleOllamaAIExecutor()
+            AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
+            AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
+            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
+            AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
             // DeepSeek/OpenRouter: client modules only at 1.0.0-beta on Maven Central.
             else -> null
         }

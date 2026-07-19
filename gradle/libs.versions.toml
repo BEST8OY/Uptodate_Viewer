@@ -52,6 +52,7 @@ koog-prompt-executor-anthropic-client = { group = "ai.koog", name = "prompt-exec
 koog-prompt-executor-google-client = { group = "ai.koog", name = "prompt-executor-google-client", version = "1.0.0-beta" }
 koog-prompt-executor-ollama-client = { group = "ai.koog", name = "prompt-executor-ollama-client", version.ref = "koog" }
 koog-prompt-executor-llms-all = { group = "ai.koog", name = "prompt-executor-llms-all", version = "1.0.0-beta" }
+koog-http-client-okhttp = { group = "ai.koog", name = "http-client-okhttp", version.ref = "koog" }
 
 # Room database (3.0)
 room3-runtime = { group = "androidx.room3", name = "room3-runtime-android", version.ref = "room" }
