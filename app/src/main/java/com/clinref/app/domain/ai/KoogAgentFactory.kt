@@ -8,9 +8,11 @@ import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.google.GoogleModels
+import ai.koog.prompt.executor.clients.mistralai.models.MistralAIModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
 import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
+import ai.koog.prompt.executor.llms.all.simpleMistralAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
@@ -30,6 +32,7 @@ import javax.inject.Singleton
  * Provider support (confirmed from Maven Central at 1.0.0):
  * - OpenAI: prompt-executor-openai-client:1.0.0 ✓
  * - Anthropic: prompt-executor-anthropic-client:1.0.0 ✓
+ * - Mistral: prompt-executor-mistralai-client:1.0.0 ✓
  * - Ollama: prompt-executor-ollama-client:1.0.0 ✓
  * - Google/DeepSeek/OpenRouter: only 1.0.0-beta on Maven Central
  */
@@ -152,6 +155,7 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENAI -> OpenAIModels.Chat.GPT4o
             AiProvider.ANTHROPIC -> AnthropicModels.Sonnet_4_5
             AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
+            AiProvider.MISTRAL -> MistralAIModels.Chat.MistralLarge21
             else -> LLModel(
                 provider = providerFor(config.provider),
                 id = "gpt-4o",
@@ -171,6 +175,7 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
             AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
             AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
+            AiProvider.MISTRAL -> simpleMistralAIExecutor(apiKey, httpClientFactory)
             AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
             // DeepSeek/OpenRouter: client modules only at 1.0.0-beta on Maven Central.
             else -> null
@@ -182,6 +187,7 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENAI -> LLMProvider.OpenAI
             AiProvider.ANTHROPIC -> LLMProvider.Anthropic
             AiProvider.GOOGLE -> LLMProvider.Google
+            AiProvider.MISTRAL -> LLMProvider.Mistral
             AiProvider.DEEPSEEK -> LLMProvider.DeepSeek
             AiProvider.OPENROUTER -> LLMProvider.OpenRouter
             AiProvider.OLLAMA -> LLMProvider.Ollama
@@ -194,6 +200,7 @@ class KoogAgentFactory @Inject constructor(
             .map { it.id }
         AiProvider.ANTHROPIC -> AnthropicModels.models.map { it.id }
         AiProvider.GOOGLE -> GoogleModels.models.map { it.id }
+        AiProvider.MISTRAL -> MistralAIModels.models.map { it.id }
         AiProvider.DEEPSEEK -> listOf("deepseek-v4-flash", "deepseek-v3")
         AiProvider.OPENROUTER -> listOf("gpt-4o", "claude-sonnet-4-5", "gemini-2.5-pro")
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
