@@ -21,7 +21,7 @@ interface ConversationDao {
     @Delete
     suspend fun delete(conversation: ConversationEntity)
 
-    @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM conversations ORDER BY isRead ASC, updatedAt DESC")
     fun getAll(): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
@@ -35,4 +35,13 @@ interface ConversationDao {
 
     @Query("SELECT (promptTokens + completionTokens + toolTokens) >= tokenLimit FROM conversations WHERE id = :id")
     suspend fun isOverTokenLimit(id: String): Boolean
+
+    @Query("UPDATE conversations SET isRead = 1 WHERE id = :id")
+    suspend fun markAsRead(id: String)
+
+    @Query("SELECT COUNT(*) FROM conversations WHERE isRead = 0")
+    fun getUnreadCount(): Flow<Int>
+
+    @Query("UPDATE conversations SET lastMessagePreview = :preview, updatedAt = :now WHERE id = :id")
+    suspend fun updatePreview(id: String, preview: String, now: Long = System.currentTimeMillis())
 }

@@ -4,8 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -13,6 +12,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -28,24 +29,68 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.clinref.app.domain.ai.PatientProfile
 
 @Composable
 fun ChatInput(
     onSendMessage: (String) -> Unit,
     onCancel: () -> Unit,
     isGenerating: Boolean,
+    patientProfile: PatientProfile? = null,
     modifier: Modifier = Modifier
 ) {
     var text by remember { mutableStateOf("") }
-    val maxLines = 5
+    val maxLines = 8
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         tonalElevation = 3.dp
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
+            // Patient profile indicator
+            patientProfile?.let { profile ->
+                val profileText = buildString {
+                    if (profile.age.isNotBlank()) append(profile.age)
+                    if (profile.sex.isNotBlank()) {
+                        if (isNotEmpty()) append(" | ")
+                        append(profile.sex)
+                    }
+                    if (profile.conditions.isNotEmpty()) {
+                        if (isNotEmpty()) append(" | ")
+                        append(profile.conditions.first())
+                        if (profile.conditions.size > 1) append(" +${profile.conditions.size - 1}")
+                    }
+                }
+                if (profileText.isNotBlank()) {
+                    AssistChip(
+                        onClick = {},
+                        label = {
+                            Text(
+                                text = profileText,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Close, // Placeholder - could use a person icon
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        ),
+                        border = null,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom
@@ -55,7 +100,7 @@ fun ChatInput(
                     onValueChange = { if (it.length <= MAX_CHARS) text = it },
                     modifier = Modifier
                         .weight(1f)
-                        .height(40.dp),
+                        .heightIn(min = 40.dp, max = 120.dp),
                     textStyle = TextStyle(
                         fontSize = 16.sp,
                         color = MaterialTheme.colorScheme.onSurface
@@ -116,15 +161,17 @@ fun ChatInput(
                 }
             }
 
-            if (text.length > MAX_CHARS - 100) {
-                Text(
-                    text = "${text.length}/$MAX_CHARS",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (text.length >= MAX_CHARS) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.End)
-                )
-            }
+            // Always-visible character counter
+            Text(
+                text = "${text.length}/$MAX_CHARS",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (text.length >= MAX_CHARS - 100) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.End
+            )
         }
     }
 }

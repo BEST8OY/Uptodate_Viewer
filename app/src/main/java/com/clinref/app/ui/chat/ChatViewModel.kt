@@ -1,6 +1,10 @@
 package com.clinref.app.ui.chat
 
 import ai.koog.agents.core.agent.AIAgent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.local.entity.MessageEntity
@@ -22,10 +26,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 
@@ -36,8 +45,14 @@ data class MessageUiModel(
     val timestamp: Long,
     val citations: List<SafetyValidator.Citation> = emptyList(),
     val warnings: List<String> = emptyList(),
-    val isError: Boolean = false
+    val isError: Boolean = false,
+    val showTimestamp: Boolean = true
 )
+
+sealed interface ChatListItem {
+    data class DateSeparator(val label: String) : ChatListItem
+    data class Message(val uiModel: MessageUiModel) : ChatListItem
+}
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -55,21 +70,78 @@ class ChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<MessageUiModel>>(emptyList())
     val messages: StateFlow<List<MessageUiModel>> = _messages.asStateFlow()
 
+    val chatItems: StateFlow<List<ChatListItem>> = _messages.map { messages ->
+        buildChatItems(messages)
+    }.let { flow ->
+        val state = MutableStateFlow<List<ChatListItem>>(emptyList())
+        viewModelScope.launch {
+            flow.collect { state.value = it }
+        }
+        state.asStateFlow()
+    }
+
     val agentState: StateFlow<StreamingManager.AgentState> = streamingManager.agentState
     val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
 
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
 
+    private val _isLoadingOlder = MutableStateFlow(false)
+    val isLoadingOlder: StateFlow<Boolean> = _isLoadingOlder.asStateFlow()
+
+    private val _hasMoreMessages = MutableStateFlow(false)
+    val hasMoreMessages: StateFlow<Boolean> = _hasMoreMessages.asStateFlow()
+
+    private val _patientProfile = MutableStateFlow<PatientProfile?>(null)
+    val patientProfile: StateFlow<PatientProfile?> = _patientProfile.asStateFlow()
+
     val configuration: StateFlow<AiConfiguration> = securePreferences.configuration
 
     private var generationJob: Job? = null
+    private var messageOffset = 0
+
+    companion object {
+        private const val PAGE_SIZE = 50
+        private const val TIMESTAMP_GAP_MS = 5 * 60 * 1000L // 5 minutes
+    }
 
     fun loadConversation(conversationId: String) {
         _currentConversationId.value = conversationId
+        messageOffset = 0
         viewModelScope.launch {
-            val messages = conversationRepository.getMessages(conversationId).first()
-            _messages.value = messages.map { it.toUiModel() } // toUiModel parses citationsJson/warningsJson
+            val profile = conversationRepository.getPatientProfile(conversationId)
+            _patientProfile.value = profile
+
+            val messages = conversationRepository.getMessagesPage(conversationId, PAGE_SIZE, 0)
+            messageOffset = messages.size
+            _hasMoreMessages.value = messages.size >= PAGE_SIZE
+            _messages.value = messages.map { it.toUiModel() }
+
+            conversationRepository.markAsRead(conversationId)
+        }
+    }
+
+    fun loadOlderMessages() {
+        val conversationId = _currentConversationId.value ?: return
+        if (_isLoadingOlder.value || !_hasMoreMessages.value) return
+
+        viewModelScope.launch {
+            _isLoadingOlder.value = true
+            try {
+                val olderMessages = conversationRepository.getMessagesPage(
+                    conversationId, PAGE_SIZE, messageOffset
+                )
+                if (olderMessages.isNotEmpty()) {
+                    messageOffset += olderMessages.size
+                    _hasMoreMessages.value = olderMessages.size >= PAGE_SIZE
+                    val olderUiModels = olderMessages.map { it.toUiModel() }
+                    _messages.value = olderUiModels + _messages.value
+                } else {
+                    _hasMoreMessages.value = false
+                }
+            } finally {
+                _isLoadingOlder.value = false
+            }
         }
     }
 
@@ -88,6 +160,7 @@ class ChatViewModel @Inject constructor(
             conversationRepository.addMessage(userMsg)
             _messages.value = _messages.value + userMsg.toUiModel()
             conversationRepository.updateTokenCounts(conversationId, promptDelta = content.length / 4, completionDelta = 0, toolDelta = 0)
+            conversationRepository.updateLastPreview(conversationId, content.take(100))
 
             if (conversationRepository.isOverTokenLimit(conversationId)) {
                 val errorMsg = MessageEntity(
@@ -136,7 +209,6 @@ class ChatViewModel @Inject constructor(
                         return@launch
                     }
 
-                    // ChatMemory handles history loading/storing via session ID
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
                             agent.run(content, conversationId)
@@ -188,13 +260,11 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun startNewConversation(patientProfile: PatientProfile) {
-        viewModelScope.launch {
-            val title = generateConversationTitle(patientProfile)
-            val id = conversationRepository.createConversation(title, patientProfile)
-            _currentConversationId.value = id
-            _messages.value = emptyList()
-        }
+    fun copyMessageToClipboard(context: Context, content: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("ClinRef Message", content)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Message copied", Toast.LENGTH_SHORT).show()
     }
 
     private suspend fun handleAgentResult(conversationId: String, result: String) {
@@ -217,6 +287,7 @@ class ChatViewModel @Inject constructor(
                         warnings = state.validation.warnings
                     )
                     conversationRepository.updateTokenCounts(conversationId, promptDelta = 0, completionDelta = result.length / 4, toolDelta = 0)
+                    conversationRepository.updateLastPreview(conversationId, result.take(100))
                 } else {
                     val blockedMsg = MessageEntity(
                         id = UUID.randomUUID().toString(),
@@ -253,12 +324,45 @@ class ChatViewModel @Inject constructor(
         StreamingManager.ErrorType.UNKNOWN -> "An error occurred. Please try again."
     }
 
-    private fun generateConversationTitle(profile: PatientProfile): String {
-        val parts = mutableListOf<String>()
-        if (profile.age.isNotBlank()) parts.add(profile.age)
-        if (profile.sex.isNotBlank()) parts.add(profile.sex)
-        if (profile.conditions.isNotEmpty()) parts.add(profile.conditions.first())
-        return if (parts.isNotEmpty()) parts.joinToString(", ") else "New Conversation"
+    private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
+        if (messages.isEmpty()) return emptyList()
+
+        val items = mutableListOf<ChatListItem>()
+        var lastDate: Calendar? = null
+        var lastTimestamp = 0L
+
+        for (message in messages) {
+            val msgDate = Calendar.getInstance().apply { timeInMillis = message.timestamp }
+            val sameDay = lastDate?.let {
+                it.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
+                    it.get(Calendar.DAY_OF_YEAR) == msgDate.get(Calendar.DAY_OF_YEAR)
+            } ?: false
+
+            if (!sameDay) {
+                items.add(ChatListItem.DateSeparator(formatDateLabel(message.timestamp)))
+            }
+
+            val showTimestamp = !sameDay || (message.timestamp - lastTimestamp > TIMESTAMP_GAP_MS)
+            items.add(ChatListItem.Message(message.copy(showTimestamp = showTimestamp)))
+
+            lastDate = msgDate
+            lastTimestamp = message.timestamp
+        }
+
+        return items
+    }
+
+    private fun formatDateLabel(timestamp: Long): String {
+        val now = Calendar.getInstance()
+        val msgDate = Calendar.getInstance().apply { timeInMillis = timestamp }
+
+        return when {
+            now.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
+                now.get(Calendar.DAY_OF_YEAR) == msgDate.get(Calendar.DAY_OF_YEAR) -> "Today"
+            now.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
+                now.get(Calendar.DAY_OF_YEAR) - msgDate.get(Calendar.DAY_OF_YEAR) == 1 -> "Yesterday"
+            else -> SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(timestamp))
+        }
     }
 
     private fun MessageEntity.toUiModel(

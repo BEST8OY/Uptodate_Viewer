@@ -71,4 +71,20 @@ class ConversationRepository @Inject constructor(
             PatientProfile()
         }
     }
+
+    suspend fun markAsRead(id: String) {
+        conversationDao.markAsRead(id)
+    }
+
+    fun getUnreadCount(): Flow<Int> = conversationDao.getUnreadCount()
+
+    suspend fun getLatestMessage(conversationId: String): MessageEntity? =
+        messageDao.getLatestMessage(conversationId)
+
+    suspend fun getMessagesPage(conversationId: String, limit: Int, offset: Int): List<MessageEntity> =
+        messageDao.getMessagesPage(conversationId, limit, offset)
+
+    suspend fun updateLastPreview(id: String, preview: String) {
+        conversationDao.updatePreview(id, preview)
+    }
 }
