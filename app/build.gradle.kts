@@ -93,9 +93,7 @@ dependencies {
     implementation(libs.koog.prompt.executor.google.client)
     implementation(libs.koog.prompt.executor.ollama.client)
     implementation(libs.koog.prompt.executor.llms.all)
-    implementation(libs.koog.http.client.okhttp) {
-        exclude(group = "ai.koog", module = "utils-jvm")
-    }
+    implementation(libs.koog.http.client.okhttp)
 
     // Room database (3.0)
     implementation(libs.room3.runtime)
@@ -108,4 +106,12 @@ dependencies {
     // Markdown rendering in Compose
     implementation(libs.multiplatform.markdown.renderer)
     implementation(libs.multiplatform.markdown.renderer.m3)
+}
+
+// Koog utils-jvm has Coroutines_jvmKt which http-client-okhttp references.
+// utils-android has Coroutines_androidKt instead — they're platform-specific, not duplicates.
+// But base classes (CloseableKt, StringExtensionsKt, etc.) are identical in both,
+// causing duplicate class errors. Must use utils-jvm and exclude utils-android.
+configurations.configureEach {
+    exclude(group = "ai.koog", module = "utils-android")
 }
