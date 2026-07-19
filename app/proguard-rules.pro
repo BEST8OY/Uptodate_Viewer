@@ -27,6 +27,11 @@
 # Koog AI agents — broad keep for now; narrow once reflection surface is known
 -keep class ai.koog.** { *; }
 
+# Koog tool discovery: keep MedicalDatabaseTools and its @Tool/@LLMDescription annotations
+# so reflection-based ToolSet registration works at runtime
+-keep class com.clinref.app.data.MedicalDatabaseTools { *; }
+-keepattributes RuntimeVisibleAnnotations
+
 # Room database (3.0)
 -keep class * extends androidx.room3.RoomDatabase { <init>(); }
 -keep @androidx.room3.Entity class *
@@ -43,6 +48,5 @@
 -dontwarn java.lang.management.**
 -dontwarn io.ktor.**
 
-
-# Koog utils (Coroutines_jvmKt referenced by http-client-java)
+# Koog utils
 -dontwarn ai.koog.utils.io.**
