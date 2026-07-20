@@ -58,21 +58,20 @@ fun GeminiChatInput(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.65f),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.95f),
-                        MaterialTheme.colorScheme.background
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.25f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.55f)
                     )
                 )
             )
             .padding(horizontal = 20.dp)
-            .padding(top = 36.dp, bottom = 24.dp)
+            .padding(top = 28.dp, bottom = 24.dp)
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(32.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 8.dp,
-            shadowElevation = 14.dp
+            tonalElevation = 0.dp,
+            shadowElevation = 2.dp
         ) {
             Column(
                 modifier = Modifier
