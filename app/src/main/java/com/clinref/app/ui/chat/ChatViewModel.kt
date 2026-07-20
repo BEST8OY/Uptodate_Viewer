@@ -115,7 +115,7 @@ class ChatViewModel @Inject constructor(
             val messages = conversationRepository.getMessagesPage(conversationId, PAGE_SIZE, 0)
             messageOffset = messages.size
             _hasMoreMessages.value = messages.size >= PAGE_SIZE
-            _messages.value = messages.map { it.toUiModel() }
+            _messages.value = messages.reversed().map { it.toUiModel() }
 
             conversationRepository.markAsRead(conversationId)
         }
