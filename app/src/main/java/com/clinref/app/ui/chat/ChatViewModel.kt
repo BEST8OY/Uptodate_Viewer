@@ -53,12 +53,6 @@ sealed interface ChatListItem {
     data class Message(val uiModel: MessageUiModel) : ChatListItem
 }
 
-data class PromptTemplate(
-    val title: String,
-    val prompt: String,
-    val description: String
-)
-
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
@@ -104,13 +98,6 @@ class ChatViewModel @Inject constructor(
 
     private var generationJob: Job? = null
     private var messageOffset = 0
-
-    val clinicalTemplates = listOf(
-        PromptTemplate("Differential", "Generate a structured differential diagnosis for: ", "Identify rule-outs and primary diagnostic avenues"),
-        PromptTemplate("Dosing", "Verify weight-based dosing guidelines and renal adjustment parameters for: ", "Assess safe pediatric/adult pharmacology ranges"),
-        PromptTemplate("Interactions", "Analyze potential critical drug-drug or drug-disease interactions between: ", "Review pharmacokinetic overlap or contraindications"),
-        PromptTemplate("Workup", "What is the recommended standard diagnostic and laboratory workup for: ", "Determine baseline and secondary clinical testing regimens")
-    )
 
     companion object {
         private const val PAGE_SIZE = 50
