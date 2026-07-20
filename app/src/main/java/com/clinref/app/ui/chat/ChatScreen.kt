@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.StreamingManager
-import com.clinref.app.ui.chat.components.DateSeparator
 import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
@@ -195,13 +194,11 @@ fun ChatScreen(
                             items = chatItems,
                             key = {
                                 when (it) {
-                                    is ChatListItem.DateSeparator -> "date-${it.label}"
                                     is ChatListItem.Message -> it.uiModel.id
                                 }
                             }
                         ) { item ->
                             when (item) {
-                                is ChatListItem.DateSeparator -> DateSeparator(label = item.label)
                                 is ChatListItem.Message -> GeminiMessageItem(
                                     message = item.uiModel,
                                     onCopyMessage = { content ->

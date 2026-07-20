@@ -30,10 +30,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 
@@ -49,7 +45,6 @@ data class MessageUiModel(
 )
 
 sealed interface ChatListItem {
-    data class DateSeparator(val label: String) : ChatListItem
     data class Message(val uiModel: MessageUiModel) : ChatListItem
 }
 
@@ -101,7 +96,6 @@ class ChatViewModel @Inject constructor(
 
     companion object {
         private const val PAGE_SIZE = 50
-        private const val TIMESTAMP_GAP_MS = 5 * 60 * 1000L
     }
 
     fun loadConversation(conversationId: String) {
@@ -317,35 +311,8 @@ class ChatViewModel @Inject constructor(
 
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
         if (messages.isEmpty()) return emptyList()
-        val items = mutableListOf<ChatListItem>()
-        var lastDate: Calendar? = null
-        var lastTimestamp = 0L
-        for (message in messages) {
-            val msgDate = Calendar.getInstance().apply { timeInMillis = message.timestamp }
-            val sameDay = lastDate?.let {
-                it.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
-                    it.get(Calendar.DAY_OF_YEAR) == msgDate.get(Calendar.DAY_OF_YEAR)
-            } ?: false
-            if (!sameDay) {
-                items.add(ChatListItem.DateSeparator(formatDateLabel(message.timestamp)))
-            }
-            val showTimestamp = !sameDay || (message.timestamp - lastTimestamp > TIMESTAMP_GAP_MS)
-            items.add(ChatListItem.Message(message.copy(showTimestamp = showTimestamp)))
-            lastDate = msgDate
-            lastTimestamp = message.timestamp
-        }
-        return items
-    }
-
-    private fun formatDateLabel(timestamp: Long): String {
-        val now = Calendar.getInstance()
-        val msgDate = Calendar.getInstance().apply { timeInMillis = timestamp }
-        return when {
-            now.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
-                now.get(Calendar.DAY_OF_YEAR) == msgDate.get(Calendar.DAY_OF_YEAR) -> "Today"
-            now.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
-                now.get(Calendar.DAY_OF_YEAR) - msgDate.get(Calendar.DAY_OF_YEAR) == 1 -> "Yesterday"
-            else -> SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(timestamp))
+        return messages.map { message ->
+            ChatListItem.Message(message.copy(showTimestamp = true))
         }
     }
 
