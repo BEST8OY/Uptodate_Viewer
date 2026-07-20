@@ -25,7 +25,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,6 +53,12 @@ sealed interface ChatListItem {
     data class Message(val uiModel: MessageUiModel) : ChatListItem
 }
 
+data class PromptTemplate(
+    val title: String,
+    val prompt: String,
+    val description: String
+)
+
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
@@ -70,8 +75,8 @@ class ChatViewModel @Inject constructor(
     private val _messages = MutableStateFlow<List<MessageUiModel>>(emptyList())
     val messages: StateFlow<List<MessageUiModel>> = _messages.asStateFlow()
 
-    val chatItems: StateFlow<List<ChatListItem>> = _messages.map { messages ->
-        buildChatItems(messages)
+    val chatItems: StateFlow<List<ChatListItem>> = _messages.map { list ->
+        buildChatItems(list)
     }.let { flow ->
         val state = MutableStateFlow<List<ChatListItem>>(emptyList())
         viewModelScope.launch {
@@ -100,9 +105,16 @@ class ChatViewModel @Inject constructor(
     private var generationJob: Job? = null
     private var messageOffset = 0
 
+    val clinicalTemplates = listOf(
+        PromptTemplate("Differential", "Generate a structured differential diagnosis for: ", "Identify rule-outs and primary diagnostic avenues"),
+        PromptTemplate("Dosing", "Verify weight-based dosing guidelines and renal adjustment parameters for: ", "Assess safe pediatric/adult pharmacology ranges"),
+        PromptTemplate("Interactions", "Analyze potential critical drug-drug or drug-disease interactions between: ", "Review pharmacokinetic overlap or contraindications"),
+        PromptTemplate("Workup", "What is the recommended standard diagnostic and laboratory workup for: ", "Determine baseline and secondary clinical testing regimens")
+    )
+
     companion object {
         private const val PAGE_SIZE = 50
-        private const val TIMESTAMP_GAP_MS = 5 * 60 * 1000L // 5 minutes
+        private const val TIMESTAMP_GAP_MS = 5 * 60 * 1000L
     }
 
     fun loadConversation(conversationId: String) {
@@ -111,12 +123,10 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val profile = conversationRepository.getPatientProfile(conversationId)
             _patientProfile.value = profile
-
             val messages = conversationRepository.getMessagesPage(conversationId, PAGE_SIZE, 0)
             messageOffset = messages.size
             _hasMoreMessages.value = messages.size >= PAGE_SIZE
             _messages.value = messages.reversed().map { it.toUiModel() }
-
             conversationRepository.markAsRead(conversationId)
         }
     }
@@ -124,7 +134,6 @@ class ChatViewModel @Inject constructor(
     fun loadOlderMessages() {
         val conversationId = _currentConversationId.value ?: return
         if (_isLoadingOlder.value || !_hasMoreMessages.value) return
-
         viewModelScope.launch {
             _isLoadingOlder.value = true
             try {
@@ -148,7 +157,6 @@ class ChatViewModel @Inject constructor(
     fun sendMessage(content: String) {
         val conversationId = _currentConversationId.value ?: return
         if (content.isBlank()) return
-
         viewModelScope.launch {
             val userMsg = MessageEntity(
                 id = UUID.randomUUID().toString(),
@@ -167,7 +175,7 @@ class ChatViewModel @Inject constructor(
                     id = UUID.randomUUID().toString(),
                     conversationId = conversationId,
                     role = "assistant",
-                    content = "Conversation has reached the token limit. Please start a new conversation.",
+                    content = "This conversation has exceeded safe token capacities. Please initialize a fresh clinical workspace.",
                     timestamp = System.currentTimeMillis(),
                     isError = true
                 )
@@ -178,13 +186,12 @@ class ChatViewModel @Inject constructor(
 
             val patientProfile = conversationRepository.getPatientProfile(conversationId)
             val config = configuration.value
-
             if (!config.isConfigured) {
                 val errorMsg = MessageEntity(
                     id = UUID.randomUUID().toString(),
                     conversationId = conversationId,
                     role = "assistant",
-                    content = "AI is not configured. Please set up your provider in Settings.",
+                    content = "The clinical AI core is unconfigured. Please finalize provider keys in clinical settings.",
                     timestamp = System.currentTimeMillis(),
                     isError = true
                 )
@@ -198,7 +205,6 @@ class ChatViewModel @Inject constructor(
                 try {
                     rateLimiter.configure(config.requestsPerMinute)
                     rateLimiter.acquire()
-
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
                             val agent: AIAgent<String, String>? = koogAgentFactory.createAgent(
@@ -206,23 +212,19 @@ class ChatViewModel @Inject constructor(
                                 conversationId = conversationId,
                                 patientProfile = patientProfile,
                                 streamingManager = streamingManager
-                            )
-                            if (agent == null) {
-                                throw IllegalStateException("Could not create AI agent. Check your API key and settings.")
-                            }
+                            ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
                             agent.run(content, conversationId)
                         }
                     }
-
                     withContext(Dispatchers.Main) {
                         handleAgentResult(conversationId, result)
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    secureLogger.log(SecureLogger.Level.ERROR, "ChatVM", "Agent error: ${e.message}")
+                    secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel", "Clinical runtime crash: ${e.message}")
                     withContext(Dispatchers.Main) {
-                        streamingManager.onError(e.message ?: "Unknown error")
+                        streamingManager.onError(e.message ?: "General core execution timeout.")
                         val errorState = streamingManager.agentState.value
                         if (errorState is StreamingManager.AgentState.Error) {
                             val errorMsg = MessageEntity(
@@ -251,7 +253,7 @@ class ChatViewModel @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 conversationId = conversationId,
                 role = "cancelled",
-                content = "[Generation cancelled by user]",
+                content = "[Clinical generation session terminated by operator]",
                 timestamp = System.currentTimeMillis(),
                 isError = true
             )
@@ -263,14 +265,13 @@ class ChatViewModel @Inject constructor(
 
     fun copyMessageToClipboard(context: Context, content: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("ClinRef Message", content)
+        val clip = ClipData.newPlainText("ClinRef Clinical Output", content)
         clipboard.setPrimaryClip(clip)
-        Toast.makeText(context, "Message copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Copied content to workspace clipboard", Toast.LENGTH_SHORT).show()
     }
 
     private suspend fun handleAgentResult(conversationId: String, result: String) {
-        val state = streamingManager.agentState.value
-        when (state) {
+        when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
                 if (state.validation.passed) {
                     val assistantMsg = MessageEntity(
@@ -294,7 +295,7 @@ class ChatViewModel @Inject constructor(
                         id = UUID.randomUUID().toString(),
                         conversationId = conversationId,
                         role = "assistant",
-                        content = state.validation.blockedReason ?: "Response blocked by safety validator.",
+                        content = state.validation.blockedReason ?: "This output has been quarantined by ClinRef safety engines.",
                         timestamp = System.currentTimeMillis(),
                         isError = true
                     )
@@ -319,52 +320,45 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun mapErrorToUserMessage(type: StreamingManager.ErrorType): String = when (type) {
-        StreamingManager.ErrorType.INVALID_KEY -> "Invalid API key. Please check your settings."
-        StreamingManager.ErrorType.NO_NETWORK -> "No network connection. Check your internet."
-        StreamingManager.ErrorType.RATE_LIMIT -> "Rate limited. Please wait and try again."
-        StreamingManager.ErrorType.TIMEOUT -> "Request timed out. Try again."
-        StreamingManager.ErrorType.NO_RESULTS -> "No relevant medical topics found for your query."
-        StreamingManager.ErrorType.UNKNOWN -> "An error occurred. Please try again."
+        StreamingManager.ErrorType.INVALID_KEY -> "API Key validation rejected. Re-authenticate clinical tokens in Configuration."
+        StreamingManager.ErrorType.NO_NETWORK -> "Network layer unreachable. Please check data linkage and fallback routing."
+        StreamingManager.ErrorType.RATE_LIMIT -> "Upstream limits exceeded. Retrying via reliable cooling buffers..."
+        StreamingManager.ErrorType.TIMEOUT -> "The safety reference core timed out. Resubmitting transaction..."
+        StreamingManager.ErrorType.NO_RESULTS -> "Query executed successfully, but reference matches returned no safe data matches."
+        StreamingManager.ErrorType.UNKNOWN -> "An unclassified telemetry error occurred. Telemetry recorded."
     }
 
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
         if (messages.isEmpty()) return emptyList()
-
         val items = mutableListOf<ChatListItem>()
         var lastDate: Calendar? = null
         var lastTimestamp = 0L
-
         for (message in messages) {
             val msgDate = Calendar.getInstance().apply { timeInMillis = message.timestamp }
             val sameDay = lastDate?.let {
                 it.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
                     it.get(Calendar.DAY_OF_YEAR) == msgDate.get(Calendar.DAY_OF_YEAR)
             } ?: false
-
             if (!sameDay) {
                 items.add(ChatListItem.DateSeparator(formatDateLabel(message.timestamp)))
             }
-
             val showTimestamp = !sameDay || (message.timestamp - lastTimestamp > TIMESTAMP_GAP_MS)
             items.add(ChatListItem.Message(message.copy(showTimestamp = showTimestamp)))
-
             lastDate = msgDate
             lastTimestamp = message.timestamp
         }
-
         return items
     }
 
     private fun formatDateLabel(timestamp: Long): String {
         val now = Calendar.getInstance()
         val msgDate = Calendar.getInstance().apply { timeInMillis = timestamp }
-
         return when {
             now.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
                 now.get(Calendar.DAY_OF_YEAR) == msgDate.get(Calendar.DAY_OF_YEAR) -> "Today"
             now.get(Calendar.YEAR) == msgDate.get(Calendar.YEAR) &&
                 now.get(Calendar.DAY_OF_YEAR) - msgDate.get(Calendar.DAY_OF_YEAR) == 1 -> "Yesterday"
-            else -> SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(timestamp))
+            else -> SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(timestamp))
         }
     }
 
@@ -376,11 +370,9 @@ class ChatViewModel @Inject constructor(
         val parsedCitations = if (citations.isEmpty() && !citationsJson.isNullOrBlank()) {
             try { json.decodeFromString<List<SafetyValidator.Citation>>(citationsJson) } catch (_: Exception) { emptyList() }
         } else citations
-
         val parsedWarnings = if (warnings.isEmpty() && !warningsJson.isNullOrBlank()) {
             try { json.decodeFromString<List<String>>(warningsJson) } catch (_: Exception) { emptyList() }
         } else warnings
-
         return MessageUiModel(
             id = id,
             role = role,

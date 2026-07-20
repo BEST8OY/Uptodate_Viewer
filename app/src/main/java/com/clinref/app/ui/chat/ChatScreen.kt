@@ -1,6 +1,6 @@
 package com.clinref.app.ui.chat
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,26 +14,26 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -43,12 +43,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.StreamingManager
-import com.clinref.app.ui.chat.components.ChatInput
-import com.clinref.app.ui.chat.components.ChatLoadingPlaceholder
 import com.clinref.app.ui.chat.components.DateSeparator
 import com.clinref.app.ui.chat.components.DisclaimerBanner
-import com.clinref.app.ui.chat.components.GeminiMessageItem
+import com.clinref.app.ui.chat.components.EmptyState
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
+import com.clinref.app.ui.chat.components.ModernChatInput
+import com.clinref.app.ui.chat.components.ModernMessageItem
 import com.clinref.app.ui.chat.components.ScrollToBottomFAB
 import kotlinx.coroutines.launch
 
@@ -67,11 +67,12 @@ fun ChatScreen(
     val isLoadingOlder by viewModel.isLoadingOlder.collectAsStateWithLifecycle()
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val config by viewModel.configuration.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     val showScrollToBottom by remember {
         derivedStateOf { listState.canScrollForward }
@@ -80,12 +81,14 @@ fun ChatScreen(
     val isGenerating = agentState is StreamingManager.AgentState.ToolCallInProgress ||
         agentState is StreamingManager.AgentState.WaitingForLlm
 
+    var activeInputText by remember { mutableStateOf("") }
+
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
+    LaunchedEffect(chatItems.size) {
+        if (chatItems.isNotEmpty()) {
             coroutineScope.launch {
                 listState.animateScrollToItem(chatItems.size - 1)
             }
@@ -93,34 +96,49 @@ fun ChatScreen(
     }
 
     LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages) {
-        if (listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
+        if (listState.firstVisibleItemIndex <= 3 && hasMoreMessages && !isLoadingOlder) {
             viewModel.loadOlderMessages()
         }
     }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = { Text("Clinical Workspace") },
-                navigationIcon = {
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                        tooltip = { PlainTooltip { Text("Back") } },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
+            MediumTopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = "Clinical Assistant",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        if (config.isConfigured) {
+                            Text(
+                                text = "Active Core: ${config.requestsPerMinute} RPM safe",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
                     }
                 },
-                scrollBehavior = topAppBarScrollBehavior,
-                colors = TopAppBarDefaults.largeTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Workspaces"
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { }) {
+                        Icon(imageVector = Icons.Default.Tune, contentDescription = "Engine settings")
+                    }
+                },
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.mediumTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             )
         },
@@ -137,113 +155,111 @@ fun ChatScreen(
                 }
             )
         }
-    ) { padding ->
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(innerPadding)
                 .imePadding()
+                .background(MaterialTheme.colorScheme.background)
         ) {
-            if (messages.isEmpty() && !isLoadingOlder) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                if (messages.isEmpty() && !isLoadingOlder) {
+                    EmptyState(
+                        templates = viewModel.clinicalTemplates,
+                        onSuggestionClick = { selectedSuggestion ->
+                            activeInputText = selectedSuggestion
+                        }
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
                     ) {
-                        Text(
-                            text = "ClinRef AI",
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "How can I support your reference needs today?",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else if (messages.isEmpty() && isLoadingOlder) {
-                ChatLoadingPlaceholder(modifier = Modifier.weight(1f))
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (isLoadingOlder) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                ContainedLoadingIndicator()
+                        if (isLoadingOlder) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    ContainedLoadingIndicator()
+                                }
                             }
                         }
-                    }
 
-                    items(
-                        items = chatItems,
-                        key = {
-                            when (it) {
-                                is ChatListItem.DateSeparator -> "date-${it.label}"
-                                is ChatListItem.Message -> it.uiModel.id
+                        items(
+                            items = chatItems,
+                            key = {
+                                when (it) {
+                                    is ChatListItem.DateSeparator -> "date-${it.label}"
+                                    is ChatListItem.Message -> it.uiModel.id
+                                }
                             }
-                        }
-                    ) { item ->
-                        when (item) {
-                            is ChatListItem.DateSeparator -> DateSeparator(label = item.label)
-                            is ChatListItem.Message -> GeminiMessageItem(
-                                message = item.uiModel,
-                                onCopyMessage = { content ->
-                                    viewModel.copyMessageToClipboard(context, content)
-                                },
-                                onNavigateToContent = onNavigateToContent
-                            )
-                        }
-                    }
-
-                    if (toolProgress != null) {
-                        item {
-                            GeminiOrchestrationIndicator(progress = toolProgress!!)
-                        }
-                    }
-
-                    if (isGenerating && toolProgress == null) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 20.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                ContainedLoadingIndicator(
-                                    modifier = Modifier.size(36.dp),
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    indicatorColor = MaterialTheme.colorScheme.primary
+                        ) { item ->
+                            when (item) {
+                                is ChatListItem.DateSeparator -> DateSeparator(label = item.label)
+                                is ChatListItem.Message -> ModernMessageItem(
+                                    message = item.uiModel,
+                                    onCopyMessage = { content ->
+                                        viewModel.copyMessageToClipboard(context, content)
+                                    },
+                                    onNavigateToContent = onNavigateToContent
                                 )
+                            }
+                        }
+
+                        if (toolProgress != null) {
+                            item {
+                                GeminiOrchestrationIndicator(progress = toolProgress!!)
+                            }
+                        }
+
+                        if (isGenerating && toolProgress == null) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    ContainedLoadingIndicator(
+                                        modifier = Modifier.size(42.dp),
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        indicatorColor = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
 
-            ChatInput(
-                onSendMessage = { viewModel.sendMessage(it) },
-                onCancel = { viewModel.cancelGeneration() },
-                isGenerating = isGenerating,
-                patientProfile = patientProfile
-            )
+            Surface(
+                tonalElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                ModernChatInput(
+                    textValue = activeInputText,
+                    onValueChange = { activeInputText = it },
+                    onSendMessage = {
+                        viewModel.sendMessage(it)
+                        activeInputText = ""
+                    },
+                    onCancel = { viewModel.cancelGeneration() },
+                    isGenerating = isGenerating,
+                    patientProfile = patientProfile,
+                    clinicalTemplates = viewModel.clinicalTemplates
+                )
+            }
         }
     }
 }
