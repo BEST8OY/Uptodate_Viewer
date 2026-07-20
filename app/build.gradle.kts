@@ -56,7 +56,7 @@ kotlin {
 
 configurations.all {
     resolutionStrategy {
-        force("org.jetbrains.kotlin:compose-group-mapping:2.4.0")
+        force("org.jetbrains.kotlin:compose-group-mapping:2.4.10")
     }
 }
 
