@@ -34,7 +34,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -51,7 +50,6 @@ import com.clinref.app.ui.chat.components.DisclaimerBanner
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
 import com.clinref.app.ui.chat.components.ScrollToBottomFAB
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -88,11 +86,8 @@ fun ChatScreen(
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            // Wait for LazyColumn to compose the new items before scrolling
-            snapshotFlow { listState.layoutInfo.totalItemsCount }
-                .first { it > 0 }
             coroutineScope.launch {
-                listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                listState.animateScrollToItem(chatItems.size - 1)
             }
         }
     }
