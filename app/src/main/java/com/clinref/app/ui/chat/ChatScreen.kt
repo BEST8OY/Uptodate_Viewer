@@ -68,6 +68,7 @@ fun ChatScreen(
     val isLoadingOlder by viewModel.isLoadingOlder.collectAsStateWithLifecycle()
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
+    val config by viewModel.configuration.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val listState = rememberLazyListState()
