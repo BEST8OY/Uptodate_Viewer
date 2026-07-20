@@ -16,44 +16,35 @@ class RoomChatHistoryProvider @Inject constructor(
 ) : ChatHistoryProvider {
 
     override suspend fun store(conversationId: String, messages: List<Message>) {
-        val existingIds = messageDao.getMessagesList(conversationId).map { it.id }.toSet()
-        for (msg in messages) {
-            val id = msg.id ?: UUID.randomUUID().toString()
-            if (id in existingIds) continue
-            messageDao.insert(
-                MessageEntity(
-                    id = id,
-                    conversationId = conversationId,
-                    role = msg.role.name.lowercase(),
-                    content = msg.textContent(),
-                    timestamp = msg.metaInfo.timestamp.toEpochMilliseconds()
-                )
-            )
-        }
+        // No-op: ChatViewModel handles all message persistence with richer metadata
+        // (citations, warnings, isError). ChatMemory store() would create duplicates.
     }
 
     override suspend fun load(conversationId: String): List<Message> {
-        return messageDao.getMessagesList(conversationId).map { entity ->
-            val elapsedMs = System.currentTimeMillis() - entity.timestamp
-            val timestamp = ai.koog.utils.time.KoogClock.System.now()
-                .minus(kotlin.time.Duration.parse("${elapsedMs}ms"))
-            when (entity.role) {
-                "user" -> Message.User(
-                    content = entity.content,
-                    metaInfo = RequestMetaInfo(timestamp),
-                    id = entity.id
-                )
-                "assistant" -> Message.Assistant(
-                    content = entity.content,
-                    metaInfo = ResponseMetaInfo(timestamp),
-                    id = entity.id
-                )
-                else -> Message.User(
-                    content = entity.content,
-                    metaInfo = RequestMetaInfo(timestamp),
-                    id = entity.id
-                )
+        return messageDao.getMessagesList(conversationId)
+            .filter { it.role == "user" || it.role == "assistant" }
+            .filter { !it.isError }
+            .map { entity ->
+                val elapsedMs = System.currentTimeMillis() - entity.timestamp
+                val timestamp = ai.koog.utils.time.KoogClock.System.now()
+                    .minus(kotlin.time.Duration.parse("${elapsedMs}ms"))
+                when (entity.role) {
+                    "user" -> Message.User(
+                        content = entity.content,
+                        metaInfo = RequestMetaInfo(timestamp),
+                        id = entity.id
+                    )
+                    "assistant" -> Message.Assistant(
+                        content = entity.content,
+                        metaInfo = ResponseMetaInfo(timestamp),
+                        id = entity.id
+                    )
+                    else -> Message.User(
+                        content = entity.content,
+                        metaInfo = RequestMetaInfo(timestamp),
+                        id = entity.id
+                    )
+                }
             }
-        }
     }
 }

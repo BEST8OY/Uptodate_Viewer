@@ -173,11 +173,14 @@ class SafetyValidator {
         val allToolText = context.toolResults.joinToString(separator = " ")
 
         val invented = answerNumerics.filter { numeric ->
+            // Normalize whitespace to prevent false positives (e.g. "500 mg" vs "500mg")
+            val normalized = numeric.replace(Regex("\\s+"), "")
+            val escaped = Regex.escape(normalized)
             // Use word-boundary-aware matching to prevent substring false positives.
             // e.g. "500mg" should NOT match inside "2500mg" — only exact token matches count.
-            val escaped = Regex.escape(numeric.trim())
             val boundaryPattern = Regex("(?<![\\d.])$escaped(?![\\d.])", RegexOption.IGNORE_CASE)
-            !boundaryPattern.containsMatchIn(allToolText)
+            val normalizedToolText = allToolText.replace(Regex("\\s+"), "")
+            !boundaryPattern.containsMatchIn(normalizedToolText)
         }
 
         if (invented.isNotEmpty()) {

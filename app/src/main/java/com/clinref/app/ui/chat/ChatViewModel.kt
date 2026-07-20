@@ -168,7 +168,8 @@ class ChatViewModel @Inject constructor(
                     conversationId = conversationId,
                     role = "assistant",
                     content = "Conversation has reached the token limit. Please start a new conversation.",
-                    timestamp = System.currentTimeMillis()
+                    timestamp = System.currentTimeMillis(),
+                    isError = true
                 )
                 conversationRepository.addMessage(errorMsg)
                 _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
@@ -184,7 +185,8 @@ class ChatViewModel @Inject constructor(
                     conversationId = conversationId,
                     role = "assistant",
                     content = "AI is not configured. Please set up your provider in Settings.",
-                    timestamp = System.currentTimeMillis()
+                    timestamp = System.currentTimeMillis(),
+                    isError = true
                 )
                 conversationRepository.addMessage(errorMsg)
                 _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
@@ -196,21 +198,18 @@ class ChatViewModel @Inject constructor(
                 try {
                     rateLimiter.configure(config.requestsPerMinute)
                     rateLimiter.acquire()
-                    val agent: AIAgent<String, String>? = koogAgentFactory.createAgent(
-                        config = config,
-                        conversationId = conversationId,
-                        patientProfile = patientProfile,
-                        streamingManager = streamingManager
-                    )
-                    if (agent == null) {
-                        withContext(Dispatchers.Main) {
-                            streamingManager.onError("Could not create AI agent. Check your API key and settings.")
-                        }
-                        return@launch
-                    }
 
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
+                            val agent: AIAgent<String, String>? = koogAgentFactory.createAgent(
+                                config = config,
+                                conversationId = conversationId,
+                                patientProfile = patientProfile,
+                                streamingManager = streamingManager
+                            )
+                            if (agent == null) {
+                                throw IllegalStateException("Could not create AI agent. Check your API key and settings.")
+                            }
                             agent.run(content, conversationId)
                         }
                     }
@@ -231,7 +230,8 @@ class ChatViewModel @Inject constructor(
                                 conversationId = conversationId,
                                 role = "assistant",
                                 content = mapErrorToUserMessage(errorState.type),
-                                timestamp = System.currentTimeMillis()
+                                timestamp = System.currentTimeMillis(),
+                                isError = true
                             )
                             conversationRepository.addMessage(errorMsg)
                             _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
@@ -252,7 +252,8 @@ class ChatViewModel @Inject constructor(
                 conversationId = conversationId,
                 role = "cancelled",
                 content = "[Generation cancelled by user]",
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                isError = true
             )
             conversationRepository.addMessage(cancelMsg)
             _messages.value = _messages.value + cancelMsg.toUiModel()
@@ -294,7 +295,8 @@ class ChatViewModel @Inject constructor(
                         conversationId = conversationId,
                         role = "assistant",
                         content = state.validation.blockedReason ?: "Response blocked by safety validator.",
-                        timestamp = System.currentTimeMillis()
+                        timestamp = System.currentTimeMillis(),
+                        isError = true
                     )
                     conversationRepository.addMessage(blockedMsg)
                     _messages.value = _messages.value + blockedMsg.toUiModel(isError = true)
@@ -306,7 +308,8 @@ class ChatViewModel @Inject constructor(
                     conversationId = conversationId,
                     role = "assistant",
                     content = mapErrorToUserMessage(state.type),
-                    timestamp = System.currentTimeMillis()
+                    timestamp = System.currentTimeMillis(),
+                    isError = true
                 )
                 conversationRepository.addMessage(errorMsg)
                 _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
@@ -385,7 +388,7 @@ class ChatViewModel @Inject constructor(
             timestamp = timestamp,
             citations = parsedCitations,
             warnings = parsedWarnings,
-            isError = isError || role == "cancelled"
+            isError = isError || this.isError || role == "cancelled"
         )
     }
 }

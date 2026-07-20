@@ -12,14 +12,20 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.PatientProfile
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatInput(
     onSendMessage: (String) -> Unit,
@@ -66,7 +73,7 @@ fun ChatInput(
                 }
                 if (profileText.isNotBlank()) {
                     AssistChip(
-                        onClick = {},
+                        onClick = {}, // Patient profile editing — not yet implemented
                         label = {
                             Text(
                                 text = profileText,
@@ -77,7 +84,7 @@ fun ChatInput(
                         },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Close, // Placeholder - could use a person icon
+                                imageVector = Icons.Default.Person,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp)
                             )
@@ -131,32 +138,44 @@ fun ChatInput(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 if (isGenerating) {
-                    FilledIconButton(
-                        onClick = onCancel,
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        )
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                        tooltip = { PlainTooltip { Text("Cancel") } },
+                        state = rememberTooltipState()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cancel",
-                            tint = MaterialTheme.colorScheme.onError
-                        )
+                        FilledIconButton(
+                            onClick = onCancel,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cancel",
+                                tint = MaterialTheme.colorScheme.onError
+                            )
+                        }
                     }
                 } else {
-                    FilledIconButton(
-                        onClick = {
-                            if (text.isNotBlank()) {
-                                onSendMessage(text)
-                                text = ""
-                            }
-                        },
-                        enabled = text.isNotBlank()
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                        tooltip = { PlainTooltip { Text("Send") } },
+                        state = rememberTooltipState()
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send"
-                        )
+                        FilledIconButton(
+                            onClick = {
+                                if (text.isNotBlank()) {
+                                    onSendMessage(text)
+                                    text = ""
+                                }
+                            },
+                            enabled = text.isNotBlank()
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send"
+                            )
+                        }
                     }
                 }
             }

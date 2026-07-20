@@ -74,23 +74,33 @@ class KoogAgentFactory @Inject constructor(
             maxIterations = 25
         ) {
             install(ChatMemory) {
-                chatHistoryProvider(this@KoogAgentFactory.chatHistoryProvider)
+                chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
                 windowSize(50)
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
             }
 
             handleEvents {
                 onToolCallStarting { eventContext ->
+                    val toolName = eventContext.tool.name
                     val argsStr = eventContext.toolArgs.toString()
-                    accumulator.onToolCallStarting(eventContext.toolName, argsStr)
-                    streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
+                    accumulator.onToolCallStarting(toolName, argsStr)
+                    streamingManager.onToolCallStarting(toolName, argsStr)
                 }
 
                 onToolCallCompleted { eventContext ->
-                    val resultText = eventContext.toolResult?.toString() ?: ""
-                    val success = eventContext.toolResult != null
-                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, success)
-                    streamingManager.onToolCallCompleted(eventContext.toolName)
+                    val toolName = eventContext.tool.name
+                    val resultText = eventContext.result?.toString() ?: ""
+                    val success = eventContext.result != null
+                    accumulator.onToolCallCompleted(toolName, resultText, success)
+                    streamingManager.onToolCallCompleted(toolName)
+                    streamingManager.onWaitingForLlm()
+                }
+
+                onToolCallFailed { eventContext ->
+                    val toolName = eventContext.tool.name
+                    val errorText = eventContext.throwable.message ?: "Tool call failed"
+                    accumulator.onToolCallCompleted(toolName, errorText, false)
+                    streamingManager.onToolCallCompleted(toolName)
                     streamingManager.onWaitingForLlm()
                 }
 
@@ -103,7 +113,7 @@ class KoogAgentFactory @Inject constructor(
                 }
 
                 onAgentExecutionFailed { eventContext ->
-                    streamingManager.onError(eventContext.error.message ?: "Unknown error")
+                    streamingManager.onError(eventContext.throwable.message ?: "Unknown error")
                     accumulator.reset()
                 }
             }
@@ -159,7 +169,7 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.OPENROUTER -> OpenRouterModels.models.first()
             else -> LLModel(
                 provider = providerFor(config.provider),
-                id = "gpt-4o",
+                id = "llama3.2",
                 capabilities = listOf(
                     ai.koog.prompt.llm.LLMCapability.Completion,
                     ai.koog.prompt.llm.LLMCapability.Tools,
@@ -177,7 +187,10 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
             AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
             AiProvider.OPENROUTER -> simpleOpenRouterExecutor(apiKey, httpClientFactory)
-            AiProvider.OLLAMA -> simpleOllamaAIExecutor(httpClientFactory = httpClientFactory)
+            AiProvider.OLLAMA -> {
+                val baseUrl = config.baseUrl.ifBlank { "http://localhost:11434" }
+                simpleOllamaAIExecutor(baseUrl = baseUrl, httpClientFactory = httpClientFactory)
+            }
             // Mistral/DeepSeek: client modules not available at stable version yet
             else -> null
         }

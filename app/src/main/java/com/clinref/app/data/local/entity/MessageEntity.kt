@@ -1,18 +1,20 @@
 package com.clinref.app.data.local.entity
 
-import androidx.room3.Entity
-import androidx.room3.ForeignKey
-import androidx.room3.Index
-import androidx.room3.PrimaryKey
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "messages",
-    foreignKeys = [ForeignKey(
-        entity = ConversationEntity::class,
-        parentColumns = ["id"],
-        childColumns = ["conversationId"],
-        onDelete = ForeignKey.CASCADE
-    )],
+    foreignKeys = [
+        ForeignKey(
+            entity = ConversationEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["conversationId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
     indices = [Index("conversationId")]
 )
 data class MessageEntity(
@@ -23,5 +25,6 @@ data class MessageEntity(
     val timestamp: Long,
     val toolCallsJson: String? = null,
     val citationsJson: String? = null,
-    val warningsJson: String? = null
+    val warningsJson: String? = null,
+    val isError: Boolean = false
 )
