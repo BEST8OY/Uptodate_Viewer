@@ -207,13 +207,13 @@ class ChatViewModel @Inject constructor(
                     rateLimiter.acquire()
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
-                            val agent: AIAgent<String, String>? = koogAgentFactory.createAgent(
+                            val agent = koogAgentFactory.createAgent(
                                 config = config,
                                 conversationId = conversationId,
                                 patientProfile = patientProfile,
                                 streamingManager = streamingManager
                             ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                            agent.run(content, conversationId)
+                            agent!!.run(content, conversationId)
                         }
                     }
                     withContext(Dispatchers.Main) {
