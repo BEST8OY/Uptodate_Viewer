@@ -74,7 +74,7 @@ fun ChatScreen(
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val showScrollToBottom by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 0 }
+        derivedStateOf { listState.canScrollForward }
     }
 
     val isGenerating = agentState is StreamingManager.AgentState.ToolCallInProgress ||
