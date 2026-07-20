@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 data class ConversationSummary(
@@ -30,8 +31,13 @@ class ConversationListViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository
 ) : ViewModel() {
 
+    private val json = Json { ignoreUnknownKeys = true }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     private val allConversations: StateFlow<List<ConversationEntity>> =
         conversationRepository.getAllConversations()
@@ -41,9 +47,7 @@ class ConversationListViewModel @Inject constructor(
         combine(allConversations, _searchQuery) { convos, query ->
             convos.map { entity ->
                 val profile = try {
-                    val raw = entity.patientProfile
-                    kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
-                        .decodeFromString<PatientProfile>(raw)
+                    json.decodeFromString<PatientProfile>(entity.patientProfile)
                 } catch (_: Exception) {
                     PatientProfile()
                 }
@@ -67,14 +71,46 @@ class ConversationListViewModel @Inject constructor(
         conversationRepository.getUnreadCount()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    fun loadConversations() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                // Conversations are loaded reactively via the allConversations StateFlow.
+                // This method exists to support manual refresh and is called from the screen.
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
+    }
+
+    fun createNewSession(profile: PatientProfile): String {
+        val title = buildString {
+            if (profile.age.isNotBlank()) append(profile.age)
+            if (profile.sex.isNotBlank()) { if (isNotEmpty()) append(", "); append(profile.sex) }
+            if (profile.conditions.isNotEmpty()) { if (isNotEmpty()) append(", "); append(profile.conditions.first()) }
+        }.ifBlank { "New Conversation" }
+
+        var createdId = ""
+        viewModelScope.launch {
+            createdId = conversationRepository.createConversation(title, profile)
+        }
+        return createdId
     }
 
     fun createConversation(title: String, patientProfile: PatientProfile, onCreated: (String) -> Unit) {
         viewModelScope.launch {
             val id = conversationRepository.createConversation(title, patientProfile)
             onCreated(id)
+        }
+    }
+
+    fun deleteSession(id: String) {
+        viewModelScope.launch {
+            conversationRepository.deleteConversation(id)
         }
     }
 

@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
@@ -83,6 +84,7 @@ fun ConversationListScreen(
 ) {
     val uiConversations by viewModel.uiConversations.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     var showProfileSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<String?>(null) }
 
@@ -90,7 +92,7 @@ fun ConversationListScreen(
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     LaunchedEffect(Unit) {
-        // Conversations are loaded reactively via StateFlow
+        viewModel.loadConversations()
     }
 
     Scaffold(
@@ -100,8 +102,13 @@ fun ConversationListScreen(
                 title = {
                     Column {
                         Text(
-                            "ClinRef Conversations",
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+                            "ClinRef AI",
+                            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold)
+                        )
+                        Text(
+                            "Clinical Search & Reference Assistant",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -130,7 +137,14 @@ fun ConversationListScreen(
                     onQueryChange = { viewModel.updateSearchQuery(it) }
                 )
 
-                if (uiConversations.isEmpty() && searchQuery.isBlank()) {
+                if (uiConversations.isEmpty() && searchQuery.isBlank() && isRefreshing) {
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ContainedLoadingIndicator()
+                    }
+                } else if (uiConversations.isEmpty() && searchQuery.isBlank()) {
                     Box(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentAlignment = Alignment.Center
