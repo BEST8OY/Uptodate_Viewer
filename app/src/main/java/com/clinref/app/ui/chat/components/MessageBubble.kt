@@ -107,7 +107,8 @@ fun MessageBubble(
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                 modifier = Modifier
                     .align(if (isUser) Alignment.End else Alignment.Start)
-                    .padding(horizontal = 4.dp, top = 2.dp)
+                    .padding(horizontal = 4.dp)
+                    .padding(top = 2.dp)
             )
         }
 

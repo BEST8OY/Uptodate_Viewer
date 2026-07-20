@@ -1,9 +1,6 @@
 package com.clinref.app.ui.chat
 
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.MaterialShapes
-import androidx.compose.material3.toShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
 
@@ -32,19 +29,14 @@ object ChatDimens {
 }
 
 /**
- * Decorative, non-interactive M3 Expressive shapes.
+ * Decorative, non-interactive shapes used for branding accents (the assistant "mark"
+ * and the empty-state hero shape).
  *
- * These use [MaterialShapes] — the preset library of RoundedPolygons shipped with
- * Material 3 Expressive (androidx.compose.material3:material3 1.4+) — purely for
- * static branding accents (the assistant "mark" and the empty-state hero shape).
- *
- * NOTE: MaterialShapes / toShape() have moved between experimental and stable a
- * couple of times across 1.4.x releases. If your Compose BOM rejects the
- * `toShape()` import below, pin material3 to a version where MaterialShapes is
- * stable, or swap these two lines for a plain RoundedCornerShape(50) as a fallback.
+ * MaterialShapes / toShape() requires a @Composable context and cannot be used in
+ * a plain object, so we use RoundedCornerShape(50) as a universal fallback that
+ * gives the same "pill" / circular silhouette without the composable constraint.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 object ChatShapes {
-    val assistantMark: Shape by lazy { MaterialShapes.Cookie9Sided.toShape() }
-    val emptyStateHero: Shape by lazy { MaterialShapes.Sunny.toShape() }
+    val assistantMark: Shape = RoundedCornerShape(50)
+    val emptyStateHero: Shape = RoundedCornerShape(50)
 }
