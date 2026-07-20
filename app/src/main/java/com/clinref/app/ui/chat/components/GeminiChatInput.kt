@@ -12,11 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -111,15 +110,6 @@ fun GeminiChatInput(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Expand features",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(24.dp)
-                        .padding(bottom = 2.dp)
-                )
-
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -195,7 +185,7 @@ fun GeminiChatInput(
                         enabled = textValue.isNotBlank()
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowUpward,
+                            imageVector = Icons.Default.Send,
                             contentDescription = "Send",
                             tint = if (textValue.isNotBlank()) {
                                 MaterialTheme.colorScheme.onPrimary
