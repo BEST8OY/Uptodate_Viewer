@@ -175,11 +175,10 @@ fun GeminiMessageItem(
                             modifier = Modifier
                                 .size(18.dp)
                                 .combinedClickable(
-                                    onClick = {},
-                                    onLongClick = {
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onClick = {
                                         onCopyMessage(message.content)
-                                    }
+                                    },
+                                    onLongClick = {}
                                 )
                         )
                     }
