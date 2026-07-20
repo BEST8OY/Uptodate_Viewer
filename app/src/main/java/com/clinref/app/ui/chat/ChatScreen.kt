@@ -234,18 +234,6 @@ fun ChatScreen(
                 }
             }
 
-            ScrollToBottomFAB(
-                visible = showScrollToBottom,
-                onClick = {
-                    coroutineScope.launch {
-                        listState.animateScrollToItem(chatItems.size - 1)
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 150.dp)
-            )
-
             GeminiChatInput(
                 textValue = activeInputText,
                 onValueChange = { activeInputText = it },
@@ -257,6 +245,18 @@ fun ChatScreen(
                 isGenerating = isGenerating,
                 patientProfile = patientProfile,
                 modifier = Modifier.align(Alignment.BottomCenter)
+            )
+
+            ScrollToBottomFAB(
+                visible = showScrollToBottom,
+                onClick = {
+                    coroutineScope.launch {
+                        listState.animateScrollToItem(chatItems.size - 1)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 110.dp)
             )
         }
     }

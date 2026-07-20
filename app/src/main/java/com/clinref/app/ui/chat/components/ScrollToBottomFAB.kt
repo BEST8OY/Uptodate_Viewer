@@ -31,7 +31,7 @@ fun ScrollToBottomFAB(
         enter = scaleIn(initialScale = 0.7f) + fadeIn(
             animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()
         ),
-        exit = scaleOut(targetScale = 0.7f) + fadeOut(),
+        exit = scaleOut(targetScale = 0.0f) + fadeOut(),
         modifier = modifier
     ) {
         Surface(
@@ -39,13 +39,14 @@ fun ScrollToBottomFAB(
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHighest,
             shadowElevation = 3.dp,
-            modifier = Modifier.size(40.dp)
+            modifier = Modifier.size(48.dp)
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp)) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = "Scroll to latest message",
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }

@@ -64,7 +64,7 @@ fun GeminiChatInput(
                 )
             )
             .padding(horizontal = 20.dp)
-            .padding(top = 28.dp, bottom = 24.dp)
+            .padding(top = 8.dp, bottom = 24.dp)
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
