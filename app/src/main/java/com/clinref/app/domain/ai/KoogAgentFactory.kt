@@ -81,26 +81,16 @@ class KoogAgentFactory @Inject constructor(
 
             handleEvents {
                 onToolCallStarting { eventContext ->
-                    val toolName = eventContext.tool.name
                     val argsStr = eventContext.toolArgs.toString()
-                    accumulator.onToolCallStarting(toolName, argsStr)
-                    streamingManager.onToolCallStarting(toolName, argsStr)
+                    accumulator.onToolCallStarting(eventContext.toolName, argsStr)
+                    streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
                 }
 
                 onToolCallCompleted { eventContext ->
-                    val toolName = eventContext.tool.name
-                    val resultText = eventContext.result?.toString() ?: ""
-                    val success = eventContext.result != null
-                    accumulator.onToolCallCompleted(toolName, resultText, success)
-                    streamingManager.onToolCallCompleted(toolName)
-                    streamingManager.onWaitingForLlm()
-                }
-
-                onToolCallFailed { eventContext ->
-                    val toolName = eventContext.tool.name
-                    val errorText = eventContext.throwable.message ?: "Tool call failed"
-                    accumulator.onToolCallCompleted(toolName, errorText, false)
-                    streamingManager.onToolCallCompleted(toolName)
+                    val resultText = eventContext.toolResult?.toString() ?: ""
+                    val success = eventContext.toolResult != null
+                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, success)
+                    streamingManager.onToolCallCompleted(eventContext.toolName)
                     streamingManager.onWaitingForLlm()
                 }
 
@@ -113,7 +103,7 @@ class KoogAgentFactory @Inject constructor(
                 }
 
                 onAgentExecutionFailed { eventContext ->
-                    streamingManager.onError(eventContext.throwable.message ?: "Unknown error")
+                    streamingManager.onError(eventContext.error.message ?: "Unknown error")
                     accumulator.reset()
                 }
             }
