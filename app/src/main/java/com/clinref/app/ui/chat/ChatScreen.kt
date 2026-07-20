@@ -169,7 +169,7 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
                         top = padding.calculateTopPadding() + 10.dp,
-                        bottom = padding.calculateBottomPadding() + 140.dp
+                        bottom = padding.calculateBottomPadding() + 180.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -243,7 +243,7 @@ fun ChatScreen(
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp)
+                    .padding(bottom = 150.dp)
             )
 
             GeminiChatInput(

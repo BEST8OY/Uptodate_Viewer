@@ -27,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,152 +51,167 @@ fun GeminiChatInput(
 ) {
     val maxLines = 6
 
-    Surface(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
-        tonalElevation = 6.dp,
-        shadowElevation = 8.dp
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.65f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.95f),
+                        MaterialTheme.colorScheme.background
+                    )
+                )
+            )
+            .padding(horizontal = 20.dp)
+            .padding(top = 36.dp, bottom = 24.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(32.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 8.dp,
+            shadowElevation = 14.dp
         ) {
-            patientProfile?.let { profile ->
-                val profileText = buildString {
-                    if (profile.age.isNotBlank()) append(profile.age)
-                    if (profile.sex.isNotBlank()) {
-                        if (isNotEmpty()) append(" | ")
-                        append(profile.sex)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp, vertical = 16.dp)
+            ) {
+                patientProfile?.let { profile ->
+                    val profileText = buildString {
+                        if (profile.age.isNotBlank()) append(profile.age)
+                        if (profile.sex.isNotBlank()) {
+                            if (isNotEmpty()) append(" | ")
+                            append(profile.sex)
+                        }
+                        if (profile.conditions.isNotEmpty()) {
+                            if (isNotEmpty()) append(" | ")
+                            append(profile.conditions.first())
+                            if (profile.conditions.size > 1) append(" +${profile.conditions.size - 1}")
+                        }
                     }
-                    if (profile.conditions.isNotEmpty()) {
-                        if (isNotEmpty()) append(" | ")
-                        append(profile.conditions.first())
-                        if (profile.conditions.size > 1) append(" +${profile.conditions.size - 1}")
+                    if (profileText.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .padding(bottom = 12.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = profileText,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
-                if (profileText.isNotBlank()) {
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .padding(bottom = 8.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .weight(1f)
+                            .heightIn(min = 34.dp, max = 140.dp)
+                            .padding(bottom = 4.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        BasicTextField(
+                            value = textValue,
+                            onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            maxLines = maxLines,
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    if (textValue.isEmpty()) {
+                                        Text(
+                                            text = "Ask a clinical question...",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+                    }
+
+                    if (textValue.isEmpty()) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Voice input",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(26.dp)
+                                .padding(bottom = 4.dp)
+                        )
+                    }
+
+                    if (isGenerating) {
+                        FilledIconButton(
+                            onClick = onCancel,
+                            modifier = Modifier.size(40.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer
+                            )
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = null,
-                                modifier = Modifier.size(12.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = profileText,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cancel generation",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 28.dp, max = 140.dp)
-                        .padding(bottom = 4.dp)
-                ) {
-                    BasicTextField(
-                        value = textValue,
-                        onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
-                        modifier = Modifier.fillMaxWidth(),
-                        textStyle = TextStyle(
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        maxLines = maxLines,
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        decorationBox = { innerTextField ->
-                            Box {
-                                if (textValue.isEmpty()) {
-                                    Text(
-                                        text = "Ask a clinical question...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                    } else {
+                        FilledIconButton(
+                            onClick = {
+                                if (textValue.isNotBlank()) {
+                                    onSendMessage(textValue)
                                 }
-                                innerTextField()
-                            }
-                        }
-                    )
-                }
-
-                if (textValue.isEmpty()) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Voice input",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .padding(bottom = 2.dp)
-                    )
-                }
-
-                if (isGenerating) {
-                    FilledIconButton(
-                        onClick = onCancel,
-                        modifier = Modifier.size(34.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Cancel generation",
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                } else {
-                    FilledIconButton(
-                        onClick = {
-                            if (textValue.isNotBlank()) {
-                                onSendMessage(textValue)
-                            }
-                        },
-                        modifier = Modifier.size(34.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (textValue.isNotBlank()) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainer
-                            }
-                        ),
-                        enabled = textValue.isNotBlank()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Send",
-                            tint = if (textValue.isNotBlank()) {
-                                MaterialTheme.colorScheme.onPrimary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                             },
-                            modifier = Modifier.size(16.dp)
-                        )
+                            modifier = Modifier.size(40.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (textValue.isNotBlank()) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainer
+                                }
+                            ),
+                            enabled = textValue.isNotBlank()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Send",
+                                tint = if (textValue.isNotBlank()) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                },
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
