@@ -68,7 +68,11 @@ class NavigationState(
     }
 
     private fun getTopLevelRoutesInUse(): List<NavKey> =
-        listOf(topLevelRoute)
+        if (topLevelRoute == startRoute) {
+            listOf(startRoute)
+        } else {
+            listOf(startRoute, topLevelRoute)
+        }
 }
 
 class Navigator(val state: NavigationState) {
@@ -90,8 +94,7 @@ class Navigator(val state: NavigationState) {
         val currentRoute = currentStack.last()
 
         if (currentRoute == state.topLevelRoute) {
-            // At root — do nothing, onBack callback will handle finish()
-            return
+            state.topLevelRoute = state.startRoute
         } else {
             currentStack.removeLastOrNull()
         }
