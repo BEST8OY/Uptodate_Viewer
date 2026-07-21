@@ -63,6 +63,7 @@ fun ChatScreen(
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
     val agentState by viewModel.agentState.collectAsStateWithLifecycle()
     val toolProgress by viewModel.toolProgress.collectAsStateWithLifecycle()
+    val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
     val isLoadingOlder by viewModel.isLoadingOlder.collectAsStateWithLifecycle()
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
@@ -90,6 +91,14 @@ fun ChatScreen(
         if (messages.isNotEmpty()) {
             coroutineScope.launch {
                 listState.animateScrollToItem(chatItems.size - 1)
+            }
+        }
+    }
+
+    LaunchedEffect(streamingText) {
+        if (streamingText.isNotEmpty()) {
+            coroutineScope.launch {
+                listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
             }
         }
     }
@@ -214,6 +223,25 @@ fun ChatScreen(
                     if (toolProgress != null) {
                         item {
                             GeminiOrchestrationIndicator(progress = toolProgress!!)
+                        }
+                    }
+
+                    if (streamingText.isNotEmpty()) {
+                        item(key = "streaming") {
+                            GeminiMessageItem(
+                                message = MessageUiModel(
+                                    id = "streaming",
+                                    role = "assistant",
+                                    content = streamingText,
+                                    timestamp = System.currentTimeMillis(),
+                                    showTimestamp = false
+                                ),
+                                onCopyMessage = { content ->
+                                    viewModel.copyMessageToClipboard(context, content)
+                                },
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected
+                            )
                         }
                     }
 

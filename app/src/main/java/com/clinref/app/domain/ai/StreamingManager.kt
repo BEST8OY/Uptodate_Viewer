@@ -44,11 +44,17 @@ class StreamingManager {
     private val _toolProgress = MutableStateFlow<ToolProgress?>(null)
     val toolProgress: StateFlow<ToolProgress?> = _toolProgress.asStateFlow()
 
+    private val _streamingText = MutableStateFlow("")
+    val streamingText: StateFlow<String> = _streamingText.asStateFlow()
+
     private var stepCounter = 0
     private var accumulatedUsage = TokenUsage()
+    private val streamingBuffer = StringBuilder()
 
     fun onToolCallStarting(toolName: String, args: String) {
         stepCounter++
+        streamingBuffer.clear()
+        _streamingText.value = ""
         val description = when (toolName) {
             "searchTopics" -> "Searching topics\u2026"
             "getTopicOutline" -> "Reading topic outline\u2026"
@@ -64,7 +70,14 @@ class StreamingManager {
     }
 
     fun onWaitingForLlm() {
+        streamingBuffer.clear()
+        _streamingText.value = ""
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
+    }
+
+    fun onStreamingTextDelta(delta: String) {
+        streamingBuffer.append(delta)
+        _streamingText.value = streamingBuffer.toString()
     }
 
     fun onLlmCallCompleted(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
@@ -77,11 +90,15 @@ class StreamingManager {
 
     fun onCompleted(result: String, validation: SafetyValidator.ValidationResult) {
         _toolProgress.value = null
+        streamingBuffer.clear()
+        _streamingText.value = ""
         _agentState.value = AgentState.Completed(result, validation, accumulatedUsage)
     }
 
     fun onError(error: String) {
         _toolProgress.value = null
+        streamingBuffer.clear()
+        _streamingText.value = ""
         val type = classifyError(error)
         _agentState.value = AgentState.Error(error, type)
     }
@@ -89,6 +106,8 @@ class StreamingManager {
     fun reset() {
         stepCounter = 0
         accumulatedUsage = TokenUsage()
+        streamingBuffer.clear()
+        _streamingText.value = ""
         _toolProgress.value = null
         _agentState.value = AgentState.Idle
     }

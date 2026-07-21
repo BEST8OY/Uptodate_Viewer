@@ -84,6 +84,7 @@ class ChatViewModel @Inject constructor(
 
     val agentState: StateFlow<StreamingManager.AgentState> = streamingManager.agentState
     val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
+    val streamingText: StateFlow<String> = streamingManager.streamingText
 
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()

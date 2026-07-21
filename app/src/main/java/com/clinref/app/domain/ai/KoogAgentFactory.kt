@@ -98,6 +98,15 @@ class KoogAgentFactory @Inject constructor(
                     streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
                 }
 
+                onLLMStreamingFrameReceived { eventContext ->
+                    when (val frame = eventContext.streamFrame) {
+                        is ai.koog.prompt.streaming.StreamFrame.TextDelta -> {
+                            streamingManager.onStreamingTextDelta(frame.text)
+                        }
+                        else -> {}
+                    }
+                }
+
                 onToolCallCompleted { eventContext ->
                     val callId = eventContext.toolCallId ?: ""
                     val resultText = eventContext.toolResult?.toString() ?: ""
