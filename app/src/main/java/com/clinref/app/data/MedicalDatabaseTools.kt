@@ -37,7 +37,7 @@ class MedicalDatabaseTools @Inject constructor(
             setOf(RegexOption.IGNORE_CASE)
         )
         private val GRAPHIC_ID_REGEX = Regex(
-            """(?:id|graphicId)(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
+            """(?<![a-zA-Z])(?:id|graphicId)(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
             setOf(RegexOption.IGNORE_CASE)
         )
         private val HTML_P_TAG = Regex("</?p\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
@@ -77,12 +77,15 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Retrieve the table of contents outline of a topic, returned as a JSON array of stable section IDs and titles.")
+    @LLMDescription("Retrieve the table of contents outline of a topic, returned as a JSON object with 'title' (topic title), 'sections' (array of {id, title}), and 'graphics' (array of {id, type, title}). Use graphics to know what tables, figures, and algorithms are available for a topic.")
     fun getTopicOutline(
         @LLMDescription("The unique topic ID") topicId: String
     ): String {
         val content = contentRepository.getTopicContent(topicId) ?: return "Topic not found"
-        return parseOutlineWithStableIds(content.outlineHtml)
+        val title = contentRepository.getTopicTitle(topicId) ?: topicId
+        val sections = parseOutlineList(content.outlineHtml)
+        val graphics = parseGraphicsFromOutline(content.outlineHtml)
+        return Json.encodeToString(mapOf("title" to title, "sections" to sections, "graphics" to graphics))
     }
 
     @Tool
@@ -119,18 +122,14 @@ class MedicalDatabaseTools @Inject constructor(
             return "Section not found."
         }
 
-        val hasComplexData = sectionHtml.contains("<table", ignoreCase = true) ||
-                             sectionHtml.contains("<img", ignoreCase = true) ||
-                             sectionHtml.contains("class=\"dosing-table\"", ignoreCase = true) ||
-                             sectionHtml.contains("class=\"dosing-info\"", ignoreCase = true)
+        // Build a topic title cache for link text in htmlToMarkdown
+        val topicTitles = mutableMapOf<String, String>()
+        // Pre-populate with the current topic's title if known
+        val currentTitle = contentRepository.getTopicTitle(topicId)
+        if (currentTitle != null) topicTitles[topicId] = currentTitle
 
-        val markdown = htmlToMarkdown(sectionHtml)
-
-        return if (hasComplexData) {
-            "[WARNING: This section contains complex dosing tables, formulas, or images that cannot be summarized. " +
-            "Please verify the raw details directly in the original formatting by opening this topic.]\n\n$markdown"
-        } else {
-            markdown
+        return htmlToMarkdown(sectionHtml) { tid ->
+            topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
         }
     }
 
@@ -161,7 +160,7 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Retrieve the text content of a table graphic. Use this to read data from tables (dosing schedules, differential diagnoses, lab values, etc). Only works for graphic_table type. You may interpret and summarize the table data to answer clinical questions.")
+    @LLMDescription("Retrieve the text content of a table graphic. Use this to read tabular data (scoring criteria, lab values, treatment protocols, drug comparisons, etc). Only works for graphic_table type. You may interpret and summarize the table data to answer clinical questions.")
     fun getGraphicContent(
         @LLMDescription("The graphic ID from the outline") graphicId: String
     ): String {
@@ -263,10 +262,6 @@ class MedicalDatabaseTools @Inject constructor(
         return results
     }
 
-    private fun parseOutlineWithStableIds(outlineHtml: String): String {
-        return Json.encodeToString(parseOutlineList(outlineHtml))
-    }
-
     /**
      * Slices the section text without cutting off early on inner subsection titles.
      * Uses the outline sequence to find the exact next sibling heading boundary.
@@ -312,38 +307,40 @@ class MedicalDatabaseTools @Inject constructor(
         }
     }
 
-    private fun htmlToMarkdown(html: String): String {
+    private fun htmlToMarkdown(html: String, titleLookup: (String) -> String = { it }): String {
         var s = html
         s = A_TAG_REGEX.replace(s) { match ->
             val href = match.groupValues[1]
-            val linkText = match.groupValues[2].replace(STRIP_TAGS_REGEX, "").trim()
-            if (linkText.isEmpty()) return@replace ""
+            val rawText = match.groupValues[2].replace(STRIP_TAGS_REGEX, "").trim()
+            if (rawText.isEmpty()) return@replace ""
 
             val actionMatch = GRAPHIC_ACTION_REGEX.find(href)
             if (actionMatch != null) {
                 val jsonStr = actionMatch.groupValues[1]
                     .replace("&quot;", "\"").replace("&#39;", "'")
                 when {
-                    jsonStr.contains("graphic") -> {
+                    jsonStr.contains("\"graphic\"") && jsonStr.contains("\"type\":\"graphic\"") -> {
                         val idMatch = GRAPHIC_ID_REGEX.find(jsonStr)
                         val graphicId = idMatch?.groupValues?.get(1)
                         if (graphicId != null) {
-                            return@replace "[$linkText](Graphic-$graphicId)"
+                            return@replace "[$rawText](Graphic-$graphicId)"
                         }
                     }
-                    jsonStr.contains("topic") -> {
+                    // Only convert medical/drug topic links — skip contributors, abstracts/footnotes
+                    jsonStr.contains("\"type\":\"medical\"") || jsonStr.contains("\"type\":\"drug\"") -> {
                         val idMatch = GRAPHIC_ID_REGEX.find(jsonStr)
                         val topicId = idMatch?.groupValues?.get(1)
                         if (topicId != null) {
                             val sectionMatch = SECTION_REGEX.find(jsonStr)
                             val sectionId = sectionMatch?.groupValues?.get(1)
                             val ref = if (sectionId != null) "$topicId#$sectionId" else topicId
-                            return@replace "[$linkText](Topic-$ref)"
+                            val displayTitle = titleLookup(topicId)
+                            return@replace "[$displayTitle](Topic-$ref)"
                         }
                     }
                 }
             }
-            linkText
+            rawText
         }
         // Block-level boundaries — must run BEFORE the catch-all tag strip, or heading/div/
         // table/list text can concatenate directly into adjacent content with no separator.

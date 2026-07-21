@@ -18,6 +18,8 @@ import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.data.secure.SecurePreferences
 import com.clinref.app.repository.ConversationRepository
+import com.clinref.app.repository.ContentRepository
+import com.clinref.app.repository.AssetRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +35,9 @@ import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 
+data class ResolvedTopicRef(val topicId: String, val title: String, val sectionId: String? = null)
+data class ResolvedGraphicRef(val graphicId: String, val title: String)
+
 data class MessageUiModel(
     val id: String,
     val role: String,
@@ -41,7 +46,9 @@ data class MessageUiModel(
     val citations: List<SafetyValidator.Citation> = emptyList(),
     val warnings: List<String> = emptyList(),
     val isError: Boolean = false,
-    val showTimestamp: Boolean = true
+    val showTimestamp: Boolean = true,
+    val topicRefs: List<ResolvedTopicRef> = emptyList(),
+    val graphicRefs: List<ResolvedGraphicRef> = emptyList()
 )
 
 sealed interface ChatListItem {
@@ -56,7 +63,9 @@ class ChatViewModel @Inject constructor(
     private val reliabilityManager: ReliabilityManager,
     private val securePreferences: SecurePreferences,
     private val secureLogger: SecureLogger,
-    private val rateLimiter: RateLimiter
+    private val rateLimiter: RateLimiter,
+    private val contentRepository: ContentRepository,
+    private val assetRepository: AssetRepository
 ) : ViewModel() {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -316,6 +325,28 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private val TOPIC_LINK_RE = Regex("""\[([^\]]+)\]\(Topic-([a-zA-Z0-9_-]+)(?:#([a-zA-Z0-9_-]+))?\)""")
+    private val GRAPHIC_LINK_RE = Regex("""\[([^\]]+)\]\(Graphic-([a-zA-Z0-9_-]+)\)""")
+
+    private fun resolveRefs(content: String): Pair<List<ResolvedTopicRef>, List<ResolvedGraphicRef>> {
+        val topicRefs = TOPIC_LINK_RE.findAll(content).map { match ->
+            val topicId = match.groupValues[2]
+            val sectionId = match.groupValues[3].ifEmpty { null }
+            val title = contentRepository.getTopicTitle(topicId) ?: topicId
+            ResolvedTopicRef(topicId, title, sectionId)
+        }.distinctBy { it.topicId }.toList()
+
+        val graphicRefs = GRAPHIC_LINK_RE.findAll(content).map { match ->
+            val graphicId = match.groupValues[2]
+            val rawLabel = match.groupValues[1].ifEmpty { "Graphic $graphicId" }
+            // Look up the real title from graphic_asset
+            val title = assetRepository.getGraphicTitle(graphicId) ?: rawLabel
+            ResolvedGraphicRef(graphicId, title)
+        }.distinctBy { it.graphicId }.toList()
+
+        return topicRefs to graphicRefs
+    }
+
     private fun MessageEntity.toUiModel(
         citations: List<SafetyValidator.Citation> = emptyList(),
         warnings: List<String> = emptyList(),
@@ -327,6 +358,7 @@ class ChatViewModel @Inject constructor(
         val parsedWarnings = if (warnings.isEmpty() && !warningsJson.isNullOrBlank()) {
             try { json.decodeFromString<List<String>>(warningsJson) } catch (_: Exception) { emptyList() }
         } else warnings
+        val (topicRefs, graphicRefs) = resolveRefs(content)
         return MessageUiModel(
             id = id,
             role = role,
@@ -334,7 +366,9 @@ class ChatViewModel @Inject constructor(
             timestamp = timestamp,
             citations = parsedCitations,
             warnings = parsedWarnings,
-            isError = isError || this.isError || role == "cancelled"
+            isError = isError || this.isError || role == "cancelled",
+            topicRefs = topicRefs,
+            graphicRefs = graphicRefs
         )
     }
 }

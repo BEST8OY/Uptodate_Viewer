@@ -92,16 +92,19 @@ private sealed class OutlineItem {
 @Composable
 fun ContentScreen(
     topicId: String,
+    sectionId: String? = null,
     onBack: () -> Unit,
     onHome: () -> Unit,
     onGraphicSelected: (String) -> Unit,
     viewModel: ContentViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
-    LaunchedEffect(topicId) {
+    LaunchedEffect(topicId, sectionId) {
         if (viewModel.currentTopicId.value != topicId) {
             viewModel.resetNavigationHistory()
-            viewModel.loadTopic(topicId)
+            viewModel.loadTopic(topicId, sectionId)
+        } else if (sectionId != null) {
+            viewModel.scrollToSection(sectionId)
         }
     }
 
@@ -117,6 +120,7 @@ fun ContentScreen(
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
     val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
+    val scrollToSectionId by viewModel.scrollToSectionId.collectAsStateWithLifecycle()
     val scrollToSection by viewModel.scrollToSection.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
@@ -209,6 +213,7 @@ fun ContentScreen(
                         },
                         onFindResult = { searchResultCount = it },
                         onWebViewCreated = { webView = it },
+                        scrollToSectionId = scrollToSectionId,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -522,6 +527,7 @@ private fun HtmlContentWebView(
     onAction: (String) -> Unit,
     onFindResult: (Int) -> Unit,
     onWebViewCreated: (WebView) -> Unit,
+    scrollToSectionId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
@@ -555,6 +561,16 @@ private fun HtmlContentWebView(
                             return true
                         }
                         return false
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        if (scrollToSectionId != null) {
+                            view?.evaluateJavascript(
+                                "document.getElementById('$scrollToSectionId')?.scrollIntoView({behavior: 'smooth', block: 'start'})",
+                                null
+                            )
+                        }
                     }
                 }
                 settings.javaScriptEnabled = true

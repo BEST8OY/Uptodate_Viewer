@@ -75,7 +75,7 @@ data object FavoritesRoute : TopLevelRoute {
 }
 
 @Serializable
-data class ContentRoute(val topicId: String) : NavKey
+data class ContentRoute(val topicId: String, val sectionId: String? = null) : NavKey
 
 @Serializable
 data object AiRoute : TopLevelRoute {
@@ -169,6 +169,7 @@ fun NavGraph(
         entry<ContentRoute> { key ->
             ContentScreen(
                 topicId = key.topicId,
+                sectionId = key.sectionId,
                 onBack = { navigator.goBack() },
                 onHome = { navigator.navigate(TocRoute) },
                 onGraphicSelected = { graphicId ->
@@ -204,8 +205,11 @@ fun NavGraph(
         entry<ChatRoute> { key ->
             ChatScreen(
                 conversationId = key.conversationId,
-                onNavigateToContent = { topicId ->
-                    navigator.navigate(ContentRoute(topicId))
+                onNavigateToContent = { topicId, sectionId ->
+                    navigator.navigate(ContentRoute(topicId, sectionId))
+                },
+                onGraphicSelected = { graphicId ->
+                    selectedGraphicId = graphicId
                 },
                 onBack = { navigator.goBack() }
             )

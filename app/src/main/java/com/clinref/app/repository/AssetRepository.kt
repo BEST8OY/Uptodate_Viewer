@@ -20,4 +20,8 @@ class AssetRepository @Inject constructor(
             movieUrl = data["movieUrl"] as? String
         )
     }
+
+    fun getGraphicTitle(graphicId: String): String? {
+        return assetDao.getGraphicTitle(graphicId)
+    }
 }

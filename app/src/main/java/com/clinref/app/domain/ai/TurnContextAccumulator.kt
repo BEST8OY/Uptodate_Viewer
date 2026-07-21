@@ -19,7 +19,6 @@ class TurnContextAccumulator {
     private val toolResults = CopyOnWriteArrayList<String>()
     private val fetchedSections = CopyOnWriteArrayList<SafetyValidator.FetchedSection>()
     private val graphicIds = CopyOnWriteArraySet<String>()
-    private val sectionWarnings = ConcurrentHashMap<String, Boolean>()
 
     // Maps toolCallId to arguments to support thread-safe concurrent tool runs
     private val pendingToolArgs = ConcurrentHashMap<String, String>()
@@ -31,7 +30,6 @@ class TurnContextAccumulator {
         toolResults.clear()
         fetchedSections.clear()
         graphicIds.clear()
-        sectionWarnings.clear()
         pendingToolArgs.clear()
     }
 
@@ -74,7 +72,6 @@ class TurnContextAccumulator {
             toolCalls = toolCalls.toList(),
             answer = answer,
             citations = parseCitations(answer),
-            sectionWarnings = sectionWarnings.toMap(),
             toolResults = toolResults.toList(),
             fetchedSections = fetchedSections.toList(),
             graphicIds = graphicIds.toSet()
@@ -108,13 +105,11 @@ class TurnContextAccumulator {
     }
 
     private fun parseSectionResult(args: Map<String, String>, result: String) {
-        val hasWarning = result.contains("[WARNING", ignoreCase = true)
         val topicId = args["topicId"] ?: ""
         val sectionId = args["sectionId"] ?: ""
         val sectionTitle = args["sectionTitle"] ?: ""
 
         if (sectionId.isNotEmpty()) {
-            sectionWarnings[sectionId] = hasWarning
             fetchedSections.add(
                 SafetyValidator.FetchedSection(
                     topicId = topicId,

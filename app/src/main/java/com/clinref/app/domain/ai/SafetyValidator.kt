@@ -34,7 +34,6 @@ class SafetyValidator {
         val toolCalls: List<ToolCallRecord>,
         val answer: String,
         val citations: List<Citation>,
-        val sectionWarnings: Map<String, Boolean> = emptyMap(),
         val toolResults: List<String> = emptyList(),
         val fetchedSections: List<FetchedSection> = emptyList(),
         val graphicIds: Set<String> = emptySet()
@@ -53,19 +52,16 @@ class SafetyValidator {
         if (!rule2.passed) return rule2
         warnings.addAll(rule2.warnings)
 
-        val rule3 = validateComplexDataWarning(context)
+        val rule3 = validateNoInventedNumbers(context)
+        if (!rule3.passed) return rule3
         warnings.addAll(rule3.warnings)
 
-        val rule4 = validateNoInventedNumbers(context)
+        val rule4 = validateCitationRequired(context)
         if (!rule4.passed) return rule4
-        warnings.addAll(rule4.warnings)
 
-        val rule5 = validateCitationRequired(context)
+        val rule5 = validateNoGraphicInterpretation(context)
         if (!rule5.passed) return rule5
-
-        val rule6 = validateNoGraphicInterpretation(context)
-        if (!rule6.passed) return rule6
-        warnings.addAll(rule6.warnings)
+        warnings.addAll(rule5.warnings)
 
         return ValidationResult(passed = true, warnings = warnings, citations = context.citations)
     }
@@ -116,24 +112,6 @@ class SafetyValidator {
 
             if (!idMatch && titleMatch) {
                 warnings.add("Citation section ID '${citation.sectionId}' not exactly matched; title match used as fallback.")
-            }
-        }
-        return ValidationResult(passed = true, warnings = warnings)
-    }
-
-    private fun validateComplexDataWarning(context: TurnContext): ValidationResult {
-        val warnings = mutableListOf<String>()
-        for ((sectionId, hasComplex) in context.sectionWarnings) {
-            if (hasComplex) {
-                val answerMentionsWarning = context.answer.contains("[WARNING", ignoreCase = true) ||
-                                           context.answer.contains("complex dosing", ignoreCase = true) ||
-                                           context.answer.contains("verify the raw details", ignoreCase = true)
-                if (!answerMentionsWarning) {
-                    warnings.add(
-                        "Section $sectionId contains complex clinical data. " +
-                            "The answer should include a warning directing users to view the source directly."
-                    )
-                }
             }
         }
         return ValidationResult(passed = true, warnings = warnings)

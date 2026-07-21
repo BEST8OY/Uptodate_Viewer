@@ -38,13 +38,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.ui.chat.MessageUiModel
+import com.clinref.app.ui.chat.ResolvedTopicRef
+import com.clinref.app.ui.chat.ResolvedGraphicRef
 import com.mikepenz.markdown.m3.Markdown
+
+private val GRAPHIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Graphic-([a-zA-Z0-9_-]+)\)""")
+private val TOPIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Topic-([a-zA-Z0-9_-]+)(?:#([a-zA-Z0-9_-]+))?\)""")
 
 @Composable
 fun GeminiMessageItem(
     message: MessageUiModel,
     onCopyMessage: (String) -> Unit = {},
-    onNavigateToContent: (String) -> Unit = {},
+    onNavigateToContent: (String, String?) -> Unit = { _, _ -> },
+    onGraphicSelected: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isUser = message.role == "user"
@@ -103,10 +109,37 @@ fun GeminiMessageItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
+                    var cleanContent = GRAPHIC_LINK_REGEX.replace(message.content, "$1")
+                    cleanContent = TOPIC_LINK_REGEX.replace(cleanContent, "$1")
+
                     Markdown(
-                        content = message.content,
+                        content = cleanContent,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    val allRefs = message.graphicRefs.map { it.title to { onGraphicSelected(it.graphicId) } } +
+                        message.topicRefs.map { it.title to { onNavigateToContent(it.topicId, it.sectionId) } }
+                    if (allRefs.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(message.graphicRefs) { ref ->
+                                GeminiGraphicPill(
+                                    label = ref.title,
+                                    graphicId = ref.graphicId,
+                                    onClick = { onGraphicSelected(ref.graphicId) }
+                                )
+                            }
+                            items(message.topicRefs) { ref ->
+                                GeminiTopicPill(
+                                    label = ref.title,
+                                    onClick = { onNavigateToContent(ref.topicId, ref.sectionId) }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if (message.warnings.isNotEmpty()) {
@@ -125,7 +158,7 @@ fun GeminiMessageItem(
                         items(message.citations) { citation ->
                             GeminiCitationPill(
                                 citation = citation,
-                                onClick = { onNavigateToContent(citation.topicId) }
+                                onClick = { onNavigateToContent(citation.topicId, citation.sectionId) }
                             )
                         }
                     }
@@ -176,6 +209,62 @@ fun GeminiCitationPill(citation: SafetyValidator.Citation, onClick: () -> Unit) 
         colors = InputChipDefaults.inputChipColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
             labelColor = MaterialTheme.colorScheme.onSurface
+        ),
+        border = null
+    )
+}
+
+@Composable
+fun GeminiGraphicPill(label: String, graphicId: String, onClick: () -> Unit) {
+    InputChip(
+        selected = false,
+        onClick = onClick,
+        label = {
+            Text(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
+            )
+        },
+        trailingIcon = {
+            Icon(
+                imageVector = Icons.Default.Launch,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp)
+            )
+        },
+        colors = InputChipDefaults.inputChipColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+        ),
+        border = null
+    )
+}
+
+@Composable
+fun GeminiTopicPill(label: String, onClick: () -> Unit) {
+    InputChip(
+        selected = false,
+        onClick = onClick,
+        label = {
+            Text(
+                text = label,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
+            )
+        },
+        trailingIcon = {
+            Icon(
+                imageVector = Icons.Default.Launch,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp)
+            )
+        },
+        colors = InputChipDefaults.inputChipColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
         ),
         border = null
     )

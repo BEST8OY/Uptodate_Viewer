@@ -54,7 +54,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun ChatScreen(
     conversationId: String,
-    onNavigateToContent: (String) -> Unit,
+    onNavigateToContent: (String, String?) -> Unit,
+    onGraphicSelected: (String) -> Unit,
     onBack: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
@@ -204,7 +205,8 @@ fun ChatScreen(
                                 onCopyMessage = { content ->
                                     viewModel.copyMessageToClipboard(context, content)
                                 },
-                                onNavigateToContent = onNavigateToContent
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected
                             )
                         }
                     }
