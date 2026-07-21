@@ -335,8 +335,8 @@ fun AiSettingsScreen(
                         Slider(
                             value = configuration.requestsPerMinute.toFloat(),
                             onValueChange = { viewModel.updateRequestsPerMinute(it.toInt()) },
-                            valueRange = 0f..60f,
-                            steps = 11,
+                            valueRange = 0f..50f,
+                            steps = 24,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
