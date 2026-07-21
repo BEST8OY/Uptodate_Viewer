@@ -300,44 +300,6 @@ fun AiSettingsScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
 
-                    // Request Delay
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Delay Between Requests", style = MaterialTheme.typography.labelMedium)
-                            Text(
-                                formatDelay(configuration.requestDelayMs),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Slider(
-                            value = configuration.requestDelayMs.toFloat(),
-                            onValueChange = { viewModel.updateRequestDelay(it.toInt()) },
-                            valueRange = 0f..30000f,
-                            steps = 29,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("None", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("10s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("20s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("30s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Text(
-                            "Google free tier: 5 RPM = 12s delay. Adjust based on your plan.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
                     // Provider-Specific Settings
                     when (configuration.providerSettings) {
                         is com.clinref.app.domain.ai.ProviderSettings.Google -> {
@@ -657,12 +619,4 @@ private fun ProviderSettingsHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
     )
-}
-
-private fun formatDelay(delayMs: Int): String {
-    return when {
-        delayMs == 0 -> "None"
-        delayMs < 1000 -> "${delayMs}ms"
-        else -> String.format("%.1fs", delayMs / 1000.0)
-    }
 }

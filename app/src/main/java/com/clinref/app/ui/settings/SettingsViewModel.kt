@@ -104,10 +104,6 @@ class SettingsViewModel @Inject constructor(
         _configuration.value = _configuration.value.copy(historyCompressionThreshold = threshold)
     }
 
-    fun updateRequestDelay(delayMs: Int) {
-        _configuration.value = _configuration.value.copy(requestDelayMs = delayMs)
-    }
-
     fun testConnection() {
         viewModelScope.launch {
             _testResult.value = TestResult.Loading
