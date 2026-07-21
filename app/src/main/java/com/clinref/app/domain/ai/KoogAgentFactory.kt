@@ -5,21 +5,17 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
-import ai.koog.prompt.executor.clients.google.GoogleModels
-import ai.koog.prompt.executor.clients.openai.OpenAIModels
-import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
-import ai.koog.prompt.executor.clients.openrouter.OpenRouterModels
-import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
-import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
-import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
-import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
-import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
 import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
+import com.clinref.app.domain.ai.providers.AiProviderFactory
+import com.clinref.app.domain.ai.providers.AnthropicProvider
+import com.clinref.app.domain.ai.providers.GoogleProvider
+import com.clinref.app.domain.ai.providers.OllamaProvider
+import com.clinref.app.domain.ai.providers.OpenAIProvider
+import com.clinref.app.domain.ai.providers.OpenRouterProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,13 +25,12 @@ import javax.inject.Singleton
  * AIAgent is single-use — calling .run() twice throws. So we create
  * a fresh agent per sendMessage() call.
  *
- * Provider support:
- * - Google/Gemini: prompt-executor-google-client:1.0.0-beta ✓
- * - OpenAI: prompt-executor-openai-client:1.0.0 ✓
- * - Anthropic: prompt-executor-anthropic-client:1.0.0 ✓
- * - OpenRouter: prompt-executor-openrouter-client:1.0.0 ✓
- * - Ollama: prompt-executor-ollama-client:1.0.0 ✓
- * - Mistral/DeepSeek: not available at stable version yet
+ * Provider support (modular — each provider is a separate class):
+ * - Google/Gemini: GoogleProvider ✓
+ * - OpenAI: OpenAIProvider ✓
+ * - Anthropic: AnthropicProvider ✓
+ * - OpenRouter: OpenRouterProvider ✓
+ * - Ollama: OllamaProvider ✓
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
@@ -47,6 +42,18 @@ class KoogAgentFactory @Inject constructor(
 
     private val httpClientFactory = OkHttpKoogHttpClient.Factory()
 
+    private val providers: Map<AiProvider, AiProviderFactory> by lazy {
+        mapOf(
+            AiProvider.GOOGLE to GoogleProvider(httpClientFactory),
+            AiProvider.OPENAI to OpenAIProvider(httpClientFactory),
+            AiProvider.ANTHROPIC to AnthropicProvider(httpClientFactory),
+            AiProvider.OPENROUTER to OpenRouterProvider(httpClientFactory),
+            AiProvider.OLLAMA to OllamaProvider(httpClientFactory)
+        )
+    }
+
+    private fun getProvider(provider: AiProvider): AiProviderFactory? = providers[provider]
+
     suspend fun createAgent(
         config: AiConfiguration,
         conversationId: String,
@@ -56,8 +63,9 @@ class KoogAgentFactory @Inject constructor(
         val apiKey = securePreferences.getApiKey(config.provider)
         if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) return null
 
-        val executor = executorFor(config) ?: return null
-        val model = resolveModel(config)
+        val providerFactory = getProvider(config.provider) ?: return null
+        val executor = providerFactory.createExecutor(config, apiKey) ?: return null
+        val model = providerFactory.resolveModel(config)
 
         val toolRegistry = ToolRegistry {
             tools(medicalDatabaseTools)
@@ -142,72 +150,6 @@ class KoogAgentFactory @Inject constructor(
     }
 
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
-        return getStaticFallback(provider)
-    }
-
-    private fun resolveModel(config: AiConfiguration): LLModel {
-        if (config.model.isNotBlank()) {
-            return LLModel(
-                provider = providerFor(config.provider),
-                id = config.model,
-                capabilities = listOf(
-                    ai.koog.prompt.llm.LLMCapability.Completion,
-                    ai.koog.prompt.llm.LLMCapability.Tools,
-                    ai.koog.prompt.llm.LLMCapability.Temperature
-                ),
-                contextLength = 128_000
-            )
-        }
-        return when (config.provider) {
-            AiProvider.OPENAI -> OpenAIModels.models.first()
-            AiProvider.ANTHROPIC -> AnthropicModels.models.first()
-            AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
-            AiProvider.OPENROUTER -> OpenRouterModels.models.first()
-            else -> LLModel(
-                provider = providerFor(config.provider),
-                id = "llama3.2",
-                capabilities = listOf(
-                    ai.koog.prompt.llm.LLMCapability.Completion,
-                    ai.koog.prompt.llm.LLMCapability.Tools,
-                    ai.koog.prompt.llm.LLMCapability.Temperature
-                ),
-                contextLength = 128_000
-            )
-        }
-    }
-
-    private suspend fun executorFor(config: AiConfiguration): PromptExecutor? {
-        val apiKey = securePreferences.getApiKey(config.provider)
-        return when (config.provider) {
-            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
-            AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
-            AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
-            AiProvider.OPENROUTER -> simpleOpenRouterExecutor(apiKey, httpClientFactory)
-            AiProvider.OLLAMA -> {
-                val baseUrl = config.baseUrl.ifBlank { "http://localhost:11434" }
-                simpleOllamaAIExecutor(baseUrl = baseUrl, httpClientFactory = httpClientFactory)
-            }
-            else -> null
-        }
-    }
-
-    private fun providerFor(provider: AiProvider): LLMProvider {
-        return when (provider) {
-            AiProvider.OPENAI -> LLMProvider.OpenAI
-            AiProvider.ANTHROPIC -> LLMProvider.Anthropic
-            AiProvider.GOOGLE -> LLMProvider.Google
-            AiProvider.OPENROUTER -> LLMProvider.OpenRouter
-            AiProvider.OLLAMA -> LLMProvider.Ollama
-            else -> error("No LLMProvider mapping for $provider — executorFor() should have returned null first")
-        }
-    }
-
-    private fun getStaticFallback(provider: AiProvider): List<String> = when (provider) {
-        AiProvider.OPENAI -> OpenAIModels.models.map { it.id }
-        AiProvider.ANTHROPIC -> AnthropicModels.models.map { it.id }
-        AiProvider.GOOGLE -> GoogleModels.models.map { it.id }
-        AiProvider.OPENROUTER -> OpenRouterModels.models.map { it.id }
-        AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
-        else -> emptyList()
+        return getProvider(provider)?.getAvailableModels() ?: emptyList()
     }
 }
