@@ -8,6 +8,7 @@ data class AiConfiguration(
     val baseUrl: String = "",
     val model: String = "",
     val providerSettings: ProviderSettings = ProviderSettings.OpenAI(),
+    val requestDelayMs: Int = 0,
     val historyCompressionThreshold: Int = 8000,
     val isConfigured: Boolean = false
 ) {

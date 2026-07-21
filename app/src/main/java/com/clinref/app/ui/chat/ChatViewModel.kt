@@ -192,6 +192,10 @@ class ChatViewModel @Inject constructor(
             streamingManager.reset()
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
+                    // Delay between requests to avoid hitting RPM limits
+                    if (config.requestDelayMs > 0) {
+                        kotlinx.coroutines.delay(config.requestDelayMs.toLong())
+                    }
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
                             val agent = koogAgentFactory.createAgent(

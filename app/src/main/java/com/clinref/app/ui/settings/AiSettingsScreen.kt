@@ -294,11 +294,43 @@ fun AiSettingsScreen(
                     OutlinedTextField(
                         value = configuration.maxTokens.toString(),
                         onValueChange = { it.toIntOrNull()?.let { tokens -> viewModel.updateMaxTokens(tokens) } },
-                        label = { Text("Max Token Envelope") },
+                        label = { Text("Max Output Tokens") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
+
+                    // Request Delay
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Delay Between Requests", style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                "${configuration.requestDelayMs}ms",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Slider(
+                            value = configuration.requestDelayMs.toFloat(),
+                            onValueChange = { viewModel.updateRequestDelay(it.toInt()) },
+                            valueRange = 0f..5000f,
+                            steps = 9,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("None", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("1s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("5s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
 
                     // Provider-Specific Settings
                     when (configuration.providerSettings) {
