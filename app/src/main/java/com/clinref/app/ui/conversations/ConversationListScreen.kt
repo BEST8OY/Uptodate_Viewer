@@ -214,11 +214,11 @@ fun ConversationListScreen(
             }
 
             // Bottom toolbar with FAB
+            // Padding accounts for: NavigationBar (80dp) + spacing (20dp)
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(bottom = 20.dp),
+                    .padding(bottom = 100.dp),
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shadowElevation = 4.dp
@@ -255,14 +255,14 @@ fun ConversationListScreen(
             }
 
             // Scroll-to-bottom
+            // Padding accounts for: NavigationBar (80dp) + toolbar (60dp) + spacing (20dp)
             AnimatedVisibility(
                 visible = listState.firstVisibleItemIndex > 1,
                 enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(end = 20.dp, bottom = 90.dp)
+                    .padding(end = 20.dp, bottom = 170.dp)
             ) {
                 SmallFloatingActionButton(
                     onClick = {
