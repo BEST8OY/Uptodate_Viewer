@@ -125,9 +125,9 @@ class KoogAgentFactory @Inject constructor(
             appendLine("1. ALWAYS call searchTopics first to find relevant topics.")
             appendLine("2. ALWAYS call getTopicOutline to understand topic structure.")
             appendLine("3. ALWAYS call getTopicSectionText to read specific sections before answering.")
-            appendLine("4. When citing sources, use this exact format for each citation:")
+            appendLine("4. When citing sources, use this exact format, ONE CITATION PER LINE:")
             appendLine("   Topic: <topic title>, Section: <section title> (ID: <section id>)")
-            appendLine("   You may include multiple citations. Every clinical answer must have at least one.")
+            appendLine("   You may include multiple citations, each on its own line. Every clinical answer must have at least one.")
             appendLine("5. For sections marked [WARNING], include the warning in your response.")
             appendLine("6. Never paraphrase complex formulas, or images (non-table graphics).")
             appendLine("7. Do not perform calculations across multiple sections.")
@@ -198,8 +198,8 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.GOOGLE -> LLMProvider.Google
             AiProvider.OPENROUTER -> LLMProvider.OpenRouter
             AiProvider.OLLAMA -> LLMProvider.Ollama
-            // Mistral/DeepSeek: not available at stable version yet
-            else -> LLMProvider.OpenAI
+            // Mistral/DeepSeek: client modules not available at stable version yet
+            else -> error("No LLMProvider mapping for $provider — executorFor() should have returned null first")
         }
     }
 

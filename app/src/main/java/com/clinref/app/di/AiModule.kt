@@ -18,6 +18,7 @@ object AiModule {
     fun provideSafetyValidator(): SafetyValidator = SafetyValidator()
 
     @Provides
+    @Singleton
     fun provideStreamingManager(): StreamingManager = StreamingManager()
 
     @Provides

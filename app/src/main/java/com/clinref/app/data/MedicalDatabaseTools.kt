@@ -50,6 +50,11 @@ class MedicalDatabaseTools @Inject constructor(
         private val HTML_B_TAG = Regex("</?b\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
         private val HTML_EM_TAG = Regex("</?em\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
         private val HTML_I_TAG = Regex("</?i\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
+        private val HTML_HEADING_TAG = Regex("</?h[1-6]\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
+        private val HTML_DIV_OPEN = Regex("<div\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
+        private val HTML_BLOCK_CLOSE = Regex("</(?:div|table|thead|tbody|ul|ol)>", setOf(RegexOption.IGNORE_CASE))
+        private val HTML_TABLE_OPEN = Regex("<table\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
+        private val HTML_LIST_OPEN = Regex("<[uo]l\\b[^>]*>", setOf(RegexOption.IGNORE_CASE))
         private val GRAPHIC_ACTION_REGEX = Regex(
             """appAction\(([^)]*)\)""",
             setOf(RegexOption.DOT_MATCHES_ALL)
@@ -340,6 +345,14 @@ class MedicalDatabaseTools @Inject constructor(
             }
             linkText
         }
+        // Block-level boundaries — must run BEFORE the catch-all tag strip, or heading/div/
+        // table/list text can concatenate directly into adjacent content with no separator.
+        s = s.replace(HTML_HEADING_TAG, "\n\n")
+        s = s.replace(HTML_TABLE_OPEN, "\n\n")
+        s = s.replace(HTML_LIST_OPEN, "\n")
+        s = s.replace(HTML_DIV_OPEN, "\n")
+        s = s.replace(HTML_BLOCK_CLOSE, "\n")
+
         s = s.replace(HTML_P_TAG, "\n\n")
         s = s.replace(HTML_LI_TAG, "\n- ")
         s = s.replace(HTML_LI_CLOSE, "\n")

@@ -45,22 +45,23 @@ class TurnContextAccumulator {
         val args = pendingToolArgs.remove(toolCallId) ?: ""
         val parsedArgs = parseArguments(args)
 
+        // Compute logical success from the result content, not from "non-null".
+        // MedicalDatabaseTools returns sentinel strings for misses ("Section not found.",
+        // "Topic not found", {"error":...}) rather than throwing — these are non-null
+        // strings that should count as failures for validation purposes.
+        val logicalSuccess = success && !isLogicalFailure(result)
+
         toolCalls.add(
             SafetyValidator.ToolCallRecord(
                 toolName = toolName,
                 arguments = parsedArgs,
                 result = result,
-                success = success
+                success = logicalSuccess
             )
         )
         toolResults.add(result)
 
-        // Drop mock successful returns that represent lookup failures
-        val isLookupFailure = result.startsWith("Section not found", ignoreCase = true) ||
-                              result.startsWith("Topic not found", ignoreCase = true) ||
-                              result.startsWith("{\"error\"", ignoreCase = true)
-
-        if (!isLookupFailure) {
+        if (logicalSuccess) {
             when (toolName) {
                 "getTopicSectionText" -> parseSectionResult(parsedArgs, result)
                 "getGraphicInfo" -> parseGraphicResult(parsedArgs)
@@ -78,6 +79,19 @@ class TurnContextAccumulator {
             fetchedSections = fetchedSections.toList(),
             graphicIds = graphicIds.toSet()
         )
+    }
+
+    /**
+     * MedicalDatabaseTools never throws for a "not found" — it returns sentinel strings.
+     * We match those exactly rather than broad "error" substring searches, since real
+     * clinical text can legitimately contain words like "error" (e.g. "medication error").
+     */
+    private fun isLogicalFailure(result: String): Boolean {
+        val trimmed = result.trim()
+        if (trimmed.equals("Topic not found", ignoreCase = true)) return true
+        if (trimmed.equals("Section not found.", ignoreCase = true)) return true
+        if (trimmed.startsWith("{") && trimmed.contains("\"error\"")) return true
+        return false
     }
 
     private fun parseArguments(argsStr: String): Map<String, String> {
@@ -122,10 +136,13 @@ class TurnContextAccumulator {
     private fun parseCitations(answer: String): List<SafetyValidator.Citation> {
         val citations = mutableListOf<SafetyValidator.Citation>()
 
-        // Lookahead assertion prevents lazy evaluation overrun past other citation headings
+        // Anchored to line boundaries with MULTILINE so each citation is parsed from
+        // its own line. The lookahead was added in the previous commit to prevent lazy
+        // evaluation overrun, but without ^...$ anchoring, inline multi-citations on
+        // one line (e.g. separated by ;) would still parse incorrectly.
         val citationPattern = Regex(
-            """Topic:\s*([^,]+),\s*Section:\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?(?=\s*(?:Topic:|\n|\Z))""",
-            RegexOption.IGNORE_CASE
+            """^\s*Topic:\s*(.+?),\s*Section:\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?\s*$""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE)
         )
 
         for (match in citationPattern.findAll(answer)) {

@@ -192,24 +192,28 @@ class SafetyValidator {
         return ValidationResult(passed = true, warnings = emptyList())
     }
 
+    // NOTE: "table" intentionally excluded — system prompt rule 11 permits interpreting
+    // table data, and graphicIds is only populated by getGraphicInfo (non-table metadata),
+    // never by getGraphicContent (table content).
     private val visualInterpretationPatterns = listOf(
         Regex("""(?i)the (?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|pathology|slide|specimen|scan|film|rogram) (?:shows?|demonstrates?|reveals?|suggests?|indicates?|displays?|depicts?|illustrates?)"""),
         Regex("""(?i)(?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|pathology|slide|specimen|scan|film) (?:findings?|abnormalities?|results?|features?|characteristics?)"""),
         Regex("""(?i)(?:visual|visualized?|visible|appears? to show|can be seen)"""),
-        Regex("""(?i)(?:the (?:figure|table|algorithm|diagram) (?:shows?|demonstrates?|reveals?|depicts?))""")
+        Regex("""(?i)(?:the (?:figure|algorithm|diagram|picture) (?:shows?|demonstrates?|reveals?|depicts?))""")
     )
 
-    private val GRAPHIC_REF_REGEX = Regex("""Graphic-\d+""", RegexOption.IGNORE_CASE)
+    private val GRAPHIC_REF_REGEX = Regex("""Graphic-[a-zA-Z0-9_-]+""", RegexOption.IGNORE_CASE)
 
     private fun validateNoGraphicInterpretation(context: TurnContext): ValidationResult {
         val answer = context.answer
-        val violatingPatterns = visualInterpretationPatterns.filter { it.containsMatchIn(answer) }
+        val hasVisualLanguage = visualInterpretationPatterns.any { it.containsMatchIn(answer) }
+        if (!hasVisualLanguage) return ValidationResult(passed = true, warnings = emptyList())
 
         val hasGraphicToolCalls = context.graphicIds.isNotEmpty()
         val hasGraphicRefsInAnswer = GRAPHIC_REF_REGEX.containsMatchIn(answer)
-        val hasVisualLanguage = violatingPatterns.isNotEmpty()
 
-        if (hasVisualLanguage && (hasGraphicToolCalls || hasGraphicRefsInAnswer)) {
+        // Hard block when there's concrete evidence the model touched a non-table graphic
+        if (hasGraphicToolCalls || hasGraphicRefsInAnswer) {
             return ValidationResult(
                 passed = false,
                 warnings = emptyList(),
@@ -218,6 +222,20 @@ class SafetyValidator {
                     "Direct users to view the source directly."
             )
         }
-        return ValidationResult(passed = true, warnings = emptyList())
+
+        // Advisory: visual language with NO graphic-tool evidence is the more dangerous
+        // case (fully ungrounded claim), but also the one most likely to false-positive
+        // on ordinary prose ("the data appears to show a trend") — surface as warning.
+        val touchedAnyGraphicTool = context.toolCalls.any {
+            it.toolName == "getGraphicInfo" || it.toolName == "getGraphicContent"
+        }
+        val warnings = if (!touchedAnyGraphicTool) {
+            listOf(
+                "Answer uses visual-interpretation language but no graphic tool was called " +
+                    "this turn — verify this isn't a fabricated visual finding."
+            )
+        } else emptyList()
+
+        return ValidationResult(passed = true, warnings = warnings)
     }
 }
