@@ -40,6 +40,34 @@ Package: `ai.koog.prompt.executor.clients.mistralai`
 | parallelToolCalls | Boolean? | Allow parallel tool calls |
 | promptMode | String? | "reasoning" for chain-of-thought mode |
 
+## Anthropic (`AnthropicParams`)
+
+Package: `ai.koog.prompt.executor.clients.anthropic`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| temperature | Double? | Sampling temp [0.0, 1.0]. Mutually exclusive with topP. |
+| maxTokens | Int? | Max tokens to generate (>= 1) |
+| topP | Double? | Nucleus sampling (0.0, 1.0]. Mutually exclusive with temperature. |
+| topK | Int? | Sample from top K options (>= 0) |
+| stopSequences | List<String>? | Custom stop sequences |
+| thinking | AnthropicThinking? | Extended thinking configuration |
+| serviceTier | AnthropicServiceTier? | AUTO or STANDARD_ONLY |
+| container | String? | Container identifier for reuse |
+| mcpServers | List<AnthropicMCPServerURLDefinition>? | MCP servers (max 20) |
+| cacheControl | AnthropicCacheControl? | Cache control strategy |
+
+### AnthropicThinking
+
+Sealed interface: `Enabled(budgetTokens: Int)` or `Disabled`
+
+- `Enabled`: requires minimum 1024 tokens, counts towards maxTokens
+- `Disabled`: no extended thinking
+
+### AnthropicServiceTier
+
+Enum: `AUTO`, `STANDARD_ONLY`
+
 ## Google (`GoogleParams`)
 
 Package: `ai.koog.prompt.executor.clients.google`

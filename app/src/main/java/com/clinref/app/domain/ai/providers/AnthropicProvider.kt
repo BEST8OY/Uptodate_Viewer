@@ -2,12 +2,15 @@ package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
+import ai.koog.prompt.executor.clients.anthropic.AnthropicParams
+import ai.koog.prompt.executor.clients.anthropic.models.AnthropicThinking
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
+import com.clinref.app.domain.ai.ProviderSettings
 
 /**
  * Anthropic provider implementation.
@@ -41,7 +44,23 @@ class AnthropicProvider(
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {
-        return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
+        val settings = config.providerSettings as? ProviderSettings.Anthropic
+            ?: return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
+        val temperature = config.temperature.toDouble()
+
+        return AnthropicParams(
+            temperature = if (settings.topP != null) null else temperature,
+            maxTokens = settings.maxTokens,
+            topP = settings.topP,
+            topK = settings.topK,
+            thinking = if (settings.enableThinking) {
+                AnthropicThinking.Enabled(
+                    budgetTokens = settings.thinkingBudget ?: 1024
+                )
+            } else {
+                AnthropicThinking.Disabled
+            }
+        )
     }
 
     override fun getAvailableModels(): List<String> {

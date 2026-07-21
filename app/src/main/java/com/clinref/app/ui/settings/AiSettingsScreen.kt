@@ -302,6 +302,8 @@ fun AiSettingsScreen(
                             GoogleSettingsPanel(settings) { viewModel.updateProviderSettings(it) }
                         is com.clinref.app.domain.ai.ProviderSettings.OpenAI ->
                             OpenAISettingsPanel(settings) { viewModel.updateProviderSettings(it) }
+                        is com.clinref.app.domain.ai.ProviderSettings.Anthropic ->
+                            AnthropicSettingsPanel(settings) { viewModel.updateProviderSettings(it) }
                         is com.clinref.app.domain.ai.ProviderSettings.MistralAI ->
                             MistralAISettingsPanel(settings) { viewModel.updateProviderSettings(it) }
                         is com.clinref.app.domain.ai.ProviderSettings.OpenRouter ->

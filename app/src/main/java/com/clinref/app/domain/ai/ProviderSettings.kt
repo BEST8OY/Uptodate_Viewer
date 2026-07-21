@@ -43,7 +43,9 @@ sealed class ProviderSettings {
         override val temperature: Float = 1.0f,
         override val maxTokens: Int = 8192,
         val topP: Double? = null,
-        val topK: Int? = null
+        val topK: Int? = null,
+        val enableThinking: Boolean = false,
+        val thinkingBudget: Int? = null
     ) : ProviderSettings()
 
     @Serializable
