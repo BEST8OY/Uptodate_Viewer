@@ -1,10 +1,12 @@
 package com.clinref.app.domain.ai
 
 import ai.koog.agents.core.agent.AIAgent
+import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.prompt.dsl.prompt
 import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
@@ -67,17 +69,22 @@ class KoogAgentFactory @Inject constructor(
 
         val accumulator = TurnContextAccumulator()
 
+        val agentConfig = AIAgentConfig(
+            prompt = prompt(
+                id = "chat",
+                params = providerParams
+            ) {
+                system(SystemPrompt.build(patientProfile))
+            },
+            model = model,
+            maxAgentIterations = 25
+        )
+
         return AIAgent(
             promptExecutor = executor,
-            llmModel = model,
-            systemPrompt = SystemPrompt.build(patientProfile),
-            toolRegistry = toolRegistry,
-            maxIterations = 25
+            agentConfig = agentConfig,
+            toolRegistry = toolRegistry
         ) {
-            agentConfig(agentConfig.copy(
-                prompt = agentConfig.prompt.withParams(providerParams)
-            ))
-
             install(ChatMemory) {
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
                 windowSize(50)

@@ -3,7 +3,6 @@ package com.clinref.app.domain.ai.providers
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicParams
-import ai.koog.prompt.executor.clients.anthropic.models.AnthropicThinking
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
@@ -48,18 +47,14 @@ class AnthropicProvider(
             ?: return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
         val temperature = config.temperature.toDouble()
 
+        // TODO: AnthropicThinking can't be resolved from Kotlin 2.4.10 despite existing in 1.1.1.
+        // Likely a metadata version mismatch. Enable when Koog bumps to Kotlin 2.4.x.
         return AnthropicParams(
             temperature = if (settings.topP != null) null else temperature,
             maxTokens = settings.maxTokens,
             topP = settings.topP,
             topK = settings.topK,
-            thinking = if (settings.enableThinking) {
-                AnthropicThinking.Enabled(
-                    budgetTokens = settings.thinkingBudget ?: 1024
-                )
-            } else {
-                AnthropicThinking.Disabled
-            }
+            thinking = null
         )
     }
 
