@@ -14,6 +14,7 @@ import com.clinref.app.domain.ai.providers.AiProviderFactory
 import com.clinref.app.domain.ai.providers.AnthropicProvider
 import com.clinref.app.domain.ai.providers.GoogleProvider
 import com.clinref.app.domain.ai.providers.OllamaProvider
+import com.clinref.app.domain.ai.providers.MistralAIProvider
 import com.clinref.app.domain.ai.providers.OpenAIProvider
 import com.clinref.app.domain.ai.providers.OpenRouterProvider
 import javax.inject.Inject
@@ -29,6 +30,7 @@ import javax.inject.Singleton
  * - Google/Gemini: GoogleProvider ✓
  * - OpenAI: OpenAIProvider ✓
  * - Anthropic: AnthropicProvider ✓
+ * - Mistral AI: MistralAIProvider ✓
  * - OpenRouter: OpenRouterProvider ✓
  * - Ollama: OllamaProvider ✓
  */
@@ -46,6 +48,7 @@ class KoogAgentFactory @Inject constructor(
         mapOf(
             AiProvider.GOOGLE to GoogleProvider(httpClientFactory),
             AiProvider.OPENAI to OpenAIProvider(httpClientFactory),
+            AiProvider.MISTRAL to MistralAIProvider(httpClientFactory),
             AiProvider.ANTHROPIC to AnthropicProvider(httpClientFactory),
             AiProvider.OPENROUTER to OpenRouterProvider(httpClientFactory),
             AiProvider.OLLAMA to OllamaProvider(httpClientFactory)

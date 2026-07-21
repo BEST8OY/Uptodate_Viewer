@@ -45,6 +45,17 @@ sealed class ProviderSettings {
     ) : ProviderSettings()
 
     @Serializable
+    @SerialName("MistralAI")
+    data class MistralAI(
+        override val temperature: Float = 0.7f,
+        override val maxTokens: Int = 8192,
+        val topP: Double? = null,
+        val frequencyPenalty: Double? = null,
+        val presencePenalty: Double? = null,
+        val safePrompt: Boolean? = null
+    ) : ProviderSettings()
+
+    @Serializable
     @SerialName("OpenRouter")
     data class OpenRouter(
         override val temperature: Float = 1.0f,
@@ -70,6 +81,7 @@ fun defaultSettingsForProvider(provider: AiProvider): ProviderSettings = when (p
     AiProvider.GOOGLE -> ProviderSettings.Google()
     AiProvider.OPENAI -> ProviderSettings.OpenAI()
     AiProvider.ANTHROPIC -> ProviderSettings.Anthropic()
+    AiProvider.MISTRAL -> ProviderSettings.MistralAI()
     AiProvider.OPENROUTER -> ProviderSettings.OpenRouter()
     AiProvider.OLLAMA -> ProviderSettings.Ollama()
 }

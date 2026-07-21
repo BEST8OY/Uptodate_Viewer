@@ -78,6 +78,7 @@ class SettingsViewModel @Inject constructor(
             is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(temperature = temp)
             is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(temperature = temp)
             is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(temperature = temp)
             is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(temperature = temp)
             is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(temperature = temp)
         }
@@ -90,6 +91,7 @@ class SettingsViewModel @Inject constructor(
             is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(maxTokens = tokens)
             is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(maxTokens = tokens)
             is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(maxTokens = tokens)
             is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(maxTokens = tokens)
             is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(maxTokens = tokens)
         }

@@ -4,6 +4,7 @@ enum class AiProvider(val displayName: String) {
     OPENAI("OpenAI"),
     ANTHROPIC("Anthropic"),
     GOOGLE("Google"),
+    MISTRAL("Mistral AI"),
     OPENROUTER("OpenRouter"),
     OLLAMA("Ollama (Local)")
 }
