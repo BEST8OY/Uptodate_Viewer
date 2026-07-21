@@ -11,7 +11,7 @@ import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.PatientProfile
-import com.clinref.app.domain.ai.RateLimiter
+
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
@@ -63,7 +63,6 @@ class ChatViewModel @Inject constructor(
     private val reliabilityManager: ReliabilityManager,
     private val securePreferences: SecurePreferences,
     private val secureLogger: SecureLogger,
-    private val rateLimiter: RateLimiter,
     private val contentRepository: ContentRepository,
     private val assetRepository: AssetRepository
 ) : ViewModel() {
@@ -193,8 +192,6 @@ class ChatViewModel @Inject constructor(
             streamingManager.reset()
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    rateLimiter.configure(config.requestsPerMinute)
-                    rateLimiter.acquire()
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
                             val agent = koogAgentFactory.createAgent(

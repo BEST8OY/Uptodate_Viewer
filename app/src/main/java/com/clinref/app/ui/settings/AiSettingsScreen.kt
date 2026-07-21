@@ -317,29 +317,6 @@ fun AiSettingsScreen(
                         leadingIcon = { Icon(Icons.Default.History, contentDescription = null) }
                     )
 
-                    // RPM Limit
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Maximum Request Volume", style = MaterialTheme.typography.labelMedium)
-                            Text(
-                                if (configuration.requestsPerMinute == 0) "Unlimited" else "${configuration.requestsPerMinute} RPM",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Slider(
-                            value = configuration.requestsPerMinute.toFloat(),
-                            onValueChange = { viewModel.updateRequestsPerMinute(it.toInt()) },
-                            valueRange = 0f..50f,
-                            steps = 24,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
                 }
             }
 

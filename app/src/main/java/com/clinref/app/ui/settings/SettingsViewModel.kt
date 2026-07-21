@@ -81,10 +81,6 @@ class SettingsViewModel @Inject constructor(
         _configuration.value = _configuration.value.copy(historyCompressionThreshold = threshold)
     }
 
-    fun updateRequestsPerMinute(rpm: Int) {
-        _configuration.value = _configuration.value.copy(requestsPerMinute = rpm)
-    }
-
     fun testConnection() {
         viewModelScope.launch {
             _testResult.value = TestResult.Loading
