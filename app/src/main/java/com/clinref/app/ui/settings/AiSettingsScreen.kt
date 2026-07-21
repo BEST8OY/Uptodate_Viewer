@@ -495,6 +495,95 @@ fun AiSettingsScreen(
                             }
                         }
 
+                        is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> {
+                            val openrouterSettings = configuration.providerSettings as com.clinref.app.domain.ai.ProviderSettings.OpenRouter
+                            ProviderSettingsHeader("OpenRouter Settings")
+
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                // Top P
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Top P", style = MaterialTheme.typography.labelMedium)
+                                        Text(
+                                            String.format("%.2f", openrouterSettings.topP ?: 1.0),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Slider(
+                                        value = (openrouterSettings.topP ?: 1.0).toFloat(),
+                                        onValueChange = { viewModel.updateProviderSettings(openrouterSettings.copy(topP = it.toDouble())) },
+                                        valueRange = 0f..1f,
+                                        steps = 9,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+
+                                // Repetition Penalty
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Repetition Penalty", style = MaterialTheme.typography.labelMedium)
+                                        Text(
+                                            String.format("%.2f", openrouterSettings.repetitionPenalty ?: 1.0),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Slider(
+                                        value = (openrouterSettings.repetitionPenalty ?: 1.0).toFloat(),
+                                        onValueChange = { viewModel.updateProviderSettings(openrouterSettings.copy(repetitionPenalty = it.toDouble())) },
+                                        valueRange = 0f..2f,
+                                        steps = 19,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+
+                                // Min P
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Min P", style = MaterialTheme.typography.labelMedium)
+                                        Text(
+                                            String.format("%.2f", openrouterSettings.minP ?: 0.0),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Slider(
+                                        value = (openrouterSettings.minP ?: 0.0).toFloat(),
+                                        onValueChange = { viewModel.updateProviderSettings(openrouterSettings.copy(minP = it.toDouble())) },
+                                        valueRange = 0f..1f,
+                                        steps = 9,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+
+                                // Context Transforms
+                                OutlinedTextField(
+                                    value = openrouterSettings.transforms?.joinToString(", ") ?: "middle-out",
+                                    onValueChange = {
+                                        val transforms = it.split(",").map { s -> s.trim() }.filter { s -> s.isNotEmpty() }.ifEmpty { null }
+                                        viewModel.updateProviderSettings(openrouterSettings.copy(transforms = transforms))
+                                    },
+                                    label = { Text("Context Transforms") },
+                                    placeholder = { Text("middle-out") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                            }
+                        }
+
                         is com.clinref.app.domain.ai.ProviderSettings.Ollama -> {
                             val ollamaSettings = configuration.providerSettings as com.clinref.app.domain.ai.ProviderSettings.Ollama
                             ProviderSettingsHeader("Ollama Settings")

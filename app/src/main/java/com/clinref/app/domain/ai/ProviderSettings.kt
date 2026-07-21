@@ -62,7 +62,13 @@ sealed class ProviderSettings {
     data class OpenRouter(
         override val temperature: Float = 1.0f,
         override val maxTokens: Int = 8192,
-        val topP: Double? = null
+        val topP: Double? = null,
+        val topK: Int? = null,
+        val frequencyPenalty: Double? = null,
+        val presencePenalty: Double? = null,
+        val repetitionPenalty: Double? = null,
+        val minP: Double? = null,
+        val transforms: List<String>? = null
     ) : ProviderSettings()
 
     @Serializable
