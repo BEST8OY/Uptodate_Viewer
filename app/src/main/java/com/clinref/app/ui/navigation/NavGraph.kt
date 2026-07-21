@@ -178,24 +178,14 @@ fun NavGraph(
             )
         }
         entry<AiRoute> {
-            // First-run settings gate: show settings if not configured
-            val settingsViewModel: SettingsViewModel = hiltViewModel()
-            val config by settingsViewModel.configuration.collectAsStateWithLifecycle()
-
-            if (config.isConfigured) {
-                ConversationListScreen(
-                    onConversationSelected = { conversationId ->
-                        navigator.navigate(ChatRoute(conversationId))
-                    },
-                    onOpenSettings = {
-                        navigator.navigate(AiSettingsRoute)
-                    }
-                )
-            } else {
-                AiSettingsScreen(
-                    onBack = { navigator.goBack() }
-                )
-            }
+            ConversationListScreen(
+                onConversationSelected = { conversationId ->
+                    navigator.navigate(ChatRoute(conversationId))
+                },
+                onOpenSettings = {
+                    navigator.navigate(AiSettingsRoute)
+                }
+            )
         }
         entry<AiSettingsRoute> {
             AiSettingsScreen(

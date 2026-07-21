@@ -8,6 +8,9 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -214,6 +217,7 @@ fun ConversationListScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(bottom = 20.dp),
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -257,6 +261,7 @@ fun ConversationListScreen(
                 exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
                     .padding(end = 20.dp, bottom = 90.dp)
             ) {
                 SmallFloatingActionButton(
