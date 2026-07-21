@@ -7,8 +7,11 @@ data class AiConfiguration(
     val provider: AiProvider = AiProvider.OPENAI,
     val baseUrl: String = "",
     val model: String = "",
-    val temperature: Float = 0.3f,
-    val maxTokens: Int = 4096,
+    val providerSettings: ProviderSettings = ProviderSettings.OpenAI(),
     val historyCompressionThreshold: Int = 8000,
     val isConfigured: Boolean = false
-)
+) {
+    // Convenience accessors for common settings
+    val temperature: Float get() = providerSettings.temperature
+    val maxTokens: Int get() = providerSettings.maxTokens
+}

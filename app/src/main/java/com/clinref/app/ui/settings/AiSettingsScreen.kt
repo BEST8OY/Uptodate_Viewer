@@ -51,6 +51,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -297,6 +299,111 @@ fun AiSettingsScreen(
                         shape = RoundedCornerShape(16.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
+
+                    // Provider-Specific Settings
+                    when (configuration.providerSettings) {
+                        is com.clinref.app.domain.ai.ProviderSettings.Google -> {
+                            val googleSettings = configuration.providerSettings as com.clinref.app.domain.ai.ProviderSettings.Google
+                            ProviderSettingsHeader("Google Gemini Settings")
+
+                            // Thinking toggle
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Enable Thinking", style = MaterialTheme.typography.labelMedium)
+                                    Text(
+                                        "Show model reasoning (Gemini 2.0+)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = googleSettings.includeThoughts,
+                                    onCheckedChange = { viewModel.updateProviderSettings(googleSettings.copy(includeThoughts = it)) }
+                                )
+                            }
+
+                            // Thinking Level (for Gemini 3.0)
+                            if (googleSettings.includeThoughts) {
+                                Column {
+                                    Text("Thinking Level", style = MaterialTheme.typography.labelMedium)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = googleSettings.thinkingLevel == null,
+                                            onClick = { viewModel.updateProviderSettings(googleSettings.copy(thinkingLevel = null)) },
+                                            label = { Text("Default") }
+                                        )
+                                        FilterChip(
+                                            selected = googleSettings.thinkingLevel == "low",
+                                            onClick = { viewModel.updateProviderSettings(googleSettings.copy(thinkingLevel = "low")) },
+                                            label = { Text("Low") }
+                                        )
+                                        FilterChip(
+                                            selected = googleSettings.thinkingLevel == "high",
+                                            onClick = { viewModel.updateProviderSettings(googleSettings.copy(thinkingLevel = "high")) },
+                                            label = { Text("High") }
+                                        )
+                                    }
+                                    Text(
+                                        "Gemini 3.0 uses level. Gemini 2.0 uses budget (default 8192 tokens).",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> {
+                            val openaiSettings = configuration.providerSettings as com.clinref.app.domain.ai.ProviderSettings.OpenAI
+                            ProviderSettingsHeader("OpenAI Settings")
+
+                            // Top P
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Top P", style = MaterialTheme.typography.labelMedium)
+                                    Text(
+                                        String.format("%.2f", openaiSettings.topP ?: 1.0),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Slider(
+                                    value = (openaiSettings.topP ?: 1.0).toFloat(),
+                                    onValueChange = { viewModel.updateProviderSettings(openaiSettings.copy(topP = it.toDouble())) },
+                                    valueRange = 0f..1f,
+                                    steps = 9,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+
+                        is com.clinref.app.domain.ai.ProviderSettings.Ollama -> {
+                            val ollamaSettings = configuration.providerSettings as com.clinref.app.domain.ai.ProviderSettings.Ollama
+                            ProviderSettingsHeader("Ollama Settings")
+
+                            // Context Window
+                            OutlinedTextField(
+                                value = ollamaSettings.numCtx?.toString() ?: "",
+                                onValueChange = { viewModel.updateProviderSettings(ollamaSettings.copy(numCtx = it.toIntOrNull())) },
+                                label = { Text("Context Window (num_ctx)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+
+                        else -> { /* No provider-specific settings */ }
+                    }
                 }
             }
 
@@ -501,4 +608,15 @@ fun SettingsGroupCard(
             content()
         }
     }
+}
+
+@Composable
+private fun ProviderSettingsHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+    )
 }

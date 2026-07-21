@@ -50,7 +50,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun updateProvider(provider: AiProvider) {
-        _configuration.value = _configuration.value.copy(provider = provider)
+        _configuration.value = _configuration.value.copy(
+            provider = provider,
+            providerSettings = com.clinref.app.domain.ai.defaultSettingsForProvider(provider)
+        )
         viewModelScope.launch {
             _apiKey.value = securePreferences.getApiKey(provider)
             loadModels(provider, _configuration.value.baseUrl)
@@ -70,11 +73,31 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun updateTemperature(temp: Float) {
-        _configuration.value = _configuration.value.copy(temperature = temp)
+        val current = _configuration.value
+        val newSettings = when (val s = current.providerSettings) {
+            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(temperature = temp)
+        }
+        _configuration.value = current.copy(providerSettings = newSettings)
     }
 
     fun updateMaxTokens(tokens: Int) {
-        _configuration.value = _configuration.value.copy(maxTokens = tokens)
+        val current = _configuration.value
+        val newSettings = when (val s = current.providerSettings) {
+            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(maxTokens = tokens)
+        }
+        _configuration.value = current.copy(providerSettings = newSettings)
+    }
+
+    fun updateProviderSettings(settings: com.clinref.app.domain.ai.ProviderSettings) {
+        _configuration.value = _configuration.value.copy(providerSettings = settings)
     }
 
     fun updateHistoryThreshold(threshold: Int) {
