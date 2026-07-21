@@ -5,8 +5,11 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
-import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
+import ai.koog.prompt.params.LLMParams
+import ai.koog.prompt.executor.clients.openai.OpenAIChatParams
+import ai.koog.prompt.executor.clients.openai.base.models.ReasoningEffort
+import ai.koog.prompt.executor.clients.mistralai.MistralAIParams
 import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
@@ -57,6 +60,45 @@ class KoogAgentFactory @Inject constructor(
 
     private fun getProvider(provider: AiProvider): AiProviderFactory? = providers[provider]
 
+    private fun createProviderParams(config: AiConfiguration): LLMParams {
+        val temperature = config.temperature.toDouble()
+
+        return when (val settings = config.providerSettings) {
+            is ProviderSettings.OpenAI -> OpenAIChatParams(
+                temperature = if (settings.topP != null) null else temperature,
+                maxTokens = settings.maxTokens,
+                topP = settings.topP,
+                frequencyPenalty = settings.frequencyPenalty,
+                presencePenalty = settings.presencePenalty,
+                reasoningEffort = settings.reasoningEffort?.let {
+                    when (it.lowercase()) {
+                        "low" -> ReasoningEffort.LOW
+                        "medium" -> ReasoningEffort.MEDIUM
+                        "high" -> ReasoningEffort.HIGH
+                        "minimal" -> ReasoningEffort.MINIMAL
+                        "none" -> ReasoningEffort.NONE
+                        else -> null
+                    }
+                },
+                store = settings.store
+            )
+
+            is ProviderSettings.MistralAI -> MistralAIParams(
+                temperature = if (settings.topP != null) null else temperature,
+                maxTokens = settings.maxTokens,
+                topP = settings.topP,
+                frequencyPenalty = settings.frequencyPenalty,
+                presencePenalty = settings.presencePenalty,
+                safePrompt = settings.safePrompt
+            )
+
+            else -> LLMParams(
+                temperature = temperature,
+                maxTokens = config.maxTokens
+            )
+        }
+    }
+
     suspend fun createAgent(
         config: AiConfiguration,
         conversationId: String,
@@ -75,15 +117,19 @@ class KoogAgentFactory @Inject constructor(
         }
 
         val accumulator = TurnContextAccumulator()
+        val providerParams = createProviderParams(config)
 
         return AIAgent(
             promptExecutor = executor,
             llmModel = model,
             systemPrompt = buildSystemPrompt(patientProfile),
             toolRegistry = toolRegistry,
-            temperature = config.temperature.toDouble(),
             maxIterations = 25
         ) {
+            agentConfig(agentConfig.copy(
+                prompt = agentConfig.prompt.withParams(providerParams)
+            ))
+
             install(ChatMemory) {
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
                 windowSize(50)
