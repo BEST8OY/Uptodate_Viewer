@@ -43,33 +43,26 @@ class SafetyValidator {
     fun validate(context: TurnContext): ValidationResult {
         val warnings = mutableListOf<String>()
 
-        // Rule 1 — Tool call required
         val rule1 = validateToolCallRequired(context)
         if (!rule1.passed) return rule1
 
-        // Rule 1b — Section content required
         val rule1b = validateSectionContentRequired(context)
         if (!rule1b.passed) return rule1b
 
-        // Rule 2 — Citation-to-tool consistency
         val rule2 = validateCitationConsistency(context)
         if (!rule2.passed) return rule2
         warnings.addAll(rule2.warnings)
 
-        // Rule 3 — Complex data warning
         val rule3 = validateComplexDataWarning(context)
         warnings.addAll(rule3.warnings)
 
-        // Rule 4 — No invented numbers (verbatim match)
         val rule4 = validateNoInventedNumbers(context)
         if (!rule4.passed) return rule4
         warnings.addAll(rule4.warnings)
 
-        // Rule 5 — Citation required
         val rule5 = validateCitationRequired(context)
         if (!rule5.passed) return rule5
 
-        // Rule 6 — Graphic interpretation prohibited
         val rule6 = validateNoGraphicInterpretation(context)
         if (!rule6.passed) return rule6
         warnings.addAll(rule6.warnings)
@@ -105,7 +98,6 @@ class SafetyValidator {
     private fun validateCitationConsistency(context: TurnContext): ValidationResult {
         val warnings = mutableListOf<String>()
         val fetchedIds = context.fetchedSections.map { it.sectionId }.toSet()
-        val fetchedTitles = context.fetchedSections.map { it.sectionTitle.lowercase() }.toSet()
 
         for (citation in context.citations) {
             val idMatch = citation.sectionId in fetchedIds
@@ -126,7 +118,6 @@ class SafetyValidator {
                 warnings.add("Citation section ID '${citation.sectionId}' not exactly matched; title match used as fallback.")
             }
         }
-
         return ValidationResult(passed = true, warnings = warnings)
     }
 
@@ -134,16 +125,9 @@ class SafetyValidator {
         val warnings = mutableListOf<String>()
         for ((sectionId, hasComplex) in context.sectionWarnings) {
             if (hasComplex) {
-                val answerMentionsWarning = context.answer.contains(
-                    "[WARNING",
-                    ignoreCase = true
-                ) || context.answer.contains(
-                    "complex dosing",
-                    ignoreCase = true
-                ) || context.answer.contains(
-                    "verify the raw details",
-                    ignoreCase = true
-                )
+                val answerMentionsWarning = context.answer.contains("[WARNING", ignoreCase = true) ||
+                                           context.answer.contains("complex dosing", ignoreCase = true) ||
+                                           context.answer.contains("verify the raw details", ignoreCase = true)
                 if (!answerMentionsWarning) {
                     warnings.add(
                         "Section $sectionId contains complex clinical data. " +
@@ -160,26 +144,30 @@ class SafetyValidator {
         RegexOption.IGNORE_CASE
     )
 
+    private fun normalizeNumericSpaces(text: String): String {
+        val unitPattern = Regex("""(\d+[\.,]?\d*)\s*(mg|%|mL|mmol|mcg|units?|mEq|L|kg|cm|mmHg)""", RegexOption.IGNORE_CASE)
+        return unitPattern.replace(text) { match ->
+            match.groupValues[1] + match.groupValues[2].lowercase()
+        }
+    }
+
     private fun validateNoInventedNumbers(context: TurnContext): ValidationResult {
         if (context.toolResults.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
 
-        val answerNumerics = numericTokenRegex.findAll(context.answer)
+        val normalizedAnswer = normalizeNumericSpaces(context.answer)
+        val allToolText = context.toolResults.joinToString(separator = " ")
+        val normalizedToolText = normalizeNumericSpaces(allToolText)
+
+        val answerNumerics = numericTokenRegex.findAll(normalizedAnswer)
             .map { it.value.trim() }
             .filter { it.isNotBlank() }
             .toList()
 
         if (answerNumerics.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
 
-        val allToolText = context.toolResults.joinToString(separator = " ")
-
         val invented = answerNumerics.filter { numeric ->
-            // Normalize whitespace to prevent false positives (e.g. "500 mg" vs "500mg")
-            val normalized = numeric.replace(Regex("\\s+"), "")
-            val escaped = Regex.escape(normalized)
-            // Use word-boundary-aware matching to prevent substring false positives.
-            // e.g. "500mg" should NOT match inside "2500mg" — only exact token matches count.
+            val escaped = Regex.escape(numeric)
             val boundaryPattern = Regex("(?<![\\d.])$escaped(?![\\d.])", RegexOption.IGNORE_CASE)
-            val normalizedToolText = allToolText.replace(Regex("\\s+"), "")
             !boundaryPattern.containsMatchIn(normalizedToolText)
         }
 
@@ -190,7 +178,6 @@ class SafetyValidator {
                 blockedReason = "Answer contains numbers not traceable to retrieved source data: ${invented.take(5).joinToString(", ")}"
             )
         }
-
         return ValidationResult(passed = true, warnings = emptyList())
     }
 
@@ -212,13 +199,17 @@ class SafetyValidator {
         Regex("""(?i)(?:the (?:figure|table|algorithm|diagram) (?:shows?|demonstrates?|reveals?|depicts?))""")
     )
 
-    private fun validateNoGraphicInterpretation(context: TurnContext): ValidationResult {
-        if (context.graphicIds.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
+    private val GRAPHIC_REF_REGEX = Regex("""Graphic-\d+""", RegexOption.IGNORE_CASE)
 
+    private fun validateNoGraphicInterpretation(context: TurnContext): ValidationResult {
         val answer = context.answer
         val violatingPatterns = visualInterpretationPatterns.filter { it.containsMatchIn(answer) }
 
-        if (violatingPatterns.isNotEmpty()) {
+        val hasGraphicToolCalls = context.graphicIds.isNotEmpty()
+        val hasGraphicRefsInAnswer = GRAPHIC_REF_REGEX.containsMatchIn(answer)
+        val hasVisualLanguage = violatingPatterns.isNotEmpty()
+
+        if (hasVisualLanguage && (hasGraphicToolCalls || hasGraphicRefsInAnswer)) {
             return ValidationResult(
                 passed = false,
                 warnings = emptyList(),
@@ -227,7 +218,6 @@ class SafetyValidator {
                     "Direct users to view the source directly."
             )
         }
-
         return ValidationResult(passed = true, warnings = emptyList())
     }
 }

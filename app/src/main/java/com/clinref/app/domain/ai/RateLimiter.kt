@@ -35,8 +35,11 @@ class RateLimiter @Inject constructor() {
         if (waitMs > 0) {
             delay(waitMs)
             synchronized(timestamps) {
-                timestamps.removeAll { it <= System.currentTimeMillis() }
-                timestamps.add(System.currentTimeMillis())
+                val now = System.currentTimeMillis()
+                // Drop only entries falling outside the active sliding window
+                val windowStart = now - 60_000L
+                timestamps.removeAll { it < windowStart }
+                timestamps.add(now)
             }
         }
     }

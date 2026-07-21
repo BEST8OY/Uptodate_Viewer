@@ -81,15 +81,17 @@ class KoogAgentFactory @Inject constructor(
 
             handleEvents {
                 onToolCallStarting { eventContext ->
+                    val callId = eventContext.toolCallId ?: ""
                     val argsStr = eventContext.toolArgs.toString()
-                    accumulator.onToolCallStarting(eventContext.toolName, argsStr)
+                    accumulator.onToolCallStarting(callId, argsStr)
                     streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
                 }
 
                 onToolCallCompleted { eventContext ->
+                    val callId = eventContext.toolCallId ?: ""
                     val resultText = eventContext.toolResult?.toString() ?: ""
                     val success = eventContext.toolResult != null
-                    accumulator.onToolCallCompleted(eventContext.toolName, resultText, success)
+                    accumulator.onToolCallCompleted(callId, eventContext.toolName, resultText, success)
                     streamingManager.onToolCallCompleted(eventContext.toolName)
                     streamingManager.onWaitingForLlm()
                 }
@@ -127,11 +129,14 @@ class KoogAgentFactory @Inject constructor(
             appendLine("   Topic: <topic title>, Section: <section title> (ID: <section id>)")
             appendLine("   You may include multiple citations. Every clinical answer must have at least one.")
             appendLine("5. For sections marked [WARNING], include the warning in your response.")
-            appendLine("6. Never paraphrase complex dosing tables, formulas, or images.")
+            appendLine("6. Never paraphrase complex formulas, or images (non-table graphics).")
             appendLine("7. Do not perform calculations across multiple sections.")
-            appendLine("8. Use getRelatedTopics to suggest related content when relevant to the user's question.")
-            appendLine("9. Use getGraphicInfo to describe what a graphic contains (type and title) but NEVER interpret visual content.")
-            appendLine("10. Graphics types: graphic_table, graphic_figure, graphic_algorithm, graphic_picture, graphic_movie, graphic_waveform, graphic_diagnosticimage. Reference the type, not the visual content.")
+            appendLine("8. After reading the primary topic, ALWAYS call getRelatedTopics to check for additional relevant content.")
+            appendLine("9. If related topics contain information that would strengthen your answer, read those sections too using getTopicOutline + getTopicSectionText. Read up to 2 related topics maximum.")
+            appendLine("10. When section text contains a Topic link (e.g. [Aspirin](Topic-utd00100)) that is relevant to answering the question, follow that link: call getTopicOutline + getTopicSectionText on the linked topic to read its content. This is critical for drug links, cross-references, and linked conditions.")
+            appendLine("11. When a topic references a table graphic (graphic_table), use getGraphicContent to read the table data. You may interpret and summarize table data to answer clinical questions.")
+            appendLine("12. For non-table graphics (figures, algorithms, images), use getGraphicInfo to get metadata only. NEVER interpret visual content — reference the type and title only.")
+            appendLine("13. Graphics types: graphic_table (readable via getGraphicContent), graphic_figure, graphic_algorithm, graphic_picture, graphic_movie, graphic_waveform, graphic_diagnosticimage (metadata only via getGraphicInfo).")
         }
     }
 

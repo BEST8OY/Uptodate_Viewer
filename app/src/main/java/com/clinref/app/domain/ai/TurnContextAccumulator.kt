@@ -3,23 +3,26 @@ package com.clinref.app.domain.ai
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * Buffers tool call events during a single agent run and builds
  * a [SafetyValidator.TurnContext] when the run completes.
  *
- * Lifecycle: reset() -> onToolCallStarting x N -> onToolCallCompleted x N -> buildTurnContext()
+ * Thread-safe implementation supporting concurrent tool executions.
  */
 class TurnContextAccumulator {
 
-    private val toolCalls = mutableListOf<SafetyValidator.ToolCallRecord>()
-    private val toolResults = mutableListOf<String>()
-    private val fetchedSections = mutableListOf<SafetyValidator.FetchedSection>()
-    private val graphicIds = mutableSetOf<String>()
-    private val sectionWarnings = mutableMapOf<String, Boolean>()
+    private val toolCalls = CopyOnWriteArrayList<SafetyValidator.ToolCallRecord>()
+    private val toolResults = CopyOnWriteArrayList<String>()
+    private val fetchedSections = CopyOnWriteArrayList<SafetyValidator.FetchedSection>()
+    private val graphicIds = CopyOnWriteArraySet<String>()
+    private val sectionWarnings = ConcurrentHashMap<String, Boolean>()
 
-    private var currentToolName: String? = null
-    private var currentToolArgs: String? = null
+    // Maps toolCallId to arguments to support thread-safe concurrent tool runs
+    private val pendingToolArgs = ConcurrentHashMap<String, String>()
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -29,34 +32,40 @@ class TurnContextAccumulator {
         fetchedSections.clear()
         graphicIds.clear()
         sectionWarnings.clear()
-        currentToolName = null
-        currentToolArgs = null
+        pendingToolArgs.clear()
     }
 
-    fun onToolCallStarting(toolName: String, args: String) {
-        currentToolName = toolName
-        currentToolArgs = args
+    fun onToolCallStarting(toolCallId: String, args: String) {
+        if (toolCallId.isNotBlank()) {
+            pendingToolArgs[toolCallId] = args
+        }
     }
 
-    fun onToolCallCompleted(toolName: String, result: String, success: Boolean) {
-        val args = currentToolArgs ?: ""
+    fun onToolCallCompleted(toolCallId: String, toolName: String, result: String, success: Boolean) {
+        val args = pendingToolArgs.remove(toolCallId) ?: ""
+        val parsedArgs = parseArguments(args)
+
         toolCalls.add(
             SafetyValidator.ToolCallRecord(
                 toolName = toolName,
-                arguments = parseArguments(args),
+                arguments = parsedArgs,
                 result = result,
                 success = success
             )
         )
         toolResults.add(result)
 
-        when (toolName) {
-            "getTopicSectionText" -> parseSectionResult(result)
-            "getGraphicInfo" -> parseGraphicResult(result)
-        }
+        // Drop mock successful returns that represent lookup failures
+        val isLookupFailure = result.startsWith("Section not found", ignoreCase = true) ||
+                              result.startsWith("Topic not found", ignoreCase = true) ||
+                              result.startsWith("{\"error\"", ignoreCase = true)
 
-        currentToolName = null
-        currentToolArgs = null
+        if (!isLookupFailure) {
+            when (toolName) {
+                "getTopicSectionText" -> parseSectionResult(parsedArgs, result)
+                "getGraphicInfo" -> parseGraphicResult(parsedArgs)
+            }
+        }
     }
 
     fun buildTurnContext(answer: String): SafetyValidator.TurnContext {
@@ -71,16 +80,8 @@ class TurnContextAccumulator {
         )
     }
 
-    /**
-     * Parse tool args from Koog's toolArgs.toString().
-     *
-     * Koog's handleEvents gives toolArgs as a JsonObject (kotlinx.serialization).
-     * Calling .toString() on a JsonObject produces valid JSON: {"key": "value", ...}
-     * We parse this with kotlinx.serialization.
-     */
     private fun parseArguments(argsStr: String): Map<String, String> {
         if (argsStr.isBlank() || argsStr == "{}") return emptyMap()
-
         return try {
             val element = json.parseToJsonElement(argsStr)
             val obj = element as? JsonObject ?: return emptyMap()
@@ -92,9 +93,8 @@ class TurnContextAccumulator {
         }
     }
 
-    private fun parseSectionResult(result: String) {
+    private fun parseSectionResult(args: Map<String, String>, result: String) {
         val hasWarning = result.contains("[WARNING", ignoreCase = true)
-        val args = currentToolArgs?.let { parseArguments(it) } ?: emptyMap()
         val topicId = args["topicId"] ?: ""
         val sectionId = args["sectionId"] ?: ""
         val sectionTitle = args["sectionTitle"] ?: ""
@@ -112,30 +112,22 @@ class TurnContextAccumulator {
         }
     }
 
-    private fun parseGraphicResult(result: String) {
-        val args = currentToolArgs?.let { parseArguments(it) } ?: emptyMap()
+    private fun parseGraphicResult(args: Map<String, String>) {
         val graphicId = args["graphicId"] ?: ""
         if (graphicId.isNotEmpty()) {
             graphicIds.add(graphicId)
         }
     }
 
-    /**
-     * Parse citations from the agent's answer text.
-     *
-     * The system prompt mandates:
-     *   "Topic: <topic title>, Section: <section title> (ID: <section id>)"
-     *
-     * If the model doesn't follow this format, citations will be empty and
-     * SafetyValidator Rule 5 will block the answer. This is intentional.
-     */
     private fun parseCitations(answer: String): List<SafetyValidator.Citation> {
         val citations = mutableListOf<SafetyValidator.Citation>()
 
+        // Lookahead assertion prevents lazy evaluation overrun past other citation headings
         val citationPattern = Regex(
-            """Topic:\s*(.+?),\s*Section:\s*(.+?)(?:\s*\(ID:\s*(.+?)\))?""",
+            """Topic:\s*([^,]+),\s*Section:\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?(?=\s*(?:Topic:|\n|\Z))""",
             RegexOption.IGNORE_CASE
         )
+
         for (match in citationPattern.findAll(answer)) {
             citations.add(
                 SafetyValidator.Citation(
@@ -146,7 +138,6 @@ class TurnContextAccumulator {
                 )
             )
         }
-
         return citations
     }
 }
