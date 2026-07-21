@@ -14,7 +14,7 @@ datastorePreferences = "1.2.1"
 webkit = "1.16.0"
 kotlinxSerializationJson = "1.11.0"
 zstdJni = "1.5.7-11"
-koog = "1.0.0"
+koog = "1.1.1"
 room = "3.0.0"
 sqlite = "2.7.0"
 securityCrypto = "1.1.0-alpha06"
@@ -50,11 +50,11 @@ koog-agents-features-event-handler = { group = "ai.koog", name = "agents-feature
 koog-agents-features-memory = { group = "ai.koog", name = "agents-features-memory", version.ref = "koog" }
 koog-prompt-executor-openai-client = { group = "ai.koog", name = "prompt-executor-openai-client", version.ref = "koog" }
 koog-prompt-executor-anthropic-client = { group = "ai.koog", name = "prompt-executor-anthropic-client", version.ref = "koog" }
-koog-prompt-executor-google-client = { group = "ai.koog", name = "prompt-executor-google-client", version = "1.0.0-beta" }
-koog-prompt-executor-mistralai-client = { group = "ai.koog", name = "prompt-executor-mistralai-client", version = "1.0.0-beta" }
+koog-prompt-executor-google-client = { group = "ai.koog", name = "prompt-executor-google-client", version = "1.1.1-beta" }
+koog-prompt-executor-mistralai-client = { group = "ai.koog", name = "prompt-executor-mistralai-client", version = "1.1.1-beta" }
 koog-prompt-executor-openrouter-client = { group = "ai.koog", name = "prompt-executor-openrouter-client", version.ref = "koog" }
 koog-prompt-executor-ollama-client = { group = "ai.koog", name = "prompt-executor-ollama-client", version.ref = "koog" }
-koog-prompt-executor-llms-all = { group = "ai.koog", name = "prompt-executor-llms-all", version = "1.0.0-beta" }
+koog-prompt-executor-llms-all = { group = "ai.koog", name = "prompt-executor-llms-all", version = "1.1.1-beta" }
 koog-http-client-okhttp = { group = "ai.koog", name = "http-client-okhttp", version.ref = "koog" }
 koog-utils-jvm = { group = "ai.koog", name = "utils-jvm", version.ref = "koog" }
 
