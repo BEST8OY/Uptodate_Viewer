@@ -66,6 +66,45 @@ Package: `ai.koog.prompt.executor.clients.google.models`
 
 Enum: `LOW`, `HIGH`
 
+## OpenRouter (`OpenRouterParams`)
+
+Package: `ai.koog.prompt.executor.clients.openrouter`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| temperature | Double? | Sampling temp [0.0, 2.0]. Mutually exclusive with topP. |
+| maxTokens | Int? | Max tokens to generate |
+| topP | Double? | Nucleus sampling (0.0, 1.0]. Mutually exclusive with temperature. |
+| topK | Int? | Top tokens to consider (>= 1) |
+| frequencyPenalty | Double? | Penalizes frequent tokens [-2.0, 2.0] |
+| presencePenalty | Double? | Penalizes reused tokens [-2.0, 2.0] |
+| repetitionPenalty | Double? | Penalizes token repetition (0.0, 2.0] |
+| minP | Double? | Minimum cumulative probability for token inclusion [0.0, 1.0] |
+| topA | Double? | Temperature scaling based on marginal probability gain [0.0, 1.0] |
+| stop | List<String>? | Stop sequences (max 4) |
+| logprobs | Boolean? | Include log-probabilities |
+| topLogprobs | Int? | Top alternatives per position (0-20, requires logprobs) |
+| transforms | List<String>? | Context transforms (e.g. ["middle-out"]) |
+| models | List<String>? | Allowed models for this request |
+| route | String? | Request routing identifier |
+| provider | ProviderPreferences? | Model provider preferences |
+
+### ProviderPreferences
+
+Package: `ai.koog.prompt.executor.clients.openrouter.models`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| order | List<String>? | Provider slugs to try in order |
+| allowFallbacks | Boolean? | Allow backup providers when primary unavailable |
+| requireParameters | Boolean? | Only use providers supporting all parameters |
+| dataCollection | String? | Control data collection providers |
+| only | List<String>? | Allowlist of provider slugs |
+| ignore | List<String>? | Blocklist of provider slugs |
+| quantizations | List<String>? | Filter by quantization levels |
+| sort | String? | Sort by "price" or "throughput" |
+| maxPrice | Map<String, String>? | Maximum pricing per request |
+
 ## ReasoningEffort (OpenAI)
 
 Package: `ai.koog.prompt.executor.clients.openai.base.models`
