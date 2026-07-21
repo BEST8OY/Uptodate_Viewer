@@ -102,7 +102,7 @@ fun ContentScreen(
     LaunchedEffect(topicId, sectionId) {
         if (viewModel.currentTopicId.value != topicId) {
             viewModel.resetNavigationHistory()
-            viewModel.loadTopic(topicId, sectionId)
+            viewModel.loadTopic(topicId, sectionId = sectionId)
         } else if (sectionId != null) {
             viewModel.scrollToSection(sectionId)
         }
