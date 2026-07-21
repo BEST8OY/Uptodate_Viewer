@@ -10,6 +10,9 @@ import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.executor.clients.openai.OpenAIChatParams
 import ai.koog.prompt.executor.clients.openai.base.models.ReasoningEffort
 import ai.koog.prompt.executor.clients.mistralai.MistralAIParams
+import ai.koog.prompt.executor.clients.google.GoogleParams
+import ai.koog.prompt.executor.clients.google.models.GoogleThinkingConfig
+import ai.koog.prompt.executor.clients.google.models.GoogleThinkingLevel
 import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
@@ -64,6 +67,26 @@ class KoogAgentFactory @Inject constructor(
         val temperature = config.temperature.toDouble()
 
         return when (val settings = config.providerSettings) {
+            is ProviderSettings.Google -> GoogleParams(
+                temperature = if (settings.topP != null) null else temperature,
+                maxTokens = settings.maxTokens,
+                topP = settings.topP,
+                topK = settings.topK,
+                thinkingConfig = if (settings.includeThoughts) {
+                    GoogleThinkingConfig(
+                        includeThoughts = true,
+                        thinkingBudget = settings.thinkingBudget,
+                        thinkingLevel = settings.thinkingLevel?.let {
+                            when (it.lowercase()) {
+                                "low" -> GoogleThinkingLevel.LOW
+                                "high" -> GoogleThinkingLevel.HIGH
+                                else -> null
+                            }
+                        }
+                    )
+                } else null
+            )
+
             is ProviderSettings.OpenAI -> OpenAIChatParams(
                 temperature = if (settings.topP != null) null else temperature,
                 maxTokens = settings.maxTokens,
