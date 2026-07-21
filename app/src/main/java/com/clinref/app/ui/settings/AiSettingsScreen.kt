@@ -363,27 +363,85 @@ fun AiSettingsScreen(
                             val openaiSettings = configuration.providerSettings as com.clinref.app.domain.ai.ProviderSettings.OpenAI
                             ProviderSettingsHeader("OpenAI Settings")
 
-                            // Top P
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Top P", style = MaterialTheme.typography.labelMedium)
-                                    Text(
-                                        String.format("%.2f", openaiSettings.topP ?: 1.0),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                // Top P
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Top P", style = MaterialTheme.typography.labelMedium)
+                                        Text(
+                                            String.format("%.2f", openaiSettings.topP ?: 1.0),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Slider(
+                                        value = (openaiSettings.topP ?: 1.0).toFloat(),
+                                        onValueChange = { viewModel.updateProviderSettings(openaiSettings.copy(topP = it.toDouble())) },
+                                        valueRange = 0f..1f,
+                                        steps = 9,
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                 }
-                                Slider(
-                                    value = (openaiSettings.topP ?: 1.0).toFloat(),
-                                    onValueChange = { viewModel.updateProviderSettings(openaiSettings.copy(topP = it.toDouble())) },
-                                    valueRange = 0f..1f,
-                                    steps = 9,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+
+                                // Reasoning Effort (for o-series, GPT-5)
+                                Column {
+                                    Text("Reasoning Effort", style = MaterialTheme.typography.labelMedium)
+                                    Text(
+                                        "Controls depth of reasoning (o-series, GPT-5+)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = openaiSettings.reasoningEffort == null,
+                                            onClick = { viewModel.updateProviderSettings(openaiSettings.copy(reasoningEffort = null)) },
+                                            label = { Text("Default") }
+                                        )
+                                        FilterChip(
+                                            selected = openaiSettings.reasoningEffort == "low",
+                                            onClick = { viewModel.updateProviderSettings(openaiSettings.copy(reasoningEffort = "low")) },
+                                            label = { Text("Low") }
+                                        )
+                                        FilterChip(
+                                            selected = openaiSettings.reasoningEffort == "medium",
+                                            onClick = { viewModel.updateProviderSettings(openaiSettings.copy(reasoningEffort = "medium")) },
+                                            label = { Text("Medium") }
+                                        )
+                                        FilterChip(
+                                            selected = openaiSettings.reasoningEffort == "high",
+                                            onClick = { viewModel.updateProviderSettings(openaiSettings.copy(reasoningEffort = "high")) },
+                                            label = { Text("High") }
+                                        )
+                                    }
+                                }
+
+                                // Store Toggle
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Store Outputs", style = MaterialTheme.typography.labelMedium)
+                                        Text(
+                                            "Allow OpenAI to store outputs for improvement",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = openaiSettings.store ?: false,
+                                        onCheckedChange = { viewModel.updateProviderSettings(openaiSettings.copy(store = it)) }
+                                    )
+                                }
                             }
                         }
 

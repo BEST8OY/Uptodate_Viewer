@@ -32,7 +32,9 @@ sealed class ProviderSettings {
         override val maxTokens: Int = 16384,
         val topP: Double? = null,
         val frequencyPenalty: Double? = null,
-        val presencePenalty: Double? = null
+        val presencePenalty: Double? = null,
+        val reasoningEffort: String? = null,      // "low", "medium", "high"
+        val store: Boolean? = null
     ) : ProviderSettings()
 
     @Serializable
