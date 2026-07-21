@@ -5,14 +5,6 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
-import ai.koog.prompt.llm.LLMProvider
-import ai.koog.prompt.params.LLMParams
-import ai.koog.prompt.executor.clients.openai.OpenAIChatParams
-import ai.koog.prompt.executor.clients.openai.base.models.ReasoningEffort
-import ai.koog.prompt.executor.clients.mistralai.MistralAIParams
-import ai.koog.prompt.executor.clients.google.GoogleParams
-import ai.koog.prompt.executor.clients.google.models.GoogleThinkingConfig
-import ai.koog.prompt.executor.clients.google.models.GoogleThinkingLevel
 import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.secure.SecurePreferences
@@ -31,14 +23,6 @@ import javax.inject.Singleton
  *
  * AIAgent is single-use — calling .run() twice throws. So we create
  * a fresh agent per sendMessage() call.
- *
- * Provider support (modular — each provider is a separate class):
- * - Google/Gemini: GoogleProvider ✓
- * - OpenAI: OpenAIProvider ✓
- * - Anthropic: AnthropicProvider ✓
- * - Mistral AI: MistralAIProvider ✓
- * - OpenRouter: OpenRouterProvider ✓
- * - Ollama: OllamaProvider ✓
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
@@ -63,65 +47,6 @@ class KoogAgentFactory @Inject constructor(
 
     private fun getProvider(provider: AiProvider): AiProviderFactory? = providers[provider]
 
-    private fun createProviderParams(config: AiConfiguration): LLMParams {
-        val temperature = config.temperature.toDouble()
-
-        return when (val settings = config.providerSettings) {
-            is ProviderSettings.Google -> GoogleParams(
-                temperature = if (settings.topP != null) null else temperature,
-                maxTokens = settings.maxTokens,
-                topP = settings.topP,
-                topK = settings.topK,
-                thinkingConfig = if (settings.includeThoughts) {
-                    GoogleThinkingConfig(
-                        includeThoughts = true,
-                        thinkingBudget = settings.thinkingBudget,
-                        thinkingLevel = settings.thinkingLevel?.let {
-                            when (it.lowercase()) {
-                                "low" -> GoogleThinkingLevel.LOW
-                                "high" -> GoogleThinkingLevel.HIGH
-                                else -> null
-                            }
-                        }
-                    )
-                } else null
-            )
-
-            is ProviderSettings.OpenAI -> OpenAIChatParams(
-                temperature = if (settings.topP != null) null else temperature,
-                maxTokens = settings.maxTokens,
-                topP = settings.topP,
-                frequencyPenalty = settings.frequencyPenalty,
-                presencePenalty = settings.presencePenalty,
-                reasoningEffort = settings.reasoningEffort?.let {
-                    when (it.lowercase()) {
-                        "low" -> ReasoningEffort.LOW
-                        "medium" -> ReasoningEffort.MEDIUM
-                        "high" -> ReasoningEffort.HIGH
-                        "minimal" -> ReasoningEffort.MINIMAL
-                        "none" -> ReasoningEffort.NONE
-                        else -> null
-                    }
-                },
-                store = settings.store
-            )
-
-            is ProviderSettings.MistralAI -> MistralAIParams(
-                temperature = if (settings.topP != null) null else temperature,
-                maxTokens = settings.maxTokens,
-                topP = settings.topP,
-                frequencyPenalty = settings.frequencyPenalty,
-                presencePenalty = settings.presencePenalty,
-                safePrompt = settings.safePrompt
-            )
-
-            else -> LLMParams(
-                temperature = temperature,
-                maxTokens = config.maxTokens
-            )
-        }
-    }
-
     suspend fun createAgent(
         config: AiConfiguration,
         conversationId: String,
@@ -134,18 +59,18 @@ class KoogAgentFactory @Inject constructor(
         val providerFactory = getProvider(config.provider) ?: return null
         val executor = providerFactory.createExecutor(config, apiKey) ?: return null
         val model = providerFactory.resolveModel(config)
+        val providerParams = providerFactory.createParams(config)
 
         val toolRegistry = ToolRegistry {
             tools(medicalDatabaseTools)
         }
 
         val accumulator = TurnContextAccumulator()
-        val providerParams = createProviderParams(config)
 
         return AIAgent(
             promptExecutor = executor,
             llmModel = model,
-            systemPrompt = buildSystemPrompt(patientProfile),
+            systemPrompt = SystemPrompt.build(patientProfile),
             toolRegistry = toolRegistry,
             maxIterations = 25
         ) {
@@ -209,35 +134,6 @@ class KoogAgentFactory @Inject constructor(
                     accumulator.reset()
                 }
             }
-        }
-    }
-
-    fun buildSystemPrompt(patientProfile: PatientProfile): String {
-        val profileBlock = patientProfile.toSystemBlock()
-        return buildString {
-            appendLine("You are ClinRef AI, a clinical reference assistant. You answer medical questions by searching the available medical database, reading relevant sections, and citing your sources.")
-            appendLine()
-            if (profileBlock.isNotBlank()) {
-                appendLine(profileBlock)
-                appendLine()
-            }
-            appendLine("RULES:")
-            appendLine("1. ALWAYS call searchTopics first to find relevant topics.")
-            appendLine("2. ALWAYS call getTopicOutline to understand topic structure.")
-            appendLine("3. ALWAYS call getTopicSectionText to read specific sections before answering.")
-            appendLine("4. When citing sources, use this exact format, ONE CITATION PER LINE:")
-            appendLine("   Topic: <topic title>, Section: <section title> (ID: <section id>)")
-            appendLine("   You may include multiple citations, each on its own line. Every clinical answer must have at least one.")
-            appendLine("5. Never paraphrase complex formulas, or images (non-table graphics).")
-            appendLine("6. Do not perform calculations across multiple sections.")
-            appendLine("7. After reading the primary topic, ALWAYS call getRelatedTopics to check for additional relevant content.")
-            appendLine("8. If related topics contain information that would strengthen your answer, read those sections too using getTopicOutline + getTopicSectionText. Read up to 2 related topics maximum.")
-            appendLine("9. When section text contains a Topic link that is relevant, follow it: call getTopicOutline + getTopicSectionText.")
-            appendLine("10. getTopicOutline returns sections AND graphics. For graphic_table, use getGraphicContent to read table data (you may interpret it). For other graphics, use getGraphicInfo for metadata only — never interpret visual content.")
-            appendLine("LINKING:")
-            appendLine("- Link to a topic using [text](Topic-id) ONLY when the user would benefit from reading that topic (e.g. related conditions, drug information, cross-references). Do NOT link for passing mentions.")
-            appendLine("- Link to a graphic using [text](Graphic-id) ONLY when the graphic contains data relevant to the answer (e.g. dosing tables, diagnostic algorithms). Do NOT link for passing mentions.")
-            appendLine("- Every clinical answer must have at least one citation (Rule 4). Citations are separate from topic/graphic links.")
         }
     }
 

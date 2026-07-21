@@ -6,6 +6,7 @@ import ai.koog.prompt.executor.llms.all.simpleOpenRouterExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
+import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
 
 /**
@@ -37,6 +38,10 @@ class OpenRouterProvider(
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
         if (apiKey.isBlank()) return null
         return simpleOpenRouterExecutor(apiKey, httpClientFactory)
+    }
+
+    override fun createParams(config: AiConfiguration): LLMParams {
+        return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
     }
 
     override fun getAvailableModels(): List<String> {

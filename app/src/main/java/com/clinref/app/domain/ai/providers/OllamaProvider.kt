@@ -5,6 +5,7 @@ import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
+import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
 
 /**
@@ -34,6 +35,10 @@ class OllamaProvider(
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
         val baseUrl = config.baseUrl.ifBlank { "http://localhost:11434" }
         return simpleOllamaAIExecutor(baseUrl = baseUrl, httpClientFactory = httpClientFactory)
+    }
+
+    override fun createParams(config: AiConfiguration): LLMParams {
+        return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
     }
 
     override fun getAvailableModels(): List<String> {

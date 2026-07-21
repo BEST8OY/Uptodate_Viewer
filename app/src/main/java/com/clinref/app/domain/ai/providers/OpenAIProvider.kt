@@ -3,13 +3,17 @@ package com.clinref.app.domain.ai.providers
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
 import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
+import ai.koog.prompt.executor.clients.openai.OpenAIChatParams
 import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
+import ai.koog.prompt.executor.clients.openai.base.models.ReasoningEffort
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
+import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
+import com.clinref.app.domain.ai.ProviderSettings
 
 /**
  * OpenAI provider implementation.
@@ -56,6 +60,31 @@ class OpenAIProvider(
         )
 
         return MultiLLMPromptExecutor(client)
+    }
+
+    override fun createParams(config: AiConfiguration): LLMParams {
+        val settings = config.providerSettings as? ProviderSettings.OpenAI
+            ?: return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
+        val temperature = config.temperature.toDouble()
+
+        return OpenAIChatParams(
+            temperature = if (settings.topP != null) null else temperature,
+            maxTokens = settings.maxTokens,
+            topP = settings.topP,
+            frequencyPenalty = settings.frequencyPenalty,
+            presencePenalty = settings.presencePenalty,
+            reasoningEffort = settings.reasoningEffort?.let {
+                when (it.lowercase()) {
+                    "low" -> ReasoningEffort.LOW
+                    "medium" -> ReasoningEffort.MEDIUM
+                    "high" -> ReasoningEffort.HIGH
+                    "minimal" -> ReasoningEffort.MINIMAL
+                    "none" -> ReasoningEffort.NONE
+                    else -> null
+                }
+            },
+            store = settings.store
+        )
     }
 
     override fun getAvailableModels(): List<String> {

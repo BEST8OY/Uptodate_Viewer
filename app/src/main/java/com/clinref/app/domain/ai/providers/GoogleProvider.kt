@@ -5,27 +5,21 @@ import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
 import ai.koog.prompt.executor.clients.google.GoogleClientSettings
 import ai.koog.prompt.executor.clients.google.GoogleLLMClient
 import ai.koog.prompt.executor.clients.google.GoogleModels
+import ai.koog.prompt.executor.clients.google.GoogleParams
+import ai.koog.prompt.executor.clients.google.models.GoogleThinkingConfig
+import ai.koog.prompt.executor.clients.google.models.GoogleThinkingLevel
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
+import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
+import com.clinref.app.domain.ai.ProviderSettings
 
 /**
  * Google/Gemini provider implementation.
  *
- * Models available:
- * - Gemini 2.5 Flash — fast, balanced (default)
- * - Gemini 2.5 Flash Lite — fastest, cheapest
- * - Gemini 2.5 Pro — advanced, complex tasks
- * - Gemini 3 Pro Preview — latest, reasoning with thinkingLevel
- * - Gemini 3 Flash Preview — fast with Pro-level intelligence
- *
- * Features:
- * - Thinking mode (Gemini 2.0: thinkingBudget, Gemini 3.0: thinkingLevel)
- * - Configurable timeouts
- * - Tool calling support
- *
+ * Models: Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 3.1 Pro, Gemini 3.5 Flash, etc.
  * API: https://ai.google.dev/gemini-api/docs
  */
 class GoogleProvider(
@@ -42,7 +36,7 @@ class GoogleProvider(
                     ai.koog.prompt.llm.LLMCapability.Tools,
                     ai.koog.prompt.llm.LLMCapability.Temperature
                 ),
-                contextLength = 1_000_000  // Gemini 2.5 supports 1M context
+                contextLength = 1_000_000
             )
         }
         return GoogleModels.Gemini2_5Flash
@@ -53,9 +47,9 @@ class GoogleProvider(
 
         val settings = GoogleClientSettings(
             timeoutConfig = ConnectionTimeoutConfig(
-                requestTimeoutMillis = 120_000L,   // 2 minutes for long generations
-                connectTimeoutMillis = 30_000L,     // 30 seconds to connect
-                socketTimeoutMillis = 120_000L      // 2 minutes for streaming
+                requestTimeoutMillis = 120_000L,
+                connectTimeoutMillis = 30_000L,
+                socketTimeoutMillis = 120_000L
             )
         )
 
@@ -68,50 +62,33 @@ class GoogleProvider(
         return MultiLLMPromptExecutor(client)
     }
 
+    override fun createParams(config: AiConfiguration): LLMParams {
+        val settings = config.providerSettings as? ProviderSettings.Google
+            ?: return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
+        val temperature = config.temperature.toDouble()
+
+        return GoogleParams(
+            temperature = if (settings.topP != null) null else temperature,
+            maxTokens = settings.maxTokens,
+            topP = settings.topP,
+            topK = settings.topK,
+            thinkingConfig = if (settings.includeThoughts) {
+                GoogleThinkingConfig(
+                    includeThoughts = true,
+                    thinkingBudget = settings.thinkingBudget,
+                    thinkingLevel = settings.thinkingLevel?.let {
+                        when (it.lowercase()) {
+                            "low" -> GoogleThinkingLevel.LOW
+                            "high" -> GoogleThinkingLevel.HIGH
+                            else -> null
+                        }
+                    }
+                )
+            } else null
+        )
+    }
+
     override fun getAvailableModels(): List<String> {
         return GoogleModels.models.map { it.id }
     }
-
-    /**
-     * Get available Gemini models with their characteristics.
-     */
-    fun getModelInfo(): List<GeminiModelInfo> = listOf(
-        GeminiModelInfo(
-            id = GoogleModels.Gemini2_5Flash.id,
-            name = "Gemini 2.5 Flash",
-            speed = "Medium",
-            description = "Balanced speed and capability, supports thinking"
-        ),
-        GeminiModelInfo(
-            id = GoogleModels.Gemini2_5FlashLite.id,
-            name = "Gemini 2.5 Flash Lite",
-            speed = "Fast",
-            description = "Cost-efficient, high throughput"
-        ),
-        GeminiModelInfo(
-            id = GoogleModels.Gemini2_5Pro.id,
-            name = "Gemini 2.5 Pro",
-            speed = "Slow",
-            description = "Advanced capabilities for complex tasks"
-        ),
-        GeminiModelInfo(
-            id = GoogleModels.Gemini3_Pro_Preview.id,
-            name = "Gemini 3 Pro Preview",
-            speed = "Slow",
-            description = "Latest reasoning with thinkingLevel (not thinkingBudget)"
-        ),
-        GeminiModelInfo(
-            id = GoogleModels.Gemini3_Flash_Preview.id,
-            name = "Gemini 3 Flash Preview",
-            speed = "Fast",
-            description = "Pro-level intelligence at Flash speed"
-        )
-    )
-
-    data class GeminiModelInfo(
-        val id: String,
-        val name: String,
-        val speed: String,
-        val description: String
-    )
 }
