@@ -6,6 +6,12 @@ import kotlinx.coroutines.flow.asStateFlow
 
 class StreamingManager {
 
+    data class TokenUsage(
+        val promptTokens: Int = 0,
+        val completionTokens: Int = 0,
+        val totalTokens: Int = 0
+    )
+
     sealed class AgentState {
         data object Idle : AgentState()
         data class ToolCallInProgress(
@@ -16,7 +22,8 @@ class StreamingManager {
         data class WaitingForLlm(val stepIndex: Int) : AgentState()
         data class Completed(
             val result: String,
-            val validation: SafetyValidator.ValidationResult
+            val validation: SafetyValidator.ValidationResult,
+            val tokenUsage: TokenUsage = TokenUsage()
         ) : AgentState()
         data class Error(
             val message: String,
@@ -38,6 +45,7 @@ class StreamingManager {
     val toolProgress: StateFlow<ToolProgress?> = _toolProgress.asStateFlow()
 
     private var stepCounter = 0
+    private var accumulatedUsage = TokenUsage()
 
     fun onToolCallStarting(toolName: String, args: String) {
         stepCounter++
@@ -59,9 +67,17 @@ class StreamingManager {
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
     }
 
+    fun onLlmCallCompleted(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
+        accumulatedUsage = TokenUsage(
+            promptTokens = accumulatedUsage.promptTokens + promptTokens,
+            completionTokens = accumulatedUsage.completionTokens + completionTokens,
+            totalTokens = accumulatedUsage.totalTokens + totalTokens
+        )
+    }
+
     fun onCompleted(result: String, validation: SafetyValidator.ValidationResult) {
         _toolProgress.value = null
-        _agentState.value = AgentState.Completed(result, validation)
+        _agentState.value = AgentState.Completed(result, validation, accumulatedUsage)
     }
 
     fun onError(error: String) {
@@ -72,6 +88,7 @@ class StreamingManager {
 
     fun reset() {
         stepCounter = 0
+        accumulatedUsage = TokenUsage()
         _toolProgress.value = null
         _agentState.value = AgentState.Idle
     }

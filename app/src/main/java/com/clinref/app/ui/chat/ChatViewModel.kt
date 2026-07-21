@@ -275,7 +275,13 @@ class ChatViewModel @Inject constructor(
                         citations = state.validation.citations,
                         warnings = state.validation.warnings
                     )
-                    conversationRepository.updateTokenCounts(conversationId, promptDelta = 0, completionDelta = result.length / 4, toolDelta = 0)
+                    val usage = state.tokenUsage
+                    conversationRepository.updateTokenCounts(
+                        conversationId,
+                        promptDelta = usage.promptTokens,
+                        completionDelta = usage.completionTokens,
+                        toolDelta = 0
+                    )
                     conversationRepository.updateLastPreview(conversationId, result.take(100))
                 } else {
                     val blockedMsg = MessageEntity(

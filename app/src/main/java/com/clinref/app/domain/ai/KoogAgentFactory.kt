@@ -107,6 +107,17 @@ class KoogAgentFactory @Inject constructor(
                     streamingManager.onWaitingForLlm()
                 }
 
+                onLLMCallCompleted { eventContext ->
+                    val metaInfo = eventContext.response?.metaInfo
+                    if (metaInfo != null) {
+                        streamingManager.onLlmCallCompleted(
+                            promptTokens = metaInfo.inputTokensCount ?: 0,
+                            completionTokens = metaInfo.outputTokensCount ?: 0,
+                            totalTokens = metaInfo.totalTokensCount ?: 0
+                        )
+                    }
+                }
+
                 onAgentCompleted { eventContext ->
                     val result = eventContext.result?.toString() ?: ""
                     val turnContext = accumulator.buildTurnContext(result)
