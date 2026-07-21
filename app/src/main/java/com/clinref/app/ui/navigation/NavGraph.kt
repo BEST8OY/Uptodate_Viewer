@@ -131,6 +131,13 @@ fun NavGraph(
 
     val activity = LocalContext.current as? Activity
 
+    // At root of top-level route: finish immediately, bypass NavDisplay's predictive back transition
+    androidx.activity.compose.BackHandler(
+        enabled = navigationState.backStacks[navigationState.topLevelRoute]?.lastOrNull() == navigationState.topLevelRoute
+    ) {
+        activity?.finish()
+    }
+
     val entryProvider = entryProvider {
         entry<TocRoute> {
             TocScreen(
@@ -215,6 +222,7 @@ fun NavGraph(
                 val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
                 val currentRoute = currentStack?.lastOrNull()
                 if (currentRoute == navigationState.topLevelRoute) {
+                    // At root of top-level route — finish without transitioning to TOC
                     activity?.finish()
                 } else {
                     navigator.goBack()
