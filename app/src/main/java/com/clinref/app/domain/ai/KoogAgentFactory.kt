@@ -5,9 +5,9 @@ import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.clients.openai.OpenAIModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
-import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterModels
 import ai.koog.prompt.executor.llms.all.simpleOpenAIExecutor
 import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
@@ -30,9 +30,9 @@ import javax.inject.Singleton
  * a fresh agent per sendMessage() call.
  *
  * Provider support:
+ * - Google/Gemini: prompt-executor-google-client:1.0.0-beta ✓
  * - OpenAI: prompt-executor-openai-client:1.0.0 ✓
  * - Anthropic: prompt-executor-anthropic-client:1.0.0 ✓
- * - Google: prompt-executor-google-client:1.0.0-beta ✓
  * - OpenRouter: prompt-executor-openrouter-client:1.0.0 ✓
  * - Ollama: prompt-executor-ollama-client:1.0.0 ✓
  * - Mistral/DeepSeek: not available at stable version yet
@@ -161,7 +161,7 @@ class KoogAgentFactory @Inject constructor(
         return when (config.provider) {
             AiProvider.OPENAI -> OpenAIModels.models.first()
             AiProvider.ANTHROPIC -> AnthropicModels.models.first()
-            AiProvider.GOOGLE -> GoogleModels.models.first()
+            AiProvider.GOOGLE -> GoogleModels.Gemini2_5Flash
             AiProvider.OPENROUTER -> OpenRouterModels.models.first()
             else -> LLModel(
                 provider = providerFor(config.provider),
@@ -179,15 +179,14 @@ class KoogAgentFactory @Inject constructor(
     private suspend fun executorFor(config: AiConfiguration): PromptExecutor? {
         val apiKey = securePreferences.getApiKey(config.provider)
         return when (config.provider) {
+            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
             AiProvider.OPENAI -> simpleOpenAIExecutor(apiKey, httpClientFactory)
             AiProvider.ANTHROPIC -> simpleAnthropicExecutor(apiKey, httpClientFactory)
-            AiProvider.GOOGLE -> simpleGoogleAIExecutor(apiKey, httpClientFactory)
             AiProvider.OPENROUTER -> simpleOpenRouterExecutor(apiKey, httpClientFactory)
             AiProvider.OLLAMA -> {
                 val baseUrl = config.baseUrl.ifBlank { "http://localhost:11434" }
                 simpleOllamaAIExecutor(baseUrl = baseUrl, httpClientFactory = httpClientFactory)
             }
-            // Mistral/DeepSeek: client modules not available at stable version yet
             else -> null
         }
     }
@@ -199,7 +198,6 @@ class KoogAgentFactory @Inject constructor(
             AiProvider.GOOGLE -> LLMProvider.Google
             AiProvider.OPENROUTER -> LLMProvider.OpenRouter
             AiProvider.OLLAMA -> LLMProvider.Ollama
-            // Mistral/DeepSeek: client modules not available at stable version yet
             else -> error("No LLMProvider mapping for $provider — executorFor() should have returned null first")
         }
     }
@@ -210,7 +208,6 @@ class KoogAgentFactory @Inject constructor(
         AiProvider.GOOGLE -> GoogleModels.models.map { it.id }
         AiProvider.OPENROUTER -> OpenRouterModels.models.map { it.id }
         AiProvider.OLLAMA -> listOf("llama3.2", "mistral", "phi3")
-        // Mistral/DeepSeek: not available at stable version yet
         else -> emptyList()
     }
 }
