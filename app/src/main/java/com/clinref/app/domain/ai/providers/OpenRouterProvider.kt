@@ -12,6 +12,7 @@ import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.ProviderSettings
+import kotlin.math.roundToInt
 
 /**
  * OpenRouter provider implementation.
@@ -62,8 +63,8 @@ class OpenRouterProvider(
 
     override fun createParams(config: AiConfiguration): LLMParams {
         val settings = config.providerSettings as? ProviderSettings.OpenRouter
-            ?: return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
-        val temperature = config.temperature.toDouble()
+            ?: return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
+        val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
         return OpenRouterParams(
             temperature = if (settings.topP != null) null else temperature,

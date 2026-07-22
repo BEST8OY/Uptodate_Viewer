@@ -10,6 +10,7 @@ import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.ProviderSettings
+import kotlin.math.roundToInt
 
 /**
  * Anthropic provider implementation.
@@ -44,8 +45,8 @@ class AnthropicProvider(
 
     override fun createParams(config: AiConfiguration): LLMParams {
         val settings = config.providerSettings as? ProviderSettings.Anthropic
-            ?: return LLMParams(temperature = config.temperature.toDouble(), maxTokens = config.maxTokens)
-        val temperature = config.temperature.toDouble()
+            ?: return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
+        val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
         // TODO: AnthropicThinking can't be resolved from Kotlin 2.4.10 despite existing in 1.1.1.
         // Likely a metadata version mismatch. Enable when Koog bumps to Kotlin 2.4.x.
