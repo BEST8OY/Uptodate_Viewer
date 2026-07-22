@@ -1,9 +1,12 @@
 package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
+import ai.koog.prompt.executor.clients.mistralai.MistralAIClientSettings
+import ai.koog.prompt.executor.clients.mistralai.MistralAILLMClient
 import ai.koog.prompt.executor.clients.mistralai.MistralAIModels
 import ai.koog.prompt.executor.clients.mistralai.MistralAIParams
-import ai.koog.prompt.executor.llms.all.simpleMistralAIExecutor
+import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
@@ -34,7 +37,22 @@ class MistralAIProvider(
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
         if (apiKey.isBlank()) return null
-        return simpleMistralAIExecutor(apiKey, httpClientFactory)
+
+        val settings = MistralAIClientSettings(
+            timeoutConfig = ConnectionTimeoutConfig(
+                requestTimeoutMillis = 120_000L,
+                connectTimeoutMillis = 30_000L,
+                socketTimeoutMillis = 120_000L
+            )
+        )
+
+        val client = MistralAILLMClient(
+            apiKey = apiKey,
+            settings = settings,
+            httpClientFactory = httpClientFactory
+        )
+
+        return MultiLLMPromptExecutor(client)
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {
