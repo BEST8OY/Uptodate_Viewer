@@ -129,7 +129,7 @@ class KoogAgentFactory @Inject constructor(
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
             }
 
-            install(Tracing) {
+            install(Tracing.Feature) {
                 addMessageProcessor(AndroidTraceLogWriter())
             }
 
