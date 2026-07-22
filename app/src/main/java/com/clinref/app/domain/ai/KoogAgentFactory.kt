@@ -7,6 +7,7 @@ import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.agents.features.tracing.feature.Tracing
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.dsl.prompt
 import com.clinref.app.data.ai.RoomChatHistoryProvider
@@ -94,6 +95,10 @@ class KoogAgentFactory @Inject constructor(
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
                 windowSize(50)
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
+            }
+
+            install(Tracing.Feature) {
+                addMessageProcessor(AndroidTraceLogWriter())
             }
 
             handleEvents {
