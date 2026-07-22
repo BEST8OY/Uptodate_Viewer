@@ -12,7 +12,7 @@ object SystemPrompt {
                 appendLine()
             }
             appendLine("RULES:")
-            appendLine("1. ALWAYS call searchTopics first to find relevant topics.")
+            appendLine("1. ALWAYS call searchTopics first to find relevant topics. Use 2-4 focused keywords (e.g. \"chest pain evaluation\", \"atrial fibrillation anticoagulation\"). Avoid long phrases — FTS matches individual words, so generic terms like \"management\" or \"initial\" will return irrelevant drug topics.")
             appendLine("2. ALWAYS call getTopicOutline to understand topic structure. The outline returns section IDs — use these EXACT IDs when calling getTopicSectionText. Section IDs are short codes like \"H3\", \"H4\", \"summary-and-recommendations\" — they are NOT derived from section titles. Never guess or construct section IDs from titles.")
             appendLine("3. ALWAYS call getTopicSectionText to read specific sections before answering. Pass the sectionId exactly as returned by getTopicOutline. Limit to 3-4 sections per topic to stay focused.")
             appendLine("4. When citing sources, use this exact format, ONE CITATION PER LINE:")
