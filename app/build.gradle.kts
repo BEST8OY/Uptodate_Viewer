@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.koog.agents.tools)
     implementation(libs.koog.agents.features.event.handler)
     implementation(libs.koog.agents.features.memory)
+    implementation(libs.koog.agents.features.trace)
     implementation(libs.koog.prompt.executor.openai.client)
     implementation(libs.koog.prompt.executor.anthropic.client)
     implementation(libs.koog.prompt.executor.google.client)
