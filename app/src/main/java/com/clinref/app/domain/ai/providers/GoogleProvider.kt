@@ -5,7 +5,7 @@ import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.clients.google.GoogleParams
 import ai.koog.prompt.executor.clients.google.models.GoogleThinkingConfig
 import ai.koog.prompt.executor.clients.google.models.GoogleThinkingLevel
-import ai.koog.prompt.executor.llms.all.simpleGoogleExecutor
+import ai.koog.prompt.executor.llms.all.simpleGoogleAIExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
@@ -36,7 +36,7 @@ class GoogleProvider(
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
         if (apiKey.isBlank()) return null
-        return simpleGoogleExecutor(apiKey, httpClientFactory)
+        return simpleGoogleAIExecutor(apiKey, httpClientFactory)
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {
