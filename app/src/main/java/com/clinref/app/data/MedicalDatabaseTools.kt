@@ -65,9 +65,14 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Search medical topics by keywords to find matching topic IDs and titles.")
+    @LLMDescription(
+        "Search medical topics by keywords to find matching topic IDs and titles. " +
+        "CRITICAL: Use 2-4 focused keywords (e.g., 'atrial fibrillation anticoagulation'). " +
+        "Avoid broad generic terms like 'management' or 'treatment' — FTS matches individual words, " +
+        "so generic terms return irrelevant drug topics."
+    )
     fun searchTopics(
-        @LLMDescription("The search query keywords") query: String
+        @LLMDescription("2-4 focused medical keywords (e.g., 'chest pain evaluation'). Avoid long phrases.") query: String
     ): String {
         val results = searchRepository.searchTopics(query).map { result ->
             val id = when (result) {
@@ -80,9 +85,14 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Retrieve the table of contents outline of a topic, returned as a JSON object with 'title' (topic title), 'sections' (array of {id, title}), and 'graphics' (array of {id, type, title}). Use graphics to know what tables, figures, and algorithms are available for a topic.")
+    @LLMDescription(
+        "Retrieve the table of contents outline of a topic. Returns section IDs (e.g., 'H3', " +
+        "'summary-and-recommendations') and graphic metadata. ALWAYS call this before " +
+        "getTopicSectionText to get exact section IDs. Section IDs are short codes — they are " +
+        "NOT derived from section titles. Never guess or construct section IDs from titles."
+    )
     fun getTopicOutline(
-        @LLMDescription("The unique topic ID") topicId: String
+        @LLMDescription("The unique topic ID returned by searchTopics") topicId: String
     ): String {
         val t0 = System.currentTimeMillis()
         val content = contentRepository.getTopicContent(topicId) ?: return "Topic not found"
@@ -96,11 +106,15 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Retrieve the text content of a specific section using its stable ID, with a fallback title if IDs drifted.")
+    @LLMDescription(
+        "Retrieve the full text content of a specific section using its stable ID, with a " +
+        "fallback title if IDs drifted. CRITICAL: Must pass the exact sectionId returned by " +
+        "getTopicOutline. Never guess or construct section IDs from titles."
+    )
     fun getTopicSectionText(
         @LLMDescription("The unique topic ID") topicId: String,
-        @LLMDescription("The stable section ID returned by getTopicOutline") sectionId: String,
-        @LLMDescription("The fallback title of the section in case ID lookup fails") sectionTitle: String
+        @LLMDescription("Exact section ID from getTopicOutline (e.g., 'H3', 'summary-and-recommendations')") sectionId: String,
+        @LLMDescription("Fallback section title if ID lookup fails — only used as last resort") sectionTitle: String
     ): String {
         val t0 = System.currentTimeMillis()
         val content = contentRepository.getTopicContent(topicId) ?: return "Topic not found"
@@ -156,7 +170,11 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Retrieve metadata about a graphic associated with a topic. Returns the graphic type, title, and capabilities. Do NOT attempt to interpret visual content — reference the type and title only.")
+    @LLMDescription(
+        "Retrieve metadata about a graphic (figure, algorithm, picture). Returns type and title. " +
+        "Do NOT interpret visual content — reference the type and title only. " +
+        "Only call this for non-table graphics that appear in the topic outline."
+    )
     fun getGraphicInfo(
         @LLMDescription("The graphic ID from the outline") graphicId: String
     ): String {
@@ -171,7 +189,11 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Retrieve the text content of a table graphic. Use this to read tabular data (scoring criteria, lab values, treatment protocols, drug comparisons, etc). Only works for graphic_table type. You may interpret and summarize the table data to answer clinical questions.")
+    @LLMDescription(
+        "Retrieve the text content of a TABLE graphic. Only works for graphic_table type. " +
+        "You may interpret and summarize table data. Do NOT call for non-table graphics — " +
+        "use getGraphicInfo instead. Only reference graphics that appear in the outline."
+    )
     fun getGraphicContent(
         @LLMDescription("The graphic ID from the outline") graphicId: String
     ): String {

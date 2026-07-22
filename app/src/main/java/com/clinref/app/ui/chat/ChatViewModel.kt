@@ -285,39 +285,29 @@ class ChatViewModel @Inject constructor(
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
                 if (state.validation.passed) {
-                    val assistantMsg = MessageEntity(
-                        id = UUID.randomUUID().toString(),
-                        conversationId = conversationId,
-                        role = "assistant",
-                        content = result,
-                        timestamp = System.currentTimeMillis(),
-                        citationsJson = json.encodeToString(state.validation.citations),
-                        warningsJson = json.encodeToString(state.validation.warnings)
+                    saveSuccessfulMessage(
+                        conversationId, result, state.validation, state.tokenUsage
                     )
-                    conversationRepository.addMessage(assistantMsg)
-                    _messages.value = _messages.value + assistantMsg.toUiModel(
-                        citations = state.validation.citations,
-                        warnings = state.validation.warnings
-                    )
-                    val usage = state.tokenUsage
-                    conversationRepository.updateTokenCounts(
-                        conversationId,
-                        promptDelta = usage.promptTokens,
-                        completionDelta = usage.completionTokens,
-                        toolDelta = 0
-                    )
-                    conversationRepository.updateLastPreview(conversationId, result.take(100))
                 } else {
-                    val blockedMsg = MessageEntity(
-                        id = UUID.randomUUID().toString(),
-                        conversationId = conversationId,
-                        role = "assistant",
-                        content = state.validation.blockedReason ?: "This output has been quarantined by ClinRef safety engines.",
-                        timestamp = System.currentTimeMillis(),
-                        isError = true
-                    )
-                    conversationRepository.addMessage(blockedMsg)
-                    _messages.value = _messages.value + blockedMsg.toUiModel(isError = true)
+                    val blockedReason = state.validation.blockedReason
+                        ?: "This output has been quarantined by ClinRef safety engines."
+                    secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel",
+                        "Safety blocked: $blockedReason. Attempting self-correction.")
+
+                    val correctionSuccess = runCorrectionTurn(conversationId, blockedReason)
+
+                    if (!correctionSuccess) {
+                        val blockedMsg = MessageEntity(
+                            id = UUID.randomUUID().toString(),
+                            conversationId = conversationId,
+                            role = "assistant",
+                            content = blockedReason,
+                            timestamp = System.currentTimeMillis(),
+                            isError = true
+                        )
+                        conversationRepository.addMessage(blockedMsg)
+                        _messages.value = _messages.value + blockedMsg.toUiModel(isError = true)
+                    }
                 }
             }
             is StreamingManager.AgentState.Error -> {
@@ -336,6 +326,83 @@ class ChatViewModel @Inject constructor(
                 secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: unexpected state ${state::class.simpleName}")
             }
         }
+    }
+
+    private suspend fun runCorrectionTurn(
+        conversationId: String,
+        blockedReason: String
+    ): Boolean {
+        return try {
+            val patientProfile = conversationRepository.getPatientProfile(conversationId)
+            val config = configuration.value
+
+            streamingManager.reset()
+
+            val correctionAgent = koogAgentFactory.createAgent(
+                config = config,
+                conversationId = conversationId,
+                patientProfile = patientProfile,
+                streamingManager = streamingManager
+            ) ?: return false
+
+            val correctionPrompt = """
+                CRITICAL SYSTEM NOTICE: Your previous output was blocked by clinical safety verification.
+                REASON: $blockedReason
+
+                Instructions for this turn:
+                1. Re-read the retrieved topic sections.
+                2. Synthesize your answer strictly from fetched section text.
+                3. Include required citations in format: Topic: <title>, Section: <section> (ID: <id>)
+                4. Do not cite sections that were not retrieved.
+            """.trimIndent()
+
+            val correctedResult = correctionAgent.run(correctionPrompt, conversationId)
+
+            val finalState = streamingManager.agentState.value
+            if (finalState is StreamingManager.AgentState.Completed && finalState.validation.passed) {
+                saveSuccessfulMessage(
+                    conversationId, correctedResult, finalState.validation, finalState.tokenUsage
+                )
+                true
+            } else {
+                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel",
+                    "Self-correction turn failed validation.")
+                false
+            }
+        } catch (e: Exception) {
+            secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel",
+                "Self-correction crashed: ${e.message}")
+            false
+        }
+    }
+
+    private suspend fun saveSuccessfulMessage(
+        conversationId: String,
+        result: String,
+        validation: SafetyValidator.ValidationResult,
+        usage: StreamingManager.TokenUsage
+    ) {
+        val assistantMsg = MessageEntity(
+            id = UUID.randomUUID().toString(),
+            conversationId = conversationId,
+            role = "assistant",
+            content = result,
+            timestamp = System.currentTimeMillis(),
+            citationsJson = json.encodeToString(validation.citations),
+            warningsJson = json.encodeToString(validation.warnings)
+        )
+        conversationRepository.addMessage(assistantMsg)
+        _messages.value = _messages.value + assistantMsg.toUiModel(
+            citations = validation.citations,
+            warnings = validation.warnings
+        )
+        conversationRepository.updateTokenCounts(
+            conversationId,
+            promptDelta = usage.promptTokens,
+            completionDelta = usage.completionTokens,
+            toolDelta = 0
+        )
+        conversationRepository.updateLastPreview(conversationId, result.take(100))
     }
 
     private fun mapErrorToUserMessage(type: StreamingManager.ErrorType): String = when (type) {
