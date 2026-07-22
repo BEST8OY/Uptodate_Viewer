@@ -12,7 +12,7 @@ import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResults
 import ai.koog.agents.core.dsl.extension.onTextMessage
 import ai.koog.agents.core.dsl.extension.onToolCalls
 import ai.koog.agents.chatMemory.feature.ChatMemory
-import ai.koog.agents.features.eventHandler.feature.EventHandler
+import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.agents.features.tracing.feature.Tracing
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.dsl.prompt
@@ -117,21 +117,24 @@ class KoogAgentFactory @Inject constructor(
             maxAgentIterations = 25
         )
 
-        return AIAgent.builder()
-            .promptExecutor(executor)
-            .agentConfig(agentConfig)
-            .toolRegistry(toolRegistry)
-            .graphStrategy(clinicalStrategy)
-            .install(ChatMemory) {
+        return AIAgent(
+            promptExecutor = executor,
+            agentConfig = agentConfig,
+            strategy = clinicalStrategy,
+            toolRegistry = toolRegistry
+        ) {
+            install(ChatMemory) {
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
                 windowSize(50)
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
             }
-            .install(Tracing.Feature) {
+
+            install(Tracing) {
                 addMessageProcessor(AndroidTraceLogWriter())
             }
-            .install(EventHandler.Feature) { cfg ->
-                cfg.onToolCallStarting { eventContext ->
+
+            handleEvents {
+                onToolCallStarting { eventContext ->
                     val callId = eventContext.toolCallId ?: ""
                     val argsStr = eventContext.toolArgs.toString()
                     Log.d(TAG, "Tool starting: ${eventContext.toolName} args=$argsStr")
@@ -139,7 +142,7 @@ class KoogAgentFactory @Inject constructor(
                     streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
                 }
 
-                cfg.onLLMStreamingFrameReceived { eventContext ->
+                onLLMStreamingFrameReceived { eventContext ->
                     when (val frame = eventContext.streamFrame) {
                         is ai.koog.prompt.streaming.StreamFrame.TextDelta -> {
                             streamingManager.onStreamingTextDelta(frame.text)
@@ -148,7 +151,7 @@ class KoogAgentFactory @Inject constructor(
                     }
                 }
 
-                cfg.onToolCallCompleted { eventContext ->
+                onToolCallCompleted { eventContext ->
                     val callId = eventContext.toolCallId ?: ""
                     val resultText = eventContext.toolResult?.toString() ?: ""
                     val success = eventContext.toolResult != null
@@ -158,7 +161,7 @@ class KoogAgentFactory @Inject constructor(
                     streamingManager.onWaitingForLlm()
                 }
 
-                cfg.onLLMCallCompleted { eventContext ->
+                onLLMCallCompleted { eventContext ->
                     val metaInfo = eventContext.response?.metaInfo
                     if (metaInfo != null) {
                         streamingManager.onLlmCallCompleted(
@@ -169,7 +172,7 @@ class KoogAgentFactory @Inject constructor(
                     }
                 }
 
-                cfg.onAgentCompleted { eventContext ->
+                onAgentCompleted { eventContext ->
                     val result = eventContext.result?.toString() ?: ""
                     val turnContext = accumulator.buildTurnContext(result)
                     val validation = safetyValidator.validate(turnContext)
@@ -178,13 +181,13 @@ class KoogAgentFactory @Inject constructor(
                     accumulator.reset()
                 }
 
-                cfg.onAgentExecutionFailed { eventContext ->
+                onAgentExecutionFailed { eventContext ->
                     Log.e(TAG, "Agent failed: ${eventContext.error.message}")
                     streamingManager.onError(eventContext.error.message ?: "Unknown error")
                     accumulator.reset()
                 }
             }
-            .build()
+        }
     }
 
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
