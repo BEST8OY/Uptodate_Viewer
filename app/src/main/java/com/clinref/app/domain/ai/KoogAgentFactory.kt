@@ -83,7 +83,7 @@ class KoogAgentFactory @Inject constructor(
                 system(SystemPrompt.build(patientProfile))
             },
             model = model,
-            maxAgentIterations = 25
+            maxAgentIterations = 15
         )
 
         return AIAgent(

@@ -6,10 +6,13 @@ import ai.koog.agents.core.tools.reflect.ToolSet
 import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
+import android.util.Log
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "MedTools"
 
 @Singleton
 class MedicalDatabaseTools @Inject constructor(
@@ -81,10 +84,14 @@ class MedicalDatabaseTools @Inject constructor(
     fun getTopicOutline(
         @LLMDescription("The unique topic ID") topicId: String
     ): String {
+        val t0 = System.currentTimeMillis()
         val content = contentRepository.getTopicContent(topicId) ?: return "Topic not found"
+        val t1 = System.currentTimeMillis()
         val title = contentRepository.getTopicTitle(topicId) ?: topicId
         val sections = parseOutlineList(content.outlineHtml)
         val graphics = parseGraphicsFromOutline(content.outlineHtml)
+        val t2 = System.currentTimeMillis()
+        Log.d(TAG, "getTopicOutline($topicId): db=${t1 - t0}ms parse=${t2 - t1}ms sections=${sections.size} graphics=${graphics.size}")
         return Json.encodeToString(mapOf("title" to title, "sections" to sections, "graphics" to graphics))
     }
 
@@ -95,6 +102,7 @@ class MedicalDatabaseTools @Inject constructor(
         @LLMDescription("The stable section ID returned by getTopicOutline") sectionId: String,
         @LLMDescription("The fallback title of the section in case ID lookup fails") sectionTitle: String
     ): String {
+        val t0 = System.currentTimeMillis()
         val content = contentRepository.getTopicContent(topicId) ?: return "Topic not found"
         val bodyHtml = content.bodyHtml
         val outlineHtml = content.outlineHtml
@@ -119,6 +127,7 @@ class MedicalDatabaseTools @Inject constructor(
         }
 
         if (sectionHtml == null) {
+            Log.d(TAG, "getTopicSectionText($topicId, $sectionId): NOT FOUND (${System.currentTimeMillis() - t0}ms)")
             return "Section not found."
         }
 
@@ -128,9 +137,11 @@ class MedicalDatabaseTools @Inject constructor(
         val currentTitle = contentRepository.getTopicTitle(topicId)
         if (currentTitle != null) topicTitles[topicId] = currentTitle
 
-        return htmlToMarkdown(sectionHtml) { tid ->
+        val result = htmlToMarkdown(sectionHtml) { tid ->
             topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
         }
+        Log.d(TAG, "getTopicSectionText($topicId, $targetId): ${result.length} chars (${System.currentTimeMillis() - t0}ms)")
+        return result
     }
 
     @Tool
