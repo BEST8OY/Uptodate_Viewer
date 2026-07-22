@@ -1,11 +1,11 @@
 package com.clinref.app.domain.ai
 
+import android.util.Log
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
-import ai.koog.agents.features.tracing.feature.Tracing
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.dsl.prompt
 import com.clinref.app.data.ai.RoomChatHistoryProvider
@@ -20,6 +20,8 @@ import com.clinref.app.domain.ai.providers.OpenAIProvider
 import com.clinref.app.domain.ai.providers.OpenRouterProvider
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "KoogAgent"
 
 /**
  * Creates Koog AIAgent instances for each conversation turn.
@@ -100,6 +102,7 @@ class KoogAgentFactory @Inject constructor(
                 onToolCallStarting { eventContext ->
                     val callId = eventContext.toolCallId ?: ""
                     val argsStr = eventContext.toolArgs.toString()
+                    Log.d(TAG, "Tool starting: ${eventContext.toolName} args=$argsStr")
                     accumulator.onToolCallStarting(callId, argsStr)
                     streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
                 }
@@ -117,6 +120,7 @@ class KoogAgentFactory @Inject constructor(
                     val callId = eventContext.toolCallId ?: ""
                     val resultText = eventContext.toolResult?.toString() ?: ""
                     val success = eventContext.toolResult != null
+                    Log.d(TAG, "Tool completed: ${eventContext.toolName} success=$success result=${resultText.take(200)}")
                     accumulator.onToolCallCompleted(callId, eventContext.toolName, resultText, success)
                     streamingManager.onToolCallCompleted(eventContext.toolName)
                     streamingManager.onWaitingForLlm()
@@ -137,11 +141,13 @@ class KoogAgentFactory @Inject constructor(
                     val result = eventContext.result?.toString() ?: ""
                     val turnContext = accumulator.buildTurnContext(result)
                     val validation = safetyValidator.validate(turnContext)
+                    Log.d(TAG, "Agent completed: tools=${turnContext.toolCalls.map { it.toolName }} validation=${validation.blockedReason ?: "OK"}")
                     streamingManager.onCompleted(result, validation)
                     accumulator.reset()
                 }
 
                 onAgentExecutionFailed { eventContext ->
+                    Log.e(TAG, "Agent failed: ${eventContext.error.message}")
                     streamingManager.onError(eventContext.error.message ?: "Unknown error")
                     accumulator.reset()
                 }
