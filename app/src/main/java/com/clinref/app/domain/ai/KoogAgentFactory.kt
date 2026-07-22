@@ -1,11 +1,13 @@
 package com.clinref.app.domain.ai
 
+import android.content.Context
 import android.util.Log
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.agents.features.tracing.feature.Tracing
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.dsl.prompt
 import com.clinref.app.data.ai.RoomChatHistoryProvider
@@ -31,6 +33,7 @@ private const val TAG = "KoogAgent"
  */
 @Singleton
 class KoogAgentFactory @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     private val securePreferences: SecurePreferences,
     private val medicalDatabaseTools: MedicalDatabaseTools,
     private val safetyValidator: SafetyValidator,
@@ -95,7 +98,7 @@ class KoogAgentFactory @Inject constructor(
             }
 
             install(Tracing.Feature) {
-                addMessageProcessor(createTraceLogWriter())
+                addMessageProcessor(createTraceFileWriter(context))
             }
 
             handleEvents {
