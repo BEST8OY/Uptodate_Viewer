@@ -23,9 +23,7 @@ class AndroidTraceLogWriter(
 
     override suspend fun processMessage(message: FeatureMessage) {
         val msg = message.toLogString()
-        when {
-            minLevel.priority <= Log.d -> Log.d(tag, msg)
-        }
+        Log.d(tag, msg)
     }
 
     override suspend fun close() {}
