@@ -101,6 +101,7 @@ class ChatViewModel @Inject constructor(
     val configuration: StateFlow<AiConfiguration> = securePreferences.configuration
 
     private var generationJob: Job? = null
+    private var userCancelled = false
     private var messageOffset = 0
 
     companion object {
@@ -191,6 +192,7 @@ class ChatViewModel @Inject constructor(
             }
 
             streamingManager.reset()
+            userCancelled = false
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val result = reliabilityManager.withRetry {
@@ -208,7 +210,27 @@ class ChatViewModel @Inject constructor(
                         handleAgentResult(conversationId, result)
                     }
                 } catch (e: CancellationException) {
-                    throw e
+                    if (userCancelled) {
+                        // User-initiated cancel via cancelGeneration() — already handled
+                        throw e
+                    }
+                    // Timeout or unexpected cancellation — show error to user
+                    withContext(Dispatchers.Main) {
+                        streamingManager.onError(e.message ?: "Request timed out.")
+                        val errorState = streamingManager.agentState.value
+                        if (errorState is StreamingManager.AgentState.Error) {
+                            val errorMsg = MessageEntity(
+                                id = UUID.randomUUID().toString(),
+                                conversationId = conversationId,
+                                role = "assistant",
+                                content = mapErrorToUserMessage(errorState.type),
+                                timestamp = System.currentTimeMillis(),
+                                isError = true
+                            )
+                            conversationRepository.addMessage(errorMsg)
+                            _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
+                        }
+                    }
                 } catch (e: Exception) {
                     secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel", "Clinical runtime crash: ${e.message}")
                     withContext(Dispatchers.Main) {
@@ -233,6 +255,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun cancelGeneration() {
+        userCancelled = true
         generationJob?.cancel()
         generationJob = null
         val conversationId = _currentConversationId.value ?: return
@@ -309,7 +332,9 @@ class ChatViewModel @Inject constructor(
                 conversationRepository.addMessage(errorMsg)
                 _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
             }
-            else -> {}
+            else -> {
+                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: unexpected state ${state::class.simpleName}")
+            }
         }
     }
 
