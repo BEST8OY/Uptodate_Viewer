@@ -93,7 +93,7 @@ class KoogAgentFactory @Inject constructor(
             }
 
             install(Tracing.Feature) {
-                addMessageProcessor(AgentLogWriter())
+                addMessageProcessor(createTraceLogWriter())
             }
 
             handleEvents {

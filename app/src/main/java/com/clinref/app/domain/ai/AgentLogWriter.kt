@@ -1,43 +1,30 @@
 package com.clinref.app.domain.ai
 
 import android.util.Log
-import ai.koog.agents.core.feature.message.FeatureMessage
-import ai.koog.agents.core.feature.message.FeatureMessageProcessor
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import ai.koog.agents.features.tracing.writer.TraceFeatureMessageLogWriter
+import java.util.logging.Level
+import java.util.logging.Logger
 
 /**
- * Custom Logcat-based message processor for Koog tracing.
- * Logs tool calls, LLM calls, and agent events to Android Logcat.
+ * Creates a TraceFeatureMessageLogWriter that routes Koog trace events to Android Logcat.
+ * Uses java.util.logging.Logger which TraceFeatureMessageLogWriter expects.
  */
-class AgentLogWriter : FeatureMessageProcessor {
-
-    override val messageFilter: (FeatureMessage) -> Boolean = { true }
-
-    override fun setMessageFilter(filter: (FeatureMessage) -> Boolean) {
-        // No-op — we log everything
-    }
-
-    override suspend fun initialize() {
-        Log.d(TAG, "AgentLogWriter initialized")
-    }
-
-    override suspend fun onMessage(message: FeatureMessage) {
-        val msg = message.toString()
-        when {
-            msg.contains("ToolCall") -> Log.d(TAG, "[TRACE] $msg")
-            msg.contains("LLMCall") -> Log.d(TAG, "[TRACE] $msg")
-            msg.contains("Agent") -> Log.d(TAG, "[TRACE] $msg")
-            msg.contains("Node") -> Log.v(TAG, "[TRACE] $msg")
-            else -> Log.v(TAG, "[TRACE] $msg")
+fun createTraceLogWriter(): TraceFeatureMessageLogWriter {
+    val logger = Logger.getLogger("KoogAgent")
+    logger.level = Level.ALL
+    logger.addHandler(object : java.util.logging.Handler() {
+        override fun publish(record: java.util.logging.LogRecord?) {
+            record ?: return
+            val msg = record.message ?: return
+            when (record.level) {
+                Level.SEVERE -> Log.e("KoogAgent", msg)
+                Level.WARNING -> Log.w("KoogAgent", msg)
+                Level.INFO -> Log.i("KoogAgent", msg)
+                else -> Log.d("KoogAgent", msg)
+            }
         }
-    }
-
-    override suspend fun close() {
-        Log.d(TAG, "AgentLogWriter closed")
-    }
-
-    companion object {
-        private const val TAG = "KoogAgent"
-    }
+        override fun flush() {}
+        override fun close() {}
+    })
+    return TraceFeatureMessageLogWriter(logger)
 }
