@@ -37,7 +37,7 @@ class ReliabilityManager {
     }
 
     companion object {
-        const val TOOL_TIMEOUT_MS = 180_000L
+        const val TOOL_TIMEOUT_MS = 240_000L
         const val MAX_RETRIES = 3
         const val INITIAL_DELAY_MS = 1_000L
         const val BACKOFF_FACTOR = 2.0
