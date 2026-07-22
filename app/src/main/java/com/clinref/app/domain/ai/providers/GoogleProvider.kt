@@ -1,14 +1,11 @@
 package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
-import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
-import ai.koog.prompt.executor.clients.google.GoogleClientSettings
-import ai.koog.prompt.executor.clients.google.GoogleLLMClient
 import ai.koog.prompt.executor.clients.google.GoogleModels
 import ai.koog.prompt.executor.clients.google.GoogleParams
 import ai.koog.prompt.executor.clients.google.models.GoogleThinkingConfig
 import ai.koog.prompt.executor.clients.google.models.GoogleThinkingLevel
-import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
+import ai.koog.prompt.executor.llms.all.simpleGoogleExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
@@ -16,12 +13,6 @@ import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.ProviderSettings
 
-/**
- * Google/Gemini provider implementation.
- *
- * Models: Gemini 2.5 Flash, Gemini 2.5 Pro, Gemini 3.1 Pro, Gemini 3.5 Flash, etc.
- * API: https://ai.google.dev/gemini-api/docs
- */
 class GoogleProvider(
     private val httpClientFactory: OkHttpKoogHttpClient.Factory
 ) : AiProviderFactory {
@@ -44,22 +35,7 @@ class GoogleProvider(
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
         if (apiKey.isBlank()) return null
-
-        val settings = GoogleClientSettings(
-            timeoutConfig = ConnectionTimeoutConfig(
-                requestTimeoutMillis = 120_000L,
-                connectTimeoutMillis = 30_000L,
-                socketTimeoutMillis = 120_000L
-            )
-        )
-
-        val client = GoogleLLMClient(
-            apiKey = apiKey,
-            settings = settings,
-            httpClientFactory = httpClientFactory
-        )
-
-        return MultiLLMPromptExecutor(client)
+        return simpleGoogleExecutor(apiKey, httpClientFactory)
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {
