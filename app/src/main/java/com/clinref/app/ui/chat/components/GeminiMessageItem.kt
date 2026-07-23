@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -46,7 +47,7 @@ import com.clinref.app.ui.chat.StreamingMarkdownBuffer
 import com.clinref.app.ui.chat.ResolvedTopicRef
 import com.clinref.app.ui.chat.ResolvedGraphicRef
 import com.halilibo.richtext.commonmark.Markdown
-import com.halilibo.richtext.material3.RichText
+import com.halilibo.richtext.ui.material3.RichText
 
 private val GRAPHIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Graphic-([a-zA-Z0-9_-]+)\)""")
 private val TOPIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Topic-([a-zA-Z0-9_-]+)(?:#([a-zA-Z0-9_-]+))?\)""")
