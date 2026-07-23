@@ -60,6 +60,24 @@ jobs:
           path: app/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
+      - name: Show failed test details
+        if: failure()
+        run: |
+          echo "### Failed Test Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            if [ -f "$f" ]; then
+              echo "<details>" >> $GITHUB_STEP_SUMMARY
+              echo "<summary>$(basename $f .xml)</summary>" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo '```xml' >> $GITHUB_STEP_SUMMARY
+              cat "$f" | grep -A10 'failure\|error' | head -50 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "</details>" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
       - name: Test Summary
         if: always()
         run: |
@@ -68,6 +86,3 @@ jobs:
           echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          if [ -f "app/build/test-results/testDebugUnitTest/*.xml" ]; then
-            echo "- **Report**: available in artifacts" >> $GITHUB_STEP_SUMMARY
-          fi
