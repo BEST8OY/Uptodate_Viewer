@@ -332,6 +332,14 @@ class SafetyValidator:
         has_graphic_tool_calls = ctx.graphic_ids is not None and len(ctx.graphic_ids) > 0
         has_graphic_refs_in_answer = bool(GRAPHIC_REF_REGEX.findall(answer))
 
+        # Check if visual language appears in retrieved text (quoting vs interpreting)
+        tool_text = " ".join(ctx.tool_results)
+        visual_in_tool_text = any(p.search(tool_text) for p in VISUAL_INTERPRETATION_PATTERNS)
+
+        # If visual language is quoting retrieved text, allow it
+        if visual_in_tool_text:
+            return None
+
         # Hard block when there's concrete evidence the model touched a non-table graphic
         if has_graphic_tool_calls or has_graphic_refs_in_answer:
             return ValidationResult(

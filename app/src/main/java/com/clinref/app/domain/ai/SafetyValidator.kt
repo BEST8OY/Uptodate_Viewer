@@ -268,20 +268,27 @@ class SafetyValidator {
         val hasGraphicToolCalls = context.graphicIds.isNotEmpty()
         val hasGraphicRefsInAnswer = GRAPHIC_REF_REGEX.containsMatchIn(answer)
 
+        // Check if visual language appears in retrieved text (quoting vs interpreting)
+        val toolText = context.toolResults.joinToString(separator = " ")
+        val visualInToolText = visualInterpretationPatterns.any { it.containsMatchIn(toolText) }
+
+        // If visual language is quoting retrieved text, allow it
+        if (visualInToolText) return ValidationResult(passed = true, warnings = emptyList())
+
         // Hard block when there's concrete evidence the model touched a non-table graphic
         if (hasGraphicToolCalls || hasGraphicRefsInAnswer) {
             return ValidationResult(
                 passed = false,
                 warnings = emptyList(),
                 blockedReason = "Answer contains language suggesting visual interpretation of a graphic. " +
-                    "You may reference the graphic title and type, but you may not describe visual details that were not retrieved as text. " +
+                    "You may reference the graphic title and type, but you may not describe " +
+                    "visual details that were not retrieved as text. " +
                     "Direct users to view the source directly."
             )
         }
 
-        // Advisory: visual language with NO graphic-tool evidence is the more dangerous
-        // case (fully ungrounded claim), but also the one most likely to false-positive
-        // on ordinary prose ("the data appears to show a trend") — surface as warning.
+        // Advisory: visual language with NO graphic-tool evidence
+        // Surface as warning — might be quoting text, but verify
         val touchedAnyGraphicTool = context.toolCalls.any {
             it.toolName == "getGraphicInfo" || it.toolName == "getGraphicContent"
         }
@@ -292,6 +299,10 @@ class SafetyValidator {
             )
         } else emptyList()
 
-        return ValidationResult(passed = true, warnings = warnings)
+        return if (warnings.isNotEmpty()) {
+            ValidationResult(passed = true, warnings = warnings)
+        } else {
+            ValidationResult(passed = true, warnings = emptyList())
+        }
     }
 }

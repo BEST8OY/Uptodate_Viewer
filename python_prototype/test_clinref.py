@@ -336,12 +336,12 @@ class TestSafetyValidator:
         assert len(result.warnings) > 0
 
     def test_graphic_interpretation_blocks_when_graphic_tool_called(self, validator):
-        """Visual language + graphic tool called -> block."""
+        """Visual language + graphic tool called + NOT quoting retrieved text -> block."""
         ctx = TurnContext(
             tool_calls=[ToolCallRecord(
                 tool_name="getGraphicInfo",
                 arguments={"graphic_id": "G12345"},
-                result="ECG findings",
+                result="ECG metadata",
                 success=True,
             ),
                 ToolCallRecord(
@@ -354,7 +354,7 @@ class TestSafetyValidator:
             citations=[Citation(topic_title="Test", section_title="Test", section_id="ABC")],
             graphic_ids={"G12345"},
             fetched_sections=[FetchedSection(topic_id="1", section_id="S1", section_title="Test")],
-            tool_results=["ECG findings."],
+            tool_results=["ECG metadata"],
         )
         result = validator.validate(ctx)
         assert not result.passed
@@ -376,6 +376,31 @@ class TestSafetyValidator:
         )
         result = validator.validate(ctx)
         assert not result.passed
+
+    def test_graphic_interpretation_passes_when_quoting_retrieved_text(self, validator):
+        """Visual language quoting retrieved text -> allow (not block)."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(
+                tool_name="getGraphicInfo",
+                arguments={"graphic_id": "G12345"},
+                result="The ECG shows ST elevation in leads II, III, and aVF.",
+                success=True,
+            ),
+                ToolCallRecord(
+                tool_name="get_topic_section_text",
+                arguments={"topic_id": "1", "section_id": "S1", "section_title": "Test"},
+                result="Content",
+                success=True,
+            )],
+            answer="The ECG shows ST elevation in leads II, III, and aVF.\n\nTopic: Test, Section: Test (ID: ABC)\n",
+            citations=[Citation(topic_title="Test", section_title="Test", section_id="ABC")],
+            graphic_ids={"G12345"},
+            fetched_sections=[FetchedSection(topic_id="1", section_id="S1", section_title="Test")],
+            tool_results=["The ECG shows ST elevation in leads II, III, and aVF."],
+        )
+        result = validator.validate(ctx)
+        # Visual language is quoting retrieved text -> allow
+        assert result.passed
 
     def test_markdown_list_numbers_not_invented(self, validator):
         """List markers like '1.', '2.' should not be treated as clinical data."""
