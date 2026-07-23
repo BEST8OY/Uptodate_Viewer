@@ -21,7 +21,7 @@ interface ConversationDao {
     @Delete
     suspend fun delete(conversation: ConversationEntity)
 
-    @Query("SELECT * FROM conversations ORDER BY isRead ASC, updatedAt DESC")
+    @Query("SELECT * FROM conversations ORDER BY isPinned DESC, isRead ASC, updatedAt DESC")
     fun getAll(): Flow<List<ConversationEntity>>
 
     @Query("SELECT * FROM conversations WHERE id = :id")
@@ -29,6 +29,9 @@ interface ConversationDao {
 
     @Query("UPDATE conversations SET title = :title, updatedAt = :now WHERE id = :id")
     suspend fun rename(id: String, title: String, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE conversations SET isPinned = NOT isPinned WHERE id = :id")
+    suspend fun togglePin(id: String)
 
     @Query("UPDATE conversations SET promptTokens = promptTokens + :promptDelta, completionTokens = completionTokens + :completionDelta, toolTokens = toolTokens + :toolDelta, updatedAt = :now WHERE id = :id")
     suspend fun updateTokenCounts(id: String, promptDelta: Int, completionDelta: Int, toolDelta: Int, now: Long = System.currentTimeMillis())
