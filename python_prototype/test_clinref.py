@@ -317,7 +317,8 @@ class TestSafetyValidator:
         result = validator.validate(ctx)
         assert result.passed
 
-    def test_graphic_interpretation_block(self, validator):
+    def test_graphic_interpretation_warns_when_no_graphics(self, validator):
+        """Visual language + no graphics fetched -> warn (advisory)."""
         ctx = TurnContext(
             tool_calls=[ToolCallRecord(
                 tool_name="get_topic_section_text",
@@ -325,14 +326,56 @@ class TestSafetyValidator:
                 result="Content",
                 success=True,
             )],
-            answer="The x-ray shows a fracture.\n\nTopic: Test, Section: Test (ID: ABC)\n",
+            answer="The image shows a fracture.\n\nTopic: Test, Section: Test (ID: ABC)\n",
             citations=[Citation(topic_title="Test", section_title="Test", section_id="ABC")],
             fetched_sections=[FetchedSection(topic_id="1", section_id="S1", section_title="Test")],
             tool_results=["Content"],
         )
         result = validator.validate(ctx)
+        assert result.passed
+        assert len(result.warnings) > 0
+
+    def test_graphic_interpretation_blocks_when_graphic_tool_called(self, validator):
+        """Visual language + graphic tool called -> block."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(
+                tool_name="getGraphicInfo",
+                arguments={"graphic_id": "G12345"},
+                result="ECG findings",
+                success=True,
+            ),
+                ToolCallRecord(
+                tool_name="get_topic_section_text",
+                arguments={"topic_id": "1", "section_id": "S1", "section_title": "Test"},
+                result="Content",
+                success=True,
+            )],
+            answer="The ECG shows ST elevation.\n\nTopic: Test, Section: Test (ID: ABC)\n",
+            citations=[Citation(topic_title="Test", section_title="Test", section_id="ABC")],
+            graphic_ids={"G12345"},
+            fetched_sections=[FetchedSection(topic_id="1", section_id="S1", section_title="Test")],
+            tool_results=["ECG findings."],
+        )
+        result = validator.validate(ctx)
         assert not result.passed
-        assert "visual" in result.blocked_reason.lower() or "interpretation" in result.blocked_reason.lower()
+
+    def test_graphic_interpretation_blocks_when_graphic_refs_in_answer(self, validator):
+        """Graphic refs in answer + visual language -> block."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(
+                tool_name="get_topic_section_text",
+                arguments={"topic_id": "1", "section_id": "S1", "section_title": "Test"},
+                result="Content",
+                success=True,
+            )],
+            answer="The image shows a mass. See also Graphic-ABC.\n\nTopic: Test, Section: Test (ID: ABC)\n",
+            citations=[Citation(topic_title="Test", section_title="Test", section_id="ABC")],
+            graphic_ids={"G999"},
+            fetched_sections=[FetchedSection(topic_id="1", section_id="S1", section_title="Test")],
+            tool_results=["Content"],
+        )
+        result = validator.validate(ctx)
+        assert not result.passed
 
     def test_markdown_list_numbers_not_invented(self, validator):
         """List markers like '1.', '2.' should not be treated as clinical data."""

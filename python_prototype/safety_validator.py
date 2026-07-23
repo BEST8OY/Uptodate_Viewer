@@ -321,39 +321,36 @@ class SafetyValidator:
         warnings = []
         answer = ctx.answer
 
-        # Check for Graphic-* references in answer
-        graphic_refs = GRAPHIC_REF_REGEX.findall(answer)
-        if graphic_refs:
-            # Hard block if referencing graphics not fetched
-            for ref in graphic_refs:
-                if ref not in ctx.graphic_ids:
-                    return ValidationResult(
-                        passed=False,
-                        blocked_reason=(
-                            f"Answer references graphic '{ref}' that was not fetched. "
-                            f"Use getGraphicContent to retrieve table data first."
-                        ),
-                    )
-
         # Check for visual interpretation language
-        for pattern in VISUAL_INTERPRETATION_PATTERNS:
-            if pattern.search(answer):
-                if ctx.graphic_ids:
-                    # Graphics were fetched — warn but allow
-                    warnings.append(
-                        "Answer contains visual interpretation language. "
-                        "Ensure only table data (not images) is interpreted."
-                    )
-                else:
-                    # No graphics fetched — hard block
-                    return ValidationResult(
-                        passed=False,
-                        blocked_reason=(
-                            "Answer contains visual/image interpretation language "
-                            "but no graphic content was fetched. "
-                            "Only text-based clinical data should be interpreted."
-                        ),
-                        warnings=warnings,
-                    )
+        has_visual_language = any(p.search(answer) for p in VISUAL_INTERPRETATION_PATTERNS)
+        if not has_visual_language:
+            return None
 
-        return None
+        has_graphic_tool_calls = ctx.graphic_ids is not None and len(ctx.graphic_ids) > 0
+        has_graphic_refs_in_answer = bool(GRAPHIC_REF_REGEX.findall(answer))
+
+        # Hard block when there's concrete evidence the model touched a non-table graphic
+        if has_graphic_tool_calls or has_graphic_refs_in_answer:
+            return ValidationResult(
+                passed=False,
+                blocked_reason=(
+                    "Answer contains language suggesting visual interpretation of a graphic. "
+                    "You may reference the graphic title and type, but you may not describe "
+                    "visual details that were not retrieved as text. "
+                    "Direct users to view the source directly."
+                ),
+            )
+
+        # Advisory: visual language with NO graphic-tool evidence
+        # Surface as warning — might be quoting text, but verify
+        touched_any_graphic_tool = any(
+            tc.tool_name in ("getGraphicInfo", "getGraphicContent")
+            for tc in ctx.tool_calls
+        )
+        if not touched_any_graphic_tool:
+            warnings.append(
+                "Answer uses visual-interpretation language but no graphic tool was called "
+                "this turn — verify this isn't a fabricated visual finding."
+            )
+
+        return ValidationResult(passed=True, warnings=warnings) if warnings else None

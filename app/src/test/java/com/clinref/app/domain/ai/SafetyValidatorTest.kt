@@ -434,6 +434,27 @@ class SafetyValidatorTest {
     }
 
     @Test
+    fun `Rule 5 blocks when visual language and graphic refs in answer`() {
+        val context = SafetyValidator.TurnContext(
+            toolCalls = listOf(
+                SafetyValidator.ToolCallRecord("getTopicSectionText", mapOf("topicId" to "123", "sectionId" to "sec-1"), "content", true)
+            ),
+            answer = "The image shows a mass. See also Graphic-ABC.\n\nTopic: Diagnosis, Section: Imaging (ID: sec-1)\n",
+            citations = listOf(
+                SafetyValidator.Citation("123", "Diagnosis", "sec-1", "Imaging")
+            ),
+            graphicIds = setOf("G999"),
+            fetchedSections = listOf(
+                SafetyValidator.FetchedSection("123", "Diagnosis", "sec-1", "Imaging")
+            ),
+            toolResults = listOf("Imaging findings.")
+        )
+        val result = validator.validate(context)
+        // Visual language + graphic refs → block
+        assertFalse(result.passed)
+    }
+
+    @Test
     fun `Rule 5 passes when no graphics and no visual language`() {
         val context = SafetyValidator.TurnContext(
             toolCalls = listOf(
