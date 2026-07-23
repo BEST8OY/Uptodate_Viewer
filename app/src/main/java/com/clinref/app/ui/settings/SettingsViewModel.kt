@@ -123,7 +123,7 @@ class SettingsViewModel @Inject constructor(
                         conversationId = "test-connection",
                         patientProfile = PatientProfile(),
                         streamingManager = testStreamingManager
-                    )
+                    )?.first
                 } catch (e: Throwable) {
                     val rootCause = e.cause ?: e
                     _testResult.value = TestResult.Error(

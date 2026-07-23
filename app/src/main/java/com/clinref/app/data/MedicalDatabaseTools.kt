@@ -227,7 +227,7 @@ class MedicalDatabaseTools @Inject constructor(
                             "id" to id,
                             "type" to subtype,
                             "title" to text,
-                            "isTable" to subtype == "graphic_table"
+                            "isTable" to (subtype == "graphic_table").toString()
                         ))
                     }
                 }

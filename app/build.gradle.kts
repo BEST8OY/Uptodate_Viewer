@@ -109,8 +109,8 @@ dependencies {
     implementation(libs.security.crypto)
 
     // Markdown rendering in Compose
-    implementation(libs.multiplatform.markdown.renderer)
-    implementation(libs.multiplatform.markdown.renderer.m3)
+    implementation(libs.compose.richtext.commonmark)
+    implementation(libs.compose.richtext.ui.material3)
 
     // Testing
     testImplementation(libs.junit)

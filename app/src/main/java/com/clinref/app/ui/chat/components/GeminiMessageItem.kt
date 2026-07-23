@@ -27,7 +27,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -38,9 +41,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.ui.chat.MessageUiModel
+import com.clinref.app.ui.chat.MarkdownUtils
 import com.clinref.app.ui.chat.ResolvedTopicRef
 import com.clinref.app.ui.chat.ResolvedGraphicRef
-import com.mikepenz.markdown.m3.Markdown
+import com.halilibo.richtext.commonmark.Markdown
+import com.halilibo.richtext.material3.RichText
 
 private val GRAPHIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Graphic-([a-zA-Z0-9_-]+)\)""")
 private val TOPIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Topic-([a-zA-Z0-9_-]+)(?:#([a-zA-Z0-9_-]+))?\)""")
@@ -112,10 +117,15 @@ fun GeminiMessageItem(
                     var cleanContent = GRAPHIC_LINK_REGEX.replace(message.content, "$1")
                     cleanContent = TOPIC_LINK_REGEX.replace(cleanContent, "$1")
 
-                    Markdown(
-                        content = cleanContent,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    val parsedMarkdown by produceState(initialValue = cleanContent, key1 = cleanContent) {
+                        value = withContext(Dispatchers.Default) {
+                            MarkdownUtils.autoCloseMarkdown(cleanContent)
+                        }
+                    }
+
+                    RichText(modifier = Modifier.fillMaxWidth()) {
+                        Markdown(parsedMarkdown)
+                    }
 
                     val allRefs = message.graphicRefs.map { it.title to { onGraphicSelected(it.graphicId) } } +
                         message.topicRefs.map { it.title to { onNavigateToContent(it.topicId, it.sectionId) } }
