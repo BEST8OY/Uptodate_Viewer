@@ -1,6 +1,7 @@
 package com.clinref.app.ui.conversations
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -76,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -310,8 +312,7 @@ fun ConversationListScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
+                        contentPadding = PaddingValues(bottom = 80.dp)
                     ) {
                         itemsIndexed(
                             items = uiState.filteredConversations,
@@ -337,33 +338,26 @@ fun ConversationListScreen(
                                 enableDismissFromStartToEnd = !uiState.isSelectionMode,
                                 enableDismissFromEndToStart = !uiState.isSelectionMode,
                                 backgroundContent = {
-                                    val color = MaterialTheme.colorScheme.errorContainer
-                                    val alignment = if (dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd) {
-                                        Alignment.CenterStart
-                                    } else {
-                                        Alignment.CenterEnd
-                                    }
+                                    val color by animateColorAsState(
+                                        targetValue = when (dismissState.dismissDirection) {
+                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.errorContainer
+                                            else -> Color.Transparent
+                                        },
+                                        label = "swipeBg"
+                                    )
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .background(color),
-                                        contentAlignment = alignment
+                                            .background(color)
+                                            .padding(horizontal = 20.dp),
+                                        contentAlignment = Alignment.CenterEnd
                                     ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 20.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
+                                        if (dismissState.dismissDirection != SwipeToDismissBoxValue.Settled) {
                                             Icon(
                                                 imageVector = Icons.Default.Delete,
                                                 contentDescription = "Delete",
                                                 tint = MaterialTheme.colorScheme.onErrorContainer
-                                            )
-                                            Text(
-                                                text = "Delete",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                                fontWeight = FontWeight.Bold
                                             )
                                         }
                                     }
