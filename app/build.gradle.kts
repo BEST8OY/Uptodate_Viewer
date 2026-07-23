@@ -111,6 +111,9 @@ dependencies {
     // Markdown rendering in Compose
     implementation(libs.multiplatform.markdown.renderer)
     implementation(libs.multiplatform.markdown.renderer.m3)
+
+    // Testing
+    testImplementation(libs.junit)
 }
 
 // Koog utils-jvm has Coroutines_jvmKt which http-client-okhttp references.

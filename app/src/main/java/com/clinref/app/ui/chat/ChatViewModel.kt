@@ -201,7 +201,8 @@ class ChatViewModel @Inject constructor(
                                 config = config,
                                 conversationId = conversationId,
                                 patientProfile = patientProfile,
-                                streamingManager = streamingManager
+                                streamingManager = streamingManager,
+                                userMessage = content
                             ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
                             agent!!.run(content, conversationId)
                         }

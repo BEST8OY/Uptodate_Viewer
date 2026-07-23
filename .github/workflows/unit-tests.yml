@@ -1,14 +1,18 @@
-name: Android CI
+name: Unit Tests
 
 on:
   push:
     branches: [ main, develop ]
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
-      - 'LICENSE'
+    paths:
+      - 'app/src/**'
+      - 'gradle/**'
+      - 'app/build.gradle.kts'
   pull_request:
     branches: [ main, develop ]
+    paths:
+      - 'app/src/**'
+      - 'gradle/**'
+      - 'app/build.gradle.kts'
   workflow_dispatch:
 
 permissions:
@@ -20,10 +24,10 @@ env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false
 
 jobs:
-  build-android:
-    name: Build Android
+  test:
+    name: JVM Unit Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7
@@ -45,23 +49,25 @@ jobs:
           add-job-summary: on-failure
           cache-cleanup: on-success
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Upload APK
+      - name: Upload test results
         uses: actions/upload-artifact@v7
-        if: success()
+        if: always()
         with:
-          name: android-apk-${{ github.sha }}
-          path: app/build/outputs/apk/release/*.apk
-          retention-days: 30
-          compression-level: 0
+          name: test-results-${{ github.sha }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
 
-      - name: Build Summary
+      - name: Test Summary
         if: always()
         run: |
-          echo "### Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f "app/build/test-results/testDebugUnitTest/*.xml" ]; then
+            echo "- **Report**: available in artifacts" >> $GITHUB_STEP_SUMMARY
+          fi

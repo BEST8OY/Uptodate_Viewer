@@ -36,7 +36,8 @@ class SafetyValidator {
         val citations: List<Citation>,
         val toolResults: List<String> = emptyList(),
         val fetchedSections: List<FetchedSection> = emptyList(),
-        val graphicIds: Set<String> = emptySet()
+        val graphicIds: Set<String> = emptySet(),
+        val userQuestion: String = ""
     )
 
     fun validate(context: TurnContext): ValidationResult {
@@ -129,24 +130,80 @@ class SafetyValidator {
         }
     }
 
+    private fun stripMarkdownFormatting(text: String): String {
+        var result = text
+        // Strip citation lines
+        result = result.replace(Regex("^\\s*Topic:.*$", RegexOption.MULTILINE), "")
+        // Strip markdown list markers: "- ", "* ", "  - "
+        result = result.replace(Regex("^\\s*[-*]\\s+", RegexOption.MULTILINE), "")
+        // Strip numbered list markers: "1. ", "2. "
+        result = result.replace(Regex("^\\s*\\d+\\.\\s+", RegexOption.MULTILINE), "")
+        // Strip markdown headers: "### Title"
+        result = result.replace(Regex("^#{1,6}\\s+.*$", RegexOption.MULTILINE), "")
+        // Strip section dividers: "---"
+        result = result.replace(Regex("^---\\s*$", RegexOption.MULTILINE), "")
+        // Strip bold markers around numbers: **500mg** -> 500mg
+        result = result.replace(Regex("\\*\\*(\\d)"), "$1")
+        result = result.replace(Regex("(\\d)\\*\\*"), "$1")
+        // Strip italic markers around numbers
+        result = result.replace(Regex("\\*(\\d)"), "$1")
+        result = result.replace(Regex("(\\d)\\*"), "$1")
+        return result
+    }
+
     private fun validateNoInventedNumbers(context: TurnContext): ValidationResult {
         if (context.toolResults.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
 
-        val normalizedAnswer = normalizeNumericSpaces(context.answer)
+        val strippedAnswer = stripMarkdownFormatting(context.answer)
+        val normalizedAnswer = normalizeNumericSpaces(strippedAnswer)
         val allToolText = context.toolResults.joinToString(separator = " ")
         val normalizedToolText = normalizeNumericSpaces(allToolText)
+
+        // Extract numbers from user's question — these are patient-specific values, not invented
+        val questionNumerics = if (context.userQuestion.isNotEmpty()) {
+            numericTokenRegex.findAll(normalizeNumericSpaces(context.userQuestion))
+                .map { it.value.trim() }
+                .filter { it.isNotBlank() }
+                .toSet()
+        } else emptySet()
 
         val answerNumerics = numericTokenRegex.findAll(normalizedAnswer)
             .map { it.value.trim() }
             .filter { it.isNotBlank() }
+            .filter { !Regex("^\\d+[,.]$").matches(it) }  // Filter list markers like "1,", "2,"
             .toList()
 
         if (answerNumerics.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
 
         val invented = answerNumerics.filter { numeric ->
+            // Skip numbers that appear in the user's question (patient-specific values)
+            if (numeric in questionNumerics) return@filter false
+
             val escaped = Regex.escape(numeric)
-            val boundaryPattern = Regex("(?<![\\d.])$escaped(?![\\d.])", RegexOption.IGNORE_CASE)
-            !boundaryPattern.containsMatchIn(normalizedToolText)
+            // Lookbehind rejects preceding digits; lookahead rejects trailing digits only
+            // (trailing periods are sentence punctuation, not part of a number)
+            val boundaryPattern = Regex("(?<!\\d)$escaped(?!\\d)", RegexOption.IGNORE_CASE)
+            val fullMatch = boundaryPattern.containsMatchIn(normalizedToolText)
+
+            // Also try matching just the numeric part (strip units)
+            // e.g., "60 mL" -> check if "60" appears in tool text
+            val numOnly = Regex("^(\\d[\\d.,]*)").find(numeric)
+            val numOnlyMatch = if (numOnly != null) {
+                val numPart = Regex.escape(numOnly.groupValues[1])
+                val numOnlyPattern = Regex("(?<!\\d)$numPart(?!\\d)", RegexOption.IGNORE_CASE)
+                numOnlyPattern.containsMatchIn(normalizedToolText)
+            } else false
+
+            // Also check if numeric part matches any question number
+            val inQuestion = if (numOnly != null) {
+                val numPart = numOnly.groupValues[1]
+                questionNumerics.any { qNum ->
+                    val qPart = Regex("^(\\d[\\d.,]*)").find(qNum)
+                    qPart != null && qPart.groupValues[1] == numPart
+                }
+            } else false
+
+            !fullMatch && !numOnlyMatch && !inQuestion
         }
 
         if (invented.isNotEmpty()) {
@@ -166,6 +223,27 @@ class SafetyValidator {
                 warnings = emptyList(),
                 blockedReason = "No citations provided. Every clinical answer must cite its source."
             )
+        }
+
+        // Citation density: require that most fetched sections are cited
+        if (context.fetchedSections.isNotEmpty()) {
+            val citedSectionIds = context.citations.map { it.sectionId }.toSet()
+            val fetchedSectionIds = context.fetchedSections.map { it.sectionId }.toSet()
+            val uncited = fetchedSectionIds - citedSectionIds
+
+            // Allow up to 1 uncited section (supporting context)
+            if (uncited.size > 1) {
+                val uncitedTitles = context.fetchedSections
+                    .filter { it.sectionId in uncited }
+                    .map { it.sectionTitle }
+                    .take(3)
+                return ValidationResult(
+                    passed = false,
+                    warnings = emptyList(),
+                    blockedReason = "Fetched sections not cited in answer: ${uncitedTitles.joinToString(", ")}. " +
+                        "Every section used to compose the answer must be cited."
+                )
+            }
         }
         return ValidationResult(passed = true, warnings = emptyList())
     }

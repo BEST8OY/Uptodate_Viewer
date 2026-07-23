@@ -71,7 +71,8 @@ class KoogAgentFactory @Inject constructor(
         config: AiConfiguration,
         conversationId: String,
         patientProfile: PatientProfile,
-        streamingManager: StreamingManager
+        streamingManager: StreamingManager,
+        userMessage: String = ""
     ): AIAgent<String, String>? {
         val apiKey = securePreferences.getApiKey(config.provider)
         if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) return null
@@ -86,6 +87,7 @@ class KoogAgentFactory @Inject constructor(
         }
 
         val accumulator = TurnContextAccumulator()
+        accumulator.setUserQuestion(userMessage)
 
         // Clinical retrieval strategy: tool loop → text finish
         val clinicalStrategy = strategy<String, String>("clinical-retrieval") {

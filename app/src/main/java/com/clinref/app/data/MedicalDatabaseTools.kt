@@ -66,13 +66,14 @@ class MedicalDatabaseTools @Inject constructor(
 
     @Tool
     @LLMDescription(
-        "Search medical topics by keywords to find matching topic IDs and titles. " +
-        "CRITICAL: Use 2-4 focused keywords (e.g., 'atrial fibrillation anticoagulation'). " +
-        "Avoid broad generic terms like 'management' or 'treatment' — FTS matches individual words, " +
-        "so generic terms return irrelevant drug topics."
+        "Search medical topics by focused keywords. " +
+        "USE: Start with core terms (e.g., 'apixaban', 'asthma', 'gout'). " +
+        "The response includes 'refine_with' suggestions — pick the most relevant and search again. " +
+        "For multi-concept questions (drug + condition), search each concept separately. " +
+        "NEVER use full sentences, lab values, or patient demographics in search."
     )
     fun searchTopics(
-        @LLMDescription("2-4 focused medical keywords (e.g., 'chest pain evaluation'). Avoid long phrases.") query: String
+        @LLMDescription("Single core medical term (e.g., 'asthma', 'metformin', 'chest pain').") query: String
     ): String {
         val results = searchRepository.searchTopics(query).map { result ->
             val id = when (result) {
@@ -81,15 +82,41 @@ class MedicalDatabaseTools @Inject constructor(
             }
             mapOf("id" to id, "title" to result.title)
         }
-        return Json.encodeToString(results)
+
+        val suggestions = searchRepository.getSuggestions(query).distinct().take(30)
+
+        // Tool-level validation: if no results, check if query is valid
+        if (results.isEmpty()) {
+            val queryLower = query.lowercase().trim()
+            val suggestionTexts = suggestions.map { it.lowercase() }
+
+            val isValid = suggestionTexts.any { s ->
+                queryLower == s || s.startsWith(queryLower) || queryLower.startsWith(s)
+            }
+
+            if (!isValid && suggestions.isNotEmpty()) {
+                // Query is invented — reject and show suggestions
+                val errorResponse = mapOf(
+                    "error" to "'$query' is not a valid search. Use one of these suggested queries:",
+                    "refine_with" to suggestions.take(10)
+                )
+                return Json.encodeToString(errorResponse)
+            }
+        }
+
+        val response = mapOf(
+            "results" to results,
+            "refine_with" to suggestions
+        )
+
+        return Json.encodeToString(response)
     }
 
     @Tool
     @LLMDescription(
-        "Retrieve the table of contents outline of a topic. Returns section IDs (e.g., 'H3', " +
-        "'summary-and-recommendations') and graphic metadata. ALWAYS call this before " +
-        "getTopicSectionText to get exact section IDs. Section IDs are short codes — they are " +
-        "NOT derived from section titles. Never guess or construct section IDs from titles."
+        "Retrieve the outline for a topic. Returns sections, graphics, and related topics. " +
+        "USE: Call after searchTopics to get section IDs for getTopicSectionText. " +
+        "Also returns related_topics for further exploration with followRelatedTopic."
     )
     fun getTopicOutline(
         @LLMDescription("The unique topic ID returned by searchTopics") topicId: String
@@ -100,16 +127,17 @@ class MedicalDatabaseTools @Inject constructor(
         val title = contentRepository.getTopicTitle(topicId) ?: topicId
         val sections = parseOutlineList(content.outlineHtml)
         val graphics = parseGraphicsFromOutline(content.outlineHtml)
+        val related = parseRelatedTopics(content.outlineHtml)
         val t2 = System.currentTimeMillis()
-        Log.d(TAG, "getTopicOutline($topicId): db=${t1 - t0}ms parse=${t2 - t1}ms sections=${sections.size} graphics=${graphics.size}")
-        return Json.encodeToString(mapOf("title" to title, "sections" to sections, "graphics" to graphics))
+        Log.d(TAG, "getTopicOutline($topicId): db=${t1 - t0}ms parse=${t2 - t1}ms sections=${sections.size} graphics=${graphics.size} related=${related.size}")
+        return Json.encodeToString(mapOf("title" to title, "sections" to sections, "graphics" to graphics, "related_topics" to related))
     }
 
     @Tool
     @LLMDescription(
-        "Retrieve the full text content of a specific section using its stable ID, with a " +
-        "fallback title if IDs drifted. CRITICAL: Must pass the exact sectionId returned by " +
-        "getTopicOutline. Never guess or construct section IDs from titles."
+        "Retrieve full text content of a section. Returns Markdown. " +
+        "USE: Call after getTopicOutline with the sectionId from the outline. " +
+        "Fetch all relevant sections — there is no limit on how many you can read."
     )
     fun getTopicSectionText(
         @LLMDescription("The unique topic ID") topicId: String,
@@ -159,21 +187,23 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     @Tool
-    @LLMDescription("Retrieve related topics for a given topic. Returns topic IDs and titles that are cross-referenced as related content.")
-    fun getRelatedTopics(
-        @LLMDescription("The unique topic ID") topicId: String
+    @LLMDescription(
+        "Follow a related topic by its ID. Returns outline with sections and graphics. " +
+        "USE: When getTopicOutline shows related_topics that are relevant to the question. " +
+        "Returns the same structure as getTopicOutline — sections, graphics, related_topics."
+    )
+    fun followRelatedTopic(
+        @LLMDescription("The topic ID from the related_topics list") topicId: String
     ): String {
-        val content = contentRepository.getTopicContent(topicId) ?: return "Topic not found"
-        val outlineHtml = content.outlineHtml
-        val relatedTopics = parseRelatedTopics(outlineHtml)
-        return Json.encodeToString(relatedTopics)
+        return getTopicOutline(topicId)
     }
 
     @Tool
     @LLMDescription(
         "Retrieve metadata about a graphic (figure, algorithm, picture). Returns type and title. " +
-        "Do NOT interpret visual content — reference the type and title only. " +
-        "Only call this for non-table graphics that appear in the topic outline."
+        "Retrieve metadata for a graphic (FIGURE, IMAGE, etc.). Returns type and title only. " +
+        "USE: For non-table graphics. Does NOT return image data. " +
+        "For TABLE graphics, use getGraphicContent instead."
     )
     fun getGraphicInfo(
         @LLMDescription("The graphic ID from the outline") graphicId: String
@@ -190,9 +220,9 @@ class MedicalDatabaseTools @Inject constructor(
 
     @Tool
     @LLMDescription(
-        "Retrieve the text content of a TABLE graphic. Only works for graphic_table type. " +
-        "You may interpret and summarize table data. Do NOT call for non-table graphics — " +
-        "use getGraphicInfo instead. Only reference graphics that appear in the outline."
+        "Retrieve table data from a TABLE-type graphic as Markdown. " +
+        "USE: Only for graphics with type='TABLE'. Returns table data as Markdown. " +
+        "For FIGURE/IMAGE graphics, use getGraphicInfo — images cannot be interpreted."
     )
     fun getGraphicContent(
         @LLMDescription("The graphic ID from the outline") graphicId: String

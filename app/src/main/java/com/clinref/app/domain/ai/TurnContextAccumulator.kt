@@ -19,6 +19,7 @@ class TurnContextAccumulator {
     private val toolResults = CopyOnWriteArrayList<String>()
     private val fetchedSections = CopyOnWriteArrayList<SafetyValidator.FetchedSection>()
     private val graphicIds = CopyOnWriteArraySet<String>()
+    private var userQuestion: String = ""
 
     // Maps toolCallId to arguments to support thread-safe concurrent tool runs
     private val pendingToolArgs = ConcurrentHashMap<String, String>()
@@ -31,6 +32,11 @@ class TurnContextAccumulator {
         fetchedSections.clear()
         graphicIds.clear()
         pendingToolArgs.clear()
+        userQuestion = ""
+    }
+
+    fun setUserQuestion(question: String) {
+        userQuestion = question
     }
 
     fun onToolCallStarting(toolCallId: String, args: String) {
@@ -74,7 +80,8 @@ class TurnContextAccumulator {
             citations = parseCitations(answer),
             toolResults = toolResults.toList(),
             fetchedSections = fetchedSections.toList(),
-            graphicIds = graphicIds.toSet()
+            graphicIds = graphicIds.toSet(),
+            userQuestion = userQuestion
         )
     }
 

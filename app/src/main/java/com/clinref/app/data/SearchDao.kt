@@ -22,6 +22,9 @@ class SearchDao @Inject constructor(
     }
 
     fun getSuggestions(query: String): List<String> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return emptyList()
+
         val unidexAvailable = try {
             dbManager.getUnidexDb()
             true
@@ -29,10 +32,41 @@ class SearchDao @Inject constructor(
             false
         }
 
-        if (unidexAvailable) {
-            return getUnidexSuggestions(query)
+        // Try full query first
+        val fullResults = if (unidexAvailable) {
+            getUnidexSuggestions(trimmed)
+        } else {
+            getQfSuggestions(trimmed)
         }
-        return getQfSuggestions(query)
+        if (fullResults.isNotEmpty()) return fullResults
+
+        val words = trimmed.split("\\s+".toRegex())
+
+        // Try individual words (longest first) — finds core medical terms
+        // e.g., "how to treat diabetes" -> try "diabetes", "treat", "how"
+        for (word in words.sortedByDescending { it.length }) {
+            if (word.length > 3) {
+                val wordResults = if (unidexAvailable) {
+                    getUnidexSuggestions(word)
+                } else {
+                    getQfSuggestions(word)
+                }
+                if (wordResults.isNotEmpty()) return wordResults
+            }
+        }
+
+        // Try progressively shorter word prefixes
+        for (i in words.size - 1 downTo 1) {
+            val prefix = words.subList(0, i).joinToString(" ")
+            val prefixResults = if (unidexAvailable) {
+                getUnidexSuggestions(prefix)
+            } else {
+                getQfSuggestions(prefix)
+            }
+            if (prefixResults.isNotEmpty()) return prefixResults
+        }
+
+        return emptyList()
     }
 
     private fun getUnidexSuggestions(query: String): List<String> {
