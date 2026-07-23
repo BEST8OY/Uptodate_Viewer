@@ -5,7 +5,7 @@ description: ClinRef AI agent architecture — safety rules, citation parsing, t
 
 # ClinRef AI Architecture Reference
 
-## Tool Set (6 tools)
+## Tool Set (5 tools)
 
 | Tool | Purpose | Key args |
 |------|---------|----------|
@@ -13,7 +13,6 @@ description: ClinRef AI agent architecture — safety rules, citation parsing, t
 | `getTopicOutline` | Sections, graphics, related topics | `topicId` |
 | `getTopicSectionText` | Full section markdown | `topicId`, `sectionId`, `sectionTitle` |
 | `followRelatedTopic` | Passthrough to getTopicOutline | `topicId` |
-| `getGraphicInfo` | Metadata for non-table graphics | `graphicId` |
 | `getGraphicContent` | Table markdown (single asset lookup) | `graphicId` |
 
 **Search flow:** unidex.en.sqlite → fcontentsearch.db → fsearch.db
@@ -25,7 +24,7 @@ description: ClinRef AI agent architecture — safety rules, citation parsing, t
 2. **Section content required** — `getTopicSectionText` must succeed
 3. **Citation consistency** — each cited section must match a fetched section (by ID or bidirectional substring title match)
 4. **No invented numbers** — boundary-aware matching; user question values allowed; markdown formatting stripped
-5. **Citations required** — at least one citation; density check (max 1 uncited section)
+5. **Citations required** — at least one citation
 6. **No graphic interpretation** — visual language blocked UNLESS present in tool results (quoting)
 
 Rule order matters: rule 3 runs before rule 4.
@@ -40,20 +39,19 @@ Rule order matters: rule 3 runs before rule 4.
 
 ## Graphic Interpretation
 
-**Patterns (4):**
+**Patterns (3):**
 1. `the [imaging type] [action verb]` — "the CT reveals"
 2. `[imaging type] [noun]` — "CT findings"
-3. visual/visible language — "appears to show"
-4. `the [figure type] [action verb]` — "the figure shows"
+3. `the [figure type] [action verb]` — "the figure shows"
 
-**Logic:**
+**Logic (binary):**
 - If visual language in tool results → ALLOW (quoting)
-- If visual language + graphic tool called → BLOCK
-- If visual language + no graphic tool → WARN
+- If visual language NOT in tool results → BLOCK
 
 ## Citation Format
 
-Regex: `^\s*Topic:\s*(.+?),\s*Section:\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?\s*$`
+Regex (handles markdown bullets, bold, case-insensitive):
+`^\s*(?:[-*]|\d+\.)?\s*(?:\*\*)?Topic:(?:\*\*)?\s*(.+?),\s*(?:\*\*)?Section:(?:\*\*)?\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?(?:\*\*)?\s*(?=\s*(?:$|\n))`
 
 ## Linking Format
 
@@ -63,10 +61,10 @@ Regex: `^\s*Topic:\s*(.+?),\s*Section:\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?
 ## Kotlin ↔ Python Parity
 
 Both versions must have:
-- Same 6 tools
+- Same 5 tools
 - Same 6 validation rules
 - Same number validation (boundary-aware, question check, markdown stripping)
-- Same graphic interpretation logic (quoting check)
+- Same graphic interpretation logic (binary allow/block based on tool results)
 - Same system prompt (search rules, section selection, linking)
 
 **Rules spec:** `python_prototype/RULES_SPEC.md`
@@ -77,7 +75,7 @@ Both versions must have:
 |--------|--------|---------|
 | `SafetyValidator.kt` | `safety_validator.py` | 6 validation rules |
 | `TurnContextAccumulator.kt` | `agent.py` | Tool call tracking, citation parsing |
-| `MedicalDatabaseTools.kt` | `tools.py` | 6 tools, search with suggestions |
+| `MedicalDatabaseTools.kt` | `tools.py` | 5 tools, search with suggestions |
 | `SearchDao.kt` | `database.py` | FTS search, suggestion lookup |
 | `SystemPrompt.kt` | `system_prompt.py` | LLM instructions |
 | `KoogAgentFactory.kt` | `agent.py` | Agent graph, event handlers |
