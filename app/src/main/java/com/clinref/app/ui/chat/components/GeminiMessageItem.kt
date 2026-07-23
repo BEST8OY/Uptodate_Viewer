@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,7 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.ui.chat.MessageUiModel
-import com.clinref.app.ui.chat.MarkdownUtils
+import com.clinref.app.ui.chat.StreamingMarkdownBuffer
 import com.clinref.app.ui.chat.ResolvedTopicRef
 import com.clinref.app.ui.chat.ResolvedGraphicRef
 import com.halilibo.richtext.commonmark.Markdown
@@ -117,14 +118,26 @@ fun GeminiMessageItem(
                     var cleanContent = GRAPHIC_LINK_REGEX.replace(message.content, "$1")
                     cleanContent = TOPIC_LINK_REGEX.replace(cleanContent, "$1")
 
-                    val parsedMarkdown by produceState(initialValue = cleanContent, key1 = cleanContent) {
+                    val buffer = remember { StreamingMarkdownBuffer() }
+                    val renderState by produceState(
+                        initialValue = StreamingMarkdownBuffer.RenderState(cleanContent, ""),
+                        key1 = cleanContent,
+                    ) {
                         value = withContext(Dispatchers.Default) {
-                            MarkdownUtils.autoCloseMarkdown(cleanContent)
+                            buffer.process(cleanContent)
                         }
                     }
 
                     RichText(modifier = Modifier.fillMaxWidth()) {
-                        Markdown(parsedMarkdown)
+                        Markdown(renderState.renderedMarkdown)
+                    }
+
+                    if (renderState.pendingPlainText.isNotEmpty()) {
+                        Text(
+                            text = renderState.pendingPlainText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
                     }
 
                     val allRefs = message.graphicRefs.map { it.title to { onGraphicSelected(it.graphicId) } } +
