@@ -1,70 +1,44 @@
 package com.clinref.app.repository
 
-import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import com.clinref.app.data.local.dao.HistoryDao
+import com.clinref.app.data.local.entity.HistoryEntity
 import com.clinref.app.domain.HistoryEntry
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.historyDataStore: DataStore<Preferences> by preferencesDataStore(name = "history")
-
 @Singleton
 class HistoryRepository @Inject constructor(
-    @param:ApplicationContext private val context: Context
+    private val historyDao: HistoryDao
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-    private val historyKey = stringPreferencesKey("history_json")
-
-    val history: Flow<List<HistoryEntry>> = context.historyDataStore.data.map { prefs ->
-        val jsonStr = prefs[historyKey] ?: "[]"
-        try {
-            json.decodeFromString<List<HistoryEntry>>(jsonStr)
-        } catch (_: Exception) {
-            emptyList()
+    val history: Flow<List<HistoryEntry>> = historyDao.getAll().map { entities ->
+        entities.map { entity ->
+            HistoryEntry(
+                topicId = entity.topicId,
+                title = entity.title,
+                timestamp = entity.timestamp
+            )
         }
     }
 
     suspend fun addOrPromote(topicId: String, title: String, timestamp: Long = System.currentTimeMillis()) {
-        context.historyDataStore.edit { prefs ->
-            val current = getHistory(prefs)
-            val normalizedId = topicId.removePrefix("topic-")
-            val newEntry = HistoryEntry(normalizedId, title, timestamp)
-            val updated = (listOf(newEntry) + current.filter { it.topicId != normalizedId })
-                .sortedByDescending { it.timestamp }
-            prefs[historyKey] = json.encodeToString(updated.take(100))
-        }
+        val normalizedId = topicId.removePrefix("topic-")
+        historyDao.insert(
+            HistoryEntity(
+                topicId = normalizedId,
+                title = title,
+                timestamp = timestamp
+            )
+        )
     }
 
     suspend fun remove(topicId: String) {
-        context.historyDataStore.edit { prefs ->
-            val current = getHistory(prefs)
-            val normalizedId = topicId.removePrefix("topic-")
-            val updated = current.filter { it.topicId != normalizedId }
-            prefs[historyKey] = json.encodeToString(updated)
-        }
+        val normalizedId = topicId.removePrefix("topic-")
+        historyDao.delete(normalizedId)
     }
 
     suspend fun clear() {
-        context.historyDataStore.edit { prefs ->
-            prefs[historyKey] = "[]"
-        }
-    }
-
-    private fun getHistory(prefs: Preferences): List<HistoryEntry> {
-        val jsonStr = prefs[historyKey] ?: "[]"
-        return try {
-            json.decodeFromString(jsonStr)
-        } catch (_: Exception) {
-            emptyList()
-        }
+        historyDao.deleteAll()
     }
 }

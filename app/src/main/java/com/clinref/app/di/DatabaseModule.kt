@@ -5,6 +5,8 @@ import androidx.room3.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.clinref.app.data.local.AppDatabase
 import com.clinref.app.data.local.dao.ConversationDao
+import com.clinref.app.data.local.dao.FavoriteDao
+import com.clinref.app.data.local.dao.HistoryDao
 import com.clinref.app.data.local.dao.MessageDao
 import dagger.Module
 import dagger.Provides
@@ -39,5 +41,15 @@ object DatabaseModule {
     @Provides
     fun provideMessageDao(database: AppDatabase): MessageDao {
         return database.messageDao()
+    }
+
+    @Provides
+    fun provideHistoryDao(database: AppDatabase): HistoryDao {
+        return database.historyDao()
+    }
+
+    @Provides
+    fun provideFavoriteDao(database: AppDatabase): FavoriteDao {
+        return database.favoriteDao()
     }
 }
