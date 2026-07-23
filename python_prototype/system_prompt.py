@@ -110,7 +110,13 @@ def _response_style() -> str:
     return """RESPONSE STYLE:
 - Lead with the actionable clinical answer
 - Use bullet points for criteria, dosing, monitoring
-- Be concise and direct"""
+- Be concise and direct
+
+LINKING:
+When referencing other topics or graphics, use markdown links:
+- Topics: [text](Topic-topicId)
+- Graphics: [text](Graphic-graphicId)
+Example: "See [Warfarin dosing](Topic-12345) and [INR table](Graphic-67890)" """
 
 
 def extract_patient_context(patient_profile: Optional[dict] = None) -> Optional[str]:

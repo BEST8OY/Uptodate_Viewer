@@ -95,5 +95,11 @@ Use exact titles and IDs from getTopicOutline or getTopicSectionText."""
     private fun responseStyle(): String = """RESPONSE STYLE:
 - Lead with the actionable clinical answer
 - Use bullet points for criteria, dosing, monitoring
-- Be concise and direct"""
+- Be concise and direct
+
+LINKING:
+When referencing other topics or graphics, use markdown links:
+- Topics: [text](Topic-topicId)
+- Graphics: [text](Graphic-graphicId)
+Example: "See [Warfarin dosing](Topic-12345) and [INR table](Graphic-67890)" """
 }
