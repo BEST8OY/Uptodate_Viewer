@@ -283,7 +283,7 @@ class TestSafetyValidator:
         )
         result = validator.validate(ctx)
         assert not result.passed
-        assert "unretrieved" in result.blocked_reason.lower()
+        assert "not retrieved" in result.blocked_reason.lower()
 
     def test_invented_numbers_block(self, validator):
         ctx = TurnContext(

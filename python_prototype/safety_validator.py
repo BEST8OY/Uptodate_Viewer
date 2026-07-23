@@ -63,24 +63,22 @@ VISUAL_INTERPRETATION_PATTERNS = [
     re.compile(
         r"the\s+(?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|"
         r"pathology|slide|specimen|scan|film|rogram)\s+"
-        r"(?:shows?|demonstrates?|reveals?|suggests?|indicates?|is consistent with|"
-        r"displays?|exhibits?|captures?)",
+        r"(?:shows?|demonstrates?|reveals?|suggests?|indicates?|displays?|depicts?|illustrates?)",
         re.IGNORECASE,
     ),
     re.compile(
         r"(?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|"
-        r"pathology|slide|specimen|scan|film|rogram)\s+"
-        r"(?:findings?|abnormalities?|results?|interpretation|read|analysis|review)",
+        r"pathology|slide|specimen|scan|film)\s+"
+        r"(?:findings?|abnormalities?|results?|features?|characteristics?)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?:visual(?:ized|ly)?|visible|appears?\s+to\s+show|can\s+be\s+seen|"
-        r"notable\s+on\s+(?:the\s+)?(?:image|scan|x-?ray|mri|ct))",
+        r"(?:visual|visualized?|visible|appears?\s+to\s+show|can\s+be\s+seen)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"the\s+(?:figure|algorithm|diagram|picture|graphic|table)\s+"
-        r"(?:shows?|demonstrates?|reveals?|illustrates?|depicts?|displays?)",
+        r"the\s+(?:figure|algorithm|diagram|picture)\s+"
+        r"(?:shows?|demonstrates?|reveals?|depicts?)",
         re.IGNORECASE,
     ),
 ]
@@ -177,25 +175,30 @@ class SafetyValidator:
         fetched_ids = {fs.section_id for fs in ctx.fetched_sections}
         warnings = []
         for citation in ctx.citations:
-            if citation.section_id not in fetched_ids:
-                # Title-match fallback
-                title_match = any(
-                    fs.section_title.lower() == citation.section_title.lower()
-                    for fs in ctx.fetched_sections
+            id_match = citation.section_id in fetched_ids
+            # Bidirectional substring containment (matches Kotlin)
+            title_match = any(
+                fs.section_title.lower() in citation.section_title.lower()
+                or citation.section_title.lower() in fs.section_title.lower()
+                for fs in ctx.fetched_sections
+            )
+
+            if not id_match and not title_match:
+                return ValidationResult(
+                    passed=False,
+                    blocked_reason=(
+                        f"Citation references section '{citation.section_title}' "
+                        f"(ID: {citation.section_id}) which was not retrieved in this turn."
+                    ),
+                    warnings=warnings,
                 )
-                if title_match:
-                    warnings.append(
-                        f"Citation section_id mismatch but title matches: '{citation.section_title}'"
-                    )
-                else:
-                    return ValidationResult(
-                        passed=False,
-                        blocked_reason=(
-                            f"Citation references unretrieved section "
-                            f"'{citation.section_title}' (ID: {citation.section_id})."
-                        ),
-                        warnings=warnings,
-                    )
+
+            if not id_match and title_match:
+                warnings.append(
+                    f"Citation section ID '{citation.section_id}' not exactly matched; "
+                    f"title match used as fallback."
+                )
+
         if warnings:
             return ValidationResult(passed=True, warnings=warnings)
         return None
