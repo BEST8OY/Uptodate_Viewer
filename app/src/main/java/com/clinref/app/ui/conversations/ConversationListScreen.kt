@@ -494,6 +494,16 @@ fun ConversationListScreen(
                                             }
                                         )
                                     }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showProfileSheet) {
         PatientProfileSheet(
             onDismiss = { showProfileSheet = false },
             onStart = { profile ->
