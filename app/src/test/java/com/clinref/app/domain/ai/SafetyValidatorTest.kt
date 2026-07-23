@@ -418,7 +418,7 @@ class SafetyValidatorTest {
                 SafetyValidator.ToolCallRecord("getGraphicInfo", mapOf("graphicId" to "G12345"), "result", true),
                 SafetyValidator.ToolCallRecord("getTopicSectionText", mapOf("topicId" to "123", "sectionId" to "sec-1"), "content", true)
             ),
-            answer = "This section includes a reference for evaluating acute chest pain. Please review the source directly.\n\nTopic: Diagnosis, Section: ECG Findings (ID: sec-1)\n",
+            answer = "The patient has chest pain. Please review the source directly.\n\nTopic: Diagnosis, Section: ECG Findings (ID: sec-1)\n",
             citations = listOf(
                 SafetyValidator.Citation("123", "Diagnosis", "sec-1", "ECG Findings")
             ),
@@ -430,10 +430,7 @@ class SafetyValidatorTest {
         )
         val result = validator.validate(context)
         // No visual interpretation language — graphic rule should not block
-        // Check that if blocked, it's not because of visual interpretation
-        if (!result.passed) {
-            assertTrue(result.blockedReason == null || !result.blockedReason!!.contains("visual"))
-        }
+        assertTrue(result.passed)
     }
 
     @Test
