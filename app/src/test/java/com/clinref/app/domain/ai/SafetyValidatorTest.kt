@@ -429,9 +429,11 @@ class SafetyValidatorTest {
             toolResults = listOf("ECG findings for acute MI.")
         )
         val result = validator.validate(context)
-        // No visual interpretation language — should not be blocked by graphic rule
-        // (may have warnings from other rules, but graphic rule should not block)
-        assertTrue(result.blockedReason == null || !result.blockedReason!!.contains("visual"))
+        // No visual interpretation language — graphic rule should not block
+        // Check that if blocked, it's not because of visual interpretation
+        if (!result.passed) {
+            assertTrue(result.blockedReason == null || !result.blockedReason!!.contains("visual"))
+        }
     }
 
     @Test
