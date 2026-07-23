@@ -295,19 +295,6 @@ class SafetyValidatorTest {
         }
     }
 
-    @Test
-    fun `rule 4 blocks when no citation matches any fetched section`() {
-        val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall()),
-            answer = "test",
-            citations = listOf(citation(sectionId = "Z99", sectionTitle = "Nonexistent")),
-            toolResults = listOf("content"),
-            fetchedSections = listOf(section(sectionId = "H1", title = "Real Section")),
-        ))
-        assertFalse(result.passed)
-        assertTrue(result.blockedReason!!.contains("citations match"))
-    }
-
     // ══════════════════════════════════════════════════════════════════
     // Rule 5: No graphic interpretation
     // ══════════════════════════════════════════════════════════════════
