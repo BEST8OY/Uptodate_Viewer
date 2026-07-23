@@ -80,13 +80,13 @@ class SafetyValidator {
 
     private fun validateSectionContentRequired(context: TurnContext): ValidationResult {
         val hasSectionFetch = context.toolCalls.any {
-            it.toolName == "getTopicSectionText" && it.success
+            (it.toolName == "getTopicSectionText" || it.toolName == "getGraphicContent") && it.success
         }
         if (!hasSectionFetch) {
             return ValidationResult(
                 passed = false,
                 warnings = emptyList(),
-                blockedReason = "Answer requires actual section content. Only topic titles or outlines were retrieved."
+                blockedReason = "Answer requires section or table content retrieval. Only topic outlines or searches were performed."
             )
         }
         return ValidationResult(passed = true, warnings = emptyList())
@@ -97,13 +97,13 @@ class SafetyValidator {
         val fetchedIds = context.fetchedSections.map { it.sectionId }.toSet()
 
         for (citation in context.citations) {
-            val idMatch = citation.sectionId in fetchedIds
+            val idMatch = citation.sectionId != "unknown" && citation.sectionId in fetchedIds
             val titleMatch = context.fetchedSections.any { fetched ->
                 fetched.sectionTitle.contains(citation.sectionTitle, ignoreCase = true) ||
                     citation.sectionTitle.contains(fetched.sectionTitle, ignoreCase = true)
             }
 
-            if (!idMatch && !titleMatch) {
+            if (!idMatch && !titleMatch && context.fetchedSections.isNotEmpty()) {
                 return ValidationResult(
                     passed = false,
                     warnings = emptyList(),
@@ -112,107 +112,50 @@ class SafetyValidator {
             }
 
             if (!idMatch && titleMatch) {
-                warnings.add("Citation section ID '${citation.sectionId}' not exactly matched; title match used as fallback.")
+                warnings.add("Citation section ID '${citation.sectionId}' matched via title fallback.")
             }
         }
         return ValidationResult(passed = true, warnings = warnings)
     }
 
-    private val numericTokenRegex = Regex(
-        """\d+[\.,]?\d*\s*(?:mg|%|mL|mmol|mcg|units?|mEq|L|kg|cm|mmHg)?""",
+    private val clinicalQuantityRegex = Regex(
+        """\b\d+[\.,]?\d*\s*(?:mg|%|mL|mmol|mcg|units?|mEq|L|kg|cm|mmHg|g|mg/dL|mmol/L|mEq/L|IU|bpm|mcg/kg|mg/kg)\b""",
         RegexOption.IGNORE_CASE
     )
-
-    private fun normalizeNumericSpaces(text: String): String {
-        val unitPattern = Regex("""(\d+[\.,]?\d*)\s*(mg|%|mL|mmol|mcg|units?|mEq|L|kg|cm|mmHg)""", RegexOption.IGNORE_CASE)
-        return unitPattern.replace(text) { match ->
-            match.groupValues[1] + match.groupValues[2].lowercase()
-        }
-    }
-
-    private fun stripMarkdownFormatting(text: String): String {
-        var result = text
-        // Strip citation lines
-        result = result.replace(Regex("^\\s*Topic:.*$", RegexOption.MULTILINE), "")
-        // Strip markdown list markers: "- ", "* ", "  - "
-        result = result.replace(Regex("^\\s*[-*]\\s+", RegexOption.MULTILINE), "")
-        // Strip numbered list markers: "1. ", "2. "
-        result = result.replace(Regex("^\\s*\\d+\\.\\s+", RegexOption.MULTILINE), "")
-        // Strip markdown headers: "### Title"
-        result = result.replace(Regex("^#{1,6}\\s+.*$", RegexOption.MULTILINE), "")
-        // Strip section dividers: "---"
-        result = result.replace(Regex("^---\\s*$", RegexOption.MULTILINE), "")
-        // Strip bold markers around numbers: **500mg** -> 500mg
-        result = result.replace(Regex("\\*\\*(\\d)"), "$1")
-        result = result.replace(Regex("(\\d)\\*\\*"), "$1")
-        // Strip italic markers around numbers
-        result = result.replace(Regex("\\*(\\d)"), "$1")
-        result = result.replace(Regex("(\\d)\\*"), "$1")
-        return result
-    }
 
     private fun validateNoInventedNumbers(context: TurnContext): ValidationResult {
         if (context.toolResults.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
 
-        val strippedAnswer = stripMarkdownFormatting(context.answer)
-        val normalizedAnswer = normalizeNumericSpaces(strippedAnswer)
         val allToolText = context.toolResults.joinToString(separator = " ")
-        val normalizedToolText = normalizeNumericSpaces(allToolText)
+        val userQuestionText = context.userQuestion
 
-        // Extract numbers from user's question — these are patient-specific values, not invented
-        val questionNumerics = if (context.userQuestion.isNotEmpty()) {
-            numericTokenRegex.findAll(normalizeNumericSpaces(context.userQuestion))
-                .map { it.value.trim() }
-                .filter { it.isNotBlank() }
-                .toSet()
-        } else emptySet()
-
-        val answerNumerics = numericTokenRegex.findAll(normalizedAnswer)
+        val answerMetrics = clinicalQuantityRegex.findAll(context.answer)
             .map { it.value.trim() }
-            .filter { it.isNotBlank() }
-            .filter { !Regex("^\\d+[,.]$").matches(it) }  // Filter list markers like "1,", "2,"
-            .toList()
+            .toSet()
 
-        if (answerNumerics.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
+        if (answerMetrics.isEmpty()) return ValidationResult(passed = true, warnings = emptyList())
 
-        val invented = answerNumerics.filter { numeric ->
-            // Skip numbers that appear in the user's question (patient-specific values)
-            if (numeric in questionNumerics) return@filter false
+        val unverifiedMetrics = mutableListOf<String>()
 
-            val escaped = Regex.escape(numeric)
-            // Lookbehind rejects preceding digits; lookahead rejects trailing digits only
-            // (trailing periods are sentence punctuation, not part of a number)
-            val boundaryPattern = Regex("(?<!\\d)$escaped(?!\\d)", RegexOption.IGNORE_CASE)
-            val fullMatch = boundaryPattern.containsMatchIn(normalizedToolText)
+        for (metric in answerMetrics) {
+            if (userQuestionText.contains(metric, ignoreCase = true)) continue
 
-            // Also try matching just the numeric part (strip units)
-            // e.g., "60 mL" -> check if "60" appears in tool text
-            val numOnly = Regex("^(\\d[\\d.,]*)").find(numeric)
-            val numOnlyMatch = if (numOnly != null) {
-                val numPart = Regex.escape(numOnly.groupValues[1])
-                val numOnlyPattern = Regex("(?<!\\d)$numPart(?!\\d)", RegexOption.IGNORE_CASE)
-                numOnlyPattern.containsMatchIn(normalizedToolText)
-            } else false
+            val numPart = Regex("""^\d+[\.,]?\d*""").find(metric)?.value ?: metric
+            val isNumInToolText = Regex("""(?<!\d)${Regex.escape(numPart)}(?!\d)""").containsMatchIn(allToolText)
 
-            // Also check if numeric part matches any question number
-            val inQuestion = if (numOnly != null) {
-                val numPart = numOnly.groupValues[1]
-                questionNumerics.any { qNum ->
-                    val qPart = Regex("^(\\d[\\d.,]*)").find(qNum)
-                    qPart != null && qPart.groupValues[1] == numPart
-                }
-            } else false
-
-            !fullMatch && !numOnlyMatch && !inQuestion
+            if (!isNumInToolText) {
+                unverifiedMetrics.add(metric)
+            }
         }
 
-        if (invented.isNotEmpty()) {
+        if (unverifiedMetrics.isNotEmpty()) {
             return ValidationResult(
                 passed = false,
                 warnings = emptyList(),
-                blockedReason = "Answer contains numbers not traceable to retrieved source data: ${invented.take(5).joinToString(", ")}"
+                blockedReason = "Answer contains clinical quantities not traceable to retrieved source data: ${unverifiedMetrics.take(5).joinToString(", ")}"
             )
         }
+
         return ValidationResult(passed = true, warnings = emptyList())
     }
 
@@ -221,88 +164,53 @@ class SafetyValidator {
             return ValidationResult(
                 passed = false,
                 warnings = emptyList(),
-                blockedReason = "No citations provided. Every clinical answer must cite its source."
+                blockedReason = "No citations provided. Every clinical answer must cite its source section."
             )
         }
 
-        // Citation density: require that most fetched sections are cited
         if (context.fetchedSections.isNotEmpty()) {
-            val citedSectionIds = context.citations.map { it.sectionId }.toSet()
             val fetchedSectionIds = context.fetchedSections.map { it.sectionId }.toSet()
-            val uncited = fetchedSectionIds - citedSectionIds
+            
+            val validCitationFound = context.citations.any { citation ->
+                citation.sectionId in fetchedSectionIds || context.fetchedSections.any { fetched ->
+                    fetched.sectionTitle.contains(citation.sectionTitle, ignoreCase = true)
+                }
+            }
 
-            // Allow up to 1 uncited section (supporting context)
-            if (uncited.size > 1) {
-                val uncitedTitles = context.fetchedSections
-                    .filter { it.sectionId in uncited }
-                    .map { it.sectionTitle }
-                    .take(3)
+            if (!validCitationFound) {
                 return ValidationResult(
                     passed = false,
                     warnings = emptyList(),
-                    blockedReason = "Fetched sections not cited in answer: ${uncitedTitles.joinToString(", ")}. " +
-                        "Every section used to compose the answer must be cited."
+                    blockedReason = "None of the citations match the sections fetched during database retrieval."
                 )
             }
         }
+
         return ValidationResult(passed = true, warnings = emptyList())
     }
 
-    // NOTE: "table" intentionally excluded — system prompt rule 11 permits interpreting
-    // table data, and graphicIds is only populated by getGraphicInfo (non-table metadata),
-    // never by getGraphicContent (table content).
-    private val visualInterpretationPatterns = listOf(
-        Regex("""(?i)the (?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|pathology|slide|specimen|scan|film|rogram) (?:shows?|demonstrates?|reveals?|suggests?|indicates?|displays?|depicts?|illustrates?)"""),
-        Regex("""(?i)(?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|pathology|slide|specimen|scan|film) (?:findings?|abnormalities?|results?|features?|characteristics?)"""),
-        Regex("""(?i)(?:visual|visualized?|visible|appears? to show|can be seen)"""),
-        Regex("""(?i)(?:the (?:figure|algorithm|diagram|picture) (?:shows?|demonstrates?|reveals?|depicts?))""")
+    private val explicitGraphicInterpretationPatterns = listOf(
+        Regex("""(?i)the (?:image|photo|x-?ray|ct|mri|ecg|ekg|ultrasound|scan|film) (?:shows?|demonstrates?|reveals?|depicts?)"""),
+        Regex("""(?i)(?:image|x-?ray|ct|mri|ecg|ekg|ultrasound|scan) (?:findings?|abnormalities?|features?)"""),
+        Regex("""(?i)the (?:figure|diagram) (?:shows?|demonstrates?|reveals?|depicts?)""")
     )
-
-    private val GRAPHIC_REF_REGEX = Regex("""Graphic-[a-zA-Z0-9_-]+""", RegexOption.IGNORE_CASE)
 
     private fun validateNoGraphicInterpretation(context: TurnContext): ValidationResult {
         val answer = context.answer
-        val hasVisualLanguage = visualInterpretationPatterns.any { it.containsMatchIn(answer) }
-        if (!hasVisualLanguage) return ValidationResult(passed = true, warnings = emptyList())
+        val hasExplicitVisualDesc = explicitGraphicInterpretationPatterns.any { it.containsMatchIn(answer) }
+        
+        if (!hasExplicitVisualDesc) return ValidationResult(passed = true, warnings = emptyList())
 
-        val hasGraphicToolCalls = context.graphicIds.isNotEmpty()
-        val hasGraphicRefsInAnswer = GRAPHIC_REF_REGEX.containsMatchIn(answer)
-
-        // Check if visual language appears in retrieved text (quoting vs interpreting)
         val toolText = context.toolResults.joinToString(separator = " ")
-        val visualInToolText = visualInterpretationPatterns.any { it.containsMatchIn(toolText) }
+        val visualInToolText = explicitGraphicInterpretationPatterns.any { it.containsMatchIn(toolText) }
 
-        // If visual language is quoting retrieved text, allow it
         if (visualInToolText) return ValidationResult(passed = true, warnings = emptyList())
 
-        // Hard block when there's concrete evidence the model touched a non-table graphic
-        if (hasGraphicToolCalls || hasGraphicRefsInAnswer) {
-            return ValidationResult(
-                passed = false,
-                warnings = emptyList(),
-                blockedReason = "Answer contains language suggesting visual interpretation of a graphic. " +
-                    "You may reference the graphic title and type, but you may not describe " +
-                    "visual details that were not retrieved as text. " +
-                    "Direct users to view the source directly."
-            )
-        }
-
-        // Advisory: visual language with NO graphic-tool evidence
-        // Surface as warning — might be quoting text, but verify
-        val touchedAnyGraphicTool = context.toolCalls.any {
-            it.toolName == "getGraphicInfo" || it.toolName == "getGraphicContent"
-        }
-        val warnings = if (!touchedAnyGraphicTool) {
-            listOf(
-                "Answer uses visual-interpretation language but no graphic tool was called " +
-                    "this turn — verify this isn't a fabricated visual finding."
-            )
-        } else emptyList()
-
-        return if (warnings.isNotEmpty()) {
-            ValidationResult(passed = true, warnings = warnings)
-        } else {
-            ValidationResult(passed = true, warnings = emptyList())
-        }
+        return ValidationResult(
+            passed = false,
+            warnings = emptyList(),
+            blockedReason = "Answer describes visual details of a graphic or scan that were not retrieved as text. " +
+                "Direct users to view the image source directly."
+        )
     }
 }

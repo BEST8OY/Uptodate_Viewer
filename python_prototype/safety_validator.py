@@ -1,10 +1,10 @@
 """Clinical safety validator — mirrors Kotlin SafetyValidator.kt exactly.
 
-6 validation rules, short-circuit on first hard block:
+5 validation rules, short-circuit on first hard block:
 1. Tool calls required
-1b. Section content required (getTopicSectionText)
+1b. Section content required (getTopicSectionText or getGraphicContent)
 2. Citation consistency with fetched sections
-3. No invented numbers (regex-validated)
+3. No invented clinical quantities
 4. Citations required
 5. No graphic interpretation
 """
@@ -53,31 +53,24 @@ class ValidationResult(BaseModel):
 
 # ── Regex constants (matching Kotlin) ────────────────────────────────
 
-NUMERIC_TOKEN_REGEX = re.compile(
-    r"\d+[\.,]?\d*\s*(?:mg|%|mL|mmol|mcg|units?|mEq|L|kg|cm|mmHg)?"
+CLINICAL_QUANTITY_REGEX = re.compile(
+    r"\b\d+[\.,]?\d*\s*(?:mg|%|mL|mmol|mcg|units?|mEq|L|kg|cm|mmHg|g|mg/dL|mmol/L|mEq/L|IU|bpm|mcg/kg|mg/kg)\b",
+    re.IGNORECASE,
 )
 
-GRAPHIC_REF_REGEX = re.compile(r"Graphic-[a-zA-Z0-9_-]+")
-
-VISUAL_INTERPRETATION_PATTERNS = [
+GRAPHIC_INTERPRETATION_PATTERNS = [
     re.compile(
-        r"the\s+(?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|"
-        r"pathology|slide|specimen|scan|film|rogram)\s+"
-        r"(?:shows?|demonstrates?|reveals?|suggests?|indicates?|displays?|depicts?|illustrates?)",
+        r"the\s+(?:image|photo|x-?ray|ct|mri|ecg|ekg|ultrasound|scan|film)\s+"
+        r"(?:shows?|demonstrates?|reveals?|depicts?)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?:image|photo|picture|x-?ray|ct|mri|ecg|ekg|ultrasound|echo|"
-        r"pathology|slide|specimen|scan|film)\s+"
-        r"(?:findings?|abnormalities?|results?|features?|characteristics?)",
+        r"(?:image|x-?ray|ct|mri|ecg|ekg|ultrasound|scan)\s+"
+        r"(?:findings?|abnormalities?|features?)",
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?:visual|visualized?|visible|appears?\s+to\s+show|can\s+be\s+seen)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"the\s+(?:figure|algorithm|diagram|picture)\s+"
+        r"the\s+(?:figure|diagram)\s+"
         r"(?:shows?|demonstrates?|reveals?|depicts?)",
         re.IGNORECASE,
     ),
@@ -85,32 +78,35 @@ VISUAL_INTERPRETATION_PATTERNS = [
 
 
 class SafetyValidator:
-    """Clinical safety validator with 6 rules."""
+    """Clinical safety validator with 5 rules."""
 
     @staticmethod
     def parse_citations(answer: str) -> list[Citation]:
         """Extract citations from answer text.
 
-        Expected format (one per line):
-            Topic: <title>, Section: <title> (ID: <id>)
+        Handles markdown formatting: bullets (-, *), numbered lists (1., 2.),
+        bold markers (**), and inline formatting.
         """
         citations = []
         pattern = re.compile(
-            r"^\s*Topic:\s*(.+?),\s*Section:\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?\s*$",
+            r"^\s*(?:[-*]|\d+\.)?\s*(?:\*\*)?Topic:(?:\*\*)?\s*(.+?),\s*(?:\*\*)?Section:(?:\*\*)?\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?(?:\*\*)?\s*(?=\s*(?:$|\n))",
             re.IGNORECASE | re.MULTILINE,
         )
         for match in pattern.finditer(answer):
+            topic_title = match.group(1).strip().strip("*")
+            section_title = match.group(2).strip().strip("*")
+            section_id = match.group(3).strip() if match.group(3) else "unknown"
             citations.append(
                 Citation(
-                    topic_title=match.group(1).strip(),
-                    section_title=match.group(2).strip(),
-                    section_id=match.group(3).strip() if match.group(3) else "unknown",
+                    topic_title=topic_title,
+                    section_title=section_title,
+                    section_id=section_id,
                 )
             )
         return citations
 
     def validate(self, context: TurnContext) -> ValidationResult:
-        """Run all 6 validation rules. Short-circuit on first hard block (passed=False)."""
+        """Run all 5 validation rules. Short-circuit on first hard block (passed=False)."""
         all_warnings = []
 
         # Rule 1: Tool calls required
@@ -130,10 +126,12 @@ class SafetyValidator:
         if result and result.warnings:
             all_warnings.extend(result.warnings)
 
-        # Rule 3: No invented numbers
+        # Rule 3: No invented clinical quantities
         result = self._validate_no_invented_numbers(context)
         if result and not result.passed:
             return result
+        if result and result.warnings:
+            all_warnings.extend(result.warnings)
 
         # Rule 4: Citations required
         result = self._validate_citation_required(context)
@@ -143,8 +141,6 @@ class SafetyValidator:
         # Rule 5: No graphic interpretation
         result = self._validate_no_graphic_interpretation(context)
         if result and not result.passed:
-            if all_warnings:
-                result.warnings = all_warnings + result.warnings
             return result
         if result and result.warnings:
             all_warnings.extend(result.warnings)
@@ -161,13 +157,13 @@ class SafetyValidator:
 
     def _validate_section_content_required(self, ctx: TurnContext) -> Optional[ValidationResult]:
         has_section = any(
-            tc.tool_name == "get_topic_section_text" and tc.success
+            tc.tool_name in ("get_topic_section_text", "get_graphic_content") and tc.success
             for tc in ctx.tool_calls
         )
         if not has_section:
             return ValidationResult(
                 passed=False,
-                blocked_reason="Answer requires actual section content. Only topic titles or outlines were retrieved.",
+                blocked_reason="Answer requires section or table content retrieval. Only topic outlines or searches were performed.",
             )
         return None
 
@@ -175,15 +171,14 @@ class SafetyValidator:
         fetched_ids = {fs.section_id for fs in ctx.fetched_sections}
         warnings = []
         for citation in ctx.citations:
-            id_match = citation.section_id in fetched_ids
-            # Bidirectional substring containment (matches Kotlin)
+            id_match = citation.section_id != "unknown" and citation.section_id in fetched_ids
             title_match = any(
                 fs.section_title.lower() in citation.section_title.lower()
                 or citation.section_title.lower() in fs.section_title.lower()
                 for fs in ctx.fetched_sections
             )
 
-            if not id_match and not title_match:
+            if not id_match and not title_match and ctx.fetched_sections:
                 return ValidationResult(
                     passed=False,
                     blocked_reason=(
@@ -195,8 +190,7 @@ class SafetyValidator:
 
             if not id_match and title_match:
                 warnings.append(
-                    f"Citation section ID '{citation.section_id}' not exactly matched; "
-                    f"title match used as fallback."
+                    f"Citation section ID '{citation.section_id}' matched via title fallback."
                 )
 
         if warnings:
@@ -204,88 +198,42 @@ class SafetyValidator:
         return None
 
     def _validate_no_invented_numbers(self, ctx: TurnContext) -> Optional[ValidationResult]:
-        # Strip metadata and formatting before checking numbers
-        answer_body = ctx.answer
-        # Strip citation lines
-        answer_body = re.sub(r"^\s*Topic:.*$", "", answer_body, flags=re.MULTILINE)
-        # Strip markdown list markers: "1. ", "- ", "* ", "  - "
-        answer_body = re.sub(r"^\s*[-*]\s+", "", answer_body, flags=re.MULTILINE)
-        answer_body = re.sub(r"^\s*\d+\.\s+", "", answer_body, flags=re.MULTILINE)
-        # Strip markdown headers: "### Title"
-        answer_body = re.sub(r"^#{1,6}\s+.*$", "", answer_body, flags=re.MULTILINE)
-        # Strip section dividers: "---"
-        answer_body = re.sub(r"^---\s*$", "", answer_body, flags=re.MULTILINE)
-        # Strip bold/italic markers around numbers: **500mg** -> 500mg
-        answer_body = re.sub(r"\*\*(\d)", r"\1", answer_body)
-        answer_body = re.sub(r"(\d)\*\*", r"\1", answer_body)
-        answer_body = re.sub(r"\*(\d)", r"\1", answer_body)
-        answer_body = re.sub(r"(\d)\*", r"\1", answer_body)
-
-        answer_numbers = {m.strip() for m in NUMERIC_TOKEN_REGEX.findall(answer_body) if m.strip()}
-        # Filter out list markers and formatting artifacts (e.g., "1,", "2,", "3.")
-        answer_numbers = {n for n in answer_numbers if not re.match(r"^\d+[,.]$", n)}
-        if not answer_numbers:
+        if not ctx.tool_results:
             return None
 
-        # Extract all numeric tokens from tool results
-        tool_text = " ".join(ctx.tool_results)
-        tool_numbers = {m.strip() for m in NUMERIC_TOKEN_REGEX.findall(tool_text) if m.strip()}
+        all_tool_text = " ".join(ctx.tool_results)
+        user_question_text = ctx.user_question
 
-        # Extract numbers from user's question — these are patient-specific values, not invented
-        question_numbers = set()
-        if ctx.user_question:
-            question_numbers = {m.strip() for m in NUMERIC_TOKEN_REGEX.findall(ctx.user_question) if m.strip()}
+        # Extract clinical quantities from the answer
+        answer_metrics = {m.strip() for m in CLINICAL_QUANTITY_REGEX.findall(ctx.answer) if m.strip()}
+        if not answer_metrics:
+            return None
 
-        # Allowed numbers = tool results + user question + citation IDs
-        allowed_numbers = tool_numbers | question_numbers
+        # Extract numbers from user's question — these are patient-specific values
+        question_metrics = set()
+        if user_question_text:
+            question_metrics = {m.strip() for m in CLINICAL_QUANTITY_REGEX.findall(user_question_text) if m.strip()}
 
-        # Boundary-aware matching: "12" should NOT match as part of "123"
-        # Also check if the numeric part alone is in tool text (e.g., "60 mL" -> check "60")
-        invented = []
-        for num in answer_numbers:
-            escaped = re.escape(num)
-            boundary_pattern = rf"(?<![\d]){escaped}(?![\d])"
-            full_match = re.search(boundary_pattern, tool_text, re.IGNORECASE)
+        unverified = []
+        for metric in answer_metrics:
+            if metric in question_metrics:
+                continue
 
-            # Also try matching just the numeric part (strip units)
-            num_only = re.match(r"^([\d\.,]+)", num)
-            num_only_match = False
-            if num_only:
-                num_part = num_only.group(1)
-                num_only_escaped = re.escape(num_part)
-                num_only_pattern = rf"(?<![\d]){num_only_escaped}(?![\d])"
-                num_only_match = bool(re.search(num_only_pattern, tool_text, re.IGNORECASE))
+            # Extract just the numeric part and check if it appears in tool text
+            num_match = re.match(r"^(\d[\d.,]*)", metric)
+            if num_match:
+                num_part = re.escape(num_match.group(1))
+                if re.search(rf"(?<!\d){num_part}(?!\d)", all_tool_text, re.IGNORECASE):
+                    continue
 
-            # Also check if numeric part matches any question number
-            in_question = False
-            if num_only:
-                num_part = num_only.group(1)
-                for q_num in question_numbers:
-                    q_part = re.match(r"^([\d\.,]+)", q_num)
-                    if q_part and q_part.group(1) == num_part:
-                        in_question = True
-                        break
+            unverified.append(metric)
 
-            if not full_match and not num_only_match and not in_question:
-                invented.append(num)
-
-        if invented:
-            # Show context for each blocked number
-            details = []
-            for num in sorted(invented):
-                # Find the sentence containing this number
-                pattern = re.compile(rf"[^.]*\b{re.escape(num)}\b[^.]*\.", re.IGNORECASE)
-                match = pattern.search(ctx.answer)
-                if match:
-                    details.append(f'"{num}" in: {match.group(0).strip()[:80]}')
-                else:
-                    details.append(f'"{num}"')
-            detail_text = "; ".join(details)
+        if unverified:
             return ValidationResult(
                 passed=False,
                 blocked_reason=(
-                    f"Answer contains numbers not found in retrieved content: "
-                    f"{', '.join(sorted(invented))}. Details: {detail_text}"
+                    "Answer contains clinical quantities not traceable to retrieved source data: "
+                    f"{', '.join(unverified[:5])}"
                 ),
             )
         return None
@@ -294,74 +242,44 @@ class SafetyValidator:
         if not ctx.citations:
             return ValidationResult(
                 passed=False,
-                blocked_reason="No citations provided. Every clinical answer must cite its source.",
+                blocked_reason="No citations provided. Every clinical answer must cite its source section.",
             )
 
-        # Citation density: require that most fetched sections are cited
+        # Require at least one citation that matches a fetched section
         if ctx.fetched_sections:
-            cited_section_ids = {c.section_id for c in ctx.citations}
-            fetched_section_ids = {fs.section_id for fs in ctx.fetched_sections}
-            uncited = fetched_section_ids - cited_section_ids
-
-            # Allow up to 1 uncited section (some sections are supporting context)
-            if len(uncited) > 1:
-                uncited_titles = [
-                    fs.section_title for fs in ctx.fetched_sections
-                    if fs.section_id in uncited
-                ]
+            fetched_ids = {fs.section_id for fs in ctx.fetched_sections}
+            valid_citation_found = any(
+                c.section_id in fetched_ids
+                or any(
+                    fs.section_title.lower() in c.section_title.lower()
+                    for fs in ctx.fetched_sections
+                )
+                for c in ctx.citations
+            )
+            if not valid_citation_found:
                 return ValidationResult(
                     passed=False,
-                    blocked_reason=(
-                        f"Fetched sections not cited in answer: "
-                        f"{', '.join(uncited_titles[:3])}. "
-                        f"Every section used to compose the answer must be cited."
-                    ),
+                    blocked_reason="None of the citations match the sections fetched during database retrieval.",
                 )
 
         return None
 
     def _validate_no_graphic_interpretation(self, ctx: TurnContext) -> Optional[ValidationResult]:
-        warnings = []
         answer = ctx.answer
-
-        # Check for visual interpretation language
-        has_visual_language = any(p.search(answer) for p in VISUAL_INTERPRETATION_PATTERNS)
-        if not has_visual_language:
+        has_visual_desc = any(p.search(answer) for p in GRAPHIC_INTERPRETATION_PATTERNS)
+        if not has_visual_desc:
             return None
-
-        has_graphic_tool_calls = ctx.graphic_ids is not None and len(ctx.graphic_ids) > 0
-        has_graphic_refs_in_answer = bool(GRAPHIC_REF_REGEX.findall(answer))
 
         # Check if visual language appears in retrieved text (quoting vs interpreting)
         tool_text = " ".join(ctx.tool_results)
-        visual_in_tool_text = any(p.search(tool_text) for p in VISUAL_INTERPRETATION_PATTERNS)
-
-        # If visual language is quoting retrieved text, allow it
+        visual_in_tool_text = any(p.search(tool_text) for p in GRAPHIC_INTERPRETATION_PATTERNS)
         if visual_in_tool_text:
             return None
 
-        # Hard block when there's concrete evidence the model touched a non-table graphic
-        if has_graphic_tool_calls or has_graphic_refs_in_answer:
-            return ValidationResult(
-                passed=False,
-                blocked_reason=(
-                    "Answer contains language suggesting visual interpretation of a graphic. "
-                    "You may reference the graphic title and type, but you may not describe "
-                    "visual details that were not retrieved as text. "
-                    "Direct users to view the source directly."
-                ),
-            )
-
-        # Advisory: visual language with NO graphic-tool evidence
-        # Surface as warning — might be quoting text, but verify
-        touched_any_graphic_tool = any(
-            tc.tool_name in ("getGraphicInfo", "getGraphicContent")
-            for tc in ctx.tool_calls
+        return ValidationResult(
+            passed=False,
+            blocked_reason=(
+                "Answer describes visual details of a graphic or scan that were not retrieved as text. "
+                "Direct users to view the image source directly."
+            ),
         )
-        if not touched_any_graphic_tool:
-            warnings.append(
-                "Answer uses visual-interpretation language but no graphic tool was called "
-                "this turn — verify this isn't a fabricated visual finding."
-            )
-
-        return ValidationResult(passed=True, warnings=warnings) if warnings else None

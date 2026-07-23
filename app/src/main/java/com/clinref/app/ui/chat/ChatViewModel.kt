@@ -11,11 +11,11 @@ import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.PatientProfile
-
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
+import com.clinref.app.domain.ai.TurnContextAccumulator
 import com.clinref.app.data.secure.SecurePreferences
 import com.clinref.app.repository.ConversationRepository
 import com.clinref.app.repository.ContentRepository
@@ -195,27 +195,25 @@ class ChatViewModel @Inject constructor(
             userCancelled = false
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
+                    var lastAccumulator: TurnContextAccumulator? = null
                     val result = reliabilityManager.withRetry {
                         reliabilityManager.runWithTimeout {
-                            val agent = koogAgentFactory.createAgent(
+                            val (agent, accumulator) = koogAgentFactory.createAgent(
                                 config = config,
                                 conversationId = conversationId,
                                 patientProfile = patientProfile,
                                 streamingManager = streamingManager,
                                 userMessage = content
                             ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                            agent!!.run(content, conversationId)
+                            lastAccumulator = accumulator
+                            agent.run(content, conversationId)
                         }
                     }
                     withContext(Dispatchers.Main) {
-                        handleAgentResult(conversationId, result)
+                        handleAgentResult(conversationId, result, lastAccumulator)
                     }
                 } catch (e: CancellationException) {
-                    if (userCancelled) {
-                        // User-initiated cancel via cancelGeneration() — already handled
-                        throw e
-                    }
-                    // Timeout or unexpected cancellation — show error to user
+                    if (userCancelled) throw e
                     withContext(Dispatchers.Main) {
                         streamingManager.onError(e.message ?: "Request timed out.")
                         val errorState = streamingManager.agentState.value
@@ -235,7 +233,7 @@ class ChatViewModel @Inject constructor(
                 } catch (e: Exception) {
                     secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel", "Clinical runtime crash: ${e.message}")
                     withContext(Dispatchers.Main) {
-                        streamingManager.onError(e.message ?: "General core execution timeout.")
+                        streamingManager.onError(e.message ?: "General core execution error.")
                         val errorState = streamingManager.agentState.value
                         if (errorState is StreamingManager.AgentState.Error) {
                             val errorMsg = MessageEntity(
@@ -282,7 +280,11 @@ class ChatViewModel @Inject constructor(
         Toast.makeText(context, "Copied content to workspace clipboard", Toast.LENGTH_SHORT).show()
     }
 
-    private suspend fun handleAgentResult(conversationId: String, result: String) {
+    private suspend fun handleAgentResult(
+        conversationId: String,
+        result: String,
+        accumulator: TurnContextAccumulator?
+    ) {
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
                 if (state.validation.passed) {
@@ -291,18 +293,20 @@ class ChatViewModel @Inject constructor(
                     )
                 } else {
                     val blockedReason = state.validation.blockedReason
-                        ?: "This output has been quarantined by ClinRef safety engines."
-                    secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel",
-                        "Safety blocked: $blockedReason. Attempting self-correction.")
+                        ?: "Output quarantined by safety rules."
+                    secureLogger.log(
+                        SecureLogger.Level.WARN, "ChatViewModel",
+                        "Safety blocked: $blockedReason. Executing self-correction turn."
+                    )
 
-                    val correctionSuccess = runCorrectionTurn(conversationId, blockedReason)
+                    val correctionSuccess = runCorrectionTurn(conversationId, blockedReason, accumulator)
 
                     if (!correctionSuccess) {
                         val blockedMsg = MessageEntity(
                             id = UUID.randomUUID().toString(),
                             conversationId = conversationId,
                             role = "assistant",
-                            content = blockedReason,
+                            content = "Clinical Response Verification Blocked: $blockedReason",
                             timestamp = System.currentTimeMillis(),
                             isError = true
                         )
@@ -324,14 +328,15 @@ class ChatViewModel @Inject constructor(
                 _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
             }
             else -> {
-                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: unexpected state ${state::class.simpleName}")
+                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: state ${state::class.simpleName}")
             }
         }
     }
 
     private suspend fun runCorrectionTurn(
         conversationId: String,
-        blockedReason: String
+        blockedReason: String,
+        accumulator: TurnContextAccumulator?
     ): Boolean {
         return try {
             val patientProfile = conversationRepository.getPatientProfile(conversationId)
@@ -339,22 +344,21 @@ class ChatViewModel @Inject constructor(
 
             streamingManager.reset()
 
-            val correctionAgent = koogAgentFactory.createAgent(
+            val (correctionAgent, _) = koogAgentFactory.createAgent(
                 config = config,
                 conversationId = conversationId,
                 patientProfile = patientProfile,
-                streamingManager = streamingManager
+                streamingManager = streamingManager,
+                existingAccumulator = accumulator
             ) ?: return false
 
             val correctionPrompt = """
-                CRITICAL SYSTEM NOTICE: Your previous output was blocked by clinical safety verification.
+                SYSTEM NOTICE: Your prior response was paused due to clinical verification rules.
                 REASON: $blockedReason
 
-                Instructions for this turn:
-                1. Re-read the retrieved topic sections.
-                2. Synthesize your answer strictly from fetched section text.
-                3. Include required citations in format: Topic: <title>, Section: <section> (ID: <id>)
-                4. Do not cite sections that were not retrieved.
+                REMEDIAL INSTRUCTIONS:
+                - Ensure all quoted dosages and figures are verified against retrieved sections.
+                - Include full citations in format: Topic: <Title>, Section: <Title> (ID: <SectionID>)
             """.trimIndent()
 
             val correctedResult = correctionAgent.run(correctionPrompt, conversationId)
@@ -366,13 +370,11 @@ class ChatViewModel @Inject constructor(
                 )
                 true
             } else {
-                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel",
-                    "Self-correction turn failed validation.")
+                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "Self-correction turn failed validation.")
                 false
             }
         } catch (e: Exception) {
-            secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel",
-                "Self-correction crashed: ${e.message}")
+            secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel", "Self-correction exception: ${e.message}")
             false
         }
     }
@@ -408,11 +410,11 @@ class ChatViewModel @Inject constructor(
 
     private fun mapErrorToUserMessage(type: StreamingManager.ErrorType): String = when (type) {
         StreamingManager.ErrorType.INVALID_KEY -> "API Key validation rejected. Re-authenticate clinical tokens in Configuration."
-        StreamingManager.ErrorType.NO_NETWORK -> "Network layer unreachable. Please check data linkage and fallback routing."
-        StreamingManager.ErrorType.RATE_LIMIT -> "Upstream limits exceeded. Retrying via reliable cooling buffers..."
-        StreamingManager.ErrorType.TIMEOUT -> "The safety reference core timed out. Resubmitting transaction..."
-        StreamingManager.ErrorType.NO_RESULTS -> "Query executed successfully, but reference matches returned no safe data matches."
-        StreamingManager.ErrorType.UNKNOWN -> "An unclassified telemetry error occurred. Telemetry recorded."
+        StreamingManager.ErrorType.NO_NETWORK -> "Network layer unreachable. Please check connectivity."
+        StreamingManager.ErrorType.RATE_LIMIT -> "Upstream rate limit reached. Retrying..."
+        StreamingManager.ErrorType.TIMEOUT -> "Reference core timeout. Please resubmit."
+        StreamingManager.ErrorType.NO_RESULTS -> "Query executed, but reference matches returned no data."
+        StreamingManager.ErrorType.UNKNOWN -> "An error occurred during response generation."
     }
 
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
@@ -436,7 +438,6 @@ class ChatViewModel @Inject constructor(
         val graphicRefs = GRAPHIC_LINK_RE.findAll(content).map { match ->
             val graphicId = match.groupValues[2]
             val rawLabel = match.groupValues[1].ifEmpty { "Graphic $graphicId" }
-            // Look up the real title from graphic_asset
             val title = assetRepository.getGraphicTitle(graphicId) ?: rawLabel
             ResolvedGraphicRef(graphicId, title)
         }.distinctBy { it.graphicId }.toList()

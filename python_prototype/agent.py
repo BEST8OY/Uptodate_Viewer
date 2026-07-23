@@ -41,7 +41,7 @@ def create_clinical_agent(
     tools: list[BaseTool],
     system_prompt: str,
     callbacks: list = None,
-    max_tool_retries: int = 25,
+    max_tool_retries: int = 20,
     max_safety_retries: int = 2,
 ):
     """Create the clinical retrieval agent graph.
@@ -117,6 +117,12 @@ def create_clinical_agent(
                         section_title=args.get("section_title", ""),
                     )
                 )
+
+            # Track graphic IDs
+            if name == "get_graphic_content":
+                graphic_id = args.get("graphic_id", "")
+                if graphic_id:
+                    tc.graphic_ids.add(graphic_id)
 
             new_messages.append(
                 ToolMessage(content=result_content, tool_call_id=tool_call_id)

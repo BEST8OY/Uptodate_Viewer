@@ -15,6 +15,8 @@ class AssetRepository @Inject constructor(
         return GraphicData(
             id = graphicId,
             title = graphicInfo?.get("displayName") as? String ?: "",
+            type = graphicInfo?.get("type") as? String ?: "",
+            subtype = graphicInfo?.get("subtype") as? String ?: "",
             imageHtml = data["imageHtml"] as? String ?: "",
             base64Image = data["base64Image"] as? String,
             movieUrl = data["movieUrl"] as? String

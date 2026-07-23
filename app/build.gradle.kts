@@ -114,6 +114,9 @@ dependencies {
 
     // Testing
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.kotlinx.serialization.json)
 }
 
 // Koog utils-jvm has Coroutines_jvmKt which http-client-okhttp references.

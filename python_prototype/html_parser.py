@@ -52,7 +52,8 @@ def extract_outline_sections(outline_html: str) -> list[dict]:
 def extract_related_topics(outline_html: str) -> list[dict]:
     """Parse outlineHtml to extract related topic links.
 
-    Returns [{id, title}] for Topic-... links that are NOT section/graphic links.
+    Returns [{id, title}] for links that are NOT section or graphic links.
+    Skips hrefs containing "section" or "type":"graphic" (matches Kotlin logic).
     """
     soup = BeautifulSoup(outline_html, "html.parser")
     topics = []
@@ -62,12 +63,16 @@ def extract_related_topics(outline_html: str) -> list[dict]:
         title = a_tag.get_text(strip=True)
         if not title:
             continue
-        # Match Topic-NNNN in href or in JSON data
-        topic_match = re.search(r"Topic-(\d+)", href)
-        if not topic_match:
-            topic_match = re.search(r'"id"\s*:\s*"(\d+)"', href)
-        if topic_match and '"section"' not in href:
-            tid = topic_match.group(1)
+        # Skip section links
+        if '"section"' in href:
+            continue
+        # Skip graphic links (type:"graphic" in href)
+        if re.search(r'"type"\s*:\s*"graphic"', href, re.IGNORECASE):
+            continue
+        # Extract ID from JSON payload
+        id_match = re.search(r'"id"\s*:\s*"(\d+)"', href)
+        if id_match:
+            tid = id_match.group(1)
             if tid not in seen_ids:
                 seen_ids.add(tid)
                 topics.append({"id": tid, "title": title})
@@ -77,7 +82,11 @@ def extract_related_topics(outline_html: str) -> list[dict]:
 def extract_graphics_from_outline(outline_html: str) -> list[dict]:
     """Parse outlineHtml to extract graphic metadata.
 
-    Returns [{id, type, title}] for Graphic-... links.
+    Matches Kotlin's parseGraphicsFromOutline: looks for type=graphic in
+    appAction hrefs, then extracts id and subtype from JSON-like payload.
+    Handles both &quot; (HTML-encoded) and " (decoded) quote styles.
+
+    Returns [{id, type, title, is_table}].
     """
     soup = BeautifulSoup(outline_html, "html.parser")
     graphics = []
@@ -88,16 +97,22 @@ def extract_graphics_from_outline(outline_html: str) -> list[dict]:
         if not title:
             continue
 
-        gid = None
-        # Match Graphic-XXXX in href
-        graphic_match = re.search(r"Graphic-([a-zA-Z0-9_-]+)", href)
-        if graphic_match:
-            gid = graphic_match.group(1)
+        # Check if this is a graphic link (type:"graphic" in href)
+        type_match = re.search(r'"type"\s*:\s*"graphic"', href, re.IGNORECASE)
+        if not type_match:
+            continue
+
+        # Extract graphic ID (matches Kotlin's GRAPHIC_ID_REGEX)
+        id_match = re.search(r'(?:id|graphicId)"?\s*:\s*"?([a-zA-Z0-9_-]+)"?', href, re.IGNORECASE)
+        gid = id_match.group(1) if id_match else ""
 
         if gid and gid not in seen_ids:
             seen_ids.add(gid)
-            gtype = "TABLE" if "TABLE" in href.upper() else "FIGURE"
-            graphics.append({"id": gid, "type": gtype, "title": title})
+            # Extract subtype (matches Kotlin's GRAPHIC_SUBTYPE_REGEX)
+            subtype_match = re.search(r'"subtype"\s*:\s*"([^"]+)"', href, re.IGNORECASE)
+            subtype = subtype_match.group(1) if subtype_match else ""
+            is_table = subtype == "graphic_table"
+            graphics.append({"id": gid, "type": subtype or "unknown", "title": title, "is_table": is_table})
 
     return graphics
 
@@ -138,6 +153,9 @@ def extract_section_html(body_html: str, outline_html: str, section_id: str) -> 
     parts = [str(start_elem)]
     for sib in start_elem.find_next_siblings():
         if next_section_id and sib.get("id") == next_section_id:
+            break
+        # Stop at references section (matches Kotlin's referenceHeaderRegex)
+        if sib.get("id") == "references":
             break
         # Also stop at next heading if no explicit next section
         if not next_section_id and sib.name and re.match(r"h[1-6]", sib.name):

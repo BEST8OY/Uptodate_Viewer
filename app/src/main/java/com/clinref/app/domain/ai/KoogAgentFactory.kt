@@ -31,18 +31,6 @@ import javax.inject.Singleton
 
 private const val TAG = "KoogAgent"
 
-/**
- * Creates Koog AIAgent instances for each conversation turn.
- *
- * AIAgent is single-use — calling .run() twice throws. So we create
- * a fresh agent per sendMessage() call.
- *
- * Uses a clinical retrieval strategy graph:
- *   [User Query] → [LLM + tools loop] → [Text response → Finish]
- *
- * The LLM calls searchTopics, getTopicOutline, getTopicSectionText, etc.
- * in a tool loop until it produces a text answer, which routes directly to finish.
- */
 @Singleton
 class KoogAgentFactory @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
@@ -72,8 +60,9 @@ class KoogAgentFactory @Inject constructor(
         conversationId: String,
         patientProfile: PatientProfile,
         streamingManager: StreamingManager,
-        userMessage: String = ""
-    ): AIAgent<String, String>? {
+        userMessage: String = "",
+        existingAccumulator: TurnContextAccumulator? = null
+    ): Pair<AIAgent<String, String>, TurnContextAccumulator>? {
         val apiKey = securePreferences.getApiKey(config.provider)
         if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) return null
 
@@ -86,26 +75,25 @@ class KoogAgentFactory @Inject constructor(
             tools(medicalDatabaseTools)
         }
 
-        val accumulator = TurnContextAccumulator()
-        accumulator.setUserQuestion(userMessage)
+        val accumulator = existingAccumulator ?: TurnContextAccumulator()
+        if (userMessage.isNotBlank()) {
+            accumulator.setUserQuestion(userMessage)
+        }
 
-        // Clinical retrieval strategy: tool loop → text finish
         val clinicalStrategy = strategy<String, String>("clinical-retrieval") {
             val nodeSendInput by nodeLLMRequest()
             val nodeExecuteTool by nodeExecuteTools()
             val nodeSendToolResult by nodeLLMSendToolResults()
 
-            // Graph flow
             edge(nodeStart forwardTo nodeSendInput)
 
-            // Tool loop: execute when tool calls present
             edge(nodeSendInput forwardTo nodeExecuteTool onToolCalls { true })
             edge(nodeExecuteTool forwardTo nodeSendToolResult)
-            edge(nodeSendToolResult forwardTo nodeExecuteTool onToolCalls { true })
 
-            // Finish as soon as text response is produced
-            edge(nodeSendInput forwardTo nodeFinish onTextMessage { true })
+            edge(nodeSendToolResult forwardTo nodeExecuteTool onToolCalls { true })
             edge(nodeSendToolResult forwardTo nodeFinish onTextMessage { true })
+
+            edge(nodeSendInput forwardTo nodeFinish onTextMessage { true })
         }
 
         val agentConfig = AIAgentConfig(
@@ -116,10 +104,10 @@ class KoogAgentFactory @Inject constructor(
                 system(SystemPrompt.build(patientProfile, config.provider))
             },
             model = model,
-            maxAgentIterations = 25
+            maxAgentIterations = 20
         )
 
-        return AIAgent(
+        val agent = AIAgent(
             promptExecutor = executor,
             agentConfig = agentConfig,
             strategy = clinicalStrategy,
@@ -127,7 +115,7 @@ class KoogAgentFactory @Inject constructor(
         ) {
             install(ChatMemory) {
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
-                windowSize(50)
+                windowSize(20)
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
             }
 
@@ -180,16 +168,16 @@ class KoogAgentFactory @Inject constructor(
                     val validation = safetyValidator.validate(turnContext)
                     Log.d(TAG, "Agent completed: tools=${turnContext.toolCalls.map { it.toolName }} validation=${validation.blockedReason ?: "OK"}")
                     streamingManager.onCompleted(result, validation)
-                    accumulator.reset()
                 }
 
                 onAgentExecutionFailed { eventContext ->
                     Log.e(TAG, "Agent failed: ${eventContext.error.message}")
                     streamingManager.onError(eventContext.error.message ?: "Unknown error")
-                    accumulator.reset()
                 }
             }
         }
+
+        return Pair(agent, accumulator)
     }
 
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
