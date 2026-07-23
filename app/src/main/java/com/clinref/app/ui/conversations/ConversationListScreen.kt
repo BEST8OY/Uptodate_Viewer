@@ -195,7 +195,8 @@ fun ConversationListScreen(
                     text = { Text("New Session", fontWeight = FontWeight.SemiBold) },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shape = RoundedCornerShape(20.dp)
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.padding(bottom = 80.dp)
                 )
             }
         }
