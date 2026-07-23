@@ -310,7 +310,7 @@ fun ConversationListScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)
                     ) {
                         itemsIndexed(
