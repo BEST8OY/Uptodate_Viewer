@@ -338,48 +338,71 @@ private fun HistoryItem(
             }
         }
     ) {
-        SegmentedListItem(
-            onClick = onTopicSelected,
-            onLongClick = onLongPress,
-            shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
-            leadingContent = {
-                Icon(
-                    imageVector = Icons.Default.History,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            },
-            supportingContent = {
-                Text(
-                    text = formatTimestamp(entry.timestamp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            },
-            trailingContent = {
-                if (isSelectionMode) {
+        if (isSelectionMode) {
+            SegmentedListItem(
+                checked = isSelected,
+                onCheckedChange = { onTopicSelected() },
+                onLongClick = onLongPress,
+                shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
+                leadingContent = {
                     Checkbox(
                         checked = isSelected,
                         onCheckedChange = null
                     )
+                },
+                trailingContent = {
+                    Text(
+                        text = formatTimestamp(entry.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                content = {
+                    Text(
+                        text = entry.title,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                modifier = modifier.fillMaxWidth(),
+                colors = if (isSelected) {
+                    ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    )
+                } else {
+                    ListItemDefaults.segmentedColors()
                 }
-            },
-            content = {
-                Text(
-                    text = entry.title,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            modifier = modifier.fillMaxWidth(),
-            colors = if (isSelected) {
-                ListItemDefaults.segmentedColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                )
-            } else {
-                ListItemDefaults.segmentedColors()
-            }
-        )
+            )
+        } else {
+            SegmentedListItem(
+                onClick = onTopicSelected,
+                onLongClick = onLongPress,
+                shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text = formatTimestamp(entry.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                content = {
+                    Text(
+                        text = entry.title,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                modifier = modifier.fillMaxWidth(),
+                colors = ListItemDefaults.segmentedColors()
+            )
+        }
     }
 }
