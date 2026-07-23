@@ -363,66 +363,36 @@ fun ConversationListScreen(
                                     }
                                 },
                                 content = {
-                                    if (uiState.isSelectionMode) {
-                                        SegmentedListItem(
-                                            checked = isItemSelected,
-                                            onCheckedChange = { viewModel.toggleItemSelection(conversation.id) },
-                                            onLongClick = { viewModel.toggleItemSelection(conversation.id) },
-                                            shapes = itemShapes,
-                                            colors = ListItemDefaults.segmentedColors(),
-                                            leadingContent = {
+                                    SegmentedListItem(
+                                        onClick = {
+                                            if (uiState.isSelectionMode) {
+                                                viewModel.toggleItemSelection(conversation.id)
+                                            } else {
+                                                viewModel.markAsRead(conversation.id)
+                                                onConversationSelected(conversation.id)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (!uiState.isSelectionMode) {
+                                                viewModel.toggleSelectionMode()
+                                            }
+                                            viewModel.toggleItemSelection(conversation.id)
+                                        },
+                                        shapes = itemShapes,
+                                        colors = if (isItemSelected) {
+                                            ListItemDefaults.segmentedColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                            )
+                                        } else {
+                                            ListItemDefaults.segmentedColors()
+                                        },
+                                        leadingContent = {
+                                            if (uiState.isSelectionMode) {
                                                 Checkbox(
                                                     checked = isItemSelected,
                                                     onCheckedChange = null
                                                 )
-                                            },
-                                            trailingContent = {
-                                                Column(horizontalAlignment = Alignment.End) {
-                                                    Text(
-                                                        text = formatTimestamp(conversation.timestamp),
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    if (conversation.isPinned) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.PushPin,
-                                                            contentDescription = "Pinned",
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                            supportingContent = {
-                                                Text(
-                                                    text = conversation.lastPreview,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            },
-                                            content = {
-                                                Text(
-                                                    text = conversation.title,
-                                                    fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        )
-                                    } else {
-                                        SegmentedListItem(
-                                            selected = conversation.isPinned,
-                                            onClick = {
-                                                viewModel.markAsRead(conversation.id)
-                                                onConversationSelected(conversation.id)
-                                            },
-                                            onLongClick = {
-                                                viewModel.toggleSelectionMode()
-                                                viewModel.toggleItemSelection(conversation.id)
-                                            },
-                                            shapes = itemShapes,
-                                            colors = ListItemDefaults.segmentedColors(),
-                                            leadingContent = {
+                                            } else {
                                                 Surface(
                                                     shape = CircleShape,
                                                     color = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -441,8 +411,10 @@ fun ConversationListScreen(
                                                         )
                                                     }
                                                 }
-                                            },
-                                            trailingContent = {
+                                            }
+                                        },
+                                        trailingContent = {
+                                            if (!uiState.isSelectionMode) {
                                                 Column(horizontalAlignment = Alignment.End) {
                                                     Text(
                                                         text = formatTimestamp(conversation.timestamp),
@@ -470,26 +442,24 @@ fun ConversationListScreen(
                                                         }
                                                     }
                                                 }
-                                            },
-                                            supportingContent = {
-                                                Text(
-                                                    text = conversation.lastPreview,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            },
-                                            content = {
-                                                Text(
-                                                    text = conversation.title,
-                                                    fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
                                             }
-                                        )
-                                    }
-                                }
-                            )
+                                        },
+                                        supportingContent = {
+                                            Text(
+                                                text = conversation.lastPreview,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
+                                        content = {
+                                            Text(
+                                                text = conversation.title,
+                                                fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    )
                         }
                     }
                 }
