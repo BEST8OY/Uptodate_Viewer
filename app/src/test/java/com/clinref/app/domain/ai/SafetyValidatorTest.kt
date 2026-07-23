@@ -383,7 +383,7 @@ class SafetyValidatorTest {
             fetchedSections = listOf(
                 SafetyValidator.FetchedSection("123", "Diagnosis", "sec-1", "ECG Findings")
             ),
-            toolResults = listOf("ECG findings for acute MI include ST-segment changes.")
+            toolResults = listOf("ECG data for acute MI evaluation.")
         )
         val result = validator.validate(context)
         assertFalse(result.passed)
@@ -611,7 +611,7 @@ class SafetyValidatorTest {
             fetchedSections = listOf(
                 SafetyValidator.FetchedSection("123", "Diagnosis", "sec-1", "Imaging")
             ),
-            toolResults = listOf("CT findings.")
+            toolResults = listOf("CT scan protocol for pulmonary embolism evaluation.")
         )
         val result = validator.validate(context)
         assertFalse(result.passed)
@@ -631,7 +631,7 @@ class SafetyValidatorTest {
             fetchedSections = listOf(
                 SafetyValidator.FetchedSection("123", "Diagnosis", "sec-1", "Imaging")
             ),
-            toolResults = listOf("MRI findings.")
+            toolResults = listOf("MRI protocol for brain evaluation.")
         )
         val result = validator.validate(context)
         assertFalse(result.passed)
