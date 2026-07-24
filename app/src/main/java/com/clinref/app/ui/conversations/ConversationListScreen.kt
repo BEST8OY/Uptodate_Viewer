@@ -67,8 +67,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.text.input.clearText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -102,7 +100,6 @@ fun ConversationListScreen(
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
 
@@ -189,14 +186,24 @@ fun ConversationListScreen(
                     )
                 )
             } else {
+                var searchQuery by rememberSaveable { mutableStateOf("") }
+
+                LaunchedEffect(searchQuery) {
+                    viewModel.onSearchQueryChange(searchQuery)
+                }
+
                 SearchBar(
-                    state = searchBarState,
                     inputField = {
                         SearchBarDefaults.InputField(
-                            textFieldState = textFieldState,
-                            searchBarState = searchBarState,
-                            onSearch = {
-                                scope.launch { searchBarState.animateToCollapsed() }
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
+                            expanded = searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Expanded,
+                            onExpandedChange = { expanded ->
+                                scope.launch {
+                                    if (expanded) searchBarState.animateToExpanded()
+                                    else searchBarState.animateToCollapsed()
+                                }
                             },
                             placeholder = { Text("Search sessions...") },
                             leadingIcon = {
@@ -213,13 +220,20 @@ fun ConversationListScreen(
                                 }
                             },
                             trailingIcon = {
-                                if (textFieldState.text.isNotEmpty()) {
-                                    IconButton(onClick = { textFieldState.clearText() }) {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
                                         Icon(Icons.Default.Close, contentDescription = "Clear")
                                     }
                                 }
                             }
                         )
+                    },
+                    expanded = searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Expanded,
+                    onExpandedChange = { expanded ->
+                        scope.launch {
+                            if (expanded) searchBarState.animateToExpanded()
+                            else searchBarState.animateToCollapsed()
+                        }
                     }
                 ) {
                     if (uiState.filteredConversations.isNotEmpty()) {
