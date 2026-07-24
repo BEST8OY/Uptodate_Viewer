@@ -66,6 +66,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,7 +100,7 @@ fun ConversationListScreen(
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
     var isSearchActive by rememberSaveable { mutableStateOf(false) }
@@ -111,8 +112,8 @@ fun ConversationListScreen(
         }
     }
 
-    LaunchedEffect(searchQuery) {
-        viewModel.onSearchQueryChange(searchQuery)
+    LaunchedEffect(textFieldState.text) {
+        viewModel.onSearchQueryChange(textFieldState.text.toString())
     }
 
     if (uiState.showDeleteConfirmationDialog) {
@@ -190,11 +191,9 @@ fun ConversationListScreen(
                 SearchBar(
                     inputField = {
                         SearchBarDefaults.InputField(
-                            query = searchQuery,
-                            onQueryChange = { searchQuery = it },
+                            textFieldState = textFieldState,
+                            searchBarState = searchBarState,
                             onSearch = { isSearchActive = false },
-                            expanded = isSearchActive,
-                            onExpandedChange = { isSearchActive = it },
                             placeholder = { Text("Search sessions...") },
                             leadingIcon = {
                                 IconButton(onClick = { isSearchActive = !isSearchActive }) {
@@ -202,8 +201,8 @@ fun ConversationListScreen(
                                 }
                             },
                             trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
+                                if (textFieldState.text.isNotEmpty()) {
+                                    IconButton(onClick = { textFieldState.clearAndPlaceCursorAtEnd() }) {
                                         Icon(Icons.Default.Close, contentDescription = "Clear")
                                     }
                                 }
