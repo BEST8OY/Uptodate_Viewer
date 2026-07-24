@@ -34,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SwipeToDismissBox
@@ -46,6 +47,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -86,6 +89,7 @@ fun FavoritesScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<List<FavoriteEntry>>(emptyList()) }
     var isFabDelete by remember { mutableStateOf(false) }
+    val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     LaunchedEffect(currentRoute) {
         selectedIds = emptySet()
@@ -124,7 +128,7 @@ fun FavoritesScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
         snackbarHost = {
             Box(modifier = Modifier.padding(bottom = 80.dp)) {
                 SnackbarHost(snackbarHostState)
@@ -175,8 +179,20 @@ fun FavoritesScreen(
                     )
                 )
             } else {
-                TopAppBar(
-                    title = { Text("Favorites") },
+                MediumFlexibleTopAppBar(
+                    title = {
+                        Text(
+                            text = "Favorites",
+                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    },
+                    subtitle = {
+                        Text(
+                            text = "${favorites.size} saved articles",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
                     actions = {
                         if (favorites.isNotEmpty()) {
                             IconButton(onClick = { showClearAllDialog = true }) {
@@ -186,7 +202,12 @@ fun FavoritesScreen(
                                 )
                             }
                         }
-                    }
+                    },
+                    scrollBehavior = topAppBarScrollBehavior,
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 )
             }
         },

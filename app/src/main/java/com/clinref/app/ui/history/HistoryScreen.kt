@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SwipeToDismissBox
@@ -45,6 +46,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -85,6 +88,7 @@ fun HistoryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     var isFabDelete by remember { mutableStateOf(false) }
+    val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     LaunchedEffect(currentRoute) {
         selectedIds = emptySet()
@@ -123,7 +127,7 @@ fun HistoryScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
         snackbarHost = {
             Box(modifier = Modifier.padding(bottom = 80.dp)) {
                 SnackbarHost(snackbarHostState)
@@ -174,8 +178,20 @@ fun HistoryScreen(
                     )
                 )
             } else {
-                TopAppBar(
-                    title = { Text("History") },
+                MediumFlexibleTopAppBar(
+                    title = {
+                        Text(
+                            text = "History",
+                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    },
+                    subtitle = {
+                        Text(
+                            text = "${history.size} articles viewed",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
                     actions = {
                         if (history.isNotEmpty()) {
                             IconButton(onClick = { showClearAllDialog = true }) {
@@ -185,7 +201,12 @@ fun HistoryScreen(
                                 )
                             }
                         }
-                    }
+                    },
+                    scrollBehavior = topAppBarScrollBehavior,
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 )
             }
         },
