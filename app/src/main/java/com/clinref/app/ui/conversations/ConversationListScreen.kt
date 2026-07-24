@@ -13,15 +13,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -65,6 +62,7 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -142,12 +140,39 @@ fun ConversationListScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (uiState.isSelectionMode) {
-                ExpressiveSelectionToolbar(
-                    selectedCount = uiState.selectedIds.size,
-                    totalCount = uiState.filteredConversations.size,
-                    onClose = { viewModel.toggleSelectionMode() },
-                    onSelectAll = { viewModel.selectAll() },
-                    onDelete = { viewModel.showDeleteConfirmation() }
+                TopAppBar(
+                    title = { Text("${uiState.selectedIds.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.toggleSelectionMode() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { viewModel.selectAll() }) {
+                            Icon(
+                                imageVector = if (uiState.selectedIds.size == uiState.filteredConversations.size && uiState.filteredConversations.isNotEmpty())
+                                    Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                                contentDescription = "Select All",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(
+                            onClick = { viewModel.showDeleteConfirmation() },
+                            enabled = uiState.selectedIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Selected",
+                                tint = if (uiState.selectedIds.isNotEmpty()) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 )
             } else {
                 MediumFlexibleTopAppBar(
@@ -177,6 +202,13 @@ fun ConversationListScreen(
                                 imageVector = Icons.Default.SelectAll,
                                 contentDescription = "Choose to Delete",
                                 tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     },
@@ -513,64 +545,6 @@ fun ConversationListScreen(
                 }
             }
         )
-    }
-}
-
-@Composable
-fun ExpressiveSelectionToolbar(
-    selectedCount: Int,
-    totalCount: Int,
-    onClose: () -> Unit,
-    onSelectAll: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(12.dp),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        shadowElevation = 4.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Default.Close, contentDescription = "Close Selection")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "$selectedCount selected",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onSelectAll) {
-                    Icon(
-                        imageVector = if (selectedCount == totalCount && totalCount > 0) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                        contentDescription = "Select All",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    enabled = selectedCount > 0,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete Selected")
-                }
-            }
-        }
     }
 }
 
