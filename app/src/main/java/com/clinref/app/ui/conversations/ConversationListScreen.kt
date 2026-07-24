@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -39,11 +40,13 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExpandedDockedSearchBarWithGap
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -53,7 +56,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SnackbarHost
@@ -65,7 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberSearchBarState
+import androidx.compose.material3.rememberSearchBarWithGapState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -100,8 +102,10 @@ fun ConversationListScreen(
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val searchBarState = rememberSearchBarState()
+    val textFieldState = rememberTextFieldState()
+    val searchBarState = rememberSearchBarWithGapState()
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    val appBarWithSearchColors = SearchBarDefaults.appBarWithSearchColors()
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let { msg ->
@@ -140,6 +144,24 @@ fun ConversationListScreen(
                 }
             },
             shape = RoundedCornerShape(28.dp)
+        )
+    }
+
+    val inputField = @Composable {
+        SearchBarDefaults.InputField(
+            textFieldState = textFieldState,
+            searchBarState = searchBarState,
+            colors = appBarWithSearchColors.searchBarColors.inputFieldColors,
+            onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
+            placeholder = { Text("Search sessions...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            trailingIcon = {
+                if (textFieldState.text.isNotEmpty()) {
+                    IconButton(onClick = { textFieldState.clearText() }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                    }
+                }
+            }
         )
     }
 
@@ -186,55 +208,31 @@ fun ConversationListScreen(
                     )
                 )
             } else {
-                var searchQuery by rememberSaveable { mutableStateOf("") }
-
-                LaunchedEffect(searchQuery) {
-                    viewModel.onSearchQueryChange(searchQuery)
-                }
-
-                SearchBar(
-                    inputField = {
-                        SearchBarDefaults.InputField(
-                            query = searchQuery,
-                            onQueryChange = { searchQuery = it },
-                            onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
-                            expanded = searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Expanded,
-                            onExpandedChange = { expanded ->
-                                scope.launch {
-                                    if (expanded) searchBarState.animateToExpanded()
-                                    else searchBarState.animateToCollapsed()
-                                }
-                            },
-                            placeholder = { Text("Search sessions...") },
-                            leadingIcon = {
-                                IconButton(onClick = {
-                                    scope.launch {
-                                        if (searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Collapsed) {
-                                            searchBarState.animateToExpanded()
-                                        } else {
-                                            searchBarState.animateToCollapsed()
-                                        }
-                                    }
-                                }) {
-                                    Icon(Icons.Default.Search, contentDescription = "Search")
-                                }
-                            },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Clear")
-                                    }
-                                }
-                            }
-                        )
-                    },
-                    expanded = searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Expanded,
-                    onExpandedChange = { expanded ->
-                        scope.launch {
-                            if (expanded) searchBarState.animateToExpanded()
-                            else searchBarState.animateToCollapsed()
+                AppBarWithSearch(
+                    scrollBehavior = scrollBehavior,
+                    state = searchBarState,
+                    colors = appBarWithSearchColors,
+                    inputField = inputField,
+                    actions = {
+                        IconButton(onClick = { viewModel.toggleSelectionMode() }) {
+                            Icon(
+                                imageVector = Icons.Default.SelectAll,
+                                contentDescription = "Choose to Delete",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
+                )
+                ExpandedDockedSearchBarWithGap(
+                    state = searchBarState,
+                    inputField = inputField
                 ) {
                     if (uiState.filteredConversations.isNotEmpty()) {
                         LazyColumn(
