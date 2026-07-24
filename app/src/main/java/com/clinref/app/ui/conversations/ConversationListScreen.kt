@@ -53,6 +53,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SnackbarHost
@@ -202,7 +203,7 @@ fun ConversationListScreen(
                             },
                             trailingIcon = {
                                 if (textFieldState.text.isNotEmpty()) {
-                                    IconButton(onClick = { textFieldState.clearAndPlaceCursorAtEnd() }) {
+                                    IconButton(onClick = { textFieldState.clearText() }) {
                                         Icon(Icons.Default.Close, contentDescription = "Clear")
                                     }
                                 }
