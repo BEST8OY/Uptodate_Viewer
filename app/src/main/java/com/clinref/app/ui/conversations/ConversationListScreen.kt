@@ -1,7 +1,6 @@
 package com.clinref.app.ui.conversations
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -36,13 +35,16 @@ import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExpandedDockedSearchBarWithGap
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -51,9 +53,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -64,12 +65,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,6 +86,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -91,16 +96,24 @@ fun ConversationListScreen(
     viewModel: ConversationListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    val textFieldState = rememberTextFieldState()
+    val searchBarState = rememberSearchBarState()
+    val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
             viewModel.clearSnackbar()
         }
+    }
+
+    LaunchedEffect(textFieldState.text) {
+        viewModel.onSearchQueryChange(textFieldState.text.toString())
     }
 
     if (uiState.showDeleteConfirmationDialog) {
@@ -129,6 +142,31 @@ fun ConversationListScreen(
                 }
             },
             shape = RoundedCornerShape(28.dp)
+        )
+    }
+
+    val inputField = @Composable {
+        SearchBarDefaults.InputField(
+            textFieldState = textFieldState,
+            searchBarState = searchBarState,
+            onSearch = {
+                scope.launch { searchBarState.animateToCollapsed() }
+            },
+            placeholder = { Text("Search sessions...") },
+            leadingIcon = {
+                if (searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Collapsed) {
+                    IconButton(onClick = { scope.launch { searchBarState.animateToExpanded() } }) {
+                        Icon(Icons.Default.Search, contentDescription = "Search")
+                    }
+                }
+            },
+            trailingIcon = {
+                if (textFieldState.text.isNotEmpty()) {
+                    IconButton(onClick = { textFieldState.clearAndPlaceCursorAtEnd() }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                    }
+                }
+            }
         )
     }
 
@@ -175,28 +213,11 @@ fun ConversationListScreen(
                     )
                 )
             } else {
-                MediumFlexibleTopAppBar(
-                    title = {
-                        Text(
-                            text = "Clinical Workspaces",
-                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-                    },
-                    subtitle = {
-                        Text(
-                            text = "${uiState.conversations.size} reference sessions",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
+                AppBarWithSearch(
+                    state = searchBarState,
+                    inputField = inputField,
+                    scrollBehavior = scrollBehavior,
                     actions = {
-                        IconButton(onClick = { viewModel.onSearchActiveChange(!uiState.isSearchActive) }) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search Workspaces",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
                         IconButton(onClick = { viewModel.toggleSelectionMode() }) {
                             Icon(
                                 imageVector = Icons.Default.SelectAll,
@@ -211,12 +232,7 @@ fun ConversationListScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    },
-                    scrollBehavior = scrollBehavior,
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
+                    }
                 )
             }
         },
@@ -243,27 +259,6 @@ fun ConversationListScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            AnimatedVisibility(visible = uiState.isSearchActive) {
-                Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                    OutlinedTextField(
-                        value = uiState.searchQuery,
-                        onValueChange = { viewModel.onSearchQueryChange(it) },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Search patient profile or query...") },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (uiState.searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Clear")
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(24.dp)
-                    )
-                }
-            }
-
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -370,7 +365,7 @@ fun ConversationListScreen(
                                 enableDismissFromStartToEnd = !uiState.isSelectionMode,
                                 enableDismissFromEndToStart = !uiState.isSelectionMode,
                                 backgroundContent = {
-                                    val color by animateColorAsState(
+                                    val color by androidx.compose.animation.animateColorAsState(
                                         targetValue = when (dismissState.dismissDirection) {
                                             SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
                                             SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.errorContainer
@@ -530,6 +525,88 @@ fun ConversationListScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        ExpandedDockedSearchBarWithGap(
+            state = searchBarState,
+            inputField = inputField
+        ) {
+            if (uiState.filteredConversations.isNotEmpty()) {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    itemsIndexed(
+                        items = uiState.filteredConversations,
+                        key = { _, item -> item.id }
+                    ) { _, conversation ->
+                        Surface(
+                            onClick = {
+                                viewModel.markAsRead(conversation.id)
+                                onConversationSelected(conversation.id)
+                                scope.launch { searchBarState.animateToCollapsed() }
+                            },
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        val profile = conversation.patientProfile
+                                        val initials = buildString {
+                                            if (profile.sex.isNotBlank()) append(profile.sex.take(1).uppercase())
+                                            if (profile.age.isNotBlank()) append(profile.age.filter { it.isDigit() }.take(2))
+                                        }.ifBlank { conversation.title.take(1).uppercase() }
+                                        Text(
+                                            text = initials,
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (conversation.isPinned) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = conversation.title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = conversation.lastPreview,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No results found",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
