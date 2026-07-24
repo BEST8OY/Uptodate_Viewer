@@ -1,6 +1,7 @@
 package com.clinref.app.ui.conversations
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -38,13 +39,11 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExpandedDockedSearchBarWithGap
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -67,7 +66,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
-import androidx.compose.material3.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -101,9 +99,10 @@ fun ConversationListScreen(
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val textFieldState = rememberTextFieldState()
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val searchBarState = rememberSearchBarState()
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let { msg ->
@@ -112,8 +111,8 @@ fun ConversationListScreen(
         }
     }
 
-    LaunchedEffect(textFieldState.text) {
-        viewModel.onSearchQueryChange(textFieldState.text.toString())
+    LaunchedEffect(searchQuery) {
+        viewModel.onSearchQueryChange(searchQuery)
     }
 
     if (uiState.showDeleteConfirmationDialog) {
@@ -142,31 +141,6 @@ fun ConversationListScreen(
                 }
             },
             shape = RoundedCornerShape(28.dp)
-        )
-    }
-
-    val inputField = @Composable {
-        SearchBarDefaults.InputField(
-            textFieldState = textFieldState,
-            searchBarState = searchBarState,
-            onSearch = {
-                scope.launch { searchBarState.animateToCollapsed() }
-            },
-            placeholder = { Text("Search sessions...") },
-            leadingIcon = {
-                if (searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Collapsed) {
-                    IconButton(onClick = { scope.launch { searchBarState.animateToExpanded() } }) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
-                    }
-                }
-            },
-            trailingIcon = {
-                if (textFieldState.text.isNotEmpty()) {
-                    IconButton(onClick = { textFieldState.clearAndPlaceCursorAtEnd() }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear")
-                    }
-                }
-            }
         )
     }
 
@@ -213,27 +187,109 @@ fun ConversationListScreen(
                     )
                 )
             } else {
-                AppBarWithSearch(
-                    state = searchBarState,
-                    inputField = inputField,
-                    scrollBehavior = scrollBehavior,
-                    actions = {
-                        IconButton(onClick = { viewModel.toggleSelectionMode() }) {
-                            Icon(
-                                imageVector = Icons.Default.SelectAll,
-                                contentDescription = "Choose to Delete",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                SearchBar(
+                    inputField = {
+                        SearchBarDefaults.InputField(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            onSearch = { isSearchActive = false },
+                            expanded = isSearchActive,
+                            onExpandedChange = { isSearchActive = it },
+                            placeholder = { Text("Search sessions...") },
+                            leadingIcon = {
+                                IconButton(onClick = { isSearchActive = !isSearchActive }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search")
+                                }
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                                    }
+                                }
+                            }
+                        )
+                    },
+                    expanded = isSearchActive,
+                    onExpandedChange = { isSearchActive = it }
+                ) {
+                    if (uiState.filteredConversations.isNotEmpty()) {
+                        LazyColumn(
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            itemsIndexed(
+                                items = uiState.filteredConversations,
+                                key = { _, item -> item.id }
+                            ) { _, conversation ->
+                                Surface(
+                                    onClick = {
+                                        viewModel.markAsRead(conversation.id)
+                                        onConversationSelected(conversation.id)
+                                        isSearchActive = false
+                                    },
+                                    shape = RoundedCornerShape(16.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                val profile = conversation.patientProfile
+                                                val initials = buildString {
+                                                    if (profile.sex.isNotBlank()) append(profile.sex.take(1).uppercase())
+                                                    if (profile.age.isNotBlank()) append(profile.age.filter { it.isDigit() }.take(2))
+                                                }.ifBlank { conversation.title.take(1).uppercase() }
+                                                Text(
+                                                    text = initials,
+                                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                                    color = if (conversation.isPinned) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = conversation.title,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = conversation.lastPreview,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        IconButton(onClick = onOpenSettings) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No results found",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
-                )
+                }
             }
         },
         floatingActionButton = {
@@ -365,7 +421,7 @@ fun ConversationListScreen(
                                 enableDismissFromStartToEnd = !uiState.isSelectionMode,
                                 enableDismissFromEndToStart = !uiState.isSelectionMode,
                                 backgroundContent = {
-                                    val color by androidx.compose.animation.animateColorAsState(
+                                    val color by animateColorAsState(
                                         targetValue = when (dismissState.dismissDirection) {
                                             SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
                                             SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.errorContainer
@@ -525,88 +581,6 @@ fun ConversationListScreen(
                             )
                         }
                     }
-                }
-            }
-        }
-
-        ExpandedDockedSearchBarWithGap(
-            state = searchBarState,
-            inputField = inputField
-        ) {
-            if (uiState.filteredConversations.isNotEmpty()) {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(
-                        items = uiState.filteredConversations,
-                        key = { _, item -> item.id }
-                    ) { _, conversation ->
-                        Surface(
-                            onClick = {
-                                viewModel.markAsRead(conversation.id)
-                                onConversationSelected(conversation.id)
-                                scope.launch { searchBarState.animateToCollapsed() }
-                            },
-                            shape = RoundedCornerShape(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        val profile = conversation.patientProfile
-                                        val initials = buildString {
-                                            if (profile.sex.isNotBlank()) append(profile.sex.take(1).uppercase())
-                                            if (profile.age.isNotBlank()) append(profile.age.filter { it.isDigit() }.take(2))
-                                        }.ifBlank { conversation.title.take(1).uppercase() }
-                                        Text(
-                                            text = initials,
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = if (conversation.isPinned) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = conversation.title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = conversation.lastPreview,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "No results found",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
         }
