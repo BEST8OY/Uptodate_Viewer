@@ -105,7 +105,6 @@ fun ConversationListScreen(
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarState()
     val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
-    var isSearchActive by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let { msg ->
@@ -191,14 +190,25 @@ fun ConversationListScreen(
                 )
             } else {
                 SearchBar(
+                    state = searchBarState,
                     inputField = {
                         SearchBarDefaults.InputField(
                             textFieldState = textFieldState,
                             searchBarState = searchBarState,
-                            onSearch = { isSearchActive = false },
+                            onSearch = {
+                                scope.launch { searchBarState.animateToCollapsed() }
+                            },
                             placeholder = { Text("Search sessions...") },
                             leadingIcon = {
-                                IconButton(onClick = { isSearchActive = !isSearchActive }) {
+                                IconButton(onClick = {
+                                    scope.launch {
+                                        if (searchBarState.currentValue == androidx.compose.material3.SearchBarValue.Collapsed) {
+                                            searchBarState.animateToExpanded()
+                                        } else {
+                                            searchBarState.animateToCollapsed()
+                                        }
+                                    }
+                                }) {
                                     Icon(Icons.Default.Search, contentDescription = "Search")
                                 }
                             },
@@ -210,9 +220,7 @@ fun ConversationListScreen(
                                 }
                             }
                         )
-                    },
-                    expanded = isSearchActive,
-                    onExpandedChange = { isSearchActive = it }
+                    }
                 ) {
                     if (uiState.filteredConversations.isNotEmpty()) {
                         LazyColumn(
@@ -227,7 +235,7 @@ fun ConversationListScreen(
                                     onClick = {
                                         viewModel.markAsRead(conversation.id)
                                         onConversationSelected(conversation.id)
-                                        isSearchActive = false
+                                        scope.launch { searchBarState.animateToCollapsed() }
                                     },
                                     shape = RoundedCornerShape(16.dp)
                                 ) {
