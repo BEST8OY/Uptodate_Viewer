@@ -18,11 +18,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -135,6 +137,35 @@ fun FavoritesScreen(
                     navigationIcon = {
                         IconButton(onClick = { selectedIds = emptySet() }) {
                             Icon(Icons.Default.Close, contentDescription = "Exit selection")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            selectedIds = if (selectedIds.size == favorites.size) emptySet() else favorites.map { it.topicId }.toSet()
+                        }) {
+                            Icon(
+                                imageVector = if (selectedIds.size == favorites.size && favorites.isNotEmpty())
+                                    Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                                contentDescription = "Select All",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                val entries = favorites.filter { it.topicId in selectedIds }
+                                selectedIds.forEach { viewModel.removeFavorite(it) }
+                                pendingDelete = entries
+                                isFabDelete = true
+                                selectedIds = emptySet()
+                            },
+                            enabled = selectedIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Selected",
+                                tint = if (selectedIds.isNotEmpty()) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
