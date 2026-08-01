@@ -26,8 +26,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -83,20 +83,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.clinref.app.data.local.entity.ConversationEntity
+import com.clinref.app.domain.ConversationFilter
 import com.clinref.app.repository.ConversationBackup
-import com.clinref.app.ui.common.showUndoSnackbar
+import com.clinref.app.ui.conversations.components.ScrollToTopFAB
+import com.clinref.app.ui.components.showUndoSnackbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-import com.clinref.app.ui.conversations.components.ScrollToTopFAB
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationListScreen(
-
     onConversationSelected: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel()
@@ -339,251 +337,179 @@ fun ConversationListScreen(
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 LazyRow(
-
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(ConversationFilter.entries.size) { idx ->
-                    val filter = ConversationFilter.entries[idx]
-                    val isSelected = uiState.activeFilter == filter
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { viewModel.onFilterSelected(filter) },
-                        label = { Text(filter.displayName) },
-                        leadingIcon = if (isSelected) {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                        } else null,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(ConversationFilter.entries.size) { idx ->
+                        val filter = ConversationFilter.entries[idx]
+                        val isSelected = uiState.activeFilter == filter
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.onFilterSelected(filter) },
+                            label = { Text(filter.displayName) },
+                            leadingIcon = if (isSelected) {
+                                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            } else null,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
                         )
-                    )
-                }
-            }
-
-            when {
-                uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(strokeWidth = 2.5.dp)
                     }
                 }
 
-                uiState.filteredConversations.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                modifier = Modifier.size(72.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Forum,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = if (uiState.searchQuery.isNotBlank()) "No sessions match \"${uiState.searchQuery}\""
-                                else "No Workspaces Found",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (uiState.searchQuery.isNotBlank()) "Try a different search query."
-                                else "Tap the button below to start a clinical session.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                when {
+                    uiState.isLoading -> {
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(strokeWidth = 2.5.dp)
                         }
                     }
-                }
 
-                else -> {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        itemsIndexed(
-                            items = uiState.filteredConversations,
-                            key = { _, item -> item.id }
-                        ) { index, conversation ->
-                            val totalCount = uiState.filteredConversations.size
-                            val isItemSelected = uiState.selectedIds.contains(conversation.id)
-                            val itemShapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount)
-                            val itemClipShape = when {
-                                totalCount == 1 -> RoundedCornerShape(16.dp)
-                                index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-                                index == totalCount - 1 -> RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
-                                else -> RoundedCornerShape(0.dp)
-                            }
-
-                            val dismissState = rememberSwipeToDismissBoxState()
-                            LaunchedEffect(conversation.id) {
-                                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
-                            }
-
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                enableDismissFromStartToEnd = false,
-                                enableDismissFromEndToStart = !uiState.isSelectionMode,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp)
-                                    .animateItem(),
-                                onDismiss = { direction ->
-                                    if (direction == SwipeToDismissBoxValue.EndToStart) {
-                                        val targetId = conversation.id
-                                        scope.launch {
-                                            val backup = viewModel.deleteSingleAndReturnBackup(targetId)
-                                            if (backup != null) {
-                                                pendingDelete = listOf(backup)
-                                            }
-                                        }
-                                    }
-                                },
-                                backgroundContent = {
-                                    val color by animateColorAsState(
-                                        targetValue = when (dismissState.dismissDirection) {
-                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                                            else -> Color.Transparent
-                                        },
-                                        label = "swipeBg"
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(itemClipShape)
-                                            .background(color)
-                                            .padding(horizontal = 20.dp),
-                                        contentAlignment = Alignment.CenterEnd
-                                    ) {
-                                        if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                                            Icon(
-                                                imageVector = Icons.Default.DeleteSweep,
-                                                contentDescription = "Delete conversation",
-                                                tint = MaterialTheme.colorScheme.onErrorContainer
-                                            )
-                                        }
-                                    }
-                                },
-
-                                content = {
-                                    if (uiState.isSelectionMode) {
-                                        SegmentedListItem(
-                                            checked = isItemSelected,
-                                            onCheckedChange = { viewModel.toggleItemSelection(conversation.id) },
-                                            onLongClick = { viewModel.toggleItemSelection(conversation.id) },
-                                            shapes = itemShapes,
-                                            colors = if (isItemSelected) {
-                                                ListItemDefaults.segmentedColors(
-                                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                                                )
-                                            } else {
-                                                ListItemDefaults.segmentedColors(
-                                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                                                )
-                                            },
-                                            leadingContent = {
-                                                Checkbox(
-                                                    checked = isItemSelected,
-                                                    onCheckedChange = null
-                                                )
-                                            },
-                                            trailingContent = {
-                                                Column(horizontalAlignment = Alignment.End) {
-                                                    Text(
-                                                        text = formatTimestamp(conversation.timestamp),
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    if (conversation.isPinned) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.PushPin,
-                                                            contentDescription = "Pinned",
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(14.dp)
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                             supportingContent = {
-                                                Text(
-                                                    text = conversation.lastPreview,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            },
-                                            content = {
-                                                Text(
-                                                    text = conversation.title,
-                                                    fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
+                    uiState.filteredConversations.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    modifier = Modifier.size(72.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Forum,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(32.dp)
                                         )
-                                    } else {
-                                        SegmentedListItem(
-                                            selected = conversation.isPinned,
-                                            onClick = {
-                                                viewModel.markAsRead(conversation.id)
-                                                onConversationSelected(conversation.id)
-                                            },
-                                            onLongClick = {
-                                                viewModel.toggleSelectionMode()
-                                                viewModel.toggleItemSelection(conversation.id)
-                                            },
-                                            shapes = itemShapes,
-                                            colors = ListItemDefaults.segmentedColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                                            ),
-                                            leadingContent = {
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                                    modifier = Modifier.size(40.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        val profile = conversation.patientProfile
-                                                        val initials = buildString {
-                                                            if (profile.sex.isNotBlank()) append(profile.sex.take(1).uppercase())
-                                                            if (profile.age.isNotBlank()) append(profile.age.filter { it.isDigit() }.take(2))
-                                                        }.ifBlank { conversation.title.take(1).uppercase() }
-                                                        Text(
-                                                            text = initials,
-                                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                                            color = if (conversation.isPinned) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                                        )
-                                                    }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = if (uiState.searchQuery.isNotBlank()) "No sessions match \"${uiState.searchQuery}\""
+                                    else "No Workspaces Found",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (uiState.searchQuery.isNotBlank()) "Try a different search query."
+                                    else "Tap the button below to start a clinical session.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            itemsIndexed(
+                                items = uiState.filteredConversations,
+                                key = { _, item -> item.id }
+                            ) { index, conversation ->
+                                val totalCount = uiState.filteredConversations.size
+                                val isItemSelected = uiState.selectedIds.contains(conversation.id)
+                                val itemShapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount)
+                                val itemClipShape = when {
+                                    totalCount == 1 -> RoundedCornerShape(16.dp)
+                                    index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                                    index == totalCount - 1 -> RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+                                    else -> RoundedCornerShape(0.dp)
+                                }
+
+                                val dismissState = rememberSwipeToDismissBoxState()
+                                LaunchedEffect(conversation.id) {
+                                    dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+                                }
+
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    enableDismissFromStartToEnd = false,
+                                    enableDismissFromEndToStart = !uiState.isSelectionMode,
+                                    modifier = Modifier
+                                        .padding(horizontal = 16.dp)
+                                        .animateItem(),
+                                    onDismiss = { direction ->
+                                        if (direction == SwipeToDismissBoxValue.EndToStart) {
+                                            val targetId = conversation.id
+                                            scope.launch {
+                                                val backup = viewModel.deleteSingleAndReturnBackup(targetId)
+                                                if (backup != null) {
+                                                    pendingDelete = listOf(backup)
                                                 }
+                                            }
+                                        }
+                                    },
+                                    backgroundContent = {
+                                        val color by animateColorAsState(
+                                            targetValue = when (dismissState.dismissDirection) {
+                                                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                                                else -> Color.Transparent
                                             },
-                                            trailingContent = {
-                                                Column(horizontalAlignment = Alignment.End) {
-                                                    Text(
-                                                        text = formatTimestamp(conversation.timestamp),
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            label = "swipeBg"
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(itemClipShape)
+                                                .background(color)
+                                                .padding(horizontal = 20.dp),
+                                            contentAlignment = Alignment.CenterEnd
+                                        ) {
+                                            if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteSweep,
+                                                    contentDescription = "Delete conversation",
+                                                    tint = MaterialTheme.colorScheme.onErrorContainer
+                                                )
+                                            }
+                                        }
+                                    },
+                                    content = {
+                                        if (uiState.isSelectionMode) {
+                                            SegmentedListItem(
+                                                checked = isItemSelected,
+                                                onCheckedChange = { viewModel.toggleItemSelection(conversation.id) },
+                                                onLongClick = { viewModel.toggleItemSelection(conversation.id) },
+                                                shapes = itemShapes,
+                                                colors = if (isItemSelected) {
+                                                    ListItemDefaults.segmentedColors(
+                                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                                     )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                } else {
+                                                    ListItemDefaults.segmentedColors(
+                                                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                                                    )
+                                                },
+                                                leadingContent = {
+                                                    Checkbox(
+                                                        checked = isItemSelected,
+                                                        onCheckedChange = null
+                                                    )
+                                                },
+                                                trailingContent = {
+                                                    Column(horizontalAlignment = Alignment.End) {
+                                                        Text(
+                                                            text = formatTimestamp(conversation.timestamp),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
                                                         if (conversation.isPinned) {
                                                             Icon(
                                                                 imageVector = Icons.Default.PushPin,
@@ -591,38 +517,109 @@ fun ConversationListScreen(
                                                                 tint = MaterialTheme.colorScheme.primary,
                                                                 modifier = Modifier.size(14.dp)
                                                             )
-                                                            Spacer(modifier = Modifier.width(4.dp))
                                                         }
-                                                        if (conversation.isUnread) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(8.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(MaterialTheme.colorScheme.primary)
+                                                    }
+                                                },
+                                                supportingContent = {
+                                                    Text(
+                                                        text = conversation.lastPreview,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                },
+                                                content = {
+                                                    Text(
+                                                        text = conversation.title,
+                                                        fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            )
+                                        } else {
+                                            SegmentedListItem(
+                                                selected = conversation.isPinned,
+                                                onClick = {
+                                                    viewModel.markAsRead(conversation.id)
+                                                    onConversationSelected(conversation.id)
+                                                },
+                                                onLongClick = {
+                                                    viewModel.toggleSelectionMode()
+                                                    viewModel.toggleItemSelection(conversation.id)
+                                                },
+                                                shapes = itemShapes,
+                                                colors = ListItemDefaults.segmentedColors(
+                                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                                                ),
+                                                leadingContent = {
+                                                    Surface(
+                                                        shape = CircleShape,
+                                                        color = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                                        modifier = Modifier.size(40.dp)
+                                                    ) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            val profile = conversation.patientProfile
+                                                            val initials = buildString {
+                                                                if (profile.sex.isNotBlank()) append(profile.sex.take(1).uppercase())
+                                                                if (profile.age.isNotBlank()) append(profile.age.filter { it.isDigit() }.take(2))
+                                                            }.ifBlank { conversation.title.take(1).uppercase() }
+                                                            Text(
+                                                                text = initials,
+                                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                                                color = if (conversation.isPinned) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                                                             )
                                                         }
                                                     }
+                                                },
+                                                trailingContent = {
+                                                    Column(horizontalAlignment = Alignment.End) {
+                                                        Text(
+                                                            text = formatTimestamp(conversation.timestamp),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            if (conversation.isPinned) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.PushPin,
+                                                                    contentDescription = "Pinned",
+                                                                    tint = MaterialTheme.colorScheme.primary,
+                                                                    modifier = Modifier.size(14.dp)
+                                                                )
+                                                                Spacer(modifier = Modifier.width(4.dp))
+                                                            }
+                                                            if (conversation.isUnread) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(8.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(MaterialTheme.colorScheme.primary)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                supportingContent = {
+                                                    Text(
+                                                        text = conversation.lastPreview,
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                },
+                                                content = {
+                                                    Text(
+                                                        text = conversation.title,
+                                                        fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
                                                 }
-                                            },
-                                            supportingContent = {
-                                                Text(
-                                                    text = conversation.lastPreview,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            },
-                                            content = {
-                                                Text(
-                                                    text = conversation.title,
-                                                    fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                        )
+                                            )
+                                        }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
