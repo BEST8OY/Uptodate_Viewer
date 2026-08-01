@@ -85,10 +85,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.clinref.app.domain.ConversationFilter
 import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.ui.common.ScrollToTopFAB
-import com.clinref.app.ui.components.showUndoSnackbar
+import com.clinref.app.ui.common.showUndoSnackbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
