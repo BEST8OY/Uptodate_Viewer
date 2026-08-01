@@ -65,6 +65,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +82,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.clinref.app.data.local.entity.ConversationEntity
+import com.clinref.app.ui.common.showUndoSnackbar
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,13 +99,14 @@ fun ConversationListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var pendingDelete by remember { mutableStateOf<List<ConversationEntity>>(emptyList()) }
+    var isFabDelete by remember { mutableStateOf(false) }
 
     val textFieldState = rememberTextFieldState()
 
-    LaunchedEffect(uiState.snackbarMessage) {
-        uiState.snackbarMessage?.let { msg ->
-            snackbarHostState.showSnackbar(msg)
-            viewModel.clearSnackbar()
+    DisposableEffect(Unit) {
+        onDispose {
+            pendingDelete = emptyList()
         }
     }
 
@@ -123,7 +128,13 @@ fun ConversationListScreen(
             text = { Text("Are you sure you want to delete ${uiState.selectedIds.size} clinical session(s)?") },
             confirmButton = {
                 TextButton(
-                    onClick = { viewModel.deleteSelectedConversations() },
+                    onClick = {
+                        scope.launch {
+                            val entities = viewModel.deleteSelectedAndReturnEntities()
+                            pendingDelete = entities
+                            isFabDelete = true
+                        }
+                    },
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text("Delete", fontWeight = FontWeight.Bold)
@@ -141,7 +152,11 @@ fun ConversationListScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = {
+            Box(modifier = Modifier.padding(bottom = 80.dp)) {
+                SnackbarHost(snackbarHostState)
+            }
+        },
         topBar = {
             if (uiState.isSelectionMode) {
                 TopAppBar(
@@ -407,13 +422,19 @@ fun ConversationListScreen(
                             val dismissState = rememberSwipeToDismissBoxState()
                             LaunchedEffect(dismissState.currentValue) {
                                 if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart || dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd) {
+                                    val entity = viewModel.getConversationEntity(conversation.id)
                                     viewModel.deleteConversation(conversation.id)
+                                    if (entity != null) {
+                                        pendingDelete = listOf(entity)
+                                    }
                                 }
                             }
 
                             SwipeToDismissBox(
                                 state = dismissState,
-                                modifier = Modifier.padding(horizontal = 16.dp),
+                                modifier = Modifier
+                                    .padding(horizontal = 16.dp)
+                                    .animateItem(),
                                 enableDismissFromStartToEnd = !uiState.isSelectionMode,
                                 enableDismissFromEndToStart = !uiState.isSelectionMode,
                                 backgroundContent = {
@@ -584,6 +605,23 @@ fun ConversationListScreen(
                     }
                 }
             }
+        }
+    }
+
+    LaunchedEffect(pendingDelete) {
+        pendingDelete.takeIf { it.isNotEmpty() }?.let { entries ->
+            if (isFabDelete) {
+                delay(300)
+                isFabDelete = false
+            }
+            val message = if (entries.size == 1) "Session deleted" else "${entries.size} sessions deleted"
+            showUndoSnackbar(
+                snackbarHostState = snackbarHostState,
+                message = message
+            ) {
+                entries.forEach { viewModel.restoreConversation(it) }
+            }
+            pendingDelete = emptyList()
         }
     }
 

@@ -157,7 +157,16 @@ class ConversationListViewModel @Inject constructor(
     fun deleteConversation(id: String) {
         viewModelScope.launch {
             conversationRepository.deleteConversation(id)
-            _uiState.update { it.copy(snackbarMessage = "Session deleted") }
+        }
+    }
+
+    suspend fun getConversationEntity(id: String): ConversationEntity? {
+        return conversationRepository.getConversation(id)
+    }
+
+    fun restoreConversation(entity: ConversationEntity) {
+        viewModelScope.launch {
+            conversationRepository.restoreConversation(entity)
         }
     }
 
@@ -171,24 +180,23 @@ class ConversationListViewModel @Inject constructor(
         _uiState.update { it.copy(showDeleteConfirmationDialog = false) }
     }
 
-    fun deleteSelectedConversations() {
+    suspend fun deleteSelectedAndReturnEntities(): List<ConversationEntity> {
         val selected = _uiState.value.selectedIds
-        if (selected.isEmpty()) return
+        if (selected.isEmpty()) return emptyList()
 
-        viewModelScope.launch {
-            selected.forEach { id ->
-                conversationRepository.deleteConversation(id)
-            }
-
-            _uiState.update { state ->
-                state.copy(
-                    isSelectionMode = false,
-                    selectedIds = emptySet(),
-                    showDeleteConfirmationDialog = false,
-                    snackbarMessage = "${selected.size} session(s) deleted"
-                )
-            }
+        val entities = selected.mapNotNull { conversationRepository.getConversation(it) }
+        selected.forEach { id ->
+            conversationRepository.deleteConversation(id)
         }
+
+        _uiState.update { state ->
+            state.copy(
+                isSelectionMode = false,
+                selectedIds = emptySet(),
+                showDeleteConfirmationDialog = false
+            )
+        }
+        return entities
     }
 
     fun clearSnackbar() {

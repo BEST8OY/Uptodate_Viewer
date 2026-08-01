@@ -47,6 +47,10 @@ class ConversationRepository @Inject constructor(
         conversationDao.delete(conversation)
     }
 
+    suspend fun restoreConversation(entity: ConversationEntity) {
+        conversationDao.insert(entity)
+    }
+
     suspend fun togglePin(id: String) {
         conversationDao.togglePin(id)
     }

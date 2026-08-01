@@ -131,7 +131,7 @@ class SearchDao @Inject constructor(
     fun searchTopics(query: String, preference: String = "X"): List<Map<String, String>> {
         val primaryResults = searchUnidex(query, preference)
         if (primaryResults.isNotEmpty()) {
-            val filtered = primaryResults.filter { hasTopicAsset(it["id"] ?: "") }
+            val filtered = primaryResults.filter { hasTopicAsset(it["topic_id"] ?: "") }
             if (filtered.isNotEmpty()) return filtered
         }
 
@@ -140,7 +140,7 @@ class SearchDao @Inject constructor(
         if (cleaned.isNotEmpty() && cleaned != query) {
             val cleanedResults = searchUnidex(cleaned, preference)
             if (cleanedResults.isNotEmpty()) {
-                val filtered = cleanedResults.filter { hasTopicAsset(it["id"] ?: "") }
+                val filtered = cleanedResults.filter { hasTopicAsset(it["topic_id"] ?: "") }
                 if (filtered.isNotEmpty()) return filtered
             }
         }
