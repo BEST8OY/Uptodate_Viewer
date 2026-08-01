@@ -105,7 +105,7 @@ class KoogAgentFactory @Inject constructor(
                 system(SystemPrompt.build(patientProfile, config.provider))
             },
             model = model,
-            maxAgentIterations = 12
+            maxAgentIterations = 30
         )
 
         val agent = AIAgent(
