@@ -185,11 +185,15 @@ fun ConversationListScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
-                        IconButton(onClick = { viewModel.requestDeleteConfirmation() }) {
+                        IconButton(
+                            onClick = { viewModel.showDeleteConfirmation() },
+                            enabled = uiState.selectedIds.isNotEmpty()
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete Selected",
-                                tint = MaterialTheme.colorScheme.error
+                                tint = if (uiState.selectedIds.isNotEmpty()) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
