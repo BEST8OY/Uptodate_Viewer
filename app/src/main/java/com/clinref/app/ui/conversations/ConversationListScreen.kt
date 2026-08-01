@@ -91,9 +91,12 @@ import com.clinref.app.ui.common.showUndoSnackbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+import com.clinref.app.ui.conversations.components.ScrollToTopFAB
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationListScreen(
+
     onConversationSelected: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
     viewModel: ConversationListViewModel = hiltViewModel()
@@ -312,59 +315,31 @@ fun ConversationListScreen(
             }
         },
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(bottom = 80.dp)
+            AnimatedVisibility(
+                visible = !uiState.isSelectionMode,
+                enter = scaleIn() + fadeIn(),
+                exit = scaleOut() + fadeOut()
             ) {
-                AnimatedVisibility(
-                    visible = showScrollToTop,
-                    enter = scaleIn(initialScale = 0.7f) + fadeIn(),
-                    exit = scaleOut(targetScale = 0.0f) + fadeOut()
-                ) {
-                    Surface(
-                        onClick = {
-                            scope.launch { listState.animateScrollToItem(0) }
-                        },
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        shadowElevation = 3.dp,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "Scroll to top",
-                                tint = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = !uiState.isSelectionMode,
-                    enter = scaleIn() + fadeIn(),
-                    exit = scaleOut() + fadeOut()
-                ) {
-                    ExtendedFloatingActionButton(
-                        onClick = { showProfileSheet = true },
-                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                        text = { Text("New Session", fontWeight = FontWeight.SemiBold) },
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                }
+                ExtendedFloatingActionButton(
+                    onClick = { showProfileSheet = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("New Session", fontWeight = FontWeight.SemiBold) },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.padding(bottom = 80.dp)
+                )
             }
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            LazyRow(
+            Column(modifier = Modifier.fillMaxSize()) {
+                LazyRow(
+
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 8.dp),
@@ -652,6 +627,16 @@ fun ConversationListScreen(
                     }
                 }
             }
+
+            ScrollToTopFAB(
+                visible = showScrollToTop,
+                onClick = {
+                    scope.launch { listState.animateScrollToItem(0) }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 110.dp)
+            )
         }
     }
 
