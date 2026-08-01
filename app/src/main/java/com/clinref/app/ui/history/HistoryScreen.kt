@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -351,6 +352,12 @@ private fun HistoryItem(
     }
 
     val itemShapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount)
+    val itemClipShape = when {
+        totalCount == 1 -> RoundedCornerShape(16.dp)
+        index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+        index == totalCount - 1 -> RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
+        else -> RoundedCornerShape(0.dp)
+    }
 
     SwipeToDismissBox(
         state = dismissState,
@@ -375,7 +382,7 @@ private fun HistoryItem(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(itemShapes)
+                    .clip(itemClipShape)
                     .background(color)
                     .padding(horizontal = 20.dp),
                 contentAlignment = Alignment.CenterEnd
