@@ -13,11 +13,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -80,7 +79,7 @@ data class ContentRoute(val topicId: String, val sectionId: String? = null) : Na
 @Serializable
 data object AiRoute : TopLevelRoute {
     override val title = "AI"
-    override val icon = Icons.Default.Chat
+    override val icon = Icons.AutoMirrored.Filled.Chat
 }
 
 @Serializable

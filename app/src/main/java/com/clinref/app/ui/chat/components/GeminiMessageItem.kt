@@ -16,9 +16,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
@@ -204,7 +204,7 @@ fun GeminiGraphicPill(label: String, graphicId: String, onClick: () -> Unit) {
         },
         trailingIcon = {
             Icon(
-                imageVector = Icons.Default.Launch,
+                imageVector = Icons.AutoMirrored.Filled.Launch,
                 contentDescription = null,
                 modifier = Modifier.size(10.dp)
             )
@@ -232,7 +232,7 @@ fun GeminiTopicPill(label: String, onClick: () -> Unit) {
         },
         trailingIcon = {
             Icon(
-                imageVector = Icons.Default.Launch,
+                imageVector = Icons.AutoMirrored.Filled.Launch,
                 contentDescription = null,
                 modifier = Modifier.size(10.dp)
             )

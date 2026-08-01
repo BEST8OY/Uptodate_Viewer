@@ -591,10 +591,13 @@ private fun HtmlContentWebView(
             }
         },
         update = { wv ->
-            val htmlHash = processedHtml?.hashCode()?.toString()
-            if (htmlHash != null && wv.tag != htmlHash) {
-                wv.tag = htmlHash
-                wv.loadDataWithBaseURL(null, processedHtml!!, "text/html", "UTF-8", null)
+            val html = processedHtml
+            if (html != null) {
+                val htmlHash = html.hashCode().toString()
+                if (wv.tag != htmlHash) {
+                    wv.tag = htmlHash
+                    wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+                }
             }
         },
         onRelease = { wv ->

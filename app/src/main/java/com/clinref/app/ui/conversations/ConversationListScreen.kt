@@ -427,16 +427,12 @@ fun ConversationListScreen(
                             val isItemSelected = uiState.selectedIds.contains(conversation.id)
                             val itemShapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount)
 
-                            val dismissState = rememberSwipeToDismissBoxState(
-                                confirmValueChange = { dismissValue ->
-                                    if (dismissValue == SwipeToDismissBoxValue.EndToStart || dismissValue == SwipeToDismissBoxValue.StartToEnd) {
-                                        viewModel.deleteConversation(conversation.id)
-                                        true
-                                    } else {
-                                        false
-                                    }
+                            val dismissState = rememberSwipeToDismissBoxState()
+                            LaunchedEffect(dismissState.currentValue) {
+                                if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart || dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd) {
+                                    viewModel.deleteConversation(conversation.id)
                                 }
-                            )
+                            }
 
                             SwipeToDismissBox(
                                 state = dismissState,
