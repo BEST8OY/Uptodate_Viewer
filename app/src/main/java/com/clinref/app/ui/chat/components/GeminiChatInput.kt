@@ -54,7 +54,7 @@ fun GeminiChatInput(
 ) {
     val maxLines = 8
     val isMultiLine = textValue.contains('\n') || textValue.length > 40
-    val containerShape = if (isMultiLine) RoundedCornerShape(26.dp) else CircleShape
+    val containerShape = if (isMultiLine) RoundedCornerShape(36.dp) else CircleShape
 
     Box(
         modifier = modifier
