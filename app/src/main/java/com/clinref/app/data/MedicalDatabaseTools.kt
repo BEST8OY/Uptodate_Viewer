@@ -24,6 +24,8 @@ class MedicalDatabaseTools @Inject constructor(
     private val assetRepository: AssetRepository
 ) : ToolSet {
 
+    private val json = Json { ignoreUnknownKeys = true }
+
     companion object {
         private val A_TAG_REGEX = Regex(
             """<a\s+[^>]*href=['"]([^'"]*)['"][^>]*>(.*?)</a>""",

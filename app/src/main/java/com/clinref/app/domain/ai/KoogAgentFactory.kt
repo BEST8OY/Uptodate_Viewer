@@ -10,7 +10,6 @@ import ai.koog.agents.core.dsl.builder.strategy
 import ai.koog.agents.core.dsl.extension.nodeLLMRequest
 import ai.koog.agents.core.dsl.extension.nodeExecuteTools
 import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResults
-import ai.koog.agents.core.dsl.extension.onCondition
 import ai.koog.agents.core.dsl.extension.onTextMessage
 import ai.koog.agents.core.dsl.extension.onToolCalls
 import ai.koog.agents.chatMemory.feature.ChatMemory
@@ -87,30 +86,15 @@ class KoogAgentFactory @Inject constructor(
             val nodeExecuteTool by nodeExecuteTools()
             val nodeSendToolResult by nodeLLMSendToolResults()
 
-            // Custom node: after terminal tool, signal finish by returning empty string
-            val nodeTerminalCheck by node<String, String> { input ->
-                val lastTool = accumulator.getToolCalls().lastOrNull()?.toolName
-                if (lastTool == "submitClinicalAnswer") {
-                    "" // Empty string triggers edge to nodeFinish
-                } else {
-                    input
-                }
-            }
-
             edge(nodeStart forwardTo nodeSendInput)
 
             edge(nodeSendInput forwardTo nodeExecuteTool onToolCalls { true })
-            edge(nodeExecuteTool forwardTo nodeTerminalCheck)
+            edge(nodeSendInput forwardTo nodeFinish onTextMessage { true })
 
-            // After terminal tool (empty string), skip to finish
-            edge(nodeTerminalCheck forwardTo nodeFinish onCondition { it.isEmpty() })
-            // After non-terminal tools, continue to LLM
-            edge(nodeTerminalCheck forwardTo nodeSendToolResult onCondition { it.isNotEmpty() })
+            edge(nodeExecuteTool forwardTo nodeSendToolResult)
 
             edge(nodeSendToolResult forwardTo nodeExecuteTool onToolCalls { true })
             edge(nodeSendToolResult forwardTo nodeFinish onTextMessage { true })
-
-            edge(nodeSendInput forwardTo nodeFinish onTextMessage { true })
         }
 
         val agentConfig = AIAgentConfig(

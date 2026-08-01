@@ -32,7 +32,7 @@ class OllamaProvider(
                 ai.koog.prompt.llm.LLMCapability.Tools,
                 ai.koog.prompt.llm.LLMCapability.Temperature
             ),
-            contextLength = contextLength
+            contextLength = contextLength.toLong()
         )
     }
 

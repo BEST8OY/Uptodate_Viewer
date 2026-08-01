@@ -9,12 +9,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.AiConfiguration
+import com.clinref.app.domain.ai.AiProvider
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
+import com.clinref.app.domain.ai.SystemPrompt
 import com.clinref.app.domain.ai.TurnContextAccumulator
 import com.clinref.app.data.secure.SecurePreferences
 import com.clinref.app.repository.ConversationRepository
