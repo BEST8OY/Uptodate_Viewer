@@ -7,7 +7,6 @@ on:
       - 'app/src/**'
       - 'gradle/**'
       - 'app/build.gradle.kts'
-      - 'python_prototype/**'
       - '.github/workflows/unit-tests.yml'
   pull_request:
     branches: [ main, develop ]
@@ -15,7 +14,6 @@ on:
       - 'app/src/**'
       - 'gradle/**'
       - 'app/build.gradle.kts'
-      - 'python_prototype/**'
   workflow_dispatch:
     inputs:
       run_jvm_tests:
@@ -23,16 +21,6 @@ on:
         type: boolean
         required: true
         default: true
-      run_python_tests:
-        description: 'Run Python Prototype Unit Tests (test_clinref.py)'
-        type: boolean
-        required: true
-        default: true
-      python_version:
-        description: 'Python Version'
-        type: string
-        required: false
-        default: '3.13'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -107,41 +95,6 @@ jobs:
         if: always()
         run: |
           echo "### Kotlin JVM Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-
-  python-unit-tests:
-    name: Python Prototype Unit Tests
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_python_tests }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          version: "latest"
-
-      - name: Set up Python ${{ inputs.python_version || '3.13' }}
-        run: uv python install ${{ inputs.python_version || '3.13' }}
-
-      - name: Install dependencies
-        working-directory: python_prototype
-        run: uv sync
-
-      - name: Run Python unit tests
-        working-directory: python_prototype
-        run: uv run pytest test_clinref.py -v
-
-      - name: Test Summary
-        if: always()
-        run: |
-          echo "### Python Prototype Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
