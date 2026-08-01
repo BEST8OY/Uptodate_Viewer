@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -68,6 +69,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,6 +122,10 @@ fun ConversationListScreen(
         viewModel.toggleSelectionMode()
     }
 
+    val showScrollToTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 }
+    }
+
     if (uiState.showDeleteConfirmationDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissDeleteConfirmation() },
@@ -159,9 +165,7 @@ fun ConversationListScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = {
-            Box(modifier = Modifier.padding(bottom = 80.dp)) {
-                SnackbarHost(snackbarHostState)
-            }
+            SnackbarHost(snackbarHostState)
         },
         topBar = {
             if (uiState.isSelectionMode) {
@@ -181,52 +185,41 @@ fun ConversationListScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
-                        IconButton(
-                            onClick = { viewModel.showDeleteConfirmation() },
-                            enabled = uiState.selectedIds.isNotEmpty()
-                        ) {
+                        IconButton(onClick = { viewModel.requestDeleteConfirmation() }) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = "Delete Selected",
-                                tint = if (uiState.selectedIds.isNotEmpty()) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.error
                             )
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    }
                 )
             } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.background)
-                        .padding(bottom = 8.dp)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.background
                 ) {
-                    TopAppBar(
-                        title = {
-                            Column {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp, bottom = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Clinical Sessions",
-                                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                    text = "Clinical Assistant",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onBackground
                                 )
                                 Text(
-                                    text = "${uiState.filteredConversations.size} session(s)",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = "${uiState.filteredConversations.size} active sessions",
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        },
-                        actions = {
-                            IconButton(onClick = { viewModel.toggleSelectionMode() }) {
-                                Icon(
-                                    imageVector = Icons.Default.SelectAll,
-                                    contentDescription = "Selection Mode",
-                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                             IconButton(onClick = onOpenSettings) {
@@ -236,68 +229,65 @@ fun ConversationListScreen(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background
-                        )
-                    )
+                        }
 
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
-                        Row(
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 1.dp
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            androidx.compose.foundation.text.BasicTextField(
-                                state = textFieldState,
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .padding(vertical = 12.dp),
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                decorator = { innerTextField ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
-                                        if (textFieldState.text.isEmpty()) {
-                                            Text(
-                                                text = "Search sessions, topics, or patient profiles...",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                            )
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                androidx.compose.foundation.text.BasicTextField(
+                                    state = textFieldState,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(vertical = 12.dp),
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    decorator = { innerTextField ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (textFieldState.text.isEmpty()) {
+                                                Text(
+                                                    text = "Search sessions, topics, or patient profiles...",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                )
+                                            }
+                                            innerTextField()
                                         }
-                                        innerTextField()
                                     }
-                                }
-                            )
-                            if (textFieldState.text.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { textFieldState.clearText() },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Clear search",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                )
+                                if (textFieldState.text.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { textFieldState.clearText() },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear search",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -306,20 +296,49 @@ fun ConversationListScreen(
             }
         },
         floatingActionButton = {
-            AnimatedVisibility(
-                visible = !uiState.isSelectionMode,
-                enter = scaleIn() + fadeIn(),
-                exit = scaleOut() + fadeOut()
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                ExtendedFloatingActionButton(
-                    onClick = { showProfileSheet = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("New Session", fontWeight = FontWeight.SemiBold) },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.padding(bottom = 80.dp)
-                )
+                AnimatedVisibility(
+                    visible = showScrollToTop,
+                    enter = scaleIn(initialScale = 0.7f) + fadeIn(),
+                    exit = scaleOut(targetScale = 0.0f) + fadeOut()
+                ) {
+                    Surface(
+                        onClick = {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        shadowElevation = 3.dp,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Scroll to top",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = !uiState.isSelectionMode,
+                    enter = scaleIn() + fadeIn(),
+                    exit = scaleOut() + fadeOut()
+                ) {
+                    ExtendedFloatingActionButton(
+                        onClick = { showProfileSheet = true },
+                        icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                        text = { Text("New Session", fontWeight = FontWeight.SemiBold) },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        shape = RoundedCornerShape(20.dp)
+                    )
+                }
             }
         }
     ) { innerPadding ->
