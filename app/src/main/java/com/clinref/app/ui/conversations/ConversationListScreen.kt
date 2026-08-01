@@ -429,30 +429,29 @@ fun ConversationListScreen(
                             LaunchedEffect(conversation.id) {
                                 dismissState.snapTo(SwipeToDismissBoxValue.Settled)
                             }
-                            LaunchedEffect(dismissState.currentValue) {
-                                if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart || dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd) {
-                                    val targetId = conversation.id
-                                    scope.launch {
-                                        val backup = viewModel.deleteSingleAndReturnBackup(targetId)
-                                        if (backup != null) {
-                                            pendingDelete = listOf(backup)
-                                        }
-                                    }
-                                }
-                            }
 
                             SwipeToDismissBox(
                                 state = dismissState,
+                                enableDismissFromStartToEnd = false,
+                                enableDismissFromEndToStart = !uiState.isSelectionMode,
                                 modifier = Modifier
                                     .padding(horizontal = 16.dp)
                                     .animateItem(),
-                                enableDismissFromStartToEnd = !uiState.isSelectionMode,
-                                enableDismissFromEndToStart = !uiState.isSelectionMode,
+                                onDismiss = { direction ->
+                                    if (direction == SwipeToDismissBoxValue.EndToStart) {
+                                        val targetId = conversation.id
+                                        scope.launch {
+                                            val backup = viewModel.deleteSingleAndReturnBackup(targetId)
+                                            if (backup != null) {
+                                                pendingDelete = listOf(backup)
+                                            }
+                                        }
+                                    }
+                                },
                                 backgroundContent = {
                                     val color by animateColorAsState(
                                         targetValue = when (dismissState.dismissDirection) {
                                             SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.errorContainer
                                             else -> Color.Transparent
                                         },
                                         label = "swipeBg"
@@ -465,15 +464,16 @@ fun ConversationListScreen(
                                             .padding(horizontal = 20.dp),
                                         contentAlignment = Alignment.CenterEnd
                                     ) {
-                                        if (dismissState.dismissDirection != SwipeToDismissBoxValue.Settled) {
+                                        if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                                             Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Delete",
+                                                imageVector = Icons.Default.DeleteSweep,
+                                                contentDescription = "Delete conversation",
                                                 tint = MaterialTheme.colorScheme.onErrorContainer
                                             )
                                         }
                                     }
                                 },
+
                                 content = {
                                     if (uiState.isSelectionMode) {
                                         SegmentedListItem(
