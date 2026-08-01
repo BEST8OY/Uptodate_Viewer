@@ -13,6 +13,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.put
@@ -148,26 +149,26 @@ class MedicalDatabaseTools @Inject constructor(
                             putJsonArray("sections") {
                                 for (sec in outline.sections.take(10)) {
                                     add(buildJsonObject {
-                                        put("id", sec["id"] ?: "")
-                                        put("title", sec["title"] ?: "")
+                                        put("id", (sec["id"] ?: "").toString())
+                                        put("title", (sec["title"] ?: "").toString())
                                     })
                                 }
                             }
                             putJsonArray("graphics") {
                                 for (g in outline.graphics) {
                                     add(buildJsonObject {
-                                        put("id", g["id"] ?: "")
-                                        put("title", g["title"] ?: "")
-                                        put("type", g["type"] ?: "graphic")
-                                        put("subtype", g["subtype"] ?: "graphic_table")
+                                        put("id", (g["id"] ?: "").toString())
+                                        put("title", (g["title"] ?: "").toString())
+                                        put("type", (g["type"] ?: "graphic").toString())
+                                        put("subtype", (g["subtype"] ?: "graphic_table").toString())
                                     })
                                 }
                             }
                             putJsonArray("relatedTopics") {
                                 for (rt in outline.relatedTopics) {
                                     add(buildJsonObject {
-                                        put("id", rt["id"] ?: "")
-                                        put("title", rt["title"] ?: "")
+                                        put("id", (rt["id"] ?: "").toString())
+                                        put("title", (rt["title"] ?: "").toString())
                                     })
                                 }
                             }
@@ -197,26 +198,26 @@ class MedicalDatabaseTools @Inject constructor(
             putJsonArray("sections") {
                 for (sec in outline.sections) {
                     add(buildJsonObject {
-                        put("id", sec["id"] ?: "")
-                        put("title", sec["title"] ?: "")
+                        put("id", (sec["id"] ?: "").toString())
+                        put("title", (sec["title"] ?: "").toString())
                     })
                 }
             }
             putJsonArray("graphics") {
                 for (g in outline.graphics) {
                     add(buildJsonObject {
-                        put("id", g["id"] ?: "")
-                        put("title", g["title"] ?: "")
-                        put("type", g["type"] ?: "graphic")
-                        put("subtype", g["subtype"] ?: "graphic_table")
+                        put("id", (g["id"] ?: "").toString())
+                        put("title", (g["title"] ?: "").toString())
+                        put("type", (g["type"] ?: "graphic").toString())
+                        put("subtype", (g["subtype"] ?: "graphic_table").toString())
                     })
                 }
             }
             putJsonArray("relatedTopics") {
                 for (rt in outline.relatedTopics) {
                     add(buildJsonObject {
-                        put("id", rt["id"] ?: "")
-                        put("title", rt["title"] ?: "")
+                        put("id", (rt["id"] ?: "").toString())
+                        put("title", (rt["title"] ?: "").toString())
                     })
                 }
             }
@@ -238,8 +239,8 @@ class MedicalDatabaseTools @Inject constructor(
             putJsonArray("relatedTopics") {
                 for (rt in outline.relatedTopics) {
                     add(buildJsonObject {
-                        put("id", rt["id"] ?: "")
-                        put("title", rt["title"] ?: "")
+                        put("id", (rt["topicId"] ?: rt["id"] ?: "").toString())
+                        put("title", (rt["title"] ?: "").toString())
                     })
                 }
             }
@@ -319,13 +320,11 @@ class MedicalDatabaseTools @Inject constructor(
         @LLMDescription("The formatted markdown response text for the clinician.") answerText: String,
         @LLMDescription("Set to true ONLY if the database search yielded no relevant clinical information.") noDataFound: Boolean = false
     ): String {
-        return json.encodeToString(
-            mapOf(
-                "status" to "SUBMITTED",
-                "answer" to answerText,
-                "noDataFound" to noDataFound
-            )
-        )
+        return buildJsonObject {
+            put("status", "SUBMITTED")
+            put("answer", answerText)
+            put("noDataFound", noDataFound)
+        }.toString()
     }
 
     @Tool
@@ -340,15 +339,17 @@ class MedicalDatabaseTools @Inject constructor(
         val rawGraphicId = cleanId.removePrefix("Graphic-").removePrefix("graphic-")
 
         val graphicData = assetRepository.getGraphic(rawGraphicId)
-            ?: return json.encodeToString(mapOf("error" to "Graphic $cleanId not found"))
+            ?: return buildJsonObject { put("error", "Graphic $cleanId not found") }.toString()
 
         if (graphicData.subtype.isNotEmpty() && !graphicData.isTable) {
-            return json.encodeToString(mapOf("error" to "Graphic $cleanId is of type '${graphicData.subtype}', not a table. Only table content is retrievable."))
+            return buildJsonObject {
+                put("error", "Graphic $cleanId is of type '${graphicData.subtype}', not a table. Only table content is retrievable.")
+            }.toString()
         }
 
         val imageHtml = graphicData.imageHtml
         if (imageHtml.isBlank()) {
-            return json.encodeToString(mapOf("error" to "Graphic $cleanId has empty content"))
+            return buildJsonObject { put("error", "Graphic $cleanId has empty content") }.toString()
         }
 
         val markdown = htmlToMarkdown(imageHtml)
@@ -358,13 +359,13 @@ class MedicalDatabaseTools @Inject constructor(
 
     private data class OutlineResult(
         val sections: List<Map<String, String>>,
-        val graphics: List<Map<String, Any>>,
+        val graphics: List<Map<String, String>>,
         val relatedTopics: List<Map<String, String>>
     )
 
     private fun parseOutline(outlineHtml: String): OutlineResult {
         val sections = mutableListOf<Map<String, String>>()
-        val graphics = mutableListOf<Map<String, Any>>()
+        val graphics = mutableListOf<Map<String, String>>()
         val related = mutableListOf<Map<String, String>>()
 
         for (match in A_TAG_REGEX.findAll(outlineHtml)) {
