@@ -29,7 +29,7 @@ class SafetyValidatorTest {
 
     private fun toolCall(
         name: String = "getTopicSectionsText",
-        args: Map<String, String> = mapOf("sectionIds" to listOf("H1")),
+        args: Map<String, String> = mapOf("sectionId" to "H1"),
         result: String = "content",
         success: Boolean = true,
     ) = SafetyValidator.ToolCallRecord(name, args, result, success)
@@ -250,7 +250,7 @@ class SafetyValidatorTest {
     @Test
     fun `full validation passes on realistic successful turn`() {
         val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall(args = mapOf("sectionIds" to listOf("H1")))),
+            toolCalls = listOf(toolCall(args = mapOf("sectionId" to "H1"))),
             answer = "The dose is 5 mg.",
             toolResults = listOf("The dose is 5 mg."),
             fetchedSections = listOf(section(sectionId = "H1", title = "Dosing")),

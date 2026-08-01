@@ -1,7 +1,7 @@
 package com.clinref.app.data
 
+import com.clinref.app.domain.GraphicData
 import com.clinref.app.domain.SearchResult
-import com.clinref.app.domain.TopicContent
 import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
@@ -61,9 +61,7 @@ class MedicalDatabaseToolsTest {
             <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;999&quot;,&quot;type&quot;:&quot;medical&quot;}]})">Related Drug</a>
         """.trimIndent()
 
-        every { contentRepository.getTopicContent("123") } returns TopicContent(
-            topicId = "123",
-            title = "Aspirin Overview",
+        every { contentRepository.getTopicContent("123") } returns ContentRepository.TopicContent(
             outlineHtml = outlineHtml,
             bodyHtml = "<div id='H1'>Content</div>"
         )
@@ -106,7 +104,7 @@ class MedicalDatabaseToolsTest {
             <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})">Table A</a>
         """.trimIndent()
 
-        every { contentRepository.getTopicContent("100") } returns TopicContent("100", "Topic 100", outlineHtml, "")
+        every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
         every { contentRepository.getTopicTitle("100") } returns "Topic 100"
 
         val outlineJson = tools.getTopicOutline("100")
@@ -126,8 +124,7 @@ class MedicalDatabaseToolsTest {
             </div>
         """.trimIndent()
 
-        every { contentRepository.getTopicContent("100") } returns TopicContent("100", "Topic 100", outlineHtml, bodyHtml)
-        every { contentRepository.getTopicOutline("100") } returns outlineHtml
+        every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("100") } returns "Topic 100"
 
         val resJson = tools.getTopicSectionsText("100", listOf("H1"))
@@ -141,14 +138,14 @@ class MedicalDatabaseToolsTest {
 
     @Test
     fun `getGraphicContent renders markdown tables for graphic_table type`() {
-        val graphicAsset = mapOf<String, Any>(
-            "graphicInfo" to mapOf(
-                "subtype" to "graphic_table",
-                "displayName" to "Dosing Table"
-            ),
-            "imageHtml" to "<table><tr><th>Drug</th><th>Dose</th></tr><tr><td>Aspirin</td><td>100 mg</td></tr></table>"
+        val graphicData = GraphicData(
+            id = "116392",
+            title = "Dosing Table",
+            type = "graphic",
+            subtype = "graphic_table",
+            imageHtml = "<table><tr><th>Drug</th><th>Dose</th></tr><tr><td>Aspirin</td><td>100 mg</td></tr></table>"
         )
-        every { contentRepository.getGraphicAsset("116392") } returns graphicAsset
+        every { assetRepository.getGraphic("116392") } returns graphicData
 
         val mdResult = tools.getGraphicContent("116392")
         assertTrue(mdResult.contains("### Graphic Table: Dosing Table"))
@@ -158,13 +155,14 @@ class MedicalDatabaseToolsTest {
 
     @Test
     fun `getGraphicContent blocks non-table graphic types`() {
-        val graphicAsset = mapOf<String, Any>(
-            "graphicInfo" to mapOf(
-                "subtype" to "graphic_figure",
-                "displayName" to "Chest X-Ray"
-            )
+        val graphicData = GraphicData(
+            id = "999",
+            title = "Chest X-Ray",
+            type = "graphic",
+            subtype = "graphic_figure",
+            imageHtml = ""
         )
-        every { contentRepository.getGraphicAsset("999") } returns graphicAsset
+        every { assetRepository.getGraphic("999") } returns graphicData
 
         val resJson = tools.getGraphicContent("999")
         assertTrue(resJson.contains("not a table"))
