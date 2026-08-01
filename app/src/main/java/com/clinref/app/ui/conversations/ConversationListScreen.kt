@@ -387,7 +387,8 @@ fun ConversationListScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(bottom = 80.dp)
+                        contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         itemsIndexed(
                             items = uiState.filteredConversations,
@@ -406,6 +407,7 @@ fun ConversationListScreen(
 
                             SwipeToDismissBox(
                                 state = dismissState,
+                                modifier = Modifier.padding(horizontal = 16.dp),
                                 enableDismissFromStartToEnd = !uiState.isSelectionMode,
                                 enableDismissFromEndToStart = !uiState.isSelectionMode,
                                 backgroundContent = {
@@ -442,10 +444,12 @@ fun ConversationListScreen(
                                             shapes = itemShapes,
                                             colors = if (isItemSelected) {
                                                 ListItemDefaults.segmentedColors(
-                                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                                 )
                                             } else {
-                                                ListItemDefaults.segmentedColors()
+                                                ListItemDefaults.segmentedColors(
+                                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                                                )
                                             },
                                             leadingContent = {
                                                 Checkbox(
@@ -477,7 +481,7 @@ fun ConversationListScreen(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             },
-                                            content = {
+                                            headlineContent = {
                                                 Text(
                                                     text = conversation.title,
                                                     fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
@@ -498,7 +502,9 @@ fun ConversationListScreen(
                                                 viewModel.toggleItemSelection(conversation.id)
                                             },
                                             shapes = itemShapes,
-                                            colors = ListItemDefaults.segmentedColors(),
+                                            colors = ListItemDefaults.segmentedColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                                            ),
                                             leadingContent = {
                                                 Surface(
                                                     shape = CircleShape,
@@ -535,11 +541,11 @@ fun ConversationListScreen(
                                                                 tint = MaterialTheme.colorScheme.primary,
                                                                 modifier = Modifier.size(14.dp)
                                                             )
+                                                            Spacer(modifier = Modifier.width(4.dp))
                                                         }
                                                         if (conversation.isUnread) {
                                                             Box(
                                                                 modifier = Modifier
-                                                                    .padding(start = 4.dp)
                                                                     .size(8.dp)
                                                                     .clip(CircleShape)
                                                                     .background(MaterialTheme.colorScheme.primary)
@@ -555,7 +561,7 @@ fun ConversationListScreen(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             },
-                                            content = {
+                                            headlineContent = {
                                                 Text(
                                                     text = conversation.title,
                                                     fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,

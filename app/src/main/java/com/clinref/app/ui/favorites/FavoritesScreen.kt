@@ -250,7 +250,8 @@ fun FavoritesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentPadding = PaddingValues(bottom = 80.dp)
+                contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 itemsIndexed(
                     items = favorites,
@@ -318,19 +319,13 @@ private fun EmptyFavoritesState(modifier: Modifier = Modifier) {
             Icon(
                 imageVector = Icons.Default.FavoriteBorder,
                 contentDescription = null,
-                modifier = Modifier.size(72.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(48.dp)
             )
             Text(
-                text = "No favorites yet",
+                text = stringResource(R.string.no_favorites),
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = "Tap the heart icon on any article\nto add it here",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -360,7 +355,9 @@ private fun FavoriteItem(
         state = dismissState,
         enableDismissFromStartToEnd = false,
         gesturesEnabled = !isSelectionMode,
-        modifier = modifier.semantics { contentDescription = removeFavoriteDescription },
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .semantics { contentDescription = removeFavoriteDescription },
         onDismiss = { direction ->
             if (direction == SwipeToDismissBoxValue.EndToStart) {
                 onSwipeToRemove()
@@ -410,20 +407,22 @@ private fun FavoriteItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                content = {
+                headlineContent = {
                     Text(
                         text = entry.title,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 },
-                modifier = modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 colors = if (isSelected) {
                     ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                     )
                 } else {
-                    ListItemDefaults.segmentedColors()
+                    ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 }
             )
         } else {
@@ -439,22 +438,24 @@ private fun FavoriteItem(
                         modifier = Modifier.size(20.dp)
                     )
                 },
-                supportingContent = {
+                trailingContent = {
                     Text(
                         text = formatTimestamp(entry.timestamp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                content = {
+                headlineContent = {
                     Text(
                         text = entry.title,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 },
-                modifier = modifier.fillMaxWidth(),
-                colors = ListItemDefaults.segmentedColors()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                )
             )
         }
     }

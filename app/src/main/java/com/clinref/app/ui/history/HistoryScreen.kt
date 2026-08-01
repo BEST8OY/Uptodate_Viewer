@@ -249,7 +249,8 @@ fun HistoryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentPadding = PaddingValues(bottom = 80.dp)
+                contentPadding = PaddingValues(top = 4.dp, bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 itemsIndexed(
                     items = history,
@@ -295,7 +296,7 @@ fun HistoryScreen(
             }
             showUndoSnackbar(
                 snackbarHostState = snackbarHostState,
-                message = "History entry deleted"
+                message = "History removed"
             ) {
                 entries.forEach { viewModel.addHistory(it.topicId, it.title, it.timestamp) }
             }
@@ -317,19 +318,13 @@ private fun EmptyHistoryState(modifier: Modifier = Modifier) {
             Icon(
                 imageVector = Icons.Default.History,
                 contentDescription = null,
-                modifier = Modifier.size(72.dp),
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(48.dp)
             )
             Text(
-                text = "No history yet",
+                text = stringResource(R.string.no_history),
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = "Articles you read will appear here",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -359,7 +354,9 @@ private fun HistoryItem(
         state = dismissState,
         enableDismissFromStartToEnd = false,
         gesturesEnabled = !isSelectionMode,
-        modifier = modifier.semantics { contentDescription = deleteHistoryDescription },
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .semantics { contentDescription = deleteHistoryDescription },
         onDismiss = { direction ->
             if (direction == SwipeToDismissBoxValue.EndToStart) {
                 onSwipeToDelete()
@@ -409,20 +406,22 @@ private fun HistoryItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                content = {
+                headlineContent = {
                     Text(
                         text = entry.title,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 },
-                modifier = modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 colors = if (isSelected) {
                     ListItemDefaults.segmentedColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                     )
                 } else {
-                    ListItemDefaults.segmentedColors()
+                    ListItemDefaults.segmentedColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    )
                 }
             )
         } else {
@@ -438,22 +437,24 @@ private fun HistoryItem(
                         modifier = Modifier.size(20.dp)
                     )
                 },
-                supportingContent = {
+                trailingContent = {
                     Text(
                         text = formatTimestamp(entry.timestamp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                content = {
+                headlineContent = {
                     Text(
                         text = entry.title,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 },
-                modifier = modifier.fillMaxWidth(),
-                colors = ListItemDefaults.segmentedColors()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                )
             )
         }
     }
