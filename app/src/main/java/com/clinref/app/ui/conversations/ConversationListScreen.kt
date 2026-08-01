@@ -41,13 +41,10 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExpandedDockedSearchBarWithGap
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -57,7 +54,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -68,7 +64,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberSearchBarWithGapState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -104,8 +99,6 @@ fun ConversationListScreen(
     val scope = rememberCoroutineScope()
 
     val textFieldState = rememberTextFieldState()
-    val searchBarState = rememberSearchBarWithGapState()
-    val appBarWithSearchColors = SearchBarDefaults.appBarWithSearchColors()
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let { msg ->
@@ -144,24 +137,6 @@ fun ConversationListScreen(
                 }
             },
             shape = RoundedCornerShape(28.dp)
-        )
-    }
-
-    val inputField = @Composable {
-        SearchBarDefaults.InputField(
-            textFieldState = textFieldState,
-            searchBarState = searchBarState,
-            colors = appBarWithSearchColors.searchBarColors.inputFieldColors,
-            onSearch = { scope.launch { searchBarState.animateToCollapsed() } },
-            placeholder = { Text("Search sessions...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-            trailingIcon = {
-                if (textFieldState.text.isNotEmpty()) {
-                    IconButton(onClick = { textFieldState.clearText() }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear")
-                    }
-                }
-            }
         )
     }
 
@@ -206,105 +181,104 @@ fun ConversationListScreen(
                     )
                 )
             } else {
-                AppBarWithSearch(
-                    state = searchBarState,
-                    colors = appBarWithSearchColors,
-                    inputField = inputField,
-                    actions = {
-                        IconButton(onClick = { viewModel.toggleSelectionMode() }) {
-                            Icon(
-                                imageVector = Icons.Default.SelectAll,
-                                contentDescription = "Choose to Delete",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        IconButton(onClick = onOpenSettings) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                )
-                ExpandedDockedSearchBarWithGap(
-                    state = searchBarState,
-                    inputField = inputField
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (uiState.filteredConversations.isNotEmpty()) {
-                        LazyColumn(
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            itemsIndexed(
-                                items = uiState.filteredConversations,
-                                key = { _, item -> item.id }
-                            ) { _, conversation ->
-                                Surface(
-                                    onClick = {
-                                        viewModel.markAsRead(conversation.id)
-                                        onConversationSelected(conversation.id)
-                                        scope.launch { searchBarState.animateToCollapsed() }
-                                    },
-                                    shape = RoundedCornerShape(16.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                            modifier = Modifier.size(40.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                val profile = conversation.patientProfile
-                                                val initials = buildString {
-                                                    if (profile.sex.isNotBlank()) append(profile.sex.take(1).uppercase())
-                                                    if (profile.age.isNotBlank()) append(profile.age.filter { it.isDigit() }.take(2))
-                                                }.ifBlank { conversation.title.take(1).uppercase() }
-                                                Text(
-                                                    text = initials,
-                                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                                    color = if (conversation.isPinned) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = conversation.title,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = conversation.lastPreview,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
                             Text(
-                                text = "No results found",
-                                style = MaterialTheme.typography.bodyMedium,
+                                text = "Clinical Sessions",
+                                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Text(
+                                text = "${uiState.filteredConversations.size} session(s)",
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(onClick = { viewModel.toggleSelectionMode() }) {
+                                Icon(
+                                    imageVector = Icons.Default.SelectAll,
+                                    contentDescription = "Selection Mode",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(onClick = onOpenSettings) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Settings",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            androidx.compose.foundation.text.BasicTextField(
+                                state = textFieldState,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(vertical = 12.dp),
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                decorator = { innerTextField ->
+                                    Box(contentAlignment = Alignment.CenterStart) {
+                                        if (textFieldState.text.isEmpty()) {
+                                            Text(
+                                                text = "Search sessions, topics, or patient profiles...",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                }
+                            )
+                            if (textFieldState.text.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { textFieldState.clearText() },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Clear search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
