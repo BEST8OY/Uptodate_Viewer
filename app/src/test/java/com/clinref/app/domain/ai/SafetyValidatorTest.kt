@@ -38,7 +38,7 @@ class SafetyValidatorTest {
         topicId: String = "1",
         sectionId: String = "H1",
         title: String = "Section 1",
-    ) = SafetyValidator.FetchedSection(topicId, "", sectionId, title)
+    ) = SafetyValidator.FetchedSection(topicId, "Topic Title", sectionId, title)
 
     // ══════════════════════════════════════════════════════════════════
     // Rule 0: Intent-aware tool call check
@@ -46,7 +46,7 @@ class SafetyValidatorTest {
 
     @Test
     fun `rule 0 blocks when no tool calls and clinical answer`() {
-        val result = validator.validate(ctx())
+        val result = validator.validate(ctx(answer = "The recommended dose is 5 mg twice daily."))
         assertFalse(result.passed)
         assertTrue(result.blockedReason!!.contains("Clinical recommendations require database verification"))
     }
@@ -262,7 +262,7 @@ class SafetyValidatorTest {
     @Test
     fun `full validation short-circuits on first failure`() {
         // No tool calls → fails rule 0 immediately
-        val result = validator.validate(ctx())
+        val result = validator.validate(ctx(answer = "The recommended dose is 5 mg twice daily."))
         assertFalse(result.passed)
         assertTrue(result.blockedReason!!.contains("Clinical recommendations require database verification"))
     }

@@ -12,6 +12,12 @@ import org.jsoup.nodes.Element
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -66,7 +72,10 @@ class MedicalDatabaseTools @Inject constructor(
     ): String {
         val cleanQuery = query.trim()
         if (cleanQuery.isEmpty()) {
-            return json.encodeToString(mapOf("results" to emptyList<Map<String, String>>(), "refine_with" to emptyList<String>()))
+            return buildJsonObject {
+                putJsonArray("results") {}
+                putJsonArray("refine_with") {}
+            }.toString()
         }
 
         val searchResults = searchRepository.searchTopics(cleanQuery)
@@ -80,60 +89,92 @@ class MedicalDatabaseTools @Inject constructor(
                 val retryResults = searchRepository.searchTopics(firstSuggestion)
                 val retryMapped = formatSearchResults(retryResults)
                 if (retryMapped.isNotEmpty()) {
-                    val response = mapOf(
-                        "query" to firstSuggestion,
-                        "results" to retryMapped,
-                        "refine_with" to suggestions.drop(1),
-                        "message" to "Auto-refined from '$cleanQuery' to '$firstSuggestion'"
-                    )
-                    return json.encodeToString(response)
+                    return buildJsonObject {
+                        put("query", firstSuggestion)
+                        putJsonArray("results") {
+                            for (res in retryMapped) add(res)
+                        }
+                        putJsonArray("refine_with") {
+                            for (sug in suggestions.drop(1)) add(sug)
+                        }
+                        put("message", "Auto-refined from '$cleanQuery' to '$firstSuggestion'")
+                    }.toString()
                 }
             }
             // Still no results after auto-retry
             val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-            val response = mapOf(
-                "query" to cleanQuery,
-                "results" to emptyList<Map<String, String>>(),
-                "refine_with" to allSuggestions,
-                "message" to if (allSuggestions.isEmpty()) {
-                    "No topic match and no suggestions available for '$cleanQuery'."
-                } else {
-                    "No results for '$cleanQuery'. Try one of the 'refine_with' suggestions."
+            val msg = if (allSuggestions.isEmpty()) {
+                "No topic match and no suggestions available for '$cleanQuery'."
+            } else {
+                "No results for '$cleanQuery'. Try one of the 'refine_with' suggestions."
+            }
+            return buildJsonObject {
+                put("query", cleanQuery)
+                putJsonArray("results") {}
+                putJsonArray("refine_with") {
+                    for (sug in allSuggestions) add(sug)
                 }
-            )
-            return json.encodeToString(response)
+                put("message", msg)
+            }.toString()
         }
 
         val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-        val response = mapOf(
-            "query" to cleanQuery,
-            "results" to results,
-            "refine_with" to allSuggestions,
-            "message" to "Success"
-        )
-
-        return json.encodeToString(response)
+        return buildJsonObject {
+            put("query", cleanQuery)
+            putJsonArray("results") {
+                for (res in results) add(res)
+            }
+            putJsonArray("refine_with") {
+                for (sug in allSuggestions) add(sug)
+            }
+            put("message", "Success")
+        }.toString()
     }
 
-    private fun formatSearchResults(searchResults: List<com.clinref.app.domain.SearchResult>): List<Map<String, Any>> {
+    private fun formatSearchResults(searchResults: List<com.clinref.app.domain.SearchResult>): List<JsonObject> {
         return searchResults.mapIndexed { index, result ->
             val id = when (result) {
                 is com.clinref.app.domain.SearchResult.Topic -> result.topicId
                 is com.clinref.app.domain.SearchResult.Graphic -> result.graphicId
             }
-            val itemMap = mutableMapOf<String, Any>("id" to id, "title" to result.title)
-            if (index == 0) {
-                val outlineHtml = contentRepository.getTopicContent(id)?.outlineHtml
-                if (!outlineHtml.isNullOrBlank()) {
-                    val outline = parseOutline(outlineHtml)
-                    itemMap["outline"] = mapOf(
-                        "sections" to outline.sections.take(10),
-                        "graphics" to outline.graphics,
-                        "relatedTopics" to outline.relatedTopics
-                    )
+            buildJsonObject {
+                put("id", id)
+                put("title", result.title)
+                if (index == 0) {
+                    val outlineHtml = contentRepository.getTopicContent(id)?.outlineHtml
+                    if (!outlineHtml.isNullOrBlank()) {
+                        val outline = parseOutline(outlineHtml)
+                        putJsonObject("outline") {
+                            putJsonArray("sections") {
+                                for (sec in outline.sections.take(10)) {
+                                    add(buildJsonObject {
+                                        put("id", sec["id"] ?: "")
+                                        put("title", sec["title"] ?: "")
+                                    })
+                                }
+                            }
+                            putJsonArray("graphics") {
+                                for (g in outline.graphics) {
+                                    add(buildJsonObject {
+                                        put("id", g["id"] ?: "")
+                                        put("title", g["title"] ?: "")
+                                        put("type", g["type"] ?: "graphic")
+                                        put("subtype", g["subtype"] ?: "graphic_table")
+                                    })
+                                }
+                            }
+                            putJsonArray("relatedTopics") {
+                                for (rt in outline.relatedTopics) {
+                                    add(buildJsonObject {
+                                        put("id", rt["id"] ?: "")
+                                        put("title", rt["title"] ?: "")
+                                    })
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            itemMap
         }
     }
 
@@ -150,13 +191,36 @@ class MedicalDatabaseTools @Inject constructor(
         val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
         val outline = parseOutline(content.outlineHtml)
 
-        return json.encodeToString(mapOf(
-            "topicId" to cleanTopicId,
-            "title" to title,
-            "sections" to outline.sections,
-            "graphics" to outline.graphics,
-            "related_topics" to outline.relatedTopics
-        ))
+        return buildJsonObject {
+            put("topicId", cleanTopicId)
+            put("title", title)
+            putJsonArray("sections") {
+                for (sec in outline.sections) {
+                    add(buildJsonObject {
+                        put("id", sec["id"] ?: "")
+                        put("title", sec["title"] ?: "")
+                    })
+                }
+            }
+            putJsonArray("graphics") {
+                for (g in outline.graphics) {
+                    add(buildJsonObject {
+                        put("id", g["id"] ?: "")
+                        put("title", g["title"] ?: "")
+                        put("type", g["type"] ?: "graphic")
+                        put("subtype", g["subtype"] ?: "graphic_table")
+                    })
+                }
+            }
+            putJsonArray("relatedTopics") {
+                for (rt in outline.relatedTopics) {
+                    add(buildJsonObject {
+                        put("id", rt["id"] ?: "")
+                        put("title", rt["title"] ?: "")
+                    })
+                }
+            }
+        }.toString()
     }
 
     @Tool
@@ -169,10 +233,17 @@ class MedicalDatabaseTools @Inject constructor(
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found: $cleanTopicId"
         val outline = parseOutline(content.outlineHtml)
-        return json.encodeToString(mapOf(
-            "topicId" to cleanTopicId,
-            "related_topics" to outline.relatedTopics
-        ))
+        return buildJsonObject {
+            put("topicId", cleanTopicId)
+            putJsonArray("relatedTopics") {
+                for (rt in outline.relatedTopics) {
+                    add(buildJsonObject {
+                        put("id", rt["id"] ?: "")
+                        put("title", rt["title"] ?: "")
+                    })
+                }
+            }
+        }.toString()
     }
 
     @Tool
@@ -222,16 +293,18 @@ class MedicalDatabaseTools @Inject constructor(
             }
         }
 
-        val result = mutableMapOf(
-            "topicTitle" to topicTitle,
-            "sectionTitles" to sectionTitles,
-            "markdown" to sectionsMd.joinToString("\n\n"),
-        )
-        if (invalidIds.isNotEmpty()) {
-            result["invalidSections"] = invalidIds
-        }
-
-        return json.encodeToString(result)
+        return buildJsonObject {
+            put("topicTitle", topicTitle)
+            putJsonObject("sectionTitles") {
+                for ((k, v) in sectionTitles) put(k, v)
+            }
+            put("markdown", sectionsMd.joinToString("\n\n"))
+            if (invalidIds.isNotEmpty()) {
+                putJsonArray("invalidSections") {
+                    for (inv in invalidIds) add(inv)
+                }
+            }
+        }.toString()
     }
 
 

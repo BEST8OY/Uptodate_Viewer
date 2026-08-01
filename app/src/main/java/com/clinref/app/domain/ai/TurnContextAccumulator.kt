@@ -279,11 +279,17 @@ class TurnContextAccumulator {
                 }
                 val sectionTitles = obj["sectionTitles"] as? JsonObject
                 if (sectionTitles != null) {
-                    val parsed = sectionTitles.entries.associate { (k, v) -> k to v.jsonPrimitive.content.trimStart('-', '–', '—') }
-                    if (topicId.isNotEmpty()) {
-                        outlineSections[topicId] = parsed
+                    val existing = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
+                    for ((k, v) in sectionTitles) {
+                        val titleStr = v.jsonPrimitive.content.trimStart('-', '–', '—')
+                        if (titleStr.isNotBlank()) {
+                            existing[k] = titleStr
+                        }
                     }
-                    sectionMap = parsed
+                    if (topicId.isNotEmpty()) {
+                        outlineSections[topicId] = existing
+                    }
+                    sectionMap = existing
                 }
             }
         } catch (e: Exception) { Log.w(TAG, "parseBatchSectionResult: ${e.message}") }
