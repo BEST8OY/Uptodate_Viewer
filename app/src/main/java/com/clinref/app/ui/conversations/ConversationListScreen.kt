@@ -105,7 +105,6 @@ fun ConversationListScreen(
 
     val textFieldState = rememberTextFieldState()
     val searchBarState = rememberSearchBarWithGapState()
-    val scrollBehavior = SearchBarDefaults.enterAlwaysSearchBarScrollBehavior()
     val appBarWithSearchColors = SearchBarDefaults.appBarWithSearchColors()
 
     LaunchedEffect(uiState.snackbarMessage) {
@@ -167,9 +166,7 @@ fun ConversationListScreen(
     }
 
     Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -210,7 +207,6 @@ fun ConversationListScreen(
                 )
             } else {
                 AppBarWithSearch(
-                    scrollBehavior = scrollBehavior,
                     state = searchBarState,
                     colors = appBarWithSearchColors,
                     inputField = inputField,
