@@ -254,17 +254,26 @@ class TurnContextAccumulator {
 
     private fun parseBatchSectionResult(args: Map<String, String>, result: String) {
         val topicId = args["topicId"] ?: ""
-        val sectionIdsRaw = args["sectionIds"] ?: ""
+        val sectionIds = mutableListOf<String>()
 
-        // Parse the sectionIds - it's a JSON array string like ["H1","H2"]
-        val sectionIds = try {
-            val element = json.parseToJsonElement(sectionIdsRaw)
-            (element as? kotlinx.serialization.json.JsonArray)
-                ?.map { it.jsonPrimitive.content }
-                ?: emptyList()
-        } catch (e: Exception) {
-            Log.w(TAG, "parseBatchSectionResult sectionIds: ${e.message}")
-            emptyList()
+        val singleSectionId = args["sectionId"] ?: args["section_id"]
+        if (!singleSectionId.isNullOrBlank()) {
+            sectionIds.add(singleSectionId.trim())
+        }
+
+        val sectionIdsRaw = args["sectionIds"] ?: args["section_ids"] ?: ""
+        if (sectionIdsRaw.isNotBlank()) {
+            try {
+                val element = json.parseToJsonElement(sectionIdsRaw)
+                (element as? kotlinx.serialization.json.JsonArray)?.forEach {
+                    val content = it.jsonPrimitive.content.trim()
+                    if (content.isNotEmpty() && content !in sectionIds) {
+                        sectionIds.add(content)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "parseBatchSectionResult sectionIds: ${e.message}")
+            }
         }
 
         // Parse structured JSON result from batch tool
@@ -296,12 +305,13 @@ class TurnContextAccumulator {
 
         for (sectionId in sectionIds) {
             if (sectionId.isNotEmpty()) {
+                val resolvedTitle = (sectionMap[sectionId] ?: args["sectionTitle"] ?: "").trimStart('-', '–', '—')
                 fetchedSections.add(
                     SafetyValidator.FetchedSection(
                         topicId = topicId,
                         topicTitle = topicTitles[topicId] ?: "",
                         sectionId = sectionId,
-                        sectionTitle = sectionMap[sectionId] ?: "",
+                        sectionTitle = resolvedTitle,
                         contentSnippet = result.take(2000)
                     )
                 )

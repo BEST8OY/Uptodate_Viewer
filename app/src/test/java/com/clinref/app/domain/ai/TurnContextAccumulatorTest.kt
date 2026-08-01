@@ -98,6 +98,9 @@ class TurnContextAccumulatorTest {
         accumulator.onToolCallStarting("call-1", """{"topicId":"128998"}""")
         accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
 
+        accumulator.onToolCallStarting("call-2", """{"topicId":"128998","sectionId":"H1"}""")
+        accumulator.onToolCallCompleted("call-2", "getTopicSectionsText", "content", true)
+
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals("Atrial Fibrillation", ctx.fetchedSections.firstOrNull()?.topicTitle ?: "")
     }

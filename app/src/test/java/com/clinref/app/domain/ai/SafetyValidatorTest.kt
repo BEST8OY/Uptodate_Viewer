@@ -254,6 +254,7 @@ class SafetyValidatorTest {
             answer = "The dose is 5 mg.",
             toolResults = listOf("The dose is 5 mg."),
             fetchedSections = listOf(section(sectionId = "H1", title = "Dosing")),
+            topicRefs = listOf(SafetyValidator.TopicRef(topicId = "1", sectionId = "H1", label = "Dosing", topicTitle = "Topic Title"))
         ))
         assertTrue(result.passed)
         assertEquals(1, result.topicRefs.size)

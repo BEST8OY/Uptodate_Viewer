@@ -49,7 +49,7 @@ class MedicalDatabaseToolsTest {
     @Test
     fun `searchTopics embeds speculative outline with sections graphics and related topics`() {
         every { searchRepository.searchTopics("aspirin") } returns listOf(
-            SearchResult.Topic("123", "Aspirin Overview")
+            SearchResult.Topic("Aspirin Overview", "123")
         )
         every { searchRepository.getSuggestions("aspirin") } returns listOf("aspirin dose")
 
@@ -87,7 +87,7 @@ class MedicalDatabaseToolsTest {
         every { searchRepository.searchTopics("asprn") } returns emptyList()
         every { searchRepository.getSuggestions("asprn") } returns listOf("aspirin", "ibuprofen")
         every { searchRepository.searchTopics("aspirin") } returns listOf(
-            SearchResult.Topic("123", "Aspirin")
+            SearchResult.Topic("Aspirin", "123")
         )
 
         val resultJson = tools.searchTopics("asprn")
