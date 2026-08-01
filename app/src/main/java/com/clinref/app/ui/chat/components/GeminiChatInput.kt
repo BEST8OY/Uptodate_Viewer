@@ -27,8 +27,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.movableContentOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,36 +55,6 @@ fun GeminiChatInput(
     val maxLines = 8
     val isMultiLine = textValue.contains('\n') || textValue.length > 40
     val containerShape = if (isMultiLine) RoundedCornerShape(26.dp) else CircleShape
-
-    val textFieldContent = remember {
-        movableContentOf {
-            BasicTextField(
-                value = textValue,
-                onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = TextStyle(
-                    fontSize = 16.sp,
-                    lineHeight = 22.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                singleLine = false,
-                maxLines = maxLines,
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                decorationBox = { innerTextField ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (textValue.isEmpty()) {
-                            Text(
-                                text = "Ask a clinical question...",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-        }
-    }
 
     Box(
         modifier = modifier
@@ -163,89 +131,111 @@ fun GeminiChatInput(
                     }
                 }
 
-                if (!isMultiLine) {
-                    // Single-line capsule layout with preserved textFieldContent via movableContentOf
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            textFieldContent()
-                        }
-
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Voice input",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-
-                        if (isGenerating) {
-                            FilledIconButton(
-                                onClick = onCancel,
-                                modifier = Modifier.size(40.dp),
-                                shape = CircleShape,
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Cancel generation",
-                                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        } else {
-                            FilledIconButton(
-                                onClick = {
-                                    if (textValue.isNotBlank()) {
-                                        onSendMessage(textValue)
-                                    }
-                                },
-                                modifier = Modifier.size(40.dp),
-                                shape = CircleShape,
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = if (textValue.isNotBlank()) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceContainerHighest
-                                    },
-                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                                ),
-                                enabled = textValue.isNotBlank()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ArrowUpward,
-                                    contentDescription = "Send message",
-                                    tint = if (textValue.isNotBlank()) {
-                                        MaterialTheme.colorScheme.onPrimary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                    },
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    // Multi-line expanded layout with preserved textFieldContent via movableContentOf
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = if (isMultiLine) Alignment.Top else Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp, max = 180.dp)
-                            .padding(bottom = 6.dp),
-                        contentAlignment = Alignment.TopStart
+                            .weight(1f)
+                            .heightIn(min = 24.dp, max = 180.dp),
+                        contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
                     ) {
-                        textFieldContent()
+                        BasicTextField(
+                            value = textValue,
+                            onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
+                            modifier = Modifier.fillMaxWidth(),
+                            textStyle = TextStyle(
+                                fontSize = 16.sp,
+                                lineHeight = 22.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            singleLine = false,
+                            maxLines = maxLines,
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            decorationBox = { innerTextField ->
+                                Box(contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart) {
+                                    if (textValue.isEmpty()) {
+                                        Text(
+                                            text = "Ask a clinical question...",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
                     }
 
+                    if (!isMultiLine) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voice input",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+
+                            if (isGenerating) {
+                                FilledIconButton(
+                                    onClick = onCancel,
+                                    modifier = Modifier.size(40.dp),
+                                    shape = CircleShape,
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cancel generation",
+                                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            } else {
+                                FilledIconButton(
+                                    onClick = {
+                                        if (textValue.isNotBlank()) {
+                                            onSendMessage(textValue)
+                                        }
+                                    },
+                                    modifier = Modifier.size(40.dp),
+                                    shape = CircleShape,
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = if (textValue.isNotBlank()) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceContainerHighest
+                                        },
+                                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    ),
+                                    enabled = textValue.isNotBlank()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowUpward,
+                                        contentDescription = "Send message",
+                                        tint = if (textValue.isNotBlank()) {
+                                            MaterialTheme.colorScheme.onPrimary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        },
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isMultiLine) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.End
                     ) {
