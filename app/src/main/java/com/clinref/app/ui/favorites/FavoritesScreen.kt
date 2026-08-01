@@ -323,7 +323,7 @@ private fun EmptyFavoritesState(modifier: Modifier = Modifier) {
                 modifier = Modifier.size(48.dp)
             )
             Text(
-                text = stringResource(R.string.no_favorites),
+                text = "No favorites yet",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

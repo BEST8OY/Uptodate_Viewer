@@ -322,7 +322,7 @@ private fun EmptyHistoryState(modifier: Modifier = Modifier) {
                 modifier = Modifier.size(48.dp)
             )
             Text(
-                text = stringResource(R.string.no_history),
+                text = "No reading history",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
