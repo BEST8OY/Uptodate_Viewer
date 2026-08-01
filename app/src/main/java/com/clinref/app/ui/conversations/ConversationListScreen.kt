@@ -165,9 +165,10 @@ fun ConversationListScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = {
-            Box(modifier = Modifier.padding(bottom = 80.dp)) {
-                SnackbarHost(snackbarHostState)
-            }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
         },
         topBar = {
             if (uiState.isSelectionMode) {
