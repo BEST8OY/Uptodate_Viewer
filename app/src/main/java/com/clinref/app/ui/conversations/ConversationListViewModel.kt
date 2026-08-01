@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.local.entity.ConversationEntity
 import com.clinref.app.domain.ai.PatientProfile
+import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.repository.ConversationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -160,6 +161,12 @@ class ConversationListViewModel @Inject constructor(
         }
     }
 
+    suspend fun deleteSingleAndReturnBackup(id: String): ConversationBackup? {
+        val backup = conversationRepository.getConversationBackup(id)
+        conversationRepository.deleteConversation(id)
+        return backup
+    }
+
     suspend fun getConversationEntity(id: String): ConversationEntity? {
         return conversationRepository.getConversation(id)
     }
@@ -167,6 +174,12 @@ class ConversationListViewModel @Inject constructor(
     fun restoreConversation(entity: ConversationEntity) {
         viewModelScope.launch {
             conversationRepository.restoreConversation(entity)
+        }
+    }
+
+    fun restoreConversationBackup(backup: ConversationBackup) {
+        viewModelScope.launch {
+            conversationRepository.restoreConversationBackup(backup)
         }
     }
 
@@ -180,11 +193,11 @@ class ConversationListViewModel @Inject constructor(
         _uiState.update { it.copy(showDeleteConfirmationDialog = false) }
     }
 
-    suspend fun deleteSelectedAndReturnEntities(): List<ConversationEntity> {
+    suspend fun deleteSelectedAndReturnBackups(): List<ConversationBackup> {
         val selected = _uiState.value.selectedIds
         if (selected.isEmpty()) return emptyList()
 
-        val entities = selected.mapNotNull { conversationRepository.getConversation(it) }
+        val backups = selected.mapNotNull { conversationRepository.getConversationBackup(it) }
         selected.forEach { id ->
             conversationRepository.deleteConversation(id)
         }
@@ -196,7 +209,7 @@ class ConversationListViewModel @Inject constructor(
                 showDeleteConfirmationDialog = false
             )
         }
-        return entities
+        return backups
     }
 
     fun clearSnackbar() {

@@ -1,5 +1,6 @@
 package com.clinref.app.ui.conversations
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
@@ -83,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.data.local.entity.ConversationEntity
+import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.ui.common.showUndoSnackbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -99,7 +101,7 @@ fun ConversationListScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    var pendingDelete by remember { mutableStateOf<List<ConversationEntity>>(emptyList()) }
+    var pendingDelete by remember { mutableStateOf<List<ConversationBackup>>(emptyList()) }
     var isFabDelete by remember { mutableStateOf(false) }
 
     val textFieldState = rememberTextFieldState()
@@ -112,6 +114,10 @@ fun ConversationListScreen(
 
     LaunchedEffect(textFieldState.text) {
         viewModel.onSearchQueryChange(textFieldState.text.toString())
+    }
+
+    BackHandler(enabled = uiState.isSelectionMode) {
+        viewModel.toggleSelectionMode()
     }
 
     if (uiState.showDeleteConfirmationDialog) {
@@ -130,8 +136,8 @@ fun ConversationListScreen(
                 TextButton(
                     onClick = {
                         scope.launch {
-                            val entities = viewModel.deleteSelectedAndReturnEntities()
-                            pendingDelete = entities
+                            val backups = viewModel.deleteSelectedAndReturnBackups()
+                            pendingDelete = backups
                             isFabDelete = true
                         }
                     },
@@ -422,10 +428,12 @@ fun ConversationListScreen(
                             val dismissState = rememberSwipeToDismissBoxState()
                             LaunchedEffect(dismissState.currentValue) {
                                 if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart || dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd) {
-                                    val entity = viewModel.getConversationEntity(conversation.id)
-                                    viewModel.deleteConversation(conversation.id)
-                                    if (entity != null) {
-                                        pendingDelete = listOf(entity)
+                                    val targetId = conversation.id
+                                    scope.launch {
+                                        val backup = viewModel.deleteSingleAndReturnBackup(targetId)
+                                        if (backup != null) {
+                                            pendingDelete = listOf(backup)
+                                        }
                                     }
                                 }
                             }
@@ -609,17 +617,17 @@ fun ConversationListScreen(
     }
 
     LaunchedEffect(pendingDelete) {
-        pendingDelete.takeIf { it.isNotEmpty() }?.let { entries ->
+        pendingDelete.takeIf { it.isNotEmpty() }?.let { backups ->
             if (isFabDelete) {
                 delay(300)
                 isFabDelete = false
             }
-            val message = if (entries.size == 1) "Session deleted" else "${entries.size} sessions deleted"
+            val message = if (backups.size == 1) "Session deleted" else "${backups.size} sessions deleted"
             showUndoSnackbar(
                 snackbarHostState = snackbarHostState,
                 message = message
             ) {
-                entries.forEach { viewModel.restoreConversation(it) }
+                backups.forEach { viewModel.restoreConversationBackup(it) }
             }
             pendingDelete = emptyList()
         }

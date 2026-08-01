@@ -54,7 +54,7 @@ def create_clinical_agent(
         tools: List of tool functions
         system_prompt: System prompt text
         callbacks: List of callback handlers (e.g., TokenTracker)
-        max_tool_retries: Max tool loop iterations (default 8, matching Kotlin)
+        max_tool_retries: Max tool loop iterations (default 24, matching Kotlin)
         max_safety_retries: Max self-correction retries (default 2)
     """
     tool_map = _build_tool_map(tools)

@@ -3,6 +3,7 @@
 ## Critical Execution Rules
 - **NEVER run `./gradlew` or Gradle commands**: There is no Android SDK on this machine.
 - **Do NOT commit `python_prototype/.env`**: Contains local API keys.
+- **Only run `pytest` when modifying `python_prototype/`**: Do NOT run `pytest` for Kotlin-only, Android UI, or Room DAO changes.
 
 ## Project Structure & Architecture
 - **Android App (`:app`)**: Package `com.clinref.app` using Compose M3, Hilt DI, Navigation 3, Room 3 (`androidx.room3`).

@@ -12,6 +12,11 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+data class ConversationBackup(
+    val entity: ConversationEntity,
+    val messages: List<MessageEntity> = emptyList()
+)
+
 @Singleton
 class ConversationRepository @Inject constructor(
     private val conversationDao: ConversationDao,
@@ -22,6 +27,12 @@ class ConversationRepository @Inject constructor(
     fun getAllConversations(): Flow<List<ConversationEntity>> = conversationDao.getAll()
 
     suspend fun getConversation(id: String): ConversationEntity? = conversationDao.getById(id)
+
+    suspend fun getConversationBackup(id: String): ConversationBackup? {
+        val entity = conversationDao.getById(id) ?: return null
+        val messages = messageDao.getMessagesList(id)
+        return ConversationBackup(entity, messages)
+    }
 
     suspend fun createConversation(title: String, patientProfile: PatientProfile): String {
         val id = UUID.randomUUID().toString()
@@ -49,6 +60,13 @@ class ConversationRepository @Inject constructor(
 
     suspend fun restoreConversation(entity: ConversationEntity) {
         conversationDao.insert(entity)
+    }
+
+    suspend fun restoreConversationBackup(backup: ConversationBackup) {
+        conversationDao.insert(backup.entity)
+        if (backup.messages.isNotEmpty()) {
+            messageDao.insertAll(backup.messages)
+        }
     }
 
     suspend fun togglePin(id: String) {
