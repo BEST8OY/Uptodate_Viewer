@@ -33,3 +33,5 @@ uv run python run.py                 # Run interactive CLI agent
 ## Known Quirks
 - **Koog Duplicate Classes**: `utils-android` must remain excluded in `app/build.gradle.kts` (line 130); `utils-jvm` is used instead.
 - **ProGuard**: Keep rules in `app/proguard-rules.pro` for Koog, Room3, Hilt, serialization, and Compose must not be trimmed.
+- **KMP AGP 9 Setup**: `:shared` uses `com.android.kotlin.multiplatform.library` plugin with `withHostTest { }` inside `kotlin { android { ... } }`. Source sets (`commonMain`, `commonTest`, `androidMain`, `androidUnitTest`) use explicit KMP DSL accessors.
+

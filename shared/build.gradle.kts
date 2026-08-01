@@ -16,5 +16,32 @@ kotlin {
         androidResources {
             enable = true
         }
+
+        withHostTest {
+        }
+    }
+
+    sourceSets {
+        commonMain {
+            dependencies {
+            }
+        }
+
+        commonTest {
+            dependencies {
+            }
+        }
+
+        androidMain {
+            dependencies {
+            }
+        }
+
+        androidUnitTest {
+            dependencies {
+            }
+        }
     }
 }
+
+
