@@ -9,10 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
@@ -63,20 +64,20 @@ fun GeminiChatInput(
                     )
                 )
             )
-            .padding(horizontal = 20.dp)
-            .padding(top = 8.dp, bottom = 24.dp)
+            .padding(horizontal = 16.dp)
+            .padding(top = 8.dp, bottom = 20.dp)
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(32.dp),
+            shape = CircleShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 0.dp,
-            shadowElevation = 2.dp
+            shadowElevation = 0.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 22.dp, vertical = 16.dp)
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
             ) {
                 patientProfile?.let { profile ->
                     val profileText = buildString {
@@ -94,14 +95,14 @@ fun GeminiChatInput(
                     if (profileText.isNotBlank()) {
                         Box(
                             modifier = Modifier
-                                .padding(bottom = 12.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .padding(bottom = 8.dp)
+                                .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Person,
@@ -123,14 +124,14 @@ fun GeminiChatInput(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 34.dp, max = 140.dp)
-                            .padding(bottom = 4.dp)
+                            .heightIn(min = 36.dp, max = 140.dp),
+                        contentAlignment = Alignment.CenterStart
                     ) {
                         BasicTextField(
                             value = textValue,
@@ -147,8 +148,8 @@ fun GeminiChatInput(
                                     if (textValue.isEmpty()) {
                                         Text(
                                             text = "Ask a clinical question...",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
                                         )
                                     }
                                     innerTextField()
@@ -157,21 +158,18 @@ fun GeminiChatInput(
                         )
                     }
 
-                    if (textValue.isEmpty()) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Voice input",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .size(26.dp)
-                                .padding(bottom = 4.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Voice input",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
 
                     if (isGenerating) {
                         FilledIconButton(
                             onClick = onCancel,
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier.size(42.dp),
+                            shape = CircleShape,
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer
                             )
@@ -180,7 +178,7 @@ fun GeminiChatInput(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Cancel generation",
                                 tint = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     } else {
@@ -190,25 +188,27 @@ fun GeminiChatInput(
                                     onSendMessage(textValue)
                                 }
                             },
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier.size(42.dp),
+                            shape = CircleShape,
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = if (textValue.isNotBlank()) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
-                                    MaterialTheme.colorScheme.surfaceContainer
-                                }
+                                    MaterialTheme.colorScheme.surfaceContainerHighest
+                                },
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
                             ),
                             enabled = textValue.isNotBlank()
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
+                                imageVector = Icons.Default.ArrowUpward,
+                                contentDescription = "Send message",
                                 tint = if (textValue.isNotBlank()) {
                                     MaterialTheme.colorScheme.onPrimary
                                 } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                 },
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
@@ -217,3 +217,4 @@ fun GeminiChatInput(
         }
     }
 }
+
