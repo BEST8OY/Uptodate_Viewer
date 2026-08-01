@@ -192,26 +192,20 @@ class ChatViewModel @Inject constructor(
 
             streamingManager.reset()
             userCancelled = false
-            val timeoutMs = if (config.provider == AiProvider.OLLAMA) {
-                ReliabilityManager.LOCAL_TIMEOUT_MS
-            } else {
-                ReliabilityManager.TOOL_TIMEOUT_MS
-            }
+            val timeoutMs = reliabilityManager.getAgentTimeoutMs(config.provider)
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
                     var lastAccumulator: TurnContextAccumulator? = null
-                    val result = reliabilityManager.withRetry {
-                        reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
-                            val (agent, accumulator) = koogAgentFactory.createAgent(
-                                config = config,
-                                conversationId = conversationId,
-                                patientProfile = patientProfile,
-                                streamingManager = streamingManager,
-                                userMessage = content
-                            ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                            lastAccumulator = accumulator
-                            agent.run(content, conversationId)
-                        }
+                    val result = reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
+                        val (agent, accumulator) = koogAgentFactory.createAgent(
+                            config = config,
+                            conversationId = conversationId,
+                            patientProfile = patientProfile,
+                            streamingManager = streamingManager,
+                            userMessage = content
+                        ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
+                        lastAccumulator = accumulator
+                        agent.run(content, conversationId)
                     }
                     withContext(Dispatchers.Main) {
                         handleAgentResult(conversationId, result, lastAccumulator)
