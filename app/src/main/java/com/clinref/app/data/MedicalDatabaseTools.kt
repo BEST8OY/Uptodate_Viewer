@@ -149,26 +149,26 @@ class MedicalDatabaseTools @Inject constructor(
                             putJsonArray("sections") {
                                 for (sec in outline.sections.take(10)) {
                                     add(buildJsonObject {
-                                        put("id", (sec["id"] ?: "").toString())
-                                        put("title", (sec["title"] ?: "").toString())
+                                        put("id", sec["id"] ?: "")
+                                        put("title", sec["title"] ?: "")
                                     })
                                 }
                             }
                             putJsonArray("graphics") {
                                 for (g in outline.graphics) {
                                     add(buildJsonObject {
-                                        put("id", (g["id"] ?: "").toString())
-                                        put("title", (g["title"] ?: "").toString())
-                                        put("type", (g["type"] ?: "graphic").toString())
-                                        put("subtype", (g["subtype"] ?: "graphic_table").toString())
+                                        put("id", g["id"] ?: "")
+                                        put("title", g["title"] ?: "")
+                                        put("type", g["type"] ?: "graphic")
+                                        put("subtype", g["subtype"] ?: "graphic_table")
                                     })
                                 }
                             }
                             putJsonArray("relatedTopics") {
                                 for (rt in outline.relatedTopics) {
                                     add(buildJsonObject {
-                                        put("id", (rt["id"] ?: "").toString())
-                                        put("title", (rt["title"] ?: "").toString())
+                                        put("id", rt["id"] ?: "")
+                                        put("title", rt["title"] ?: "")
                                     })
                                 }
                             }
@@ -198,26 +198,26 @@ class MedicalDatabaseTools @Inject constructor(
             putJsonArray("sections") {
                 for (sec in outline.sections) {
                     add(buildJsonObject {
-                        put("id", (sec["id"] ?: "").toString())
-                        put("title", (sec["title"] ?: "").toString())
+                        put("id", sec["id"] ?: "")
+                        put("title", sec["title"] ?: "")
                     })
                 }
             }
             putJsonArray("graphics") {
                 for (g in outline.graphics) {
                     add(buildJsonObject {
-                        put("id", (g["id"] ?: "").toString())
-                        put("title", (g["title"] ?: "").toString())
-                        put("type", (g["type"] ?: "graphic").toString())
-                        put("subtype", (g["subtype"] ?: "graphic_table").toString())
+                        put("id", g["id"] ?: "")
+                        put("title", g["title"] ?: "")
+                        put("type", g["type"] ?: "graphic")
+                        put("subtype", g["subtype"] ?: "graphic_table")
                     })
                 }
             }
             putJsonArray("relatedTopics") {
                 for (rt in outline.relatedTopics) {
                     add(buildJsonObject {
-                        put("id", (rt["id"] ?: "").toString())
-                        put("title", (rt["title"] ?: "").toString())
+                        put("id", rt["id"] ?: "")
+                        put("title", rt["title"] ?: "")
                     })
                 }
             }
@@ -239,8 +239,8 @@ class MedicalDatabaseTools @Inject constructor(
             putJsonArray("relatedTopics") {
                 for (rt in outline.relatedTopics) {
                     add(buildJsonObject {
-                        put("id", (rt["topicId"] ?: rt["id"] ?: "").toString())
-                        put("title", (rt["title"] ?: "").toString())
+                        put("id", rt["topicId"] ?: rt["id"] ?: "")
+                        put("title", rt["title"] ?: "")
                     })
                 }
             }

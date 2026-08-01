@@ -18,6 +18,8 @@ class SafetyValidatorTest {
         fetchedSections: List<SafetyValidator.FetchedSection> = emptyList(),
         graphicIds: Set<String> = emptySet(),
         userQuestion: String = "",
+        topicRefs: List<SafetyValidator.TopicRef> = emptyList(),
+        graphicRefs: List<SafetyValidator.GraphicRef> = emptyList(),
     ) = SafetyValidator.TurnContext(
         toolCalls = toolCalls,
         answer = answer,
@@ -25,6 +27,8 @@ class SafetyValidatorTest {
         fetchedSections = fetchedSections,
         graphicIds = graphicIds,
         userQuestion = userQuestion,
+        topicRefs = topicRefs,
+        graphicRefs = graphicRefs,
     )
 
     private fun toolCall(
