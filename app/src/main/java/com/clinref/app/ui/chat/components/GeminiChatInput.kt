@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
@@ -28,6 +27,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,7 +36,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +57,36 @@ fun GeminiChatInput(
     val maxLines = 8
     val isMultiLine = textValue.contains('\n') || textValue.length > 40
     val containerShape = if (isMultiLine) RoundedCornerShape(26.dp) else CircleShape
+
+    val textFieldContent = remember {
+        movableContentOf {
+            BasicTextField(
+                value = textValue,
+                onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = TextStyle(
+                    fontSize = 16.sp,
+                    lineHeight = 22.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                singleLine = false,
+                maxLines = maxLines,
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (textValue.isEmpty()) {
+                            Text(
+                                text = "Ask a clinical question...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+        }
+    }
 
     Box(
         modifier = modifier
@@ -134,7 +164,7 @@ fun GeminiChatInput(
                 }
 
                 if (!isMultiLine) {
-                    // Sleek single-line capsule layout (matching Gemini initial bar 1:1)
+                    // Single-line capsule layout with preserved textFieldContent via movableContentOf
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -144,34 +174,7 @@ fun GeminiChatInput(
                             modifier = Modifier.weight(1f),
                             contentAlignment = Alignment.CenterStart
                         ) {
-                            BasicTextField(
-                                value = textValue,
-                                onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
-                                modifier = Modifier.fillMaxWidth(),
-                                textStyle = TextStyle(
-                                    fontSize = 16.sp,
-                                    lineHeight = 22.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                singleLine = false,
-                                maxLines = maxLines,
-                                keyboardOptions = KeyboardOptions(
-                                    imeAction = ImeAction.Default
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                decorationBox = { innerTextField ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
-                                        if (textValue.isEmpty()) {
-                                            Text(
-                                                text = "Ask a clinical question...",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                }
-                            )
+                            textFieldContent()
                         }
 
                         Icon(
@@ -230,7 +233,7 @@ fun GeminiChatInput(
                         }
                     }
                 } else {
-                    // Multi-line expanded layout (line-by-line incremental height growth)
+                    // Multi-line expanded layout with preserved textFieldContent via movableContentOf
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -238,34 +241,7 @@ fun GeminiChatInput(
                             .padding(bottom = 6.dp),
                         contentAlignment = Alignment.TopStart
                     ) {
-                        BasicTextField(
-                            value = textValue,
-                            onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
-                            modifier = Modifier.fillMaxWidth(),
-                            textStyle = TextStyle(
-                                fontSize = 16.sp,
-                                lineHeight = 22.sp,
-                                color = MaterialTheme.colorScheme.onSurface
-                            ),
-                            singleLine = false,
-                            maxLines = maxLines,
-                            keyboardOptions = KeyboardOptions(
-                                imeAction = ImeAction.Default
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            decorationBox = { innerTextField ->
-                                Box(contentAlignment = Alignment.TopStart) {
-                                    if (textValue.isEmpty()) {
-                                        Text(
-                                            text = "Ask a clinical question...",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            }
-                        )
+                        textFieldContent()
                     }
 
                     Row(
