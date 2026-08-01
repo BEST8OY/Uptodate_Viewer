@@ -87,7 +87,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ConversationFilter
 import com.clinref.app.repository.ConversationBackup
-import com.clinref.app.ui.conversations.components.ScrollToTopFAB
+import com.clinref.app.ui.common.ScrollToTopFAB
 import com.clinref.app.ui.components.showUndoSnackbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

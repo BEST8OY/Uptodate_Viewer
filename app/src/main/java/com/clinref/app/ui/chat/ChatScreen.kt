@@ -47,7 +47,7 @@ import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
-import com.clinref.app.ui.chat.components.ScrollToBottomFAB
+import com.clinref.app.ui.common.ScrollToBottomFAB
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)

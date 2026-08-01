@@ -1,4 +1,4 @@
-package com.clinref.app.ui.chat.components
+package com.clinref.app.ui.common
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -19,10 +20,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
+enum class ScrollFABDirection { UP, DOWN }
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun ScrollToBottomFAB(
+fun ScrollFAB(
     visible: Boolean,
+    direction: ScrollFABDirection,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -43,8 +47,8 @@ fun ScrollToBottomFAB(
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Scroll to latest message",
+                    imageVector = if (direction == ScrollFABDirection.UP) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (direction == ScrollFABDirection.UP) "Scroll to top" else "Scroll to bottom",
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(24.dp)
                 )
@@ -52,3 +56,17 @@ fun ScrollToBottomFAB(
         }
     }
 }
+
+@Composable
+fun ScrollToTopFAB(
+    visible: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) = ScrollFAB(visible = visible, direction = ScrollFABDirection.UP, onClick = onClick, modifier = modifier)
+
+@Composable
+fun ScrollToBottomFAB(
+    visible: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) = ScrollFAB(visible = visible, direction = ScrollFABDirection.DOWN, onClick = onClick, modifier = modifier)
