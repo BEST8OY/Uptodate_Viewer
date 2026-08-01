@@ -82,23 +82,22 @@ class MedicalDatabaseTools @Inject constructor(
         val searchResults = searchRepository.searchTopics(cleanQuery)
         val results = formatSearchResults(searchResults)
 
-        // Auto-retry: if primary query returns no results, try first suggestion internally
+        // Auto-retry: if primary query returns no results, try available suggestions internally
         if (results.isEmpty()) {
             val suggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-            if (suggestions.isNotEmpty()) {
-                val firstSuggestion = suggestions.first()
-                val retryResults = searchRepository.searchTopics(firstSuggestion)
+            for (suggestion in suggestions.take(5)) {
+                val retryResults = searchRepository.searchTopics(suggestion)
                 val retryMapped = formatSearchResults(retryResults)
                 if (retryMapped.isNotEmpty()) {
                     return buildJsonObject {
-                        put("query", firstSuggestion)
+                        put("query", suggestion)
                         putJsonArray("results") {
                             for (res in retryMapped) add(res)
                         }
                         putJsonArray("refine_with") {
-                            for (sug in suggestions.drop(1)) add(sug)
+                            for (sug in suggestions.filter { it != suggestion }) add(sug)
                         }
-                        put("message", "Auto-refined from '$cleanQuery' to '$firstSuggestion'")
+                        put("message", "Auto-refined from '$cleanQuery' to '$suggestion'")
                     }.toString()
                 }
             }
