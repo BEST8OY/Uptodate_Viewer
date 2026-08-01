@@ -2,18 +2,38 @@ name: Unit Tests
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'feature/**' ]
     paths:
       - 'app/src/**'
       - 'gradle/**'
       - 'app/build.gradle.kts'
+      - 'python_prototype/**'
+      - '.github/workflows/unit-tests.yml'
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, 'feature/**' ]
     paths:
       - 'app/src/**'
       - 'gradle/**'
       - 'app/build.gradle.kts'
+      - 'python_prototype/**'
+      - '.github/workflows/unit-tests.yml'
   workflow_dispatch:
+    inputs:
+      run_jvm_tests:
+        description: 'Run Kotlin JVM Unit Tests (testDebugUnitTest)'
+        type: boolean
+        required: true
+        default: true
+      run_python_tests:
+        description: 'Run Python Prototype Unit Tests (test_clinref.py)'
+        type: boolean
+        required: true
+        default: true
+      python_version:
+        description: 'Python Version'
+        type: string
+        required: false
+        default: '3.13'
 
 permissions:
   contents: read
@@ -24,46 +44,48 @@ env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false
 
 jobs:
-  test:
-    name: JVM Unit Tests
+  jvm-unit-tests:
+    name: Kotlin JVM Unit Tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_jvm_tests }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: gradle/actions/wrapper-validation@v6
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: false
           add-job-summary: on-failure
           cache-cleanup: on-success
 
-      - name: Run unit tests
+      - name: Run JVM unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Upload test results
-        uses: actions/upload-artifact@v7
+      - name: Upload JVM test results
+        uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results-${{ github.sha }}
+          name: jvm-test-results-${{ github.sha }}
           path: app/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
       - name: Show failed test details
         if: failure()
         run: |
-          echo "### Failed Test Details" >> $GITHUB_STEP_SUMMARY
+          echo "### Failed JVM Test Details" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           for f in app/build/test-results/testDebugUnitTest/*.xml; do
             if [ -f "$f" ]; then
@@ -81,7 +103,42 @@ jobs:
       - name: Test Summary
         if: always()
         run: |
-          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Kotlin JVM Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  python-unit-tests:
+    name: Python Prototype Unit Tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_python_tests }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python ${{ inputs.python_version || '3.13' }}
+        run: uv python install ${{ inputs.python_version || '3.13' }}
+
+      - name: Install dependencies
+        working-directory: python_prototype
+        run: uv sync
+
+      - name: Run Python unit tests
+        working-directory: python_prototype
+        run: uv run pytest test_clinref.py -v
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "### Python Prototype Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
