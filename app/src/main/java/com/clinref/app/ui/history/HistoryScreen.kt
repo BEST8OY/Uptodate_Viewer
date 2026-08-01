@@ -406,7 +406,7 @@ private fun HistoryItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                headlineContent = {
+                content = {
                     Text(
                         text = entry.title,
                         maxLines = 2,
@@ -444,7 +444,7 @@ private fun HistoryItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 },
-                headlineContent = {
+                content = {
                     Text(
                         text = entry.title,
                         maxLines = 2,

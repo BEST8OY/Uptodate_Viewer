@@ -34,21 +34,24 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumTopAppBar
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,30 +60,36 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.AiProvider
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AiSettingsScreen(
-    viewModel: AiSettingsViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val configuration by viewModel.configuration
-    val connectionState by viewModel.connectionState
-    val availableModels by viewModel.availableModels
-    val isTesting by viewModel.isTesting
+    val configuration by viewModel.configuration.collectAsStateWithLifecycle()
+    val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
+    val availableModels by viewModel.availableModels.collectAsStateWithLifecycle()
+    val testResult by viewModel.testResult.collectAsStateWithLifecycle()
+    val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
 
+    var showApiKey by remember { mutableStateOf(false) }
     var providerExpanded by remember { mutableStateOf(false) }
     var modelExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            MediumTopAppBar(
                 title = {
                     Text(
                         "AI Orchestration",

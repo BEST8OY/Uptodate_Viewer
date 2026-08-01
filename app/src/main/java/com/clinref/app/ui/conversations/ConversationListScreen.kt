@@ -474,14 +474,14 @@ fun ConversationListScreen(
                                                     }
                                                 }
                                             },
-                                            supportingContent = {
+                                             supportingContent = {
                                                 Text(
                                                     text = conversation.lastPreview,
                                                     maxLines = 2,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             },
-                                            headlineContent = {
+                                            content = {
                                                 Text(
                                                     text = conversation.title,
                                                     fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
@@ -561,7 +561,7 @@ fun ConversationListScreen(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             },
-                                            headlineContent = {
+                                            content = {
                                                 Text(
                                                     text = conversation.title,
                                                     fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold,
