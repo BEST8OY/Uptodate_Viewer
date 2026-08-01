@@ -1,60 +1,86 @@
 """Clinical safety validator — mirrors Kotlin SafetyValidator.kt exactly.
 
-5 validation rules, short-circuit on first hard block:
-1. Tool calls required
-1b. Section content required (getTopicSectionText or getGraphicContent)
-2. Citation consistency with fetched sections
-3. No invented clinical quantities
-4. Citations required
-5. No graphic interpretation
+4 validation rules (intent-aware), short-circuit on first hard block:
+0. Intent-aware tool call check (allow non-clinical responses without tools)
+1. Section content required (getTopicSectionText or getTopicSectionsText or getGraphicContent)
+2. No invented clinical quantities
+3. No graphic interpretation
 """
 
 import re
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
-
-
-class Citation(BaseModel):
-    topic_title: str
-    section_title: str
-    section_id: str = "unknown"
+from pydantic import BaseModel
 
 
 class ToolCallRecord(BaseModel):
     tool_name: str
-    arguments: dict[str, str]
+    arguments: dict[str, Any]
     result: str
     success: bool
 
 
 class FetchedSection(BaseModel):
     topic_id: str
+    topic_title: str = ""
     section_id: str
     section_title: str
+    content_snippet: str = ""
+
+
+class TopicRef(BaseModel):
+    topic_id: str
+    section_id: str = ""
+    label: str
+    topic_title: str = ""
+
+
+class GraphicRef(BaseModel):
+    graphic_id: str
+    label: str
 
 
 class TurnContext(BaseModel):
     tool_calls: list[ToolCallRecord] = []
     answer: str = ""
-    citations: list[Citation] = []
     tool_results: list[str] = []
     fetched_sections: list[FetchedSection] = []
     graphic_ids: set[str] = set()
+    graphic_titles: dict[str, str] = {}
     user_question: str = ""
+    topic_titles: dict[str, str] = {}
+    outline_sections: dict[str, dict[str, str]] = {}  # topic_id -> {section_id: section_title}
+    structured_topic_refs: list[TopicRef] = []
+    structured_graphic_refs: list[GraphicRef] = []
 
 
 class ValidationResult(BaseModel):
     passed: bool
     warnings: list[str] = []
-    citations: list[Citation] = []
+    topic_refs: list[TopicRef] = []
+    graphic_refs: list[GraphicRef] = []
     blocked_reason: Optional[str] = None
+
+
+# ── Clinical terms for intent detection ─────────────────────────────
+
+CONVERSATIONAL_USER_REGEX = re.compile(
+    r"(?i)^\s*(hi|hello|hey|greetings|who are you|thanks|thank you|help|what can you do)\b.*"
+)
 
 
 # ── Regex constants (matching Kotlin) ────────────────────────────────
 
 CLINICAL_QUANTITY_REGEX = re.compile(
-    r"\b\d+[\.,]?\d*\s*(?:mg|%|mL|mmol|mcg|units?|mEq|L|kg|cm|mmHg|g|mg/dL|mmol/L|mEq/L|IU|bpm|mcg/kg|mg/kg)\b",
+    r"\b\d+(?:[\.,]\d+)?\s*"
+    r"(?:"
+    r"(?:mg|mcg|g|kg|mL|L|mmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2)\b"
+    r"(?:/(?:kg|g|mg|mcg|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*"
+    r"|"
+    r"[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*"
+    r"|"
+    r"%"
+    r")",
     re.IGNORECASE,
 )
 
@@ -78,86 +104,69 @@ GRAPHIC_INTERPRETATION_PATTERNS = [
 
 
 class SafetyValidator:
-    """Clinical safety validator with 5 rules."""
+    """Clinical safety validator with intent-aware rules."""
 
     @staticmethod
-    def parse_citations(answer: str) -> list[Citation]:
-        """Extract citations from answer text.
+    def is_non_clinical_response(context: TurnContext) -> bool:
+        """Detect if a response is conversational (no medical claims).
 
-        Handles markdown formatting: bullets (-, *), numbered lists (1., 2.),
-        bold markers (**), and inline formatting.
+        Returns True if the user question is conversational and the response
+        is short, or if the response contains no dosing quantities.
         """
-        citations = []
-        pattern = re.compile(
-            r"^\s*(?:[-*]|\d+\.)?\s*(?:\*\*)?Topic:(?:\*\*)?\s*(.+?),\s*(?:\*\*)?Section:(?:\*\*)?\s*(.+?)(?:\s*\(ID:\s*([a-zA-Z0-9_-]+)\))?(?:\*\*)?\s*(?=\s*(?:$|\n))",
-            re.IGNORECASE | re.MULTILINE,
-        )
-        for match in pattern.finditer(answer):
-            topic_title = match.group(1).strip().strip("*")
-            section_title = match.group(2).strip().strip("*")
-            section_id = match.group(3).strip() if match.group(3) else "unknown"
-            citations.append(
-                Citation(
-                    topic_title=topic_title,
-                    section_title=section_title,
-                    section_id=section_id,
-                )
-            )
-        return citations
+        # If user question is conversational and response is short, bypass
+        if CONVERSATIONAL_USER_REGEX.match(context.user_question.strip()) and len(context.answer) < 500:
+            return True
+
+        # Check if response contains actual dosing quantities (not just clinical words)
+        return not CLINICAL_QUANTITY_REGEX.search(context.answer)
 
     def validate(self, context: TurnContext) -> ValidationResult:
-        """Run all 5 validation rules. Short-circuit on first hard block (passed=False)."""
+        """Run all validation rules. Short-circuit on first hard block (passed=False)."""
         all_warnings = []
 
-        # Rule 1: Tool calls required
-        result = self._validate_tool_call_required(context)
-        if result and not result.passed:
-            return result
+        # Rule 0: Intent-aware tool call check
+        if not context.tool_calls:
+            if self.is_non_clinical_response(context):
+                return ValidationResult(
+                    passed=True,
+                    warnings=[],
+                    topic_refs=context.structured_topic_refs,
+                    graphic_refs=context.structured_graphic_refs,
+                )
+            return ValidationResult(
+                passed=False,
+                blocked_reason="Clinical recommendations require database verification. No database tools were executed.",
+            )
 
-        # Rule 1b: Section content required
+        # Rule 1: Section content required
         result = self._validate_section_content_required(context)
         if result and not result.passed:
             return result
 
-        # Rule 2: Citation consistency
-        result = self._validate_citation_consistency(context)
-        if result and not result.passed:
-            return result
-        if result and result.warnings:
-            all_warnings.extend(result.warnings)
-
-        # Rule 3: No invented clinical quantities
+        # Rule 2: No invented clinical quantities
         result = self._validate_no_invented_numbers(context)
         if result and not result.passed:
             return result
         if result and result.warnings:
             all_warnings.extend(result.warnings)
 
-        # Rule 4: Citations required
-        result = self._validate_citation_required(context)
-        if result and not result.passed:
-            return result
-
-        # Rule 5: No graphic interpretation
+        # Rule 3: No graphic interpretation
         result = self._validate_no_graphic_interpretation(context)
         if result and not result.passed:
             return result
         if result and result.warnings:
             all_warnings.extend(result.warnings)
 
-        return ValidationResult(passed=True, warnings=all_warnings, citations=context.citations)
-
-    def _validate_tool_call_required(self, ctx: TurnContext) -> Optional[ValidationResult]:
-        if not ctx.tool_calls:
-            return ValidationResult(
-                passed=False,
-                blocked_reason="No tool calls were made. Clinical answers require database retrieval.",
-            )
-        return None
+        return ValidationResult(
+            passed=True,
+            warnings=all_warnings,
+            topic_refs=context.structured_topic_refs,
+            graphic_refs=context.structured_graphic_refs,
+        )
 
     def _validate_section_content_required(self, ctx: TurnContext) -> Optional[ValidationResult]:
         has_section = any(
-            tc.tool_name in ("get_topic_section_text", "get_graphic_content") and tc.success
+            tc.tool_name in ("get_topic_sections_text", "get_graphic_content") and tc.success
             for tc in ctx.tool_calls
         )
         if not has_section:
@@ -165,36 +174,6 @@ class SafetyValidator:
                 passed=False,
                 blocked_reason="Answer requires section or table content retrieval. Only topic outlines or searches were performed.",
             )
-        return None
-
-    def _validate_citation_consistency(self, ctx: TurnContext) -> Optional[ValidationResult]:
-        fetched_ids = {fs.section_id for fs in ctx.fetched_sections}
-        warnings = []
-        for citation in ctx.citations:
-            id_match = citation.section_id != "unknown" and citation.section_id in fetched_ids
-            title_match = any(
-                fs.section_title.lower() in citation.section_title.lower()
-                or citation.section_title.lower() in fs.section_title.lower()
-                for fs in ctx.fetched_sections
-            )
-
-            if not id_match and not title_match and ctx.fetched_sections:
-                return ValidationResult(
-                    passed=False,
-                    blocked_reason=(
-                        f"Citation references section '{citation.section_title}' "
-                        f"(ID: {citation.section_id}) which was not retrieved in this turn."
-                    ),
-                    warnings=warnings,
-                )
-
-            if not id_match and title_match:
-                warnings.append(
-                    f"Citation section ID '{citation.section_id}' matched via title fallback."
-                )
-
-        if warnings:
-            return ValidationResult(passed=True, warnings=warnings)
         return None
 
     def _validate_no_invented_numbers(self, ctx: TurnContext) -> Optional[ValidationResult]:
@@ -218,51 +197,70 @@ class SafetyValidator:
         for metric in answer_metrics:
             if metric in question_metrics:
                 continue
-
-            # Extract just the numeric part and check if it appears in tool text
-            num_match = re.match(r"^(\d[\d.,]*)", metric)
-            if num_match:
-                num_part = re.escape(num_match.group(1))
-                if re.search(rf"(?<!\d){num_part}(?!\d)", all_tool_text, re.IGNORECASE):
-                    continue
-
+            if self._is_quantity_in_text(metric, all_tool_text):
+                continue
             unverified.append(metric)
 
         if unverified:
+            unverified_str = ", ".join(unverified[:5])
             return ValidationResult(
                 passed=False,
                 blocked_reason=(
-                    "Answer contains clinical quantities not traceable to retrieved source data: "
-                    f"{', '.join(unverified[:5])}"
+                    f"Unverified clinical quantities found in response: {unverified_str}. "
+                    "Ensure every quantity or dosage matches the retrieved database section text exactly."
                 ),
             )
         return None
 
-    def _validate_citation_required(self, ctx: TurnContext) -> Optional[ValidationResult]:
-        if not ctx.citations:
-            return ValidationResult(
-                passed=False,
-                blocked_reason="No citations provided. Every clinical answer must cite its source section.",
-            )
+    @staticmethod
+    def _normalize_quantity(metric: str) -> list[str]:
+        """Expand a clinical quantity into its numeric components.
 
-        # Require at least one citation that matches a fetched section
-        if ctx.fetched_sections:
-            fetched_ids = {fs.section_id for fs in ctx.fetched_sections}
-            valid_citation_found = any(
-                c.section_id in fetched_ids
-                or any(
-                    fs.section_title.lower() in c.section_title.lower()
-                    for fs in ctx.fetched_sections
-                )
-                for c in ctx.citations
-            )
-            if not valid_citation_found:
-                return ValidationResult(
-                    passed=False,
-                    blocked_reason="None of the citations match the sections fetched during database retrieval.",
-                )
+        Handles ranges ('5-10 mg' -> ['5', '10']), thousand commas ('1,200 mg' -> ['1,200', '1200']),
+        and direct numeric parts.
+        """
+        expanded = []
+        # Expand ranges: "5-10 mg" -> ["5", "10"]
+        range_match = re.search(r"(\d[\d.,]*)\s*[-–—]\s*(\d[\d.,]*)", metric)
+        if range_match:
+            expanded.append(range_match.group(1))
+            expanded.append(range_match.group(2))
+        # Also extract the numeric part for direct match
+        num_match = re.search(r"(\d[\d.,]*)", metric)
+        if num_match:
+            raw_num = num_match.group(1)
+            expanded.append(raw_num)
+            uncomma = raw_num.replace(",", "")
+            if uncomma != raw_num:
+                expanded.append(uncomma)
+        return expanded if expanded else [metric]
 
-        return None
+    @staticmethod
+    def _is_quantity_in_text(metric: str, text: str) -> bool:
+        """Check if a clinical quantity (or its normalized forms) appears in text.
+
+        Handles ranges, missing spaces ('10mg' vs '10 mg'), thousand commas ('1,200' vs '1200'),
+        and boundary matching.
+        """
+        variants = SafetyValidator._normalize_quantity(metric)
+        text_uncomma = text.replace(",", "")
+        text_unspace = text.replace(" ", "")
+
+        for variant in variants:
+            escaped = re.escape(variant)
+            if re.search(rf"(?<!\d){escaped}(?!\d)", text, re.IGNORECASE):
+                return True
+            # Check in text stripped of thousand separator commas
+            uncomma = variant.replace(",", "")
+            if uncomma:
+                uncomma_escaped = re.escape(uncomma)
+                if re.search(rf"(?<!\d){uncomma_escaped}(?!\d)", text_uncomma, re.IGNORECASE):
+                    return True
+            # Also try without space before unit (e.g., "10mg" in text when metric is "10 mg")
+            compact = metric.replace(" ", "")
+            if compact != metric and re.search(rf"(?<!\d){escaped}(?!\d)", text_unspace, re.IGNORECASE):
+                return True
+        return False
 
     def _validate_no_graphic_interpretation(self, ctx: TurnContext) -> Optional[ValidationResult]:
         answer = ctx.answer

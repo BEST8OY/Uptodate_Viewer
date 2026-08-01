@@ -7,6 +7,9 @@ import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
 import android.util.Log
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -49,12 +52,10 @@ class MedicalDatabaseTools @Inject constructor(
         )
     }
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     @Tool
     @LLMDescription(
         "Search medical topics by focused core keywords (e.g., 'apixaban', 'asthma', 'gout'). " +
-        "Returns matching topics and 'refine_with' suggestions for follow-up query refining. " +
+        "Returns matching topics, optional inline outline for top match, and 'refine_with' suggestions. " +
         "For multi-concept questions, execute separate searches per concept. " +
         "Avoid searching full patient sentences or lab measurements."
     )
@@ -67,30 +68,77 @@ class MedicalDatabaseTools @Inject constructor(
         }
 
         val searchResults = searchRepository.searchTopics(cleanQuery)
-        val results = searchResults.map { result ->
-            val id = when (result) {
-                is com.clinref.app.domain.SearchResult.Topic -> result.topicId
-                is com.clinref.app.domain.SearchResult.Graphic -> result.graphicId
+        val results = formatSearchResults(searchResults)
+
+        // Auto-retry: if primary query returns no results, try first suggestion internally
+        if (results.isEmpty()) {
+            val suggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
+            if (suggestions.isNotEmpty()) {
+                val firstSuggestion = suggestions.first()
+                val retryResults = searchRepository.searchTopics(firstSuggestion)
+                val retryMapped = formatSearchResults(retryResults)
+                if (retryMapped.isNotEmpty()) {
+                    val response = mapOf(
+                        "query" to firstSuggestion,
+                        "results" to retryMapped,
+                        "refine_with" to suggestions.drop(1),
+                        "message" to "Auto-refined from '$cleanQuery' to '$firstSuggestion'"
+                    )
+                    return json.encodeToString(response)
+                }
             }
-            mapOf("id" to id, "title" to result.title)
+            // Still no results after auto-retry
+            val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
+            val response = mapOf(
+                "query" to cleanQuery,
+                "results" to emptyList<Map<String, String>>(),
+                "refine_with" to allSuggestions,
+                "message" to if (allSuggestions.isEmpty()) {
+                    "No topic match and no suggestions available for '$cleanQuery'."
+                } else {
+                    "No results for '$cleanQuery'. Try one of the 'refine_with' suggestions."
+                }
+            )
+            return json.encodeToString(response)
         }
 
-        val suggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-
+        val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
         val response = mapOf(
             "query" to cleanQuery,
             "results" to results,
-            "refine_with" to suggestions,
-            "message" to if (results.isEmpty()) "No direct topic match found. Consider refining query with 'refine_with' suggestions." else "Success"
+            "refine_with" to allSuggestions,
+            "message" to "Success"
         )
 
         return json.encodeToString(response)
     }
 
+    private fun formatSearchResults(searchResults: List<com.clinref.app.domain.SearchResult>): List<Map<String, Any>> {
+        return searchResults.mapIndexed { index, result ->
+            val id = when (result) {
+                is com.clinref.app.domain.SearchResult.Topic -> result.topicId
+                is com.clinref.app.domain.SearchResult.Graphic -> result.graphicId
+            }
+            val itemMap = mutableMapOf<String, Any>("id" to id, "title" to result.title)
+            if (index == 0) {
+                val outlineHtml = contentRepository.getTopicContent(id)?.outlineHtml
+                if (!outlineHtml.isNullOrBlank()) {
+                    val outline = parseOutline(outlineHtml)
+                    itemMap["outline"] = mapOf(
+                        "sections" to outline.sections.take(10),
+                        "graphics" to outline.graphics,
+                        "relatedTopics" to outline.relatedTopics
+                    )
+                }
+            }
+            itemMap
+        }
+    }
+
     @Tool
     @LLMDescription(
         "Retrieve the topic outline containing section IDs, titles, graphic metadata, and related topics. " +
-        "ALWAYS call this after searchTopics to obtain exact sectionId values for getTopicSectionText."
+        "ALWAYS call this after searchTopics to obtain sectionId values for getTopicSectionsText."
     )
     fun getTopicOutline(
         @LLMDescription("The topic ID returned by searchTopics (e.g., '12345')") topicId: String
@@ -111,59 +159,98 @@ class MedicalDatabaseTools @Inject constructor(
 
     @Tool
     @LLMDescription(
-        "Retrieve full markdown text content of a specific section. " +
-        "Call this with sectionId retrieved from getTopicOutline."
+        "Get related topic IDs and titles for a topic. Use this to build a candidate pool before fetching sections."
     )
-    fun getTopicSectionText(
-        @LLMDescription("The topic ID") topicId: String,
-        @LLMDescription("Exact section ID from getTopicOutline (e.g., 'H3', 'summary-and-recommendations')") sectionId: String,
-        @LLMDescription("Fallback section title if ID lookup fails") sectionTitle: String = ""
+    fun getRelatedTopics(
+        @LLMDescription("The topic ID from searchTopics") topicId: String
     ): String {
         val cleanTopicId = topicId.trim()
-        val cleanSectionId = sectionId.trim()
-        val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found"
-
-        var targetId = cleanSectionId
-        var sectionHtml = extractSectionHtml(content.bodyHtml, content.outlineHtml, targetId)
-
-        if (sectionHtml == null && sectionTitle.isNotBlank()) {
-            val outline = parseOutline(content.outlineHtml)
-            val matched = outline.sections.firstOrNull {
-                it["title"]?.contains(sectionTitle, ignoreCase = true) == true ||
-                sectionTitle.contains(it["title"] ?: "_", ignoreCase = true)
-            }
-            if (matched != null) {
-                val fallbackId = matched["id"]
-                if (fallbackId != null) {
-                    targetId = fallbackId
-                    sectionHtml = extractSectionHtml(content.bodyHtml, content.outlineHtml, targetId)
-                }
-            }
-        }
-
-        if (sectionHtml == null) {
-            return "Section not found."
-        }
-
-        val topicTitles = mutableMapOf<String, String>()
-        val currentTitle = contentRepository.getTopicTitle(cleanTopicId)
-        if (currentTitle != null) topicTitles[cleanTopicId] = currentTitle
-
-        val markdown = htmlToMarkdown(sectionHtml) { tid ->
-            topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
-        }
-
-        return markdown
+        val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found: $cleanTopicId"
+        val outline = parseOutline(content.outlineHtml)
+        return json.encodeToString(mapOf(
+            "topicId" to cleanTopicId,
+            "related_topics" to outline.relatedTopics
+        ))
     }
 
     @Tool
     @LLMDescription(
-        "Follow a related topic ID to inspect its outline and section structure."
+        "Retrieve multiple sections from the same topic in a single call."
     )
-    fun followRelatedTopic(
-        @LLMDescription("The topic ID from related_topics") topicId: String
+    fun getTopicSectionsText(
+        @LLMDescription("The topic ID") topicId: String,
+        @LLMDescription("List of section IDs to retrieve from getTopicOutline") sectionIds: List<String>
     ): String {
-        return getTopicOutline(topicId)
+        val cleanTopicId = topicId.trim()
+        val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found"
+
+        val topicTitle = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
+        val topicTitles = mutableMapOf<String, String>()
+        topicTitles[cleanTopicId] = topicTitle
+
+        // Build section ID -> title map from outline
+        val outlineSections = parseOutline(content.outlineHtml).sections
+        val idToTitle = outlineSections.associate { it["id"]!! to (it["title"] ?: "") }
+
+        // Validate: separate valid from invalid section IDs
+        val validIds = mutableListOf<String>()
+        val invalidIds = mutableListOf<String>()
+        for (sectionId in sectionIds) {
+            val clean = sectionId.trim()
+            if (clean in idToTitle) {
+                validIds.add(clean)
+            } else {
+                invalidIds.add(clean)
+            }
+        }
+
+        val sectionsMd = mutableListOf<String>()
+        val sectionTitles = mutableMapOf<String, String>()
+        for (sectionId in validIds) {
+            val title = idToTitle[sectionId] ?: ""
+            sectionTitles[sectionId] = title
+            val sectionHtml = extractSectionHtml(content.bodyHtml, content.outlineHtml, sectionId)
+            if (sectionHtml != null) {
+                val markdown = htmlToMarkdown(sectionHtml) { tid ->
+                    topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
+                }
+                sectionsMd.add("=== Section: $sectionId ===\n$markdown")
+            } else {
+                sectionsMd.add("=== Section: $sectionId ===\nSection not found.")
+            }
+        }
+
+        val result = mutableMapOf(
+            "topicTitle" to topicTitle,
+            "sectionTitles" to sectionTitles,
+            "markdown" to sectionsMd.joinToString("\n\n"),
+        )
+        if (invalidIds.isNotEmpty()) {
+            result["invalidSections"] = invalidIds
+        }
+
+        return json.encodeToString(result)
+    }
+
+
+
+    @Tool
+    @LLMDescription(
+        "MUST be called to present your final clinical answer to the user. " +
+        "Provide the final text response and indicate if data was unavailable. " +
+        "References are automatically extracted from your tool calls."
+    )
+    fun submitClinicalAnswer(
+        @LLMDescription("The formatted markdown response text for the clinician.") answerText: String,
+        @LLMDescription("Set to true ONLY if the database search yielded no relevant clinical information.") noDataFound: Boolean = false
+    ): String {
+        return json.encodeToString(
+            mapOf(
+                "status" to "SUBMITTED",
+                "answer" to answerText,
+                "noDataFound" to noDataFound
+            )
+        )
     }
 
     @Tool
@@ -295,22 +382,23 @@ class MedicalDatabaseTools @Inject constructor(
                 val jsonStr = actionMatch.groupValues[1]
                     .replace("&quot;", "\"").replace("&#39;", "'")
                 when {
-                    jsonStr.contains("\"graphic\"") && jsonStr.contains("\"type\":\"graphic\"") -> {
+                    jsonStr.contains("graphic", ignoreCase = true) || jsonStr.contains("graphicId", ignoreCase = true) -> {
                         val idMatch = GRAPHIC_ID_REGEX.find(jsonStr)
                         val graphicId = idMatch?.groupValues?.get(1)
                         if (graphicId != null) {
                             return@replace "[$rawText](Graphic-$graphicId)"
                         }
                     }
-                    jsonStr.contains("\"type\":\"medical\"") || jsonStr.contains("\"type\":\"drug\"") -> {
+                    jsonStr.contains("topic", ignoreCase = true) || jsonStr.contains("topicId", ignoreCase = true) ||
+                    jsonStr.contains("medical", ignoreCase = true) || jsonStr.contains("drug", ignoreCase = true) -> {
                         val idMatch = GRAPHIC_ID_REGEX.find(jsonStr)
                         val topicId = idMatch?.groupValues?.get(1)
                         if (topicId != null) {
                             val sectionMatch = SECTION_REGEX.find(jsonStr)
                             val sectionId = sectionMatch?.groupValues?.get(1)
                             val ref = if (sectionId != null) "$topicId#$sectionId" else topicId
-                            val displayTitle = titleLookup(topicId)
-                            return@replace "[$displayTitle](Topic-$ref)"
+                            val textToUse = rawText.ifEmpty { titleLookup(topicId) }
+                            return@replace "[$textToUse](Topic-$ref)"
                         }
                     }
                 }
@@ -334,6 +422,9 @@ class MedicalDatabaseTools @Inject constructor(
 
         s = s.replace(STRIP_TAGS_REGEX, "")
 
+        // Strip footnote citation references like [1], [1,2], [1-3]
+        s = s.replace(Regex("\\[\\d+(?:\\s*[-,\\u2013\\u2014]\\s*\\d+)*\\]"), "")
+
         s = s.replace("&#160;", " ").replace("&nbsp;", " ")
         s = s.replace("&#8212;", "\u2014").replace("&mdash;", "\u2014")
         s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
@@ -351,35 +442,40 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     private fun convertHtmlTablesToMarkdown(html: String): String {
-        val tableRegex = Regex("""<table\b[^>]*>(.*?)</table>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val trRegex = Regex("""<tr\b[^>]*>(.*?)</tr>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        val tdThRegex = Regex("""<(?:td|th)\b[^>]*>(.*?)</(?:td|th)>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        val doc = Jsoup.parseBodyFragment(html)
+        val tables = doc.select("table")
 
-        return tableRegex.replace(html) { match ->
-            val tableBody = match.groupValues[1]
-            val rows = trRegex.findAll(tableBody).map { trMatch ->
-                tdThRegex.findAll(trMatch.groupValues[1]).map { cellMatch ->
-                    cellMatch.groupValues[1].replace(STRIP_TAGS_REGEX, "").trim()
-                }.toList()
-            }.filter { it.isNotEmpty() }.toList()
+        for (table in tables) {
+            val markdownTable = StringBuilder("\n\n")
+            val rows = table.select("tr")
+            if (rows.isEmpty()) continue
 
-            if (rows.isEmpty()) return@replace ""
-
-            val sb = java.lang.StringBuilder("\n\n")
-            val maxCols = rows.maxOf { it.size }
-            
-            val header = rows.first()
-            sb.append("| ").append(header.padTo(maxCols, "").joinToString(" | ")).append(" |\n")
-            
-            val sep = List(maxCols) { "---" }
-            sb.append("| ").append(sep.joinToString(" | ")).append(" |\n")
-
-            for (row in rows.drop(1)) {
-                sb.append("| ").append(row.padTo(maxCols, "").joinToString(" | ")).append(" |\n")
+            val tableMatrix = mutableListOf<List<String>>()
+            for (row in rows) {
+                val cells = row.select("th, td").map { cell ->
+                    cell.text().replace("|", "\\|").trim()
+                }
+                if (cells.isNotEmpty()) tableMatrix.add(cells)
             }
-            sb.append("\n")
-            sb.toString()
+
+            if (tableMatrix.isEmpty()) continue
+            val maxCols = tableMatrix.maxOf { it.size }
+
+            val header = tableMatrix.first()
+            markdownTable.append("| ").append(header.padTo(maxCols, "").joinToString(" | ")).append(" |\n")
+
+            val sep = List(maxCols) { "---" }
+            markdownTable.append("| ").append(sep.joinToString(" | ")).append(" |\n")
+
+            for (row in tableMatrix.drop(1)) {
+                markdownTable.append("| ").append(row.padTo(maxCols, "").joinToString(" | ")).append(" |\n")
+            }
+            markdownTable.append("\n")
+
+            table.replaceWith(doc.createElement("p").text(markdownTable.toString()))
         }
+
+        return doc.body().html()
     }
 
     private fun <T> List<T>.padTo(size: Int, default: T): List<T> {

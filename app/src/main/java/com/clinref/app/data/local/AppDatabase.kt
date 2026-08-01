@@ -2,6 +2,8 @@ package com.clinref.app.data.local
 
 import androidx.room3.Database
 import androidx.room3.RoomDatabase
+import androidx.room3.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.clinref.app.data.local.dao.ConversationDao
 import com.clinref.app.data.local.dao.FavoriteDao
 import com.clinref.app.data.local.dao.HistoryDao
@@ -18,7 +20,7 @@ import com.clinref.app.data.local.entity.MessageEntity
         HistoryEntity::class,
         FavoriteEntity::class
     ],
-    version = 4,
+    version = 1,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

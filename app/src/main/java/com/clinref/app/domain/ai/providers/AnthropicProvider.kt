@@ -48,8 +48,6 @@ class AnthropicProvider(
             ?: return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
         val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
-        // TODO: AnthropicThinking can't be resolved from Kotlin 2.4.10 despite existing in 1.1.1.
-        // Likely a metadata version mismatch. Enable when Koog bumps to Kotlin 2.4.x.
         return AnthropicParams(
             temperature = if (settings.topP != null) null else temperature,
             maxTokens = settings.maxTokens,

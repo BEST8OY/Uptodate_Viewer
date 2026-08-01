@@ -26,13 +26,27 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
+def build_correction_prompt(blocked_reason: str, evidence_summary: str) -> str:
+    """Format remedial instruction prompt when safety validator blocks a response."""
+    return f"""SYSTEM NOTICE: Your prior response was paused due to clinical verification rules.
+REASON: {blocked_reason}
+
+EVIDENCE RETRIEVED IN THIS TURN:
+{evidence_summary}
+
+REMEDIAL INSTRUCTIONS:
+1. Re-evaluate your answer using ONLY the retrieved evidence above.
+2. Ensure all quoted dosages and figures are verified against the retrieved sections.
+3. Do NOT invent clinical quantities not present in the evidence."""
+
+
 def _persona_block() -> str:
     return """You are ClinRef AI, a clinical reference assistant. You retrieve medical information from a clinical database and present it to clinicians.
 
 CORE PRINCIPLES:
 - ONLY use information from database tool calls. Never invent medical facts, dosages, or recommendations.
 - EVERY number, dose, or lab value must be traceable to retrieved content.
-- For TABLE graphics: use getGraphicContent to retrieve table data as markdown.
+- For TABLE graphics: use get_graphic_content to retrieve table data as markdown.
 - For NON-TABLE graphics (figures, algorithms, images): you cannot interpret visual content — reference the graphic title only."""
 
 
@@ -47,93 +61,103 @@ def _safety_rules() -> str:
 - Never interpret images or visual content — only text and table data."""
 
 
-def _full_workflow() -> str:
-    return """WORKFLOW:
-There is NO LIMIT on searches. Be selective with sections — read only what's needed.
-
-1. searchTopics: Search for EACH concept (drug, condition, etc.)
-2. getTopicOutline: Read section titles to identify the MOST RELEVANT sections
-3. getTopicSectionText: Fetch ONLY sections that directly answer the question
-4. followRelatedTopic: Explore related topics if needed
-5. Repeat 1-4 until you have comprehensive information
-6. getGraphicContent: If table graphics are referenced in the outline
-7. Synthesize & Cite
-
-SEARCH RULES:
-- Start with core terms, then use "refine_with" suggestions for follow-up searches
-- For drug + condition questions, search each separately
+def _search_rules() -> str:
+    return """SEARCH RULES:
+- Call search_topics(query) to find candidate topics and titles
+- Use get_related_topics or get_topic_outline to evaluate candidate topic structures
 - NEVER invent your own search queries — only use terms from "refine_with" suggestions or core medical terms
-- NEVER search with lab values or full sentences
-- Search as many times as needed — there is no limit
+- If search returns no results: pick the FIRST suggestion from "refine_with" and search again
+- NEVER retry the exact same query — if it returned empty, it will return empty again
+- NEVER search with lab values or full sentences"""
 
-SECTION SELECTION (critical for token efficiency):
-- Read section titles from getTopicOutline FIRST
+
+def _section_selection_rules() -> str:
+    return """SECTION SELECTION (critical for token efficiency):
+- Read section titles from get_topic_outline FIRST
 - Pick only sections that directly answer the question
 - Skip background, pathophysiology, epidemiology unless specifically asked
+- Aim for 4-8 most relevant sections per topic
+- ALWAYS use get_topic_sections_text (batch) instead of individual section calls
+
+GRAPHICS:
+- Check graphics list in outlines for relevant tables (dosing, criteria, contraindications)
+- Call get_graphic_content for any table that could answer part of the question
+- Skip algorithms, figures, images, waveforms, movies — only tables are readable"""
+
+
+def _candidate_pool() -> str:
+    return """CANDIDATE POOL:
+- Review all results from search_topics or get_related_topics to build a candidate pool of topics
+- Compare topic titles and select the most relevant topic(s) before fetching outlines or sections"""
+
+
+def _final_answer_rules() -> str:
+    return """FINAL ANSWER:
+- ALWAYS call submit_clinical_answer as your final tool call
+- Do NOT end with plain text — the terminal tool is required"""
+
+
+def _full_workflow() -> str:
+    return f"""WORKFLOW:
+1. search_topics to explore candidate topics
+2. Evaluate topic titles and call get_topic_outline on the most relevant topic(s)
+3. get_topic_sections_text (batch): Fetch chosen sections in ONE call
+4. get_graphic_content: Read relevant tables from outlines
+5. MUST call submit_clinical_answer with your final response
+
+{_search_rules()}
+
+{_candidate_pool()}
+
+{_section_selection_rules()}
 - For dosing questions: focus on "Dosing", "Renal Impairment", "Contraindications"
 - For treatment questions: focus on "Summary", "Selection of agent", "Management"
-- Aim for 3-5 most relevant sections per topic"""
+
+{_final_answer_rules()}"""
 
 
 def _ollama_workflow() -> str:
-    return """WORKFLOW:
-There is NO LIMIT on searches. Be selective with sections — read only what's needed.
+    return f"""WORKFLOW:
+1. search_topics to find candidate topics
+2. Call get_topic_outline for relevant topic(s)
+3. get_topic_sections_text (batch): Fetch sections in ONE call
+4. get_graphic_content: Read relevant tables
+5. MUST call submit_clinical_answer with final response
 
-1. searchTopics: Core terms
-2. getTopicOutline: Read section titles to identify MOST RELEVANT sections
-3. getTopicSectionText: Fetch ONLY sections that directly answer the question
-4. Repeat 1-3 as needed
-5. Answer using ONLY retrieved content
+{_search_rules()}
 
-SEARCH RULES:
-- Start with core terms, then use "refine_with" suggestions for follow-up searches
-- NEVER invent your own search queries — only use terms from "refine_with" suggestions or core medical terms
-- NEVER search with lab values or full sentences
-- For multi-concept questions, search each concept separately
+{_candidate_pool()}
 
-SECTION SELECTION:
-- Read section titles from getTopicOutline FIRST
-- Pick only sections that directly answer the question
-- Skip background, pathophysiology, epidemiology unless specifically asked
-- Aim for 3-5 most relevant sections per topic"""
+{_section_selection_rules()}
+
+{_final_answer_rules()}"""
 
 
 def _citation_rules() -> str:
-    return """CITATION FORMAT:
-End your answer with a citations block. One citation per line:
-Topic: <topic title>, Section: <section title> (ID: <section id>)
-
-Use exact titles and IDs from getTopicOutline or getTopicSectionText."""
+    return """ANSWER FORMAT:
+The answer_text must be PURE CLINICAL CONTENT with no references or links. References are auto-extracted from your tool calls."""
 
 
 def _response_style() -> str:
     return """RESPONSE STYLE:
 - Lead with the actionable clinical answer
 - Use bullet points for criteria, dosing, monitoring
-- Be concise and direct
-
-LINKING:
-When referencing other topics or graphics, use markdown links:
-- Topics: [text](Topic-topicId)
-- Graphics: [text](Graphic-graphicId)
-Example: "See [Warfarin dosing](Topic-12345) and [INR table](Graphic-67890)" """
+- Be concise and direct"""
 
 
 def extract_patient_context(patient_profile: Optional[dict] = None) -> Optional[str]:
-    """Extract patient context from a profile dict."""
+    """Format a patient profile dict into a system prompt context string."""
     if not patient_profile:
         return None
 
-    parts = []
+    lines = []
     if patient_profile.get("age"):
-        parts.append(f"Age: {patient_profile['age']}")
-    if patient_profile.get("sex"):
-        parts.append(f"Sex: {patient_profile['sex']}")
+        lines.append(f"Age: {patient_profile['age']}")
+    if patient_profile.get("gender"):
+        lines.append(f"Gender: {patient_profile['gender']}")
     if patient_profile.get("conditions"):
-        parts.append(f"Conditions: {', '.join(patient_profile['conditions'])}")
+        lines.append(f"Conditions: {', '.join(patient_profile['conditions'])}")
     if patient_profile.get("medications"):
-        parts.append(f"Current medications: {', '.join(patient_profile['medications'])}")
-    if patient_profile.get("allergies"):
-        parts.append(f"Allergies: {', '.join(patient_profile['allergies'])}")
+        lines.append(f"Medications: {', '.join(patient_profile['medications'])}")
 
-    return "\n".join(parts) if parts else None
+    return "\n".join(lines) if lines else None

@@ -112,6 +112,9 @@ dependencies {
     implementation(libs.compose.richtext.commonmark)
     implementation(libs.compose.richtext.ui.material3)
 
+    // HTML parsing
+    implementation(libs.jsoup)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

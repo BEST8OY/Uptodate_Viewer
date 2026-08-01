@@ -19,6 +19,7 @@ def extract_outline_sections(outline_html: str) -> list[dict]:
     2. section=SEC123 — simple URL parameter
 
     Returns [{id, title}] for each section link.
+    Strips leading dashes from sub-section titles (e.g., "-Antiplatelet" -> "Antiplatelet").
     """
     soup = BeautifulSoup(outline_html, "html.parser")
     sections = []
@@ -44,6 +45,7 @@ def extract_outline_sections(outline_html: str) -> list[dict]:
 
         if section_id and section_id not in seen_ids:
             seen_ids.add(section_id)
+            title = re.sub(r"^[-–—]+\s*", "", title)
             sections.append({"id": section_id, "title": title})
 
     return sections
@@ -165,6 +167,19 @@ def extract_section_html(body_html: str, outline_html: str, section_id: str) -> 
     return "\n".join(parts)
 
 
+def clean_markdown_content(markdown: str) -> str:
+    """Clean DOM noise, footnote citations, and boilerplate from markdown text."""
+    if not markdown:
+        return ""
+    # Strip footnote references like [1], [1,2], [1-3]
+    markdown = re.sub(r"\[\d+(?:\s*[-,\u2013\u2014]\s*\d+)*\]", "", markdown)
+    # Strip repetitive inline disclaimers or copyright notices
+    markdown = re.sub(r"(?i)official topic refund/disclaimer.*$", "", markdown)
+    # Normalize excessive blank lines
+    markdown = re.sub(r"\n{3,}", "\n\n", markdown)
+    return markdown.strip()
+
+
 def html_to_markdown(html: str, title_lookup: Optional[dict] = None) -> str:
     """Convert HTML section content to clean Markdown.
 
@@ -176,22 +191,42 @@ def html_to_markdown(html: str, title_lookup: Optional[dict] = None) -> str:
 
     soup = BeautifulSoup(html, "html.parser")
 
+    # Remove inline script, style, and iframe elements
+    for element in soup(["script", "style", "iframe", "noscript"]):
+        element.decompose()
+
     # Convert appAction links to readable format
     for a_tag in soup.find_all("a", href=True):
         href = a_tag["href"]
         text = a_tag.get_text(strip=True)
 
-        # Medical/drug topic links: appAction('medical/drug/Topic-NNNN...')
-        topic_match = re.search(r"Topic-(\d+)", href)
+        # Graphic links: Graphic-XXXX or assetType: graphic
+        graphic_match = re.search(r"Graphic-([a-zA-Z0-9_-]+)", href, re.IGNORECASE)
+        if graphic_match:
+            a_tag["href"] = f"Graphic-{graphic_match.group(1)}"
+            continue
+
+        if '"assetType":"graphic"' in href or "'assetType':'graphic'" in href:
+            gid_match = re.search(r'"id"\s*:\s*"([a-zA-Z0-9_-]+)"', href)
+            if gid_match:
+                a_tag["href"] = f"Graphic-{gid_match.group(1)}"
+                continue
+
+        # Topic/Drug links: Topic-NNNN or assetType: topic
+        topic_match = re.search(r"Topic-(\d+)", href, re.IGNORECASE)
         if topic_match:
             a_tag["href"] = f"Topic-{topic_match.group(1)}"
             continue
 
-        # Graphic links: appAction('...Graphic-XXXX...')
-        graphic_match = re.search(r"Graphic-([a-zA-Z0-9_-]+)", href)
-        if graphic_match:
-            a_tag["href"] = f"Graphic-{graphic_match.group(1)}"
-            continue
+        if '"assetType":"topic"' in href or "'assetType':'topic'" in href:
+            tid_match = re.search(r'"id"\s*:\s*"(\d+)"', href) or re.search(r'"topicId"\s*:\s*"(\d+)"', href)
+            if tid_match:
+                a_tag["href"] = f"Topic-{tid_match.group(1)}"
+                continue
+
+        # Remove raw javascript/appAction link wrappers, preserving text
+        if "appAction" in href or href.startswith("javascript:"):
+            a_tag.replace_with(text)
 
     # Convert to markdown
     h = html2text.HTML2Text()
@@ -201,12 +236,7 @@ def html_to_markdown(html: str, title_lookup: Optional[dict] = None) -> str:
     h.mark_code = False
 
     markdown = h.handle(str(soup))
-
-    # Clean up: normalize blank lines, strip trailing whitespace
-    markdown = re.sub(r"\n{3,}", "\n\n", markdown)
-    markdown = markdown.strip()
-
-    return markdown
+    return clean_markdown_content(markdown)
 
 
 def table_to_markdown(html: str) -> str:

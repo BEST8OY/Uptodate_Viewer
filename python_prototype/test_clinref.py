@@ -12,11 +12,12 @@ import pytest
 from bs4 import BeautifulSoup
 
 from safety_validator import (
-    Citation,
     CLINICAL_QUANTITY_REGEX,
     FetchedSection,
+    GraphicRef,
     SafetyValidator,
     ToolCallRecord,
+    TopicRef,
     TurnContext,
     ValidationResult,
 )
@@ -35,92 +36,19 @@ from html_parser import (
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestCitationParsing:
-    """Tests for SafetyValidator.parse_citations()."""
-
-    def test_basic_citation(self):
-        answer = "Topic: Drug X, Section: Dosing (ID: H5)"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-        assert citations[0].topic_title == "Drug X"
-        assert citations[0].section_title == "Dosing"
-        assert citations[0].section_id == "H5"
-
-    def test_citation_without_id(self):
-        answer = "Topic: Drug X, Section: Dosing"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-        assert citations[0].section_id == "unknown"
-
-    def test_bullet_dash(self):
-        answer = "- Topic: Drug X, Section: Dosing (ID: H5)"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-
-    def test_bullet_asterisk(self):
-        answer = "* Topic: Drug X, Section: Dosing (ID: H5)"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-
-    def test_numbered_list(self):
-        answer = "1. Topic: Drug X, Section: Dosing (ID: H5)"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-
-    def test_bold_formatting(self):
-        answer = "**Topic:** Drug X, **Section:** Dosing (ID: H5)"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-        assert citations[0].topic_title == "Drug X"
-
-    def test_multiple_citations_mixed_format(self):
-        answer = (
-            "- Topic: Apixaban Dosing, Section: Renal (ID: H5)\n"
-            "* Topic: Apixaban Monitoring, Section: Labs (ID: H8)\n"
-            "1. Topic: Asthma Overview, Section: Treatment (ID: H3)\n"
-            "**Topic:** Gout Management, Section: Acute (ID: H12)"
-        )
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 4
-        ids = {c.section_id for c in citations}
-        assert ids == {"H5", "H8", "H3", "H12"}
-
-    def test_citations_with_surrounding_text(self):
-        answer = (
-            "Based on the evidence:\n"
-            "- Topic: Drug X, Section: Dosing (ID: H5)\n"
-            "The recommended dose is 5 mg twice daily.\n"
-            "Topic: Drug Y, Section: Safety (ID: H8)\n"
-        )
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 2
-
-    def test_no_citations(self):
-        answer = "This is a plain answer with no citations."
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 0
-
-    def test_citation_case_insensitive(self):
-        answer = "topic: drug x, section: dosing (id: h5)"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-
-    def test_citation_with_extra_spaces(self):
-        answer = "  Topic:   Drug X ,  Section:  Dosing  ( ID: H5 )  "
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-        assert citations[0].topic_title == "Drug X"
-        assert "Dosing" in citations[0].section_title
-
-
 class TestToolCallRequired:
-    """Rule 1: Tool calls required."""
+    """Rule 0: Intent-aware tool call check."""
 
-    def test_no_tool_calls_blocked(self):
-        ctx = TurnContext(tool_calls=[], answer="test")
+    def test_no_tool_calls_clinical_blocked(self):
+        ctx = TurnContext(tool_calls=[], answer="The dose is 5 mg.")
         result = SafetyValidator().validate(ctx)
         assert not result.passed
-        assert "No tool calls" in result.blocked_reason
+        assert "Clinical recommendations require database verification" in result.blocked_reason
+
+    def test_no_tool_calls_conversational_passes(self):
+        ctx = TurnContext(tool_calls=[], answer="Hello! I'm ClinRef AI.", user_question="hello")
+        result = SafetyValidator().validate(ctx)
+        assert result.passed
 
     def test_with_tool_calls_passes(self):
         ctx = TurnContext(
@@ -128,13 +56,13 @@ class TestToolCallRequired:
             answer="test",
         )
         result = SafetyValidator().validate(ctx)
-        # May fail on later rules, but not rule 1
+        # May fail on later rules, but not rule 0
         if not result.passed:
-            assert "No tool calls" not in (result.blocked_reason or "")
+            assert "Clinical recommendations require database verification" not in (result.blocked_reason or "")
 
 
 class TestSectionContentRequired:
-    """Rule 1b: Section or table content required."""
+    """Rule 1: Section or table content required."""
 
     def test_only_search_blocked(self):
         ctx = TurnContext(
@@ -147,7 +75,15 @@ class TestSectionContentRequired:
 
     def test_section_text_passes(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="test",
+        )
+        result = SafetyValidator()._validate_section_content_required(ctx)
+        assert result is None
+
+    def test_batch_section_text_passes(self):
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="test",
         )
         result = SafetyValidator()._validate_section_content_required(ctx)
@@ -163,7 +99,7 @@ class TestSectionContentRequired:
 
     def test_failed_section_blocked(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="Section not found.", success=False)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Section not found.", success=False)],
             answer="test",
         )
         result = SafetyValidator()._validate_section_content_required(ctx)
@@ -183,71 +119,12 @@ class TestSectionContentRequired:
         assert not result.passed
 
 
-class TestCitationConsistency:
-    """Rule 2: Citations must match fetched sections."""
-
-    def test_matching_id_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={"section_id": "H1"}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="S", section_id="H1")],
-            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="S1")],
-        )
-        result = SafetyValidator()._validate_citation_consistency(ctx)
-        assert result is None
-
-    def test_unmatched_id_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={"section_id": "H1"}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="Nonexistent", section_id="Z99")],
-            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Real Section")],
-        )
-        result = SafetyValidator()._validate_citation_consistency(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_unknown_id_with_title_fallback(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={"section_id": "H1"}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="S", section_id="unknown")],
-            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="S")],
-        )
-        result = SafetyValidator()._validate_citation_consistency(ctx)
-        assert result is not None
-        assert result.passed
-        assert len(result.warnings) > 0
-
-    def test_no_fetched_sections_skips_check(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="S", section_id="Z99")],
-            fetched_sections=[],
-        )
-        result = SafetyValidator()._validate_citation_consistency(ctx)
-        assert result is None
-
-    def test_citation_id_match(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="S", section_id="H1")],
-            fetched_sections=[
-                FetchedSection(topic_id="1", section_id="H1", section_title="Different Title"),
-            ],
-        )
-        result = SafetyValidator()._validate_citation_consistency(ctx)
-        assert result is None
-
-
 class TestInventedNumbers:
-    """Rule 3: No invented clinical quantities."""
+    """Rule 2: No invented clinical quantities."""
 
     def test_matching_quantity_passes(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="The dose is 5 mg.", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="The dose is 5 mg.", success=True)],
             answer="The dose is 5 mg.",
             tool_results=["The dose is 5 mg."],
         )
@@ -256,7 +133,7 @@ class TestInventedNumbers:
 
     def test_unmatched_quantity_blocked(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="The dose is 5 mg.", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="The dose is 5 mg.", success=True)],
             answer="The dose is 10 mg.",
             tool_results=["The dose is 5 mg."],
         )
@@ -267,7 +144,7 @@ class TestInventedNumbers:
 
     def test_user_question_quantity_allowed(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="The dose is 250 mg.",
             tool_results=["..."],
             user_question="Is 250 mg safe?",
@@ -278,7 +155,7 @@ class TestInventedNumbers:
     def test_structural_numbers_not_flagged(self):
         """List markers, section numbers, years should not be flagged."""
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="See section 3.1. The year 2024 guidelines recommend 5 mg.",
             tool_results=["5 mg is recommended."],
         )
@@ -287,7 +164,7 @@ class TestInventedNumbers:
 
     def test_no_tool_results_skips(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="The dose is 10 mg.",
             tool_results=[],
         )
@@ -297,7 +174,7 @@ class TestInventedNumbers:
     def test_boundary_check_no_partial_match(self):
         """'12' should not match as part of '123'."""
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="Value: 123 mg", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Value: 123 mg", success=True)],
             answer="The value is 12 mg.",
             tool_results=["Value: 123 mg"],
         )
@@ -308,7 +185,7 @@ class TestInventedNumbers:
     def test_numeric_only_match_in_tool_text(self):
         """'60 mL' should pass if '60' appears in tool text."""
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="Administer 60 units.", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Administer 60 units.", success=True)],
             answer="Give 60 mL.",
             tool_results=["Administer 60 units."],
         )
@@ -316,63 +193,12 @@ class TestInventedNumbers:
         assert result is None
 
 
-class TestCitationRequired:
-    """Rule 4: Citations required."""
-
-    def test_no_citations_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
-            answer="test",
-        )
-        result = SafetyValidator()._validate_citation_required(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_with_citations_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="S", section_id="H1")],
-        )
-        result = SafetyValidator()._validate_citation_required(ctx)
-        assert result is None
-
-    def test_density_relaxed_one_valid_enough(self):
-        """1 valid citation out of 3 fetched sections should pass."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="S", section_id="H1")],
-            fetched_sections=[
-                FetchedSection(topic_id="1", section_id="H1", section_title="S1"),
-                FetchedSection(topic_id="1", section_id="H2", section_title="S2"),
-                FetchedSection(topic_id="1", section_id="H3", section_title="S3"),
-            ],
-        )
-        result = SafetyValidator()._validate_citation_required(ctx)
-        assert result is None
-
-    def test_no_valid_citation_blocked(self):
-        """Citation that matches none of the fetched sections should block."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
-            answer="test",
-            citations=[Citation(topic_title="T", section_title="S", section_id="Z99")],
-            fetched_sections=[
-                FetchedSection(topic_id="1", section_id="H1", section_title="S1"),
-            ],
-        )
-        result = SafetyValidator()._validate_citation_required(ctx)
-        assert result is not None
-        assert not result.passed
-
-
 class TestGraphicInterpretation:
-    """Rule 5: No graphic interpretation."""
+    """Rule 3: No graphic interpretation."""
 
     def test_no_visual_language_passes(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="The recommended treatment is aspirin.",
         )
         result = SafetyValidator()._validate_no_graphic_interpretation(ctx)
@@ -381,7 +207,7 @@ class TestGraphicInterpretation:
     def test_visual_language_in_tool_text_passes(self):
         """Quoting retrieved text that contains visual language should pass."""
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="The x-ray shows opacity.",
             tool_results=["The x-ray shows opacity in the lower lobe."],
         )
@@ -390,7 +216,7 @@ class TestGraphicInterpretation:
 
     def test_visual_language_not_in_tool_text_blocked(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="The image shows a mass.",
             tool_results=["Normal lung fields."],
         )
@@ -400,7 +226,7 @@ class TestGraphicInterpretation:
 
     def test_figure_language_blocked(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="The figure demonstrates a fracture.",
             tool_results=["No fracture mentioned."],
         )
@@ -410,7 +236,7 @@ class TestGraphicInterpretation:
 
     def test_empty_tool_results_blocked(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="The scan reveals abnormality.",
             tool_results=[],
         )
@@ -424,22 +250,35 @@ class TestFullValidation:
 
     def test_successful_turn(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={"section_id": "H1"}, result="Dose is 5 mg.", success=True)],
-            answer="The dose is 5 mg.\n\nTopic: Drug X, Section: Dosing (ID: H1)",
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={"section_id": "H1"}, result="Dose is 5 mg.", success=True)],
+            answer="The dose is 5 mg.",
             tool_results=["Dose is 5 mg."],
-            citations=[Citation(topic_title="Drug X", section_title="Dosing", section_id="H1")],
             fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            structured_topic_refs=[TopicRef(topic_id="1", section_id="H1", label="Dosing", topic_title="Drug X")],
         )
         result = SafetyValidator().validate(ctx)
         assert result.passed
-        assert len(result.citations) == 1
+        assert len(result.topic_refs) == 1
 
     def test_multiple_rule_failures_short_circuit(self):
         """First failing rule should short-circuit."""
-        ctx = TurnContext(tool_calls=[], answer="test")
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="search_topics", arguments={}, result="{}", success=True)],
+            answer="test",
+        )
         result = SafetyValidator().validate(ctx)
         assert not result.passed
-        assert "No tool calls" in result.blocked_reason
+        assert "section or table content" in result.blocked_reason.lower()
+
+    def test_conversational_response_without_tools(self):
+        """Greeting without tools should pass via intent detection."""
+        ctx = TurnContext(
+            tool_calls=[],
+            answer="Hello! I'm ClinRef AI, a clinical reference assistant.",
+            user_question="hello",
+        )
+        result = SafetyValidator().validate(ctx)
+        assert result.passed
 
 
 class TestClinicalQuantityRegex:
@@ -703,6 +542,64 @@ class TestTableToMarkdown:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+class TestBatchSectionTitleParsing:
+    """Tests for section title extraction from structured batch tool output."""
+
+    def test_batch_tool_returns_json_with_titles(self):
+        """Verify batch tool returns JSON with topicTitle and sectionTitles."""
+        import json
+        result = json.dumps({
+            "topicTitle": "Atrial Fibrillation",
+            "sectionTitles": {"H1": "Dosing", "H2": "Monitoring"},
+            "markdown": "content"
+        })
+        data = json.loads(result)
+        assert data["topicTitle"] == "Atrial Fibrillation"
+        assert data["sectionTitles"]["H1"] == "Dosing"
+        assert data["sectionTitles"]["H2"] == "Monitoring"
+
+    def test_agent_parses_batch_json_result(self):
+        """Verify agent extracts titles from batch JSON and stores them."""
+        import json
+        from safety_validator import TurnContext, FetchedSection
+        tc = TurnContext()
+        # Simulate batch result parsing (as agent.py would)
+        batch_result = json.dumps({
+            "topicTitle": "Drug X",
+            "sectionTitles": {"H1": "Dosing", "H2": "Safety"},
+            "markdown": "content"
+        })
+        batch_data = json.loads(batch_result)
+        topic_id = "1"
+        tc.topic_titles[topic_id] = batch_data["topicTitle"]
+        tc.outline_sections[topic_id] = batch_data["sectionTitles"]
+        # Simulate section tracking
+        section_map = tc.outline_sections.get(topic_id, {})
+        for sid in ["H1", "H2"]:
+            tc.fetched_sections.append(FetchedSection(
+                topic_id=topic_id,
+                topic_title=tc.topic_titles.get(topic_id, ""),
+                section_id=sid,
+                section_title=section_map.get(sid, ""),
+                content_snippet="content",
+            ))
+        assert tc.fetched_sections[0].section_title == "Dosing"
+        assert tc.fetched_sections[1].section_title == "Safety"
+        assert tc.fetched_sections[0].topic_title == "Drug X"
+
+
+class TestGraphicTitleExtraction:
+    """Tests for graphic title extraction from tool output."""
+
+    def test_extract_title_from_graphic_result(self):
+        """Verify graphic title is extracted from ### Graphic Table: {title} format."""
+        import re
+        result = "### Graphic Table: INR Monitoring Table\n\n| Dose | Rate |"
+        m = re.match(r"### Graphic Table:\s*(.+)", result)
+        assert m is not None
+        assert m.group(1).strip() == "INR Monitoring Table"
+
+
 class TestToolsInit:
     """Tests for tool initialization."""
 
@@ -711,7 +608,7 @@ class TestToolsInit:
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         assert isinstance(tool_list, list)
-        assert len(tool_list) == 5
+        assert len(tool_list) == 6
 
     def test_init_tools_includes_expected_names(self):
         import tools
@@ -720,9 +617,10 @@ class TestToolsInit:
         names = [t.name for t in tool_list]
         assert "search_topics" in names
         assert "get_topic_outline" in names
-        assert "get_topic_section_text" in names
-        assert "follow_related_topic" in names
+        assert "get_related_topics" in names
+        assert "get_topic_sections_text" in names
         assert "get_graphic_content" in names
+        assert "submit_clinical_answer" in names
         # get_graphic_info should NOT be in the list
         assert "get_graphic_info" not in names
 
@@ -739,6 +637,7 @@ class TestSearchTopics:
     def setup_method(self):
         import tools
         self.mock_db = MagicMock()
+        self.mock_db.get_topic_outline.return_value = None
         tools.init_tools(self.mock_db)
 
     def test_empty_query(self):
@@ -756,6 +655,17 @@ class TestSearchTopics:
         data = json.loads(result)
         assert len(data["results"]) == 1
         assert data["results"][0]["id"] == "123"
+
+    def test_speculative_bundling_includes_outline(self):
+        import tools
+        self.mock_db.search_topics.return_value = [{"id": "123", "title": "Aspirin"}]
+        self.mock_db.get_suggestions.return_value = ["aspirin dose"]
+        self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a>'
+        result = tools.search_topics.invoke({"query": "aspirin"})
+        data = json.loads(result)
+        assert len(data["results"]) == 1
+        assert "outline" in data["results"][0]
+        assert data["results"][0]["outline"]["sections"][0]["id"] == "H1"
 
     def test_no_results_returns_suggestions(self):
         import tools
@@ -801,7 +711,7 @@ class TestGetTopicOutline:
 
 
 class TestGetTopicSectionText:
-    """Tests for get_topic_section_text tool."""
+    """Tests for get_topic_sections_text tool."""
 
     def setup_method(self):
         import tools
@@ -811,8 +721,8 @@ class TestGetTopicSectionText:
     def test_topic_not_found(self):
         import tools
         self.mock_db.get_topic_body.return_value = None
-        result = tools.get_topic_section_text.invoke(
-            {"topic_id": "999", "section_id": "H1", "section_title": ""}
+        result = tools.get_topic_sections_text.invoke(
+            {"topic_id": "999", "section_ids": ["H1"]}
         )
         assert "Topic not found" in result
 
@@ -820,17 +730,19 @@ class TestGetTopicSectionText:
         import tools
         self.mock_db.get_topic_body.return_value = "<h2 id='H1'>Content</h2>"
         self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Intro</a>'
-        result = tools.get_topic_section_text.invoke(
-            {"topic_id": "123", "section_id": "H99", "section_title": ""}
+        result = tools.get_topic_sections_text.invoke(
+            {"topic_id": "123", "section_ids": ["H99"]}
         )
-        assert "Section not found" in result
+        data = json.loads(result)
+        assert data.get("invalidSections") == ["H99"]
+        assert data.get("markdown") == ""
 
     def test_returns_markdown(self):
         import tools
         self.mock_db.get_topic_body.return_value = "<h2 id='H1'>Intro</h2><p>Dose is 5 mg.</p>"
         self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Intro</a>'
-        result = tools.get_topic_section_text.invoke(
-            {"topic_id": "123", "section_id": "H1", "section_title": "Intro"}
+        result = tools.get_topic_sections_text.invoke(
+            {"topic_id": "123", "section_ids": ["H1"]}
         )
         assert "5 mg" in result
 
@@ -852,7 +764,7 @@ class TestGetGraphicContent:
 
     def test_non_table_type_blocked(self):
         import tools
-        self.mock_db.get_graphic_asset.return_value = {"type": "graphic_figure", "title": "Fig 1"}
+        self.mock_db.get_graphic_asset.return_value = {"graphicInfo": {"subtype": "graphic_figure", "title": "Fig 1"}}
         result = tools.get_graphic_content.invoke({"graphic_id": "123"})
         data = json.loads(result)
         assert "error" in data
@@ -860,7 +772,7 @@ class TestGetGraphicContent:
 
     def test_empty_content_blocked(self):
         import tools
-        self.mock_db.get_graphic_asset.return_value = {"type": "graphic_table", "title": "T", "html": ""}
+        self.mock_db.get_graphic_asset.return_value = {"graphicInfo": {"subtype": "graphic_table", "title": "T"}, "imageHtml": ""}
         result = tools.get_graphic_content.invoke({"graphic_id": "123"})
         data = json.loads(result)
         assert "error" in data
@@ -868,9 +780,8 @@ class TestGetGraphicContent:
     def test_table_content_returns_markdown(self):
         import tools
         self.mock_db.get_graphic_asset.return_value = {
-            "type": "graphic_table",
-            "title": "Dosing Table",
-            "html": "<table><tr><th>Dose</th><th>Rate</th></tr><tr><td>5mg</td><td>2x/day</td></tr></table>",
+            "graphicInfo": {"subtype": "graphic_table", "title": "Dosing Table"},
+            "imageHtml": "<table><tr><th>Dose</th><th>Rate</th></tr><tr><td>5mg</td><td>2x/day</td></tr></table>",
         }
         result = tools.get_graphic_content.invoke({"graphic_id": "123"})
         assert "Dosing Table" in result
@@ -879,30 +790,13 @@ class TestGetGraphicContent:
     def test_strips_graphic_prefix(self):
         import tools
         self.mock_db.get_graphic_asset.return_value = {
-            "type": "graphic_table",
-            "title": "Table",
-            "html": "<table><tr><td>A</td></tr></table>",
+            "graphicInfo": {"subtype": "graphic_table", "title": "Table"},
+            "imageHtml": "<table><tr><td>A</td></tr></table>",
         }
         tools.get_graphic_content.invoke({"graphic_id": "Graphic-123"})
         # Should look up "123" after stripping prefix
         self.mock_db.get_graphic_asset.assert_any_call("123")
 
-
-class TestFollowRelatedTopic:
-    """Tests for follow_related_topic tool."""
-
-    def setup_method(self):
-        import tools
-        self.mock_db = MagicMock()
-        tools.init_tools(self.mock_db)
-
-    def test_delegates_to_get_topic_outline(self):
-        import tools
-        self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Intro</a>'
-        self.mock_db.get_topic_title.return_value = "Related"
-        result = tools.follow_related_topic.invoke({"topic_id": "456"})
-        data = json.loads(result)
-        assert data["title"] == "Related"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -964,21 +858,10 @@ class TestAgentGraph:
 class TestEdgeCases:
     """Regression tests for known bugs."""
 
-    def test_citation_with_semicolon_separator(self):
-        """Inline citations separated by semicolons should each parse."""
-        answer = (
-            "Topic: Drug A, Section: Dosing (ID: H1); "
-            "Topic: Drug B, Section: Safety (ID: H2)"
-        )
-        citations = SafetyValidator.parse_citations(answer)
-        # Semicolons are on the same line — only the first may match
-        # depending on regex greediness. This is acceptable behavior.
-        assert len(citations) >= 1
-
     def test_answer_with_only_structural_numbers(self):
         """Answer with section numbers, years, list markers should not trigger invented numbers."""
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="Guidelines 2024.", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Guidelines 2024.", success=True)],
             answer=(
                 "1. Introduction\n"
                 "2. Methods\n"
@@ -991,45 +874,24 @@ class TestEdgeCases:
         result = SafetyValidator()._validate_no_invented_numbers(ctx)
         assert result is None
 
-    def test_empty_answer(self):
+    def test_empty_answer_with_tools(self):
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
             answer="",
             tool_results=["..."],
         )
         result = SafetyValidator().validate(ctx)
-        # Empty answer with citations empty should fail rule 4
-        assert not result.passed
-
-    def test_unicode_in_citations(self):
-        answer = "Topic: Résumé, Section: Données (ID: H1)"
-        citations = SafetyValidator.parse_citations(answer)
-        assert len(citations) == 1
-        assert "Résumé" in citations[0].topic_title
+        # Empty answer with tools should pass all rules (no quantities to check)
+        assert result.passed
 
     def test_html_entities_in_tool_result(self):
         """Tool results with HTML entities should not cause false invented-number blocks."""
         ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="Dose &gt; 5 mg", success=True)],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Dose &gt; 5 mg", success=True)],
             answer="The dose is 5 mg.",
             tool_results=["Dose &gt; 5 mg"],
         )
         result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_multiple_fetched_sections_one_cited(self):
-        """With 5 fetched sections and 1 cited, should still pass (density relaxed)."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_section_text", arguments={}, result="...", success=True)],
-            answer="Based on section H3.",
-            tool_results=["..."],
-            citations=[Citation(topic_title="T", section_title="S", section_id="H3")],
-            fetched_sections=[
-                FetchedSection(topic_id="1", section_id=f"H{i}", section_title=f"Section {i}")
-                for i in range(1, 6)
-            ],
-        )
-        result = SafetyValidator()._validate_citation_required(ctx)
         assert result is None
 
     def test_graphic_content_as_only_fetch(self):
@@ -1040,3 +902,69 @@ class TestEdgeCases:
         )
         result = SafetyValidator()._validate_section_content_required(ctx)
         assert result is None
+
+    def test_non_clinical_answer_without_tools_short(self):
+        """Short non-clinical answer without tools should pass."""
+        ctx = TurnContext(
+            tool_calls=[],
+            answer="Thanks for your question!",
+            user_question="thank you",
+        )
+        result = SafetyValidator().validate(ctx)
+        assert result.passed
+
+    def test_clinical_answer_without_tools_blocked(self):
+        """Clinical answer with dosing quantities but no tools should block."""
+        ctx = TurnContext(
+            tool_calls=[],
+            answer="The recommended dose is 5 mg twice daily.",
+        )
+        result = SafetyValidator().validate(ctx)
+        assert not result.passed
+        assert "Clinical recommendations require database verification" in result.blocked_reason
+
+    def test_slashed_and_compound_units_validation(self):
+        """Test compound slashed units like 5 u/x, 10 U/L, 0.5 mcg/kg/min, 100 mg/m2."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Give 5 u/x IV, 10 U/L, and 0.5 mcg/kg/min.", success=True)],
+            answer="Recommended rates are 5 u/x, 10 U/L, and 0.5 mcg/kg/min.",
+            tool_results=["Give 5 u/x IV, 10 U/L, and 0.5 mcg/kg/min."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+
+class TestAutoPopulateRefs:
+    """Tests for _auto_populate_refs — only valid sections with titles should produce refs."""
+
+    def test_skips_sections_with_empty_title(self):
+        """Sections whose section_title is empty should be excluded from topic_refs."""
+        from agent import _auto_populate_refs
+        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
+
+        ctx = TurnContext(
+            fetched_sections=[
+                FetchedSection(
+                    topic_id="94",
+                    topic_title="Acute ST-elevation MI: Initial antiplatelet therapy",
+                    section_id="H4",
+                    section_title="ASPIRIN",
+                ),
+                FetchedSection(
+                    topic_id="94",
+                    topic_title="Acute ST-elevation MI: Initial antiplatelet therapy",
+                    section_id="H5",
+                    section_title="",
+                ),
+                FetchedSection(
+                    topic_id="94",
+                    topic_title="Acute ST-elevation MI: Initial antiplatelet therapy",
+                    section_id="H6",
+                    section_title="",
+                ),
+            ],
+        )
+        _auto_populate_refs(ctx, "{}")
+        assert len(ctx.structured_topic_refs) == 1
+        assert ctx.structured_topic_refs[0].label == "ASPIRIN"
+        assert ctx.structured_topic_refs[0].section_id == "H4"

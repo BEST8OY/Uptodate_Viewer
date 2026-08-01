@@ -20,7 +20,6 @@ from html_parser import (
     table_to_markdown,
 )
 from safety_validator import (
-    Citation,
     CLINICAL_QUANTITY_REGEX,
     FetchedSection,
     SafetyValidator,
@@ -275,25 +274,16 @@ class TestSafetyValidationWithRealData:
         ctx = TurnContext(
             tool_calls=[
                 ToolCallRecord(
-                    tool_name="get_topic_section_text",
-                    arguments={"topic_id": "1", "section_id": first_sec["id"]},
+                    tool_name="get_topic_sections_text",
+                    arguments={"topic_id": "1", "section_ids": [first_sec["id"]]},
                     result="Mock section content for testing",
                     success=True,
                 )
             ],
             answer=(
-                "Based on the evidence, the recommended approach is discussed in the source.\n\n"
-                f"Topic: Practice Changing Updates, Section: {first_sec['title']} "
-                f"(ID: {first_sec['id']})"
+                "Based on the evidence, the recommended approach is discussed in the source."
             ),
             tool_results=["Mock section content for testing"],
-            citations=[
-                Citation(
-                    topic_title="Practice Changing Updates",
-                    section_title=first_sec["title"],
-                    section_id=first_sec["id"],
-                )
-            ],
             fetched_sections=[
                 FetchedSection(
                     topic_id="1",
@@ -305,29 +295,12 @@ class TestSafetyValidationWithRealData:
         result = SafetyValidator().validate(ctx)
         assert result.passed, f"Validation failed: {result.blocked_reason}"
 
-    def test_citation_with_real_section_titles(self, db):
-        """Parse citations using real section titles from the database."""
-        sections = extract_outline_sections(db.get_topic_outline("18"))
-        for sec in sections[:3]:
-            answer = f"Topic: Neurology, Section: {sec['title']} (ID: {sec['id']})"
-            citations = SafetyValidator.parse_citations(answer)
-            assert len(citations) == 1, f"Failed to parse citation for section: {sec['title']}"
-            assert citations[0].section_id == sec["id"]
-
-    def test_citation_with_bold_real_titles(self, db):
-        """Parse citations with bold formatting and real section titles."""
-        sections = extract_outline_sections(db.get_topic_outline("18"))
-        for sec in sections[:3]:
-            answer = f"**Topic:** Neurology, **Section:** {sec['title']} (ID: {sec['id']})"
-            citations = SafetyValidator.parse_citations(answer)
-            assert len(citations) == 1, f"Failed bold citation for: {sec['title']}"
-
     def test_invented_number_detection_with_real_content(self, db):
         """Clinical quantities not in tool results should be blocked."""
         ctx = TurnContext(
             tool_calls=[
                 ToolCallRecord(
-                    tool_name="get_topic_section_text",
+                    tool_name="get_topic_sections_text",
                     arguments={"section_id": "H1"},
                     result="The dose is 500 mg twice daily.",
                     success=True,
@@ -346,7 +319,7 @@ class TestSafetyValidationWithRealData:
         ctx = TurnContext(
             tool_calls=[
                 ToolCallRecord(
-                    tool_name="get_topic_section_text",
+                    tool_name="get_topic_sections_text",
                     arguments={"section_id": "H1"},
                     result="Guidelines from 2024 recommend treatment.",
                     success=True,
@@ -405,28 +378,20 @@ class TestFullPipeline:
 
             answer = (
                 f"Based on the clinical evidence:\n\n"
-                f"{first_md[:200]}...\n\n"
-                f"Topic: {topic_title}, Section: {first_title} (ID: {first_id})"
+                f"{first_md[:200]}..."
             )
 
             ctx = TurnContext(
                 tool_calls=[
                     ToolCallRecord(
-                        tool_name="get_topic_section_text",
-                        arguments={"topic_id": topic_id, "section_id": first_id},
+                        tool_name="get_topic_sections_text",
+                        arguments={"topic_id": topic_id, "section_ids": [first_id]},
                         result=first_md[:500],
                         success=True,
                     )
                 ],
                 answer=answer,
                 tool_results=[first_md[:500]],
-                citations=[
-                    Citation(
-                        topic_title=topic_title,
-                        section_title=first_title,
-                        section_id=first_id,
-                    )
-                ],
                 fetched_sections=[
                     FetchedSection(
                         topic_id=topic_id,
@@ -440,3 +405,71 @@ class TestFullPipeline:
             assert validation.passed, (
                 f"Full pipeline validation failed: {validation.blocked_reason}"
             )
+
+
+class TestRealDatabaseSpeculativeBundling:
+    """Test tools.search_topics against real database for speculative outline bundling."""
+
+    def test_search_topics_includes_all_graphics_in_outline(self, db):
+        import tools
+        tools.init_tools(db)
+
+        # Search for a topic known to have graphics (e.g. "atrial fibrillation")
+        res_json = tools.search_topics.invoke({"query": "atrial fibrillation"})
+        data = json.loads(res_json)
+        assert len(data["results"]) > 0, "Expected search results for 'atrial fibrillation'"
+        top_match = data["results"][0]
+        assert "outline" in top_match, "Top search match should contain speculative outline"
+
+        outline = top_match["outline"]
+        assert "sections" in outline
+        assert "graphics" in outline
+
+        # Verify all graphics from the outline HTML are included (no truncation to top 5)
+        raw_outline_html = db.get_topic_outline(top_match["id"])
+        expected_graphics = extract_graphics_from_outline(raw_outline_html)
+        assert len(outline["graphics"]) == len(expected_graphics), (
+            f"Expected all {len(expected_graphics)} graphics, got {len(outline['graphics'])}"
+        )
+
+    @pytest.mark.parametrize("query", ["asthma", "gout", "apixaban", "pneumonia"])
+    def test_search_topics_speculative_outline_multiple_queries(self, db, query):
+        import tools
+        tools.init_tools(db)
+
+        res_json = tools.search_topics.invoke({"query": query})
+        data = json.loads(res_json)
+        assert "results" in data
+        if data["results"]:
+            top = data["results"][0]
+            assert "outline" in top, f"Top result for query '{query}' missing outline"
+            assert len(top["outline"]["sections"]) <= 10
+
+
+class TestDiverseHTMLHandling:
+    """Test section extraction and clean markdown conversion across diverse real topics."""
+
+    DIVERSE_TOPIC_IDS = ["1", "18", "20", "50", "100", "200", "300", "500", "1000", "1500"]
+
+    def test_html_cleaned_across_diverse_topics(self, db):
+        clean_failures = []
+        for tid in self.DIVERSE_TOPIC_IDS:
+            if not db.has_topic_asset(tid):
+                continue
+            outline = db.get_topic_outline(tid)
+            body = db.get_topic_body(tid)
+            if not outline or not body:
+                continue
+            sections = extract_outline_sections(outline)
+            for sec in sections[:3]:  # Check first 3 sections per topic
+                html = extract_section_html(body, outline, sec["id"])
+                if not html:
+                    continue
+                md = html_to_markdown(html)
+                # Check for remaining HTML tags (opening h1-h6, div, span, script, style)
+                if re.search(r"<(?:div|span|script|style|h[1-6]|p)\b", md, re.IGNORECASE):
+                    clean_failures.append(f"Topic {tid} Section {sec['id']} has raw HTML tags")
+                # Check for uncleaned footnote references like [1], [1, 2]
+                if re.search(r"\[\d+(?:\s*[-,]\s*\d+)*\]", md):
+                    clean_failures.append(f"Topic {tid} Section {sec['id']} has uncleaned footnotes")
+        assert not clean_failures, "HTML cleaning issues found:\n" + "\n".join(clean_failures)

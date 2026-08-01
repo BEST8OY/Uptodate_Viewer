@@ -2,8 +2,6 @@ package com.clinref.app.domain.ai
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,7 +14,6 @@ class SafetyValidatorTest {
     private fun ctx(
         toolCalls: List<SafetyValidator.ToolCallRecord> = emptyList(),
         answer: String = "",
-        citations: List<SafetyValidator.Citation> = emptyList(),
         toolResults: List<String> = emptyList(),
         fetchedSections: List<SafetyValidator.FetchedSection> = emptyList(),
         graphicIds: Set<String> = emptySet(),
@@ -24,7 +21,6 @@ class SafetyValidatorTest {
     ) = SafetyValidator.TurnContext(
         toolCalls = toolCalls,
         answer = answer,
-        citations = citations,
         toolResults = toolResults,
         fetchedSections = fetchedSections,
         graphicIds = graphicIds,
@@ -32,8 +28,8 @@ class SafetyValidatorTest {
     )
 
     private fun toolCall(
-        name: String = "getTopicSectionText",
-        args: Map<String, String> = mapOf("section_id" to "H1"),
+        name: String = "getTopicSectionsText",
+        args: Map<String, String> = mapOf("sectionIds" to listOf("H1")),
         result: String = "content",
         success: Boolean = true,
     ) = SafetyValidator.ToolCallRecord(name, args, result, success)
@@ -44,38 +40,32 @@ class SafetyValidatorTest {
         title: String = "Section 1",
     ) = SafetyValidator.FetchedSection(topicId, "", sectionId, title)
 
-    private fun citation(
-        topicTitle: String = "Topic",
-        sectionTitle: String = "Section",
-        sectionId: String = "H1",
-    ) = SafetyValidator.Citation("", topicTitle, sectionId, sectionTitle)
-
     // ══════════════════════════════════════════════════════════════════
-    // Rule 1: Tool calls required
+    // Rule 0: Intent-aware tool call check
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `rule 1 blocks when no tool calls`() {
+    fun `rule 0 blocks when no tool calls and clinical answer`() {
         val result = validator.validate(ctx())
         assertFalse(result.passed)
-        assertTrue(result.blockedReason!!.contains("No tool calls"))
+        assertTrue(result.blockedReason!!.contains("Clinical recommendations require database verification"))
     }
 
     @Test
-    fun `rule 1 passes with tool calls`() {
+    fun `rule 0 passes with tool calls`() {
         val result = validator.validate(ctx(toolCalls = listOf(toolCall())))
-        // May fail on later rules, but not rule 1
+        // May fail on later rules, but not rule 0
         if (!result.passed) {
-            assertFalse(result.blockedReason!!.contains("No tool calls"))
+            assertFalse(result.blockedReason!!.contains("Clinical recommendations require database verification"))
         }
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Rule 1b: Section content required
+    // Rule 1: Section content required
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `rule 1b blocks when only search was performed`() {
+    fun `rule 1 blocks when only search was performed`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall(name = "searchTopics")),
         ))
@@ -84,26 +74,24 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 1b passes for getTopicSectionText`() {
+    fun `rule 1 passes for getTopicSectionsText`() {
         val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall(name = "getTopicSectionText")),
+            toolCalls = listOf(toolCall(name = "getTopicSectionsText")),
             answer = "test",
-            citations = listOf(citation()),
             toolResults = listOf("content"),
             fetchedSections = listOf(section()),
         ))
-        // Should not fail on rule 1b
+        // Should not fail on rule 1
         if (!result.passed) {
             assertFalse(result.blockedReason!!.contains("section or table content"))
         }
     }
 
     @Test
-    fun `rule 1b passes for getGraphicContent`() {
+    fun `rule 1 passes for getGraphicContent`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall(name = "getGraphicContent")),
             answer = "test",
-            citations = listOf(citation()),
             toolResults = listOf("table content"),
             fetchedSections = listOf(section()),
         ))
@@ -113,82 +101,22 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 1b blocks for failed section fetch`() {
+    fun `rule 1 blocks for failed section fetch`() {
         val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall(name = "getTopicSectionText", success = false, result = "Section not found.")),
+            toolCalls = listOf(toolCall(name = "getTopicSectionsText", success = false, result = "Section not found.")),
         ))
         assertFalse(result.passed)
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Rule 2: Citation consistency
+    // Rule 2: No invented clinical quantities
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `rule 2 passes when citation ID matches fetched section`() {
-        val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall()),
-            answer = "test",
-            citations = listOf(citation(sectionId = "H1")),
-            toolResults = listOf("content"),
-            fetchedSections = listOf(section(sectionId = "H1")),
-        ))
-        if (!result.passed) {
-            assertFalse(result.blockedReason!!.contains("not retrieved"))
-        }
-    }
-
-    @Test
-    fun `rule 2 blocks when citation references unmatched section`() {
-        val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall()),
-            answer = "test",
-            citations = listOf(citation(sectionId = "Z99", sectionTitle = "Nonexistent")),
-            toolResults = listOf("content"),
-            fetchedSections = listOf(section(sectionId = "H1", title = "Real Section")),
-        ))
-        assertFalse(result.passed)
-        assertTrue(result.blockedReason!!.contains("not retrieved"))
-    }
-
-    @Test
-    fun `rule 2 allows unknown section ID with title match`() {
-        val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall()),
-            answer = "test",
-            citations = listOf(citation(sectionId = "unknown", sectionTitle = "Section 1")),
-            toolResults = listOf("content"),
-            fetchedSections = listOf(section(title = "Section 1")),
-        ))
-        // Should pass (with warning)
-        assertTrue(result.warnings.any { it.contains("title fallback") })
-    }
-
-    @Test
-    fun `rule 2 skips check when no fetched sections`() {
-        val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall()),
-            answer = "test",
-            citations = listOf(citation(sectionId = "Z99")),
-            toolResults = listOf("content"),
-            fetchedSections = emptyList(),
-        ))
-        // Should not fail on rule 2
-        if (!result.passed) {
-            assertFalse(result.blockedReason!!.contains("not retrieved"))
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════
-    // Rule 3: No invented clinical quantities
-    // ══════════════════════════════════════════════════════════════════
-
-    @Test
-    fun `rule 3 passes when quantities match tool results`() {
+    fun `rule 2 passes when quantities match tool results`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "The dose is 5 mg.",
-            citations = listOf(citation()),
             toolResults = listOf("The dose is 5 mg."),
             fetchedSections = listOf(section()),
         ))
@@ -198,11 +126,10 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 3 blocks when quantity not in tool results`() {
+    fun `rule 2 blocks when quantity not in tool results`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "The dose is 750 mg.",
-            citations = listOf(citation()),
             toolResults = listOf("The dose is 500 mg."),
             fetchedSections = listOf(section()),
         ))
@@ -211,11 +138,10 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 3 allows quantities from user question`() {
+    fun `rule 2 allows quantities from user question`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "The dose is 250 mg.",
-            citations = listOf(citation()),
             toolResults = listOf("content"),
             fetchedSections = listOf(section()),
             userQuestion = "Is 250 mg safe?",
@@ -226,11 +152,10 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 3 does not flag structural numbers`() {
+    fun `rule 2 does not flag structural numbers`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "1. Introduction\n2. Methods\nSee section 3.1.\nYear 2024.",
-            citations = listOf(citation()),
             toolResults = listOf("content"),
             fetchedSections = listOf(section()),
         ))
@@ -240,71 +165,51 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 3 boundary check prevents partial matches`() {
+    fun `rule 2 boundary check prevents partial matches`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "The value is 12 mg.",
-            citations = listOf(citation()),
             toolResults = listOf("Value: 123 mg."),
             fetchedSections = listOf(section()),
         ))
         assertFalse(result.passed)
     }
 
-    // ══════════════════════════════════════════════════════════════════
-    // Rule 4: Citations required
-    // ══════════════════════════════════════════════════════════════════
-
     @Test
-    fun `rule 4 blocks when no citations`() {
+    fun `rule 2 handles compound slashed units`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
-            answer = "test",
-            toolResults = listOf("content"),
-            fetchedSections = listOf(section()),
-        ))
-        assertFalse(result.passed)
-        assertTrue(result.blockedReason!!.contains("No citations"))
-    }
-
-    @Test
-    fun `rule 4 passes with valid citation`() {
-        val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall()),
-            answer = "test",
-            citations = listOf(citation()),
-            toolResults = listOf("content"),
+            answer = "Recommended rates are 5 u/x, 10 U/L, and 0.5 mcg/kg/min.",
+            toolResults = listOf("Give 5 u/x IV, 10 U/L, and 0.5 mcg/kg/min."),
             fetchedSections = listOf(section()),
         ))
         if (!result.passed) {
-            assertFalse(result.blockedReason!!.contains("No citations"))
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
         }
     }
 
     @Test
-    fun `rule 4 density relaxed - one valid citation out of many fetched`() {
+    fun `rule 2 normalizes thousand separator commas`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
-            answer = "test",
-            citations = listOf(citation(sectionId = "H1")),
-            toolResults = listOf("content"),
-            fetchedSections = (1..5).map { section(sectionId = "H$it", title = "Section $it") },
+            answer = "The dose is 1200 mg.",
+            toolResults = listOf("The dose is 1,200 mg daily."),
+            fetchedSections = listOf(section()),
         ))
         if (!result.passed) {
-            assertFalse(result.blockedReason!!.contains("citations match"))
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
         }
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Rule 5: No graphic interpretation
+    // Rule 3: No graphic interpretation
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `rule 5 passes when no visual language`() {
+    fun `rule 3 passes when no visual language`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "The recommended treatment is aspirin.",
-            citations = listOf(citation()),
             toolResults = listOf("content"),
             fetchedSections = listOf(section()),
         ))
@@ -314,11 +219,10 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 5 passes when visual language is in tool results`() {
+    fun `rule 3 passes when visual language is in tool results`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "The x-ray shows opacity.",
-            citations = listOf(citation()),
             toolResults = listOf("The x-ray shows opacity in the lower lobe."),
             fetchedSections = listOf(section()),
         ))
@@ -328,11 +232,10 @@ class SafetyValidatorTest {
     }
 
     @Test
-    fun `rule 5 blocks when visual language not in tool results`() {
+    fun `rule 3 blocks when visual language not in tool results`() {
         val result = validator.validate(ctx(
             toolCalls = listOf(toolCall()),
             answer = "The image shows a mass.",
-            citations = listOf(citation()),
             toolResults = listOf("Normal lung fields."),
             fetchedSections = listOf(section()),
         ))
@@ -347,21 +250,20 @@ class SafetyValidatorTest {
     @Test
     fun `full validation passes on realistic successful turn`() {
         val result = validator.validate(ctx(
-            toolCalls = listOf(toolCall(args = mapOf("section_id" to "H1"))),
-            answer = "The dose is 5 mg.\n\nTopic: Drug X, Section: Dosing (ID: H1)",
-            citations = listOf(citation(topicTitle = "Drug X", sectionTitle = "Dosing", sectionId = "H1")),
+            toolCalls = listOf(toolCall(args = mapOf("sectionIds" to listOf("H1")))),
+            answer = "The dose is 5 mg.",
             toolResults = listOf("The dose is 5 mg."),
             fetchedSections = listOf(section(sectionId = "H1", title = "Dosing")),
         ))
         assertTrue(result.passed)
-        assertEquals(1, result.citations.size)
+        assertEquals(1, result.topicRefs.size)
     }
 
     @Test
     fun `full validation short-circuits on first failure`() {
-        // No tool calls → fails rule 1 immediately
+        // No tool calls → fails rule 0 immediately
         val result = validator.validate(ctx())
         assertFalse(result.passed)
-        assertTrue(result.blockedReason!!.contains("No tool calls"))
+        assertTrue(result.blockedReason!!.contains("Clinical recommendations require database verification"))
     }
 }

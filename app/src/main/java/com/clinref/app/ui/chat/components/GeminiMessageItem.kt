@@ -49,9 +49,6 @@ import com.clinref.app.ui.chat.ResolvedGraphicRef
 import com.halilibo.richtext.commonmark.Markdown
 import com.halilibo.richtext.ui.material3.RichText
 
-private val GRAPHIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Graphic-([a-zA-Z0-9_-]+)\)""")
-private val TOPIC_LINK_REGEX = Regex("""\[([^\]]+)\]\(Topic-([a-zA-Z0-9_-]+)(?:#([a-zA-Z0-9_-]+))?\)""")
-
 @Composable
 fun GeminiMessageItem(
     message: MessageUiModel,
@@ -116,16 +113,13 @@ fun GeminiMessageItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    var cleanContent = GRAPHIC_LINK_REGEX.replace(message.content, "$1")
-                    cleanContent = TOPIC_LINK_REGEX.replace(cleanContent, "$1")
-
                     val buffer = remember { StreamingMarkdownBuffer() }
                     val renderState by produceState(
-                        initialValue = StreamingMarkdownBuffer.RenderState(cleanContent, ""),
-                        key1 = cleanContent,
+                        initialValue = StreamingMarkdownBuffer.RenderState(message.content, ""),
+                        key1 = message.content,
                     ) {
                         value = withContext(Dispatchers.Default) {
-                            buffer.process(cleanContent)
+                            buffer.process(message.content)
                         }
                     }
 
@@ -173,21 +167,6 @@ fun GeminiMessageItem(
                     }
                 }
 
-                if (message.citations.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(message.citations) { citation ->
-                            GeminiCitationPill(
-                                citation = citation,
-                                onClick = { onNavigateToContent(citation.topicId, citation.sectionId) }
-                            )
-                        }
-                    }
-                }
-
                 if (!message.isError && !isCancelled) {
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -208,34 +187,6 @@ fun GeminiMessageItem(
             }
         }
     }
-}
-
-@Composable
-fun GeminiCitationPill(citation: SafetyValidator.Citation, onClick: () -> Unit) {
-    InputChip(
-        selected = false,
-        onClick = onClick,
-        label = {
-            Text(
-                text = "${citation.topicTitle} > ${citation.sectionTitle}",
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-            )
-        },
-        trailingIcon = {
-            Icon(
-                imageVector = Icons.Default.Launch,
-                contentDescription = null,
-                modifier = Modifier.size(10.dp)
-            )
-        },
-        colors = InputChipDefaults.inputChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            labelColor = MaterialTheme.colorScheme.onSurface
-        ),
-        border = null
-    )
 }
 
 @Composable

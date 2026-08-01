@@ -22,6 +22,7 @@ fun OllamaSettingsPanel(
         value = settings.numCtx?.toString() ?: "",
         onValueChange = { onUpdate(settings.copy(numCtx = it.toIntOrNull())) },
         label = { Text("Context Window (num_ctx)") },
+        placeholder = { Text("4096 (default)") },
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)

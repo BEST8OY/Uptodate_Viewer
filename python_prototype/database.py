@@ -9,6 +9,7 @@ Connects to the same SQLite databases used by the Android app:
 
 import gzip
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -66,22 +67,29 @@ class ClinRefDatabase:
     # ── Search ──────────────────────────────────────────────────────────
 
     def search_topics(self, query: str, limit: int = 10) -> list[dict]:
-        """Search topics using unidex (primary) → fcontentsearch → fsearch.
+        """Search topics using unidex only (no FTS fallback).
 
-        Matches the Android app's SearchDao.searchTopics() flow.
+        FTS fallback returns low-quality results. Unidex has curated mappings.
+        Filters out topics without assets to prevent LLM dead ends.
         """
         # 1. Try unidex (exact query → topic hits)
         unidex_results = self._search_unidex(query)
         if unidex_results:
-            return unidex_results[:limit]
+            filtered = [r for r in unidex_results if self.has_topic_asset(r["id"])]
+            if filtered:
+                return filtered[:limit]
 
-        # 2. Try fcontentsearch (FTS content search)
-        content_results = self._search_fts(self.content, query, limit)
-        if content_results:
-            return content_results
+        # 2. If query has special chars, strip them and retry unidex
+        cleaned = re.sub(r'[^a-zA-Z0-9 ]', '', query).lower().strip()
+        if cleaned and cleaned != query:
+            cleaned_results = self._search_unidex(cleaned)
+            if cleaned_results:
+                filtered = [r for r in cleaned_results if self.has_topic_asset(r["id"])]
+                if filtered:
+                    return filtered[:limit]
 
-        # 3. Fallback to fsearch (FTS title search)
-        return self._search_fts(self.search, query, limit)
+        # 3. No FTS fallback — return empty, LLM will use suggestions
+        return []
 
     def _search_unidex(self, query: str) -> list[dict]:
         """Search unidex.en.sqlite for exact query → topic hits."""
@@ -303,6 +311,19 @@ class ClinRefDatabase:
         ]
 
     # ── Topic Assets ────────────────────────────────────────────────────
+
+    def has_topic_asset(self, topic_id: str) -> bool:
+        """Check if a topic has a usable asset (outlineHtml not empty)."""
+        row = self.asset.execute(
+            "SELECT payload FROM topic_asset WHERE id = ? LIMIT 1", (topic_id,)
+        ).fetchone()
+        if not row or not row["payload"]:
+            return False
+        try:
+            data = json.loads(gzip.decompress(row["payload"]))
+            return bool(data.get("outlineHtml"))
+        except Exception:
+            return False
 
     def get_topic_asset(self, topic_id: str) -> Optional[dict]:
         """Load and decompress a topic asset from utdasset.sqlite.

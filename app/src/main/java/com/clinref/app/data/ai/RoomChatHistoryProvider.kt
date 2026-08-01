@@ -9,6 +9,7 @@ import com.clinref.app.data.local.entity.MessageEntity
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
 
 @Singleton
 class RoomChatHistoryProvider @Inject constructor(
@@ -17,7 +18,7 @@ class RoomChatHistoryProvider @Inject constructor(
 
     override suspend fun store(conversationId: String, messages: List<Message>) {
         // No-op: ChatViewModel handles all message persistence with richer metadata
-        // (citations, warnings, isError). ChatMemory store() would create duplicates.
+        // (warnings, isError). ChatMemory store() would create duplicates.
     }
 
     override suspend fun load(conversationId: String): List<Message> {
@@ -25,9 +26,9 @@ class RoomChatHistoryProvider @Inject constructor(
             .filter { it.role == "user" || it.role == "assistant" }
             .filter { !it.isError }
             .map { entity ->
-                val elapsedMs = System.currentTimeMillis() - entity.timestamp
+                val elapsedMs = (System.currentTimeMillis() - entity.timestamp).coerceAtLeast(0)
                 val timestamp = ai.koog.utils.time.KoogClock.System.now()
-                    .minus(kotlin.time.Duration.parse("${elapsedMs}ms"))
+                    .minus(elapsedMs.milliseconds)
                 when (entity.role) {
                     "user" -> Message.User(
                         content = entity.content,

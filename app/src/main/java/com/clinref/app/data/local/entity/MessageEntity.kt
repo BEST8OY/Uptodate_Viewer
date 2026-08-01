@@ -24,7 +24,8 @@ data class MessageEntity(
     val content: String,
     val timestamp: Long,
     val toolCallsJson: String? = null,
-    val citationsJson: String? = null,
     val warningsJson: String? = null,
+    val topicRefsJson: String? = null,
+    val graphicRefsJson: String? = null,
     val isError: Boolean = false
 )

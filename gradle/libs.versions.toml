@@ -19,6 +19,7 @@ room = "3.0.0"
 sqlite = "2.7.0"
 securityCrypto = "1.1.0-alpha06"
 composeRichtext = "1.0.0-alpha05"
+jsoup = "1.18.1"
 junit = "4.13.2"
 mockk = "1.13.13"
 coroutinesTest = "1.10.1"
@@ -73,6 +74,9 @@ security-crypto = { group = "androidx.security", name = "security-crypto", versi
 # Markdown in Compose
 compose-richtext-commonmark = { group = "com.halilibo.compose-richtext", name = "richtext-commonmark", version.ref = "composeRichtext" }
 compose-richtext-ui-material3 = { group = "com.halilibo.compose-richtext", name = "richtext-ui-material3", version.ref = "composeRichtext" }
+
+# HTML parsing
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }

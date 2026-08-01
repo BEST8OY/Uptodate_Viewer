@@ -56,9 +56,12 @@ class StreamingManager {
         streamingBuffer.clear()
         _streamingText.value = ""
         val description = when (toolName) {
+            "quickSearchTopic" -> "Discovering topic outline\u2026"
             "searchTopics" -> "Searching topics\u2026"
             "getTopicOutline" -> "Reading topic outline\u2026"
-            "getTopicSectionText" -> "Reading section content\u2026"
+            "getTopicSectionsText" -> "Fetching section text\u2026"
+            "getGraphicContent" -> "Retrieving graphic table\u2026"
+            "submitClinicalAnswer" -> "Submitting response\u2026"
             else -> "Calling $toolName\u2026"
         }
         _toolProgress.value = ToolProgress(toolName, description)

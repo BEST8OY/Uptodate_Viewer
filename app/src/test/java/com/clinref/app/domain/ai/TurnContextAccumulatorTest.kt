@@ -23,11 +23,11 @@ class TurnContextAccumulatorTest {
     @Test
     fun `tracks tool call start and completion`() {
         accumulator.onToolCallStarting("call-1", """{"section_id":"H1"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "content", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals(1, ctx.toolCalls.size)
-        assertEquals("getTopicSectionText", ctx.toolCalls[0].toolName)
+        assertEquals("getTopicSectionsText", ctx.toolCalls[0].toolName)
         assertTrue(ctx.toolCalls[0].success)
         assertEquals("content", ctx.toolCalls[0].result)
     }
@@ -35,7 +35,7 @@ class TurnContextAccumulatorTest {
     @Test
     fun `detects logical failure in tool result`() {
         accumulator.onToolCallStarting("call-1", "{}")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "Topic not found", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "Topic not found", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertFalse(ctx.toolCalls[0].success)
@@ -44,7 +44,7 @@ class TurnContextAccumulatorTest {
     @Test
     fun `detects section not found`() {
         accumulator.onToolCallStarting("call-1", "{}")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "Section not found.", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "Section not found.", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertFalse(ctx.toolCalls[0].success)
@@ -53,7 +53,7 @@ class TurnContextAccumulatorTest {
     @Test
     fun `detects topic not found with prefix`() {
         accumulator.onToolCallStarting("call-1", "{}")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "Topic not found: 123", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "Topic not found: 123", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertFalse(ctx.toolCalls[0].success)
@@ -62,7 +62,7 @@ class TurnContextAccumulatorTest {
     @Test
     fun `physical failure stays failed`() {
         accumulator.onToolCallStarting("call-1", "{}")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "content", false)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", false)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertFalse(ctx.toolCalls[0].success)
@@ -73,9 +73,9 @@ class TurnContextAccumulatorTest {
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `tracks fetched sections from getTopicSectionText`() {
+    fun `tracks fetched sections from getTopicSectionsText`() {
         accumulator.onToolCallStarting("call-1", """{"topicId":"1","sectionId":"H1","sectionTitle":"Dosing"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "content", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals(1, ctx.fetchedSections.size)
@@ -86,10 +86,68 @@ class TurnContextAccumulatorTest {
     @Test
     fun `does not track sections for failed calls`() {
         accumulator.onToolCallStarting("call-1", """{"sectionId":"H1"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "Section not found.", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "Section not found.", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals(0, ctx.fetchedSections.size)
+    }
+
+    @Test
+    fun `stores outline sections from getTopicOutline`() {
+        val outlineResult = """{"topicId":"128998","title":"Atrial Fibrillation","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"Monitoring"}]}"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"128998"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals("Atrial Fibrillation", ctx.fetchedSections.firstOrNull()?.topicTitle ?: "")
+    }
+
+    @Test
+    fun `batch sections use stored outline titles`() {
+        // First call getTopicOutline to store titles
+        val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"Safety"}]}"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+
+        // Then call batch sections (returns JSON with sectionTitles)
+        val batchResult = """{"topicTitle":"Drug X","sectionTitles":{"H1":"Dosing","H2":"Safety"},"markdown":"content"}"""
+        accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionIds":["H1","H2"]}""")
+        accumulator.onToolCallCompleted("call-2", "getTopicSectionsText", batchResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(2, ctx.fetchedSections.size)
+        assertEquals("Dosing", ctx.fetchedSections[0].sectionTitle)
+        assertEquals("Safety", ctx.fetchedSections[1].sectionTitle)
+        assertEquals("Drug X", ctx.fetchedSections[0].topicTitle)
+    }
+
+    @Test
+    fun `batch sections parse JSON when no outline called`() {
+        // Batch sections returns JSON with topicTitle and sectionTitles
+        val batchResult = """{"topicTitle":"Atrial Fibrillation","sectionTitles":{"H1":"Dosing","H2":"Monitoring"},"markdown":"content"}"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"128998","sectionIds":["H1","H2"]}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", batchResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(2, ctx.fetchedSections.size)
+        assertEquals("Dosing", ctx.fetchedSections[0].sectionTitle)
+        assertEquals("Monitoring", ctx.fetchedSections[1].sectionTitle)
+        assertEquals("Atrial Fibrillation", ctx.fetchedSections[0].topicTitle)
+    }
+
+    @Test
+    fun `single section uses stored outline title`() {
+        // Store outline
+        val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"}]}"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+
+        // Call single section
+        accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionId":"H1","sectionTitle":""}""")
+        accumulator.onToolCallCompleted("call-2", "getTopicSectionsText", "content", true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals("Dosing", ctx.fetchedSections[0].sectionTitle)
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -108,83 +166,45 @@ class TurnContextAccumulatorTest {
     @Test
     fun `does not track graphic IDs for other tools`() {
         accumulator.onToolCallStarting("call-1", """{"graphicId":"12345"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "content", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertTrue(ctx.graphicIds.isEmpty())
     }
 
+    @Test
+    fun `extracts graphic title from tool result`() {
+        val graphicResult = "### Graphic Table: INR Monitoring Table\n\n| Dose | Rate |"
+        accumulator.onToolCallStarting("call-1", """{"graphicId":"12345"}""")
+        accumulator.onToolCallCompleted("call-1", "getGraphicContent", graphicResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.graphicRefs.size)
+        assertEquals("INR Monitoring Table", ctx.graphicRefs[0].label)
+    }
+
     // ══════════════════════════════════════════════════════════════════
-    // Citation parsing
+    // Topic refs from submitted answer
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `parses basic citation`() {
-        val answer = "Topic: Drug X, Section: Dosing (ID: H1)"
-        val ctx = accumulator.buildTurnContext(answer)
-        assertEquals(1, ctx.citations.size)
-        assertEquals("Drug X", ctx.citations[0].topicTitle)
-        assertEquals("Dosing", ctx.citations[0].sectionTitle)
-        assertEquals("H1", ctx.citations[0].sectionId)
+    fun `auto-populates topic refs from fetched sections`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1","sectionId":"H1","sectionTitle":"Dosing"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertTrue(ctx.topicRefs.isNotEmpty())
+        assertEquals("H1", ctx.topicRefs[0].sectionId)
     }
 
     @Test
-    fun `parses citation without ID`() {
-        val answer = "Topic: Drug X, Section: Dosing"
-        val ctx = accumulator.buildTurnContext(answer)
-        assertEquals(1, ctx.citations.size)
-        assertEquals("unknown", ctx.citations[0].sectionId)
-    }
+    fun `auto-populates graphic refs from graphic IDs`() {
+        accumulator.onToolCallStarting("call-1", """{"graphicId":"12345"}""")
+        accumulator.onToolCallCompleted("call-1", "getGraphicContent", "table", true)
 
-    @Test
-    fun `parses bullet-prefixed citations`() {
-        val answer = "- Topic: Drug X, Section: Dosing (ID: H1)\n* Topic: Drug Y, Section: Safety (ID: H2)"
-        val ctx = accumulator.buildTurnContext(answer)
-        assertEquals(2, ctx.citations.size)
-    }
-
-    @Test
-    fun `parses numbered list citations`() {
-        val answer = "1. Topic: Drug X, Section: Dosing (ID: H1)"
-        val ctx = accumulator.buildTurnContext(answer)
-        assertEquals(1, ctx.citations.size)
-    }
-
-    @Test
-    fun `parses bold-formatted citations`() {
-        val answer = "**Topic:** Drug X, **Section:** Dosing (ID: H1)"
-        val ctx = accumulator.buildTurnContext(answer)
-        assertEquals(1, ctx.citations.size)
-        assertEquals("Drug X", ctx.citations[0].topicTitle)
-        assertEquals("Dosing", ctx.citations[0].sectionTitle)
-    }
-
-    @Test
-    fun `parses mixed format citations`() {
-        val answer = listOf(
-            "- Topic: Apixaban Dosing, Section: Renal (ID: H5)",
-            "* Topic: Apixaban Monitoring, Section: Labs (ID: H8)",
-            "1. Topic: Asthma Overview, Section: Treatment (ID: H3)",
-            "**Topic:** Gout Management, Section: Acute (ID: H12)",
-        ).joinToString("\n")
-        val ctx = accumulator.buildTurnContext(answer)
-        assertEquals(4, ctx.citations.size)
-        val ids = ctx.citations.map { it.sectionId }.toSet()
-        assertEquals(setOf("H5", "H8", "H3", "H12"), ids)
-    }
-
-    @Test
-    fun `strips bold markers from citation titles`() {
-        val answer = "**Topic:** Drug X, **Section:** Dosing (ID: H1)"
-        val ctx = accumulator.buildTurnContext(answer)
-        assertEquals("Drug X", ctx.citations[0].topicTitle)
-        assertEquals("Dosing", ctx.citations[0].sectionTitle)
-    }
-
-    @Test
-    fun `returns empty citations for plain answer`() {
-        val ctx = accumulator.buildTurnContext("This is a plain answer.")
-        assertTrue(ctx.citations.isEmpty())
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.graphicRefs.size)
+        assertEquals("12345", ctx.graphicRefs[0].graphicId)
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -206,7 +226,7 @@ class TurnContextAccumulatorTest {
     fun `reset clears all state`() {
         accumulator.setUserQuestion("question")
         accumulator.onToolCallStarting("call-1", """{"sectionId":"H1"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "content", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
         accumulator.onToolCallStarting("call-2", """{"graphicId":"123"}""")
         accumulator.onToolCallCompleted("call-2", "getGraphicContent", "table", true)
 
@@ -227,7 +247,7 @@ class TurnContextAccumulatorTest {
     @Test
     fun `parses JSON arguments`() {
         accumulator.onToolCallStarting("call-1", """{"topicId":"123","sectionId":"H5"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionText", "content", true)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals("123", ctx.toolCalls[0].arguments["topicId"])
@@ -253,6 +273,65 @@ class TurnContextAccumulatorTest {
     }
 
     // ══════════════════════════════════════════════════════════════════
+    // Ref auto-population: empty section titles excluded
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `empty section titles are excluded from topic refs`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1","sectionIds":["H1","H2","H3"]}""")
+        accumulator.onToolCallCompleted(
+            "call-1", "getTopicSectionsText",
+            """{"topicTitle":"Drug X","sectionTitles":{"H1":"Dosing","H2":"","H3":""},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("H1", ctx.topicRefs[0].sectionId)
+        assertEquals("Dosing", ctx.topicRefs[0].label)
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Outline dash stripping
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `strips leading dashes from outline section titles`() {
+        val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"-Antiplatelet therapy"}]}"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+
+        accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionIds":["H1","H2"]}""")
+        accumulator.onToolCallCompleted(
+            "call-2", "getTopicSectionsText",
+            """{"topicTitle":"Drug X","sectionTitles":{"H1":"Dosing","H2":"-Antiplatelet therapy"},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals("Dosing", ctx.fetchedSections[0].sectionTitle)
+        assertEquals("Antiplatelet therapy", ctx.fetchedSections[1].sectionTitle)
+    }
+
+    @Test
+    fun `strips leading dashes from outline parsed titles`() {
+        val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"—Anticoagulation"}]}"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+
+        accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionIds":["H2"]}""")
+        accumulator.onToolCallCompleted(
+            "call-2", "getTopicSectionsText",
+            """{"topicTitle":"Drug X","sectionTitles":{"H2":""},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("answer")
+        // H2 title should come from outline (stored with dashes stripped)
+        assertEquals("Anticoagulation", ctx.fetchedSections[0].sectionTitle)
+    }
+
+    // ══════════════════════════════════════════════════════════════════
     // Tool results
     // ══════════════════════════════════════════════════════════════════
 
@@ -263,12 +342,40 @@ class TurnContextAccumulatorTest {
         accumulator.onToolCallStarting("call-2", "{}")
         accumulator.onToolCallCompleted("call-2", "getTopicOutline", "outline", true)
         accumulator.onToolCallStarting("call-3", "{}")
-        accumulator.onToolCallCompleted("call-3", "getTopicSectionText", "content", true)
+        accumulator.onToolCallCompleted("call-3", "getTopicSectionsText", "content", true)
 
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals(3, ctx.toolResults.size)
         assertEquals("results1", ctx.toolResults[0])
         assertEquals("outline", ctx.toolResults[1])
         assertEquals("content", ctx.toolResults[2])
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Deduplication
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `deduplicates identical tool calls`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1","sectionId":"H1"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
+        // Same tool+args — should be deduplicated
+        accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionId":"H1"}""")
+        accumulator.onToolCallCompleted("call-2", "getTopicSectionsText", "content", true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        // Only one tool call should be recorded (deduplication)
+        assertEquals(1, ctx.toolCalls.size)
+    }
+
+    @Test
+    fun `does not deduplicate different args`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1","sectionId":"H1"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content1", true)
+        accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionId":"H2"}""")
+        accumulator.onToolCallCompleted("call-2", "getTopicSectionsText", "content2", true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(2, ctx.toolCalls.size)
     }
 }

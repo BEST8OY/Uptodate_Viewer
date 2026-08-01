@@ -7,6 +7,7 @@ import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
+import com.clinref.app.domain.ai.ProviderSettings
 import kotlin.math.roundToInt
 
 /**
@@ -21,6 +22,8 @@ class OllamaProvider(
 
     override fun resolveModel(config: AiConfiguration): LLModel {
         val modelId = config.model.ifBlank { "llama3.2" }
+        val settings = config.providerSettings as? ProviderSettings.Ollama
+        val contextLength = settings?.numCtx ?: 4096
         return LLModel(
             provider = LLMProvider.Ollama,
             id = modelId,
@@ -29,7 +32,7 @@ class OllamaProvider(
                 ai.koog.prompt.llm.LLMCapability.Tools,
                 ai.koog.prompt.llm.LLMCapability.Temperature
             ),
-            contextLength = 128_000
+            contextLength = contextLength
         )
     }
 

@@ -18,8 +18,6 @@ import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.domain.ai.TurnContextAccumulator
 import com.clinref.app.data.secure.SecurePreferences
 import com.clinref.app.repository.ConversationRepository
-import com.clinref.app.repository.ContentRepository
-import com.clinref.app.repository.AssetRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +41,6 @@ data class MessageUiModel(
     val role: String,
     val content: String,
     val timestamp: Long,
-    val citations: List<SafetyValidator.Citation> = emptyList(),
     val warnings: List<String> = emptyList(),
     val isError: Boolean = false,
     val showTimestamp: Boolean = true,
@@ -62,9 +59,7 @@ class ChatViewModel @Inject constructor(
     private val streamingManager: StreamingManager,
     private val reliabilityManager: ReliabilityManager,
     private val securePreferences: SecurePreferences,
-    private val secureLogger: SecureLogger,
-    private val contentRepository: ContentRepository,
-    private val assetRepository: AssetRepository
+    private val secureLogger: SecureLogger
 ) : ViewModel() {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -109,8 +104,11 @@ class ChatViewModel @Inject constructor(
     }
 
     fun loadConversation(conversationId: String) {
+        generationJob?.cancel()
+        generationJob = null
         _currentConversationId.value = conversationId
         messageOffset = 0
+        streamingManager.reset()
         viewModelScope.launch {
             val profile = conversationRepository.getPatientProfile(conversationId)
             _patientProfile.value = profile
@@ -158,7 +156,6 @@ class ChatViewModel @Inject constructor(
             )
             conversationRepository.addMessage(userMsg)
             _messages.value = _messages.value + userMsg.toUiModel()
-            conversationRepository.updateTokenCounts(conversationId, promptDelta = content.length / 4, completionDelta = 0, toolDelta = 0)
             conversationRepository.updateLastPreview(conversationId, content.take(100))
 
             if (conversationRepository.isOverTokenLimit(conversationId)) {
@@ -193,11 +190,16 @@ class ChatViewModel @Inject constructor(
 
             streamingManager.reset()
             userCancelled = false
+            val timeoutMs = if (config.provider == AiProvider.OLLAMA) {
+                ReliabilityManager.LOCAL_TIMEOUT_MS
+            } else {
+                ReliabilityManager.TOOL_TIMEOUT_MS
+            }
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
                     var lastAccumulator: TurnContextAccumulator? = null
                     val result = reliabilityManager.withRetry {
-                        reliabilityManager.runWithTimeout {
+                        reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
                             val (agent, accumulator) = koogAgentFactory.createAgent(
                                 config = config,
                                 conversationId = conversationId,
@@ -344,22 +346,26 @@ class ChatViewModel @Inject constructor(
 
             streamingManager.reset()
 
+            val snapshot = accumulator?.snapshotForCorrection()
             val (correctionAgent, _) = koogAgentFactory.createAgent(
                 config = config,
                 conversationId = conversationId,
                 patientProfile = patientProfile,
                 streamingManager = streamingManager,
-                existingAccumulator = accumulator
+                existingAccumulator = snapshot
             ) ?: return false
 
-            val correctionPrompt = """
-                SYSTEM NOTICE: Your prior response was paused due to clinical verification rules.
-                REASON: $blockedReason
+            val evidenceSummary = snapshot?.buildTurnContext("")?.fetchedSections
+                ?.joinToString("\n---\n") { sec ->
+                    if (sec.contentSnippet.isNotBlank()) {
+                        "Section [${sec.sectionId}] (${sec.sectionTitle}):\n${sec.contentSnippet}"
+                    } else {
+                        "Section [${sec.sectionId}] (${sec.sectionTitle}) from topic ${sec.topicTitle}"
+                    }
+                }
+                ?: "No section text was successfully fetched in the prior turn."
 
-                REMEDIAL INSTRUCTIONS:
-                - Ensure all quoted dosages and figures are verified against retrieved sections.
-                - Include full citations in format: Topic: <Title>, Section: <Title> (ID: <SectionID>)
-            """.trimIndent()
+            val correctionPrompt = SystemPrompt.buildCorrectionPrompt(blockedReason, evidenceSummary)
 
             val correctedResult = correctionAgent.run(correctionPrompt, conversationId)
 
@@ -391,12 +397,12 @@ class ChatViewModel @Inject constructor(
             role = "assistant",
             content = result,
             timestamp = System.currentTimeMillis(),
-            citationsJson = json.encodeToString(validation.citations),
-            warningsJson = json.encodeToString(validation.warnings)
+            warningsJson = json.encodeToString(validation.warnings),
+            topicRefsJson = json.encodeToString(validation.topicRefs),
+            graphicRefsJson = json.encodeToString(validation.graphicRefs)
         )
         conversationRepository.addMessage(assistantMsg)
         _messages.value = _messages.value + assistantMsg.toUiModel(
-            citations = validation.citations,
             warnings = validation.warnings
         )
         conversationRepository.updateTokenCounts(
@@ -424,45 +430,30 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private val TOPIC_LINK_RE = Regex("""\[([^\]]+)\]\(Topic-([a-zA-Z0-9_-]+)(?:#([a-zA-Z0-9_-]+))?\)""")
-    private val GRAPHIC_LINK_RE = Regex("""\[([^\]]+)\]\(Graphic-([a-zA-Z0-9_-]+)\)""")
-
-    private fun resolveRefs(content: String): Pair<List<ResolvedTopicRef>, List<ResolvedGraphicRef>> {
-        val topicRefs = TOPIC_LINK_RE.findAll(content).map { match ->
-            val topicId = match.groupValues[2]
-            val sectionId = match.groupValues[3].ifEmpty { null }
-            val title = contentRepository.getTopicTitle(topicId) ?: topicId
-            ResolvedTopicRef(topicId, title, sectionId)
-        }.distinctBy { it.topicId }.toList()
-
-        val graphicRefs = GRAPHIC_LINK_RE.findAll(content).map { match ->
-            val graphicId = match.groupValues[2]
-            val rawLabel = match.groupValues[1].ifEmpty { "Graphic $graphicId" }
-            val title = assetRepository.getGraphicTitle(graphicId) ?: rawLabel
-            ResolvedGraphicRef(graphicId, title)
-        }.distinctBy { it.graphicId }.toList()
-
-        return topicRefs to graphicRefs
-    }
-
     private fun MessageEntity.toUiModel(
-        citations: List<SafetyValidator.Citation> = emptyList(),
         warnings: List<String> = emptyList(),
         isError: Boolean = false
     ): MessageUiModel {
-        val parsedCitations = if (citations.isEmpty() && !citationsJson.isNullOrBlank()) {
-            try { json.decodeFromString<List<SafetyValidator.Citation>>(citationsJson) } catch (_: Exception) { emptyList() }
-        } else citations
         val parsedWarnings = if (warnings.isEmpty() && !warningsJson.isNullOrBlank()) {
             try { json.decodeFromString<List<String>>(warningsJson) } catch (_: Exception) { emptyList() }
         } else warnings
-        val (topicRefs, graphicRefs) = resolveRefs(content)
+
+        val topicRefs = if (!topicRefsJson.isNullOrBlank()) {
+            try { json.decodeFromString<List<SafetyValidator.TopicRef>>(topicRefsJson).map {
+                ResolvedTopicRef(it.topicId, it.label, it.sectionId.ifEmpty { null })
+            } } catch (_: Exception) { emptyList() }
+        } else emptyList()
+        val graphicRefs = if (!graphicRefsJson.isNullOrBlank()) {
+            try { json.decodeFromString<List<SafetyValidator.GraphicRef>>(graphicRefsJson).map {
+                ResolvedGraphicRef(it.graphicId, it.label)
+            } } catch (_: Exception) { emptyList() }
+        } else emptyList()
+
         return MessageUiModel(
             id = id,
             role = role,
             content = content,
             timestamp = timestamp,
-            citations = parsedCitations,
             warnings = parsedWarnings,
             isError = isError || this.isError || role == "cancelled",
             topicRefs = topicRefs,

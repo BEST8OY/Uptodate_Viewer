@@ -20,9 +20,61 @@ load_dotenv()
 
 from database import ClinRefDatabase
 from html_parser import extract_outline_sections
-from safety_validator import SafetyValidator, TurnContext
+from safety_validator import CONVERSATIONAL_USER_REGEX, SafetyValidator, TurnContext
+
+
+def is_conversational_query(query: str) -> bool:
+    """Zero-LLM upstream intent classifier for basic greetings and help requests."""
+    clean = query.strip().lower()
+    return bool(CONVERSATIONAL_USER_REGEX.match(clean)) and len(clean) < 40
 from system_prompt import build_system_prompt, extract_patient_context
 from tools import init_tools
+
+
+def _extract_answer_from_tool_result(content: str) -> str:
+    """Extract answer text from a terminal tool's SUBMITTED JSON result."""
+    try:
+        data = json.loads(content)
+        if data.get("status") == "SUBMITTED" and "answer" in data:
+            return data["answer"]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return ""
+
+
+def _build_references_section(validation_result: dict) -> str:
+    """Build a formatted references section from validation result."""
+    if not validation_result:
+        return ""
+
+    refs_lines = []
+
+    if validation_result.get("topic_refs"):
+        from collections import defaultdict
+        by_topic = defaultdict(list)
+        seen = set()
+        for r in validation_result["topic_refs"]:
+            key = (r.get("topic_id", ""), r.get("section_id", ""))
+            if key not in seen:
+                seen.add(key)
+                display_title = r.get("topic_title") or r.get("topic_id", "Unknown")
+                by_topic[display_title].append(
+                    (r.get("label", ""), r.get("section_id", ""))
+                )
+        if by_topic:
+            refs_lines.append("References:")
+            for topic, sections in by_topic.items():
+                refs_lines.append(f"  {topic}")
+                for label, section_id in sections:
+                    refs_lines.append(f"    - {label} (ID: {section_id})")
+
+    if validation_result.get("graphic_refs"):
+        if not refs_lines:
+            refs_lines.append("References:")
+        for g in validation_result["graphic_refs"]:
+            refs_lines.append(f"  - Graphic {g.get('graphic_id', '')}: {g.get('label', '')}")
+
+    return "\n\n" + "\n".join(refs_lines) if refs_lines else ""
 
 # Provider -> environment variable mapping
 _API_KEY_ENV = {
@@ -135,6 +187,9 @@ def run_interactive(provider: str, model: str, db_path: str):
                     for msg in messages:
                         if hasattr(msg, "content"):
                             content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
+                            # Extract answer from terminal tool result
+                            if not answer:
+                                answer = _extract_answer_from_tool_result(content)
                             # Show truncated result
                             preview = content[:120].replace("\n", " ")
                             if len(content) > 120:
@@ -152,6 +207,9 @@ def run_interactive(provider: str, model: str, db_path: str):
                         if val.get("warnings"):
                             for w in val["warnings"]:
                                 print(f"    Warning: {w}")
+
+        # Append references section to answer
+        answer += _build_references_section(validation_result)
 
         # Show final answer
         print(f"\nClinRef: {answer}\n")
@@ -173,6 +231,12 @@ def run_interactive(provider: str, model: str, db_path: str):
 
 def run_single_query(query: str, provider: str, model: str, db_path: str):
     """Run a single query and print the result with streaming flow."""
+    # Zero-LLM Fast Path for basic conversational inputs
+    if is_conversational_query(query):
+        print(f"Query: {query}\n")
+        print("ClinRef: Hello! I am your clinical reference assistant. How can I help you with medical topics or drug dosing today?\n")
+        return
+
     db = ClinRefDatabase(db_dir=Path(db_path))
     tools = init_tools(db)
     system_prompt = build_system_prompt(provider=provider)
@@ -189,6 +253,7 @@ def run_single_query(query: str, provider: str, model: str, db_path: str):
 
     print(f"Query: {query}\n")
     answer = ""
+    validation_result = None
     config = {"callbacks": [token_tracker]}
 
     for event in agent.stream(initial_state, config=config, stream_mode="updates"):
@@ -207,6 +272,9 @@ def run_single_query(query: str, provider: str, model: str, db_path: str):
                 for msg in messages:
                     if hasattr(msg, "content"):
                         content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
+                        # Extract answer from terminal tool result
+                        if not answer:
+                            answer = _extract_answer_from_tool_result(content)
                         preview = content[:120].replace("\n", " ")
                         if len(content) > 120:
                             preview += "..."
@@ -215,8 +283,12 @@ def run_single_query(query: str, provider: str, model: str, db_path: str):
             elif node_name == "validate_safety":
                 val = node_output.get("validation_result")
                 if val:
+                    validation_result = val
                     status = "PASSED" if val.get("passed") else "BLOCKED"
                     print(f"  Validation: {status}")
+
+    # Append references section to answer
+    answer += _build_references_section(validation_result)
 
     print(f"\n{answer}")
 
@@ -271,22 +343,18 @@ def run_tests(db_path: str):
     print("Test 4: Safety validator")
     validator = SafetyValidator()
 
-    # Test citation parsing
-    test_answer = (
-        "Warfarin is used for AFib anticoagulation.\n\n"
-        "Topic: Atrial fibrillation, Section: Anticoagulation (ID: 12345)\n"
-    )
-    citations = validator.parse_citations(test_answer)
-    assert len(citations) == 1, f"Expected 1 citation, got {len(citations)}"
-    assert citations[0].section_id == "12345"
-    print("  Citation parsing: PASS")
-
-    # Test no-tool-calls block
-    ctx = TurnContext()
+    # Test no-tool-calls block (clinical response)
+    ctx = TurnContext(answer="The dose is 5 mg.")
     result = validator.validate(ctx)
     assert not result.passed
-    assert "No tool calls" in result.blocked_reason
-    print("  No-tool-calls block: PASS")
+    assert "Clinical recommendations require database verification" in result.blocked_reason
+    print("  No-tool-calls block (clinical): PASS")
+
+    # Test no-tool-calls passes (conversational response)
+    ctx = TurnContext(answer="Hello!", user_question="hello")
+    result = validator.validate(ctx)
+    assert result.passed
+    print("  No-tool-calls passes (conversational): PASS")
 
     # Test no-section block
     from safety_validator import ToolCallRecord

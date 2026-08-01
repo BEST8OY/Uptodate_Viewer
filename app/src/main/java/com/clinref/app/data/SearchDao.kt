@@ -130,12 +130,23 @@ class SearchDao @Inject constructor(
 
     fun searchTopics(query: String, preference: String = "X"): List<Map<String, String>> {
         val primaryResults = searchUnidex(query, preference)
-        if (primaryResults.isNotEmpty()) return primaryResults
+        if (primaryResults.isNotEmpty()) {
+            val filtered = primaryResults.filter { hasTopicAsset(it["id"] ?: "") }
+            if (filtered.isNotEmpty()) return filtered
+        }
 
-        val fcontentResults = searchFts(dbManager.getFcontentsearchDb(), query)
-        if (fcontentResults.isNotEmpty()) return fcontentResults
+        // If query has special chars, strip them and retry unidex
+        val cleaned = query.replace(Regex("[^a-zA-Z0-9 ]"), "").lowercase().trim()
+        if (cleaned.isNotEmpty() && cleaned != query) {
+            val cleanedResults = searchUnidex(cleaned, preference)
+            if (cleanedResults.isNotEmpty()) {
+                val filtered = cleanedResults.filter { hasTopicAsset(it["id"] ?: "") }
+                if (filtered.isNotEmpty()) return filtered
+            }
+        }
 
-        return searchFts(dbManager.getFsearchDb(), query)
+        // No FTS fallback — return empty, LLM will use suggestions
+        return emptyList()
     }
 
     private fun searchUnidex(query: String, preference: String): List<Map<String, String>> {
@@ -258,6 +269,26 @@ class SearchDao @Inject constructor(
             } catch (_: Exception) {
                 emptyList()
             }
+        }
+    }
+
+    private fun hasTopicAsset(topicId: String): Boolean {
+        if (topicId.isEmpty()) return false
+        return try {
+            val db = dbManager.getAssetsDb()
+            val cursor = db.rawQuery(
+                "SELECT payload FROM topic_asset WHERE id = ? LIMIT 1",
+                arrayOf(topicId)
+            )
+            cursor.use {
+                if (!it.moveToFirst()) return false
+                val payload = it.getBlob(0) ?: return false
+                val jsonStr = String(java.util.zip.GZIPInputStream(java.io.ByteArrayInputStream(payload)).readBytes())
+                val obj = org.json.JSONObject(jsonStr)
+                obj.has("outlineHtml") && obj.getString("outlineHtml").isNotEmpty()
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 }

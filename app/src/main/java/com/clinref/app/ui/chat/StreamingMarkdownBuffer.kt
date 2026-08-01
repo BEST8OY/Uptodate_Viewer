@@ -7,19 +7,22 @@ package com.clinref.app.ui.chat
  * and only flushes completed blocks to the renderer. Incomplete blocks are
  * held in a pending buffer and shown as plain text until the closing tag arrives.
  *
- * This eliminates visual flickering during LLM streaming — no auto-closing
- * fake tags, no re-parsing the entire string on every token.
+ * Uses incremental scanning: only re-scans new content appended since the
+ * last flush point, avoiding O(N²) re-scans of the full accumulated text.
  */
 class StreamingMarkdownBuffer {
 
-    // Block-level states
+    // Incremental scan state at the last flush point
+    private var lastFlushIndex = 0
     private var openCodeFence = false
     private var openTableRow = false
-
-    // Inline states
     private var openInlineCode = false
     private var openBold = 0
     private var openItalic = 0
+
+    // Cached flush point and rendered length from previous call
+    private var cachedFlushPoint = 0
+    private var cachedTextLength = 0
 
     /**
      * Process accumulated text and return safe-to-render markdown.
@@ -30,17 +33,34 @@ class StreamingMarkdownBuffer {
     fun process(accumulatedText: String): RenderState {
         if (accumulatedText.isEmpty()) return RenderState("", "")
 
-        // Reset and scan entire text to determine current state
-        reset()
-        scanAll(accumulatedText)
+        // If text hasn't changed, return cached result
+        if (accumulatedText.length == cachedTextLength && cachedFlushPoint > 0) {
+            return RenderState(
+                accumulatedText.substring(0, cachedFlushPoint),
+                accumulatedText.substring(cachedFlushPoint)
+            )
+        }
 
-        // Find where safe-to-render content ends
+        // If text only grew (normal streaming), scan incrementally from last flush point
+        if (accumulatedText.length > cachedTextLength && cachedFlushPoint > 0) {
+            // State at lastFlushIndex is already correct from previous scan
+            scanIncremental(accumulatedText, lastFlushIndex)
+        } else {
+            // Text was replaced or shortened — full rescan
+            reset()
+            scanAll(accumulatedText)
+        }
+
         val flushPoint = findFlushPoint(accumulatedText)
 
-        val rendered = accumulatedText.substring(0, flushPoint)
-        val pending = accumulatedText.substring(flushPoint)
+        cachedFlushPoint = flushPoint
+        cachedTextLength = accumulatedText.length
+        lastFlushIndex = flushPoint
 
-        return RenderState(rendered, pending)
+        return RenderState(
+            accumulatedText.substring(0, flushPoint),
+            accumulatedText.substring(flushPoint)
+        )
     }
 
     data class RenderState(
@@ -54,62 +74,48 @@ class StreamingMarkdownBuffer {
         openInlineCode = false
         openBold = 0
         openItalic = 0
+        lastFlushIndex = 0
+        cachedFlushPoint = 0
+        cachedTextLength = 0
     }
 
     /**
-     * Scan the entire text to determine the final syntax state.
-     * We only care about the END state, not intermediate transitions.
+     * Scan the entire text from index 0 to determine the final syntax state.
+     * Used only when text is replaced or shortened.
      */
     private fun scanAll(text: String) {
         var i = 0
         while (i < text.length) {
-            // Code fence (```)
             if (!openInlineCode && i + 2 < text.length &&
                 text[i] == '`' && text[i + 1] == '`' && text[i + 2] == '`'
             ) {
-                // Must be at start of line (after optional whitespace)
                 val lineStart = text.lastIndexOf('\n', i - 1).let { if (it < 0) 0 else it + 1 }
                 val prefix = text.substring(lineStart, i)
                 if (prefix.isBlank()) {
                     openCodeFence = !openCodeFence
                     i += 3
-                    // Skip language identifier after opening fence
-                    if (!openCodeFence) {
-                        // Just closed — skip to end of line
-                        val nl = text.indexOf('\n', i)
-                        i = if (nl >= 0) nl + 1 else text.length
-                    } else {
-                        // Just opened — skip to end of line
-                        val nl = text.indexOf('\n', i)
-                        i = if (nl >= 0) nl + 1 else text.length
-                    }
+                    val nl = text.indexOf('\n', i)
+                    i = if (nl >= 0) nl + 1 else text.length
                     continue
                 }
             }
 
-            // Inline code (`)
             if (!openCodeFence && text[i] == '`') {
                 openInlineCode = !openInlineCode
                 i++
                 continue
             }
 
-            // Skip inline formatting inside code contexts
             if (openCodeFence || openInlineCode) {
                 i++
                 continue
             }
 
-            // Bold (** or __)
             if (i + 1 < text.length && text[i] == '*' && text[i + 1] == '*' &&
                 (i == 0 || text[i - 1] != '*') &&
                 (i + 2 >= text.length || text[i + 2] != '*')
             ) {
-                if (openBold > 0) {
-                    openBold--
-                } else {
-                    openBold++
-                }
+                if (openBold > 0) openBold-- else openBold++
                 i += 2
                 continue
             }
@@ -117,46 +123,107 @@ class StreamingMarkdownBuffer {
                 (i == 0 || text[i - 1] != '_') &&
                 (i + 2 >= text.length || text[i + 2] != '_')
             ) {
-                if (openBold > 0) {
-                    openBold--
-                } else {
-                    openBold++
-                }
+                if (openBold > 0) openBold-- else openBold++
                 i += 2
                 continue
             }
 
-            // Italic (* or _)
             if (text[i] == '*' && (i == 0 || text[i - 1] != '*')) {
-                if (openItalic > 0) {
-                    openItalic--
-                } else {
-                    openItalic++
-                }
+                if (openItalic > 0) openItalic-- else openItalic++
                 i++
                 continue
             }
             if (text[i] == '_' && (i == 0 || text[i - 1] != '_')) {
-                if (openItalic > 0) {
-                    openItalic--
-                } else {
-                    openItalic++
-                }
+                if (openItalic > 0) openItalic-- else openItalic++
                 i++
                 continue
             }
 
-            // Table row (|)
             if (text[i] == '|') {
                 openTableRow = true
                 i++
                 continue
             }
 
-            // Newline resets table row and inline formatting
             if (text[i] == '\n') {
                 openTableRow = false
-                // Newline also closes italic (common markdown behavior)
+                if (openItalic > 0) openItalic = 0
+                i++
+                continue
+            }
+
+            i++
+        }
+    }
+
+    /**
+     * Scan only from [startIndex] to end of text, updating syntax state.
+     * The state at [startIndex] must already be correct from a previous scan.
+     */
+    private fun scanIncremental(text: String, startIndex: Int) {
+        var i = startIndex
+        while (i < text.length) {
+            if (!openInlineCode && i + 2 < text.length &&
+                text[i] == '`' && text[i + 1] == '`' && text[i + 2] == '`'
+            ) {
+                val lineStart = text.lastIndexOf('\n', i - 1).let { if (it < 0) 0 else it + 1 }
+                val prefix = text.substring(lineStart, i)
+                if (prefix.isBlank()) {
+                    openCodeFence = !openCodeFence
+                    i += 3
+                    val nl = text.indexOf('\n', i)
+                    i = if (nl >= 0) nl + 1 else text.length
+                    continue
+                }
+            }
+
+            if (!openCodeFence && text[i] == '`') {
+                openInlineCode = !openInlineCode
+                i++
+                continue
+            }
+
+            if (openCodeFence || openInlineCode) {
+                i++
+                continue
+            }
+
+            if (i + 1 < text.length && text[i] == '*' && text[i + 1] == '*' &&
+                (i == 0 || text[i - 1] != '*') &&
+                (i + 2 >= text.length || text[i + 2] != '*')
+            ) {
+                if (openBold > 0) openBold-- else openBold++
+                i += 2
+                continue
+            }
+            if (i + 1 < text.length && text[i] == '_' && text[i + 1] == '_' &&
+                (i == 0 || text[i - 1] != '_') &&
+                (i + 2 >= text.length || text[i + 2] != '_')
+            ) {
+                if (openBold > 0) openBold-- else openBold++
+                i += 2
+                continue
+            }
+
+            if (text[i] == '*' && (i == 0 || text[i - 1] != '*')) {
+                if (openItalic > 0) openItalic-- else openItalic++
+                i++
+                continue
+            }
+            if (text[i] == '_' && (i == 0 || text[i - 1] != '_')) {
+                if (openItalic > 0) openItalic-- else openItalic++
+                i++
+                continue
+            }
+
+            if (text[i] == '|') {
+                openTableRow = true
+                i++
+                continue
+            }
+
+            if (text[i] == '\n') {
+                openTableRow = false
                 if (openItalic > 0) openItalic = 0
                 i++
                 continue
@@ -173,11 +240,11 @@ class StreamingMarkdownBuffer {
     private fun findFlushPoint(text: String): Int {
         var bestFlush = 0
         var i = 0
-        var tempBold = 0
-        var tempItalic = 0
-        var tempCodeFence = false
-        var tempInlineCode = false
-        var tempTableRow = false
+        var tempBold = openBold
+        var tempItalic = openItalic
+        var tempCodeFence = openCodeFence
+        var tempInlineCode = openInlineCode
+        var tempTableRow = openTableRow
 
         while (i < text.length) {
             // Code fence
@@ -191,12 +258,10 @@ class StreamingMarkdownBuffer {
                     i += 3
                     val nl = text.indexOf('\n', i)
                     i = if (nl >= 0) nl + 1 else text.length
-                    if (!allClosed(tempCodeFence, tempInlineCode, tempBold, tempItalic, tempTableRow)) {
-                        // State is open — save flush point BEFORE this fence
-                        bestFlush = i - (if (nl >= 0) nl - i + 3 else text.length - i + 3)
-                        bestFlush = (text.lastIndexOf('\n', i - 1).let { if (it < 0) 0 else it + 1 }).coerceAtMost(i - 3)
-                    } else {
+                    if (allClosed(tempCodeFence, tempInlineCode, tempBold, tempItalic, tempTableRow)) {
                         bestFlush = i
+                    } else {
+                        bestFlush = (text.lastIndexOf('\n', i - 1).let { if (it < 0) 0 else it + 1 }).coerceAtMost(i - 3)
                     }
                     continue
                 }
@@ -207,7 +272,6 @@ class StreamingMarkdownBuffer {
                 tempInlineCode = !tempInlineCode
                 i++
                 if (!allClosed(tempCodeFence, tempInlineCode, tempBold, tempItalic, tempTableRow)) {
-                    // Just opened inline code — flush up to here
                     bestFlush = i
                 } else {
                     bestFlush = i

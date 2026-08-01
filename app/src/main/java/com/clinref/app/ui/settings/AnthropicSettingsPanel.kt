@@ -52,7 +52,7 @@ fun AnthropicSettingsPanel(
             )
         }
 
-        // Extended Thinking Toggle
+        // Extended Thinking Toggle (currently disabled pending Koog library update)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -61,36 +61,16 @@ fun AnthropicSettingsPanel(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Extended Thinking", style = MaterialTheme.typography.labelMedium)
                 Text(
-                    "Show model reasoning (Claude 3.5+)",
+                    "Currently disabled — pending Koog library compatibility",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.error
                 )
             }
             Switch(
-                checked = settings.enableThinking,
-                onCheckedChange = { onUpdate(settings.copy(enableThinking = it)) }
+                checked = false,
+                onCheckedChange = { },
+                enabled = false
             )
-        }
-
-        // Thinking Budget
-        if (settings.enableThinking) {
-            Column {
-                Text("Thinking Budget (tokens)", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    "Minimum 1024. Counts towards maxTokens.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = settings.thinkingBudget?.toString() ?: "1024",
-                    onValueChange = { onUpdate(settings.copy(thinkingBudget = it.toIntOrNull())) },
-                    label = { Text("Budget Tokens") },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-            }
         }
     }
 }
