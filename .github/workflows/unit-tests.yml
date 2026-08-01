@@ -2,7 +2,7 @@ name: Unit Tests
 
 on:
   push:
-    branches: [ main, develop, 'feature/**' ]
+    branches: [ main, develop ]
     paths:
       - 'app/src/**'
       - 'gradle/**'
@@ -10,13 +10,12 @@ on:
       - 'python_prototype/**'
       - '.github/workflows/unit-tests.yml'
   pull_request:
-    branches: [ main, develop, 'feature/**' ]
+    branches: [ main, develop ]
     paths:
       - 'app/src/**'
       - 'gradle/**'
       - 'app/build.gradle.kts'
       - 'python_prototype/**'
-      - '.github/workflows/unit-tests.yml'
   workflow_dispatch:
     inputs:
       run_jvm_tests:
@@ -34,6 +33,10 @@ on:
         type: string
         required: false
         default: '3.13'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
