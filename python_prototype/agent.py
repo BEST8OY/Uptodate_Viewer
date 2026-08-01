@@ -44,7 +44,7 @@ def create_clinical_agent(
     tools: list[BaseTool],
     system_prompt: str,
     callbacks: list = None,
-    max_tool_retries: int = 12,
+    max_tool_retries: int = 24,
     max_safety_retries: int = 2,
 ):
     """Create the clinical retrieval agent graph.

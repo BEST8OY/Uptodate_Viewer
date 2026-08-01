@@ -58,10 +58,6 @@ class ConversationRepository @Inject constructor(
         conversationDao.delete(conversation)
     }
 
-    suspend fun restoreConversation(entity: ConversationEntity) {
-        conversationDao.insert(entity)
-    }
-
     suspend fun restoreConversationBackup(backup: ConversationBackup) {
         conversationDao.insert(backup.entity)
         if (backup.messages.isNotEmpty()) {

@@ -167,16 +167,6 @@ class ConversationListViewModel @Inject constructor(
         return backup
     }
 
-    suspend fun getConversationEntity(id: String): ConversationEntity? {
-        return conversationRepository.getConversation(id)
-    }
-
-    fun restoreConversation(entity: ConversationEntity) {
-        viewModelScope.launch {
-            conversationRepository.restoreConversation(entity)
-        }
-    }
-
     fun restoreConversationBackup(backup: ConversationBackup) {
         viewModelScope.launch {
             conversationRepository.restoreConversationBackup(backup)

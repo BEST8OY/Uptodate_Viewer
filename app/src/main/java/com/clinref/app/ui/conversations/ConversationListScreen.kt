@@ -426,6 +426,9 @@ fun ConversationListScreen(
                             }
 
                             val dismissState = rememberSwipeToDismissBoxState()
+                            LaunchedEffect(conversation.id) {
+                                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+                            }
                             LaunchedEffect(dismissState.currentValue) {
                                 if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart || dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd) {
                                     val targetId = conversation.id
