@@ -1,12 +1,14 @@
 package com.clinref.app.ui.setup
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.DatabaseManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -17,14 +19,13 @@ class SetupViewModel @Inject constructor(
     private val databaseManager: DatabaseManager
 ) : AndroidViewModel(application) {
 
-    private val _isConfigured = MutableStateFlow(databaseManager.isConfigured())
-    val isConfigured: StateFlow<Boolean> = _isConfigured
+    val isConfigured: StateFlow<Boolean> = databaseManager.isConfiguredFlow
 
     private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error
+    val error: StateFlow<String?> = _error.asStateFlow()
 
     private val _isValidating = MutableStateFlow(false)
-    val isValidating: StateFlow<Boolean> = _isValidating
+    val isValidating: StateFlow<Boolean> = _isValidating.asStateFlow()
 
     fun selectDirectory(path: String) {
         viewModelScope.launch {
@@ -38,12 +39,23 @@ class SetupViewModel @Inject constructor(
                 return@launch
             }
 
-            if (databaseManager.setDatabaseDirectory(path)) {
-                _isConfigured.value = true
-            } else {
-                _error.value = "Required database files not found"
+            if (!databaseManager.setDatabaseDirectory(path)) {
+                _error.value = "Required database files not found at:\n$path"
+            }
+            _isValidating.value = false
+        }
+    }
+
+    fun selectDirectoryUri(uri: Uri) {
+        viewModelScope.launch {
+            _isValidating.value = true
+            _error.value = null
+
+            if (!databaseManager.setDatabaseDirectory(uri)) {
+                _error.value = "Selected folder does not contain all required database files."
             }
             _isValidating.value = false
         }
     }
 }
+

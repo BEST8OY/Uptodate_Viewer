@@ -103,7 +103,7 @@ val topLevelRoutes: List<TopLevelRoute> = listOf(
 fun NavGraph(
     databaseManager: DatabaseManager
 ) {
-    val isConfigured = databaseManager.isConfigured()
+    val isConfigured by databaseManager.isConfiguredFlow.collectAsStateWithLifecycle()
 
     if (!isConfigured) {
         SetupScreen(
