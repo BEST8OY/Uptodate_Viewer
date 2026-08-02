@@ -1,7 +1,6 @@
 package com.clinref.app.ui.common
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -32,12 +31,12 @@ fun ScrollFAB(
 ) {
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
         label = "fab_alpha"
     )
     val scale by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
         label = "fab_scale"
     )
 
