@@ -18,6 +18,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.dp
 
 enum class ScrollFABDirection { UP, DOWN }
@@ -32,10 +33,10 @@ fun ScrollFAB(
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = scaleIn(initialScale = 0.7f) + fadeIn(
+        enter = scaleIn(initialScale = 0.7f, transformOrigin = TransformOrigin.Center) + fadeIn(
             animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()
         ),
-        exit = scaleOut(targetScale = 0.0f) + fadeOut(),
+        exit = scaleOut(targetScale = 0.0f, transformOrigin = TransformOrigin.Center) + fadeOut(),
         modifier = modifier
     ) {
         Surface(
