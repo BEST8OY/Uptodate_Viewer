@@ -1,5 +1,6 @@
 package com.clinref.app.ui.chat
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,7 +40,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -82,6 +86,15 @@ fun ChatScreen(
         agentState is StreamingManager.AgentState.WaitingForLlm
 
     var activeInputText by remember { mutableStateOf("") }
+    var chatInputHeightPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val chatInputHeightDp = remember(chatInputHeightPx, density) {
+        with(density) { chatInputHeightPx.toDp() }
+    }
+    val animatedFabBottomPadding by animateDpAsState(
+        targetValue = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 12.dp else 110.dp,
+        label = "fab_bottom_padding"
+    )
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
@@ -142,8 +155,8 @@ fun ChatScreen(
                 },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.85f),
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.92f)
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             )
         }
@@ -179,7 +192,7 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
                         top = padding.calculateTopPadding() + 10.dp,
-                        bottom = padding.calculateBottomPadding() + 180.dp
+                        bottom = padding.calculateBottomPadding() + (if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 180.dp)
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -274,19 +287,24 @@ fun ChatScreen(
                 onCancel = { viewModel.cancelGeneration() },
                 isGenerating = isGenerating,
                 patientProfile = patientProfile,
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .onSizeChanged { chatInputHeightPx = it.height }
             )
 
             ScrollToBottomFAB(
                 visible = showScrollToBottom,
                 onClick = {
                     coroutineScope.launch {
-                        listState.animateScrollToItem(chatItems.size - 1)
+                        if (chatItems.isNotEmpty()) {
+                            listState.animateScrollToItem(chatItems.size - 1)
+                            scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
+                        }
                     }
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 110.dp)
+                    .padding(bottom = animatedFabBottomPadding)
             )
         }
     }

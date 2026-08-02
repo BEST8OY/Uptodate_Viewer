@@ -63,8 +63,8 @@ fun GeminiChatInput(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.25f),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.55f)
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.10f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.30f)
                     )
                 )
             )
@@ -84,8 +84,8 @@ fun GeminiChatInput(
                     .padding(
                         start = if (isMultiLine) 20.dp else 22.dp,
                         end = if (isMultiLine) 14.dp else 10.dp,
-                        top = if (isMultiLine) 14.dp else 8.dp,
-                        bottom = if (isMultiLine) 10.dp else 8.dp
+                        top = if (isMultiLine) 14.dp else 14.dp,
+                        bottom = if (isMultiLine) 10.dp else 14.dp
                     )
             ) {
                 patientProfile?.let { profile ->
@@ -138,7 +138,7 @@ fun GeminiChatInput(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 24.dp, max = 180.dp),
+                            .heightIn(min = 32.dp, max = 180.dp),
                         contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
                     ) {
                         BasicTextField(
