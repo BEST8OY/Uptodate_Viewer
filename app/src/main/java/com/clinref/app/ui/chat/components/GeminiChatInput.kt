@@ -63,8 +63,8 @@ fun GeminiChatInput(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.10f),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.30f)
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.35f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.75f)
                     )
                 )
             )

@@ -1,6 +1,5 @@
 package com.clinref.app.ui.chat
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,10 +90,6 @@ fun ChatScreen(
     val chatInputHeightDp = remember(chatInputHeightPx, density) {
         with(density) { chatInputHeightPx.toDp() }
     }
-    val animatedFabBottomPadding by animateDpAsState(
-        targetValue = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 12.dp else 110.dp,
-        label = "fab_bottom_padding"
-    )
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
@@ -277,35 +272,40 @@ fun ChatScreen(
                 }
             }
 
-            GeminiChatInput(
-                textValue = activeInputText,
-                onValueChange = { activeInputText = it },
-                onSendMessage = {
-                    viewModel.sendMessage(it)
-                    activeInputText = ""
-                },
-                onCancel = { viewModel.cancelGeneration() },
-                isGenerating = isGenerating,
-                patientProfile = patientProfile,
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .onSizeChanged { chatInputHeightPx = it.height }
-            )
-
-            ScrollToBottomFAB(
-                visible = showScrollToBottom,
-                onClick = {
-                    coroutineScope.launch {
-                        if (chatItems.isNotEmpty()) {
-                            listState.animateScrollToItem(chatItems.size - 1)
-                            scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                ScrollToBottomFAB(
+                    visible = showScrollToBottom,
+                    onClick = {
+                        coroutineScope.launch {
+                            if (chatItems.isNotEmpty()) {
+                                listState.animateScrollToItem(chatItems.size - 1)
+                                scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
+                            }
                         }
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = animatedFabBottomPadding)
-            )
+                    },
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                GeminiChatInput(
+                    textValue = activeInputText,
+                    onValueChange = { activeInputText = it },
+                    onSendMessage = {
+                        viewModel.sendMessage(it)
+                        activeInputText = ""
+                    },
+                    onCancel = { viewModel.cancelGeneration() },
+                    isGenerating = isGenerating,
+                    patientProfile = patientProfile,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { chatInputHeightPx = it.height }
+                )
+            }
         }
     }
 }
