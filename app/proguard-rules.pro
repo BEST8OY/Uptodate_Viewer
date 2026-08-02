@@ -9,7 +9,6 @@
 -keep,includedescriptorclasses class com.clinref.app.**$$serializer { *; }
 -keepclassmembers class com.clinref.app.** { *** Companion; }
 -keepclasseswithmembers class com.clinref.app.** { kotlinx.serialization.KSerializer serializer(...); }
--keepclassmembers class com.clinref.app.**$$serializer { *; }
 -keep class com.clinref.app.ui.navigation.** { *; }
 -keep class com.clinref.app.domain.** { *; }
 
@@ -26,10 +25,6 @@
 
 # Koog AI agents — broad keep for now; narrow once reflection surface is known
 -keep class ai.koog.** { *; }
--keep class ai.koog.utils.io.** { *; }
--keep class ai.koog.utils.concurrency.** { *; }
--keep class ai.koog.utils.time.** { *; }
--keep class ai.koog.utils.system.** { *; }
 -dontwarn ai.koog.utils.io.**
 
 # Koog tool discovery: keep MedicalDatabaseTools and its @Tool/@LLMDescription annotations
