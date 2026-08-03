@@ -58,6 +58,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.TooltipBox
@@ -422,31 +423,49 @@ private fun ContentFloatingToolbar(
                             }
                         ),
                         decorationBox = { innerTextField ->
-                            Box(
+                            Row(
                                 modifier = Modifier
                                     .fillMaxHeight()
-                                    .padding(horizontal = 4.dp),
-                                contentAlignment = Alignment.CenterStart
+                                    .padding(start = 8.dp, end = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = "Find in page",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier.weight(1f),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = "Find in page",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    }
+                                    innerTextField()
                                 }
-                                innerTextField()
                             }
                         }
                     )
 
                     if (searchQuery.isNotEmpty()) {
-                        Text(
-                            text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 6.dp)
-                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Text(
+                                text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
 
                     TooltipBox(
@@ -486,8 +505,14 @@ private fun ContentFloatingToolbar(
                             )
                         }
                     }
-                },
-                trailingContent = {
+
+                    VerticalDivider(
+                        modifier = Modifier
+                            .height(20.dp)
+                            .padding(horizontal = 2.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                         tooltip = { PlainTooltip { Text("Close search") } },
