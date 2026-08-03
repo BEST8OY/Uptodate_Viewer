@@ -62,6 +62,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -273,26 +276,25 @@ fun ConversationListScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            androidx.compose.foundation.text.BasicTextField(
+                            TextField(
                                 state = textFieldState,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(vertical = 12.dp),
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                    color = MaterialTheme.colorScheme.onSurface
+                                placeholder = {
+                                    Text(
+                                        text = "Search sessions, topics, or patient profiles...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                },
+                                textStyle = MaterialTheme.typography.bodyMedium,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    disabledIndicatorColor = Color.Transparent
                                 ),
-                                decorator = { innerTextField ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
-                                        if (textFieldState.text.isEmpty()) {
-                                            Text(
-                                                text = "Search sessions, topics, or patient profiles...",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                }
+                                modifier = Modifier.weight(1f)
                             )
                             if (textFieldState.text.isNotEmpty()) {
                                 IconButton(
