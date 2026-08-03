@@ -407,7 +407,7 @@ private fun ContentFloatingToolbar(
                         onValueChange = onSearchQueryChange,
                         modifier = Modifier
                             .weight(1f)
-                            .align(Alignment.CenterVertically)
+                            .fillMaxHeight()
                             .padding(start = 16.dp)
                             .focusRequester(searchFocusRequester)
                             .focusProperties { canFocus = isSearching },
@@ -428,7 +428,7 @@ private fun ContentFloatingToolbar(
                         ),
                         decorationBox = { innerTextField ->
                             Box(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 if (searchQuery.isEmpty()) {
