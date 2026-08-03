@@ -393,7 +393,6 @@ private fun ContentFloatingToolbar(
         if (isSearching) {
             HorizontalFloatingToolbar(
                 expanded = true,
-                shape = CircleShape,
                 colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
@@ -537,7 +536,6 @@ private fun ContentFloatingToolbar(
         } else {
             HorizontalFloatingToolbar(
                 expanded = true,
-                shape = CircleShape,
                 floatingActionButton = {
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
