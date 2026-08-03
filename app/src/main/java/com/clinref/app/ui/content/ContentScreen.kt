@@ -393,17 +393,27 @@ private fun ContentFloatingToolbar(
         if (isSearching) {
             HorizontalFloatingToolbar(
                 expanded = true,
+                shape = CircleShape,
                 colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth(),
+                leadingContent = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier
+                            .padding(start = 12.dp, end = 4.dp)
+                            .size(20.dp)
+                    )
+                },
                 content = {
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = onSearchQueryChange,
                         modifier = Modifier
                             .weight(1f)
-                            .height(40.dp)
                             .focusRequester(searchFocusRequester)
                             .focusProperties { canFocus = isSearching },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
@@ -422,31 +432,18 @@ private fun ContentFloatingToolbar(
                             }
                         ),
                         decorationBox = { innerTextField ->
-                            Row(
-                                modifier = Modifier
-                                    .padding(start = 8.dp, end = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Box(
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                contentAlignment = Alignment.CenterStart
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Box(
-                                    modifier = Modifier.weight(1f),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = "Find in page",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                        )
-                                    }
-                                    innerTextField()
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Find in page",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
                                 }
+                                innerTextField()
                             }
                         }
                     )
