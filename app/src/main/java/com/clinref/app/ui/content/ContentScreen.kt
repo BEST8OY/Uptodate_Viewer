@@ -400,14 +400,14 @@ private fun ContentFloatingToolbar(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(64.dp), // Hard-bounded 64.dp height cap matching initial toolbar height
                 content = {
                     BasicTextField(
                         value = searchQuery,
                         onValueChange = onSearchQueryChange,
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight()
+                            .fillMaxHeight() // Fills bounded 64.dp container for vertical text centering & optimal touch target
                             .padding(start = 16.dp)
                             .focusRequester(searchFocusRequester)
                             .focusProperties { canFocus = isSearching },
@@ -429,7 +429,7 @@ private fun ContentFloatingToolbar(
                         decorationBox = { innerTextField ->
                             Box(
                                 modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.CenterStart
+                                contentAlignment = Alignment.CenterStart // Vertically centers query input and placeholder at y=32dp
                             ) {
                                 if (searchQuery.isEmpty()) {
                                     Text(
@@ -464,12 +464,14 @@ private fun ContentFloatingToolbar(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                         tooltip = { PlainTooltip { Text("Find previous") } },
                         state = rememberTooltipState(),
-                        modifier = Modifier.align(Alignment.CenterVertically)
+                        modifier = Modifier.fillMaxHeight()
                     ) {
                         IconButton(
                             onClick = onSearchPrevious,
                             enabled = searchQuery.isNotEmpty(),
-                            modifier = Modifier.focusProperties { canFocus = isSearching }
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .focusProperties { canFocus = isSearching }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowUp,
@@ -484,12 +486,14 @@ private fun ContentFloatingToolbar(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                         tooltip = { PlainTooltip { Text("Find next") } },
                         state = rememberTooltipState(),
-                        modifier = Modifier.align(Alignment.CenterVertically)
+                        modifier = Modifier.fillMaxHeight()
                     ) {
                         IconButton(
                             onClick = onSearchNext,
                             enabled = searchQuery.isNotEmpty(),
-                            modifier = Modifier.focusProperties { canFocus = isSearching }
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .focusProperties { canFocus = isSearching }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowDown,
@@ -512,14 +516,16 @@ private fun ContentFloatingToolbar(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                         tooltip = { PlainTooltip { Text("Close search") } },
                         state = rememberTooltipState(),
-                        modifier = Modifier.align(Alignment.CenterVertically)
+                        modifier = Modifier.fillMaxHeight()
                     ) {
                         IconButton(
                             onClick = {
                                 onSearchClose()
                                 keyboardController?.hide()
                             },
-                            modifier = Modifier.focusProperties { canFocus = isSearching }
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .focusProperties { canFocus = isSearching }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
