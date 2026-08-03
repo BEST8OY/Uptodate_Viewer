@@ -399,17 +399,6 @@ private fun ContentFloatingToolbar(
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
                     .height(56.dp),
-                leadingContent = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier
-                            .align(Alignment.CenterVertically)
-                            .padding(start = 12.dp, end = 4.dp)
-                            .size(20.dp)
-                    )
-                },
                 content = {
                     BasicTextField(
                         value = searchQuery,
@@ -417,6 +406,7 @@ private fun ContentFloatingToolbar(
                         modifier = Modifier
                             .weight(1f)
                             .align(Alignment.CenterVertically)
+                            .padding(start = 16.dp)
                             .focusRequester(searchFocusRequester)
                             .focusProperties { canFocus = isSearching },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
