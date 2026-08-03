@@ -399,14 +399,19 @@ private fun ContentFloatingToolbar(
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth(),
                 leadingContent = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    Box(
                         modifier = Modifier
-                            .padding(start = 12.dp, end = 4.dp)
-                            .size(20.dp)
-                    )
+                            .fillMaxHeight()
+                            .padding(start = 12.dp, end = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 },
                 content = {
                     BasicTextField(
@@ -414,6 +419,7 @@ private fun ContentFloatingToolbar(
                         onValueChange = onSearchQueryChange,
                         modifier = Modifier
                             .weight(1f)
+                            .align(Alignment.CenterVertically)
                             .focusRequester(searchFocusRequester)
                             .focusProperties { canFocus = isSearching },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
@@ -433,7 +439,7 @@ private fun ContentFloatingToolbar(
                         ),
                         decorationBox = { innerTextField ->
                             Box(
-                                modifier = Modifier.padding(vertical = 8.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 if (searchQuery.isEmpty()) {
@@ -452,7 +458,9 @@ private fun ContentFloatingToolbar(
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(horizontal = 4.dp)
+                            modifier = Modifier
+                                .align(Alignment.CenterVertically)
+                                .padding(horizontal = 4.dp)
                         ) {
                             Text(
                                 text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
@@ -466,7 +474,8 @@ private fun ContentFloatingToolbar(
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                         tooltip = { PlainTooltip { Text("Find previous") } },
-                        state = rememberTooltipState()
+                        state = rememberTooltipState(),
+                        modifier = Modifier.align(Alignment.CenterVertically)
                     ) {
                         IconButton(
                             onClick = onSearchPrevious,
@@ -485,7 +494,8 @@ private fun ContentFloatingToolbar(
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                         tooltip = { PlainTooltip { Text("Find next") } },
-                        state = rememberTooltipState()
+                        state = rememberTooltipState(),
+                        modifier = Modifier.align(Alignment.CenterVertically)
                     ) {
                         IconButton(
                             onClick = onSearchNext,
@@ -503,6 +513,7 @@ private fun ContentFloatingToolbar(
 
                     VerticalDivider(
                         modifier = Modifier
+                            .align(Alignment.CenterVertically)
                             .height(20.dp)
                             .padding(horizontal = 2.dp),
                         color = MaterialTheme.colorScheme.outlineVariant
@@ -511,7 +522,8 @@ private fun ContentFloatingToolbar(
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                         tooltip = { PlainTooltip { Text("Close search") } },
-                        state = rememberTooltipState()
+                        state = rememberTooltipState(),
+                        modifier = Modifier.align(Alignment.CenterVertically)
                     ) {
                         IconButton(
                             onClick = {
