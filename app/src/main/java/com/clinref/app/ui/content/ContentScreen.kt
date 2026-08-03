@@ -397,21 +397,18 @@ private fun ContentFloatingToolbar(
                 colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .height(56.dp),
                 leadingContent = {
-                    Box(
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .padding(start = 12.dp, end = 4.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                            .align(Alignment.CenterVertically)
+                            .padding(start = 12.dp, end = 4.dp)
+                            .size(20.dp)
+                    )
                 },
                 content = {
                     BasicTextField(
