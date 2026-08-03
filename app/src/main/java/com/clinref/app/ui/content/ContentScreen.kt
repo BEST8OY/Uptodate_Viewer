@@ -31,8 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.ArrowDropUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
@@ -58,6 +58,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,9 +74,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -203,6 +210,57 @@ fun ContentScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // The toolbar should receive focus before screen content for a11y, so place it first with zIndex(1f)
+            ContentFloatingToolbar(
+                showSearch = showSearch,
+                canGoBack = canGoBack,
+                canGoForward = canGoForward,
+                isFavorite = isFavorite,
+                outlineEnabled = outlineSections.isNotEmpty(),
+                searchQuery = searchQuery,
+                searchResultCount = searchResultCount,
+                searchResultIndex = searchResultIndex,
+                onBackClick = {
+                    viewModel.goBack()
+                },
+                onForwardClick = {
+                    viewModel.goForward()
+                },
+                onHomeClick = onHome,
+                onFavoriteClick = { viewModel.toggleFavorite() },
+                onOutlineClick = { viewModel.toggleOutline() },
+                onSearchClick = { showSearch = !showSearch },
+                onSearchQueryChange = {
+                    searchQuery = it
+                    searchResultIndex = 0
+                    webView?.findAllAsync(it)
+                },
+                onSearchPrevious = {
+                    if (searchResultCount > 0) {
+                        webView?.findNext(false)
+                        searchResultIndex = if (searchResultIndex > 0) searchResultIndex - 1 else searchResultCount - 1
+                    }
+                },
+                onSearchNext = {
+                    if (searchResultCount > 0) {
+                        webView?.findNext(true)
+                        searchResultIndex = if (searchResultIndex < searchResultCount - 1) searchResultIndex + 1 else 0
+                    }
+                },
+                onSearchClose = {
+                    showSearch = false
+                    searchQuery = ""
+                    searchResultIndex = 0
+                    webView?.clearMatches()
+                },
+                searchFocusRequester = searchFocusRequester,
+                modifier = modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp)
+                    .imePadding()
+                    .zIndex(1f)
+            )
+
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f)) {
                     HtmlContentWebView(
@@ -259,55 +317,6 @@ fun ContentScreen(
                     ContentLoadingView()
                 }
             }
-
-            ContentFloatingToolbar(
-                showSearch = showSearch,
-                canGoBack = canGoBack,
-                canGoForward = canGoForward,
-                isFavorite = isFavorite,
-                outlineEnabled = outlineSections.isNotEmpty(),
-                searchQuery = searchQuery,
-                searchResultCount = searchResultCount,
-                searchResultIndex = searchResultIndex,
-                onBackClick = {
-                    viewModel.goBack()
-                },
-                onForwardClick = {
-                    viewModel.goForward()
-                },
-                onHomeClick = onHome,
-                onFavoriteClick = { viewModel.toggleFavorite() },
-                onOutlineClick = { viewModel.toggleOutline() },
-                onSearchClick = { showSearch = !showSearch },
-                onSearchQueryChange = {
-                    searchQuery = it
-                    searchResultIndex = 0
-                    webView?.findAllAsync(it)
-                },
-                onSearchPrevious = {
-                    if (searchResultCount > 0) {
-                        webView?.findNext(false)
-                        searchResultIndex = if (searchResultIndex > 0) searchResultIndex - 1 else searchResultCount - 1
-                    }
-                },
-                onSearchNext = {
-                    if (searchResultCount > 0) {
-                        webView?.findNext(true)
-                        searchResultIndex = if (searchResultIndex < searchResultCount - 1) searchResultIndex + 1 else 0
-                    }
-                },
-                onSearchClose = {
-                    showSearch = false
-                    searchQuery = ""
-                    searchResultIndex = 0
-                    webView?.clearMatches()
-                },
-                searchFocusRequester = searchFocusRequester,
-                modifier = modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 16.dp)
-                    .imePadding()
-            )
         }
     }
 
@@ -343,7 +352,7 @@ private fun ContentTopBar(
     )
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ContentFloatingToolbar(
     showSearch: Boolean,
@@ -388,20 +397,6 @@ private fun ContentFloatingToolbar(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth(),
-                leadingContent = {
-                    IconButton(
-                        onClick = {
-                            onSearchClose()
-                            keyboardController?.hide()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close Search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
                 content = {
                     BasicTextField(
                         value = searchQuery,
@@ -409,7 +404,8 @@ private fun ContentFloatingToolbar(
                         modifier = Modifier
                             .weight(1f)
                             .height(40.dp)
-                            .focusRequester(searchFocusRequester),
+                            .focusRequester(searchFocusRequester)
+                            .focusProperties { canFocus = isSearching },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface
                         ),
@@ -453,28 +449,63 @@ private fun ContentFloatingToolbar(
                         )
                     }
 
-                    IconButton(
-                        onClick = onSearchPrevious,
-                        enabled = searchQuery.isNotEmpty()
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Find previous") } },
+                        state = rememberTooltipState()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropUp,
-                            contentDescription = "Find Previous",
-                            modifier = Modifier.size(24.dp),
-                            tint = LocalContentColor.current
-                        )
+                        IconButton(
+                            onClick = onSearchPrevious,
+                            enabled = searchQuery.isNotEmpty(),
+                            modifier = Modifier.focusProperties { canFocus = isSearching }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Find Previous",
+                                modifier = Modifier.size(24.dp),
+                                tint = LocalContentColor.current
+                            )
+                        }
                     }
 
-                    IconButton(
-                        onClick = onSearchNext,
-                        enabled = searchQuery.isNotEmpty()
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Find next") } },
+                        state = rememberTooltipState()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Find Next",
-                            modifier = Modifier.size(24.dp),
-                            tint = LocalContentColor.current
-                        )
+                        IconButton(
+                            onClick = onSearchNext,
+                            enabled = searchQuery.isNotEmpty(),
+                            modifier = Modifier.focusProperties { canFocus = isSearching }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Find Next",
+                                modifier = Modifier.size(24.dp),
+                                tint = LocalContentColor.current
+                            )
+                        }
+                    }
+                },
+                trailingContent = {
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Close search") } },
+                        state = rememberTooltipState()
+                    ) {
+                        IconButton(
+                            onClick = {
+                                onSearchClose()
+                                keyboardController?.hide()
+                            },
+                            modifier = Modifier.focusProperties { canFocus = isSearching }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close Search",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             )
@@ -483,35 +514,87 @@ private fun ContentFloatingToolbar(
                 expanded = true,
                 shape = CircleShape,
                 floatingActionButton = {
-                    FloatingToolbarDefaults.VibrantFloatingActionButton(
-                        onClick = onSearchClick,
-                        shape = CircleShape
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Search in document") } },
+                        state = rememberTooltipState()
                     ) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
+                        FloatingToolbarDefaults.VibrantFloatingActionButton(
+                            onClick = onSearchClick,
+                            shape = CircleShape,
+                            modifier = Modifier.focusProperties { canFocus = !isSearching }
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
                     }
                 },
                 colors = vibrantColors,
                 content = {
-                    IconButton(onClick = onBackClick, enabled = canGoBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                    IconButton(onClick = onForwardClick, enabled = canGoForward) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                    }
-                    IconButton(onClick = onHomeClick) {
-                        Icon(Icons.Default.Home, contentDescription = "Contents")
-                    }
-                    IconButton(
-                        onClick = onOutlineClick,
-                        enabled = outlineEnabled
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Back") } },
+                        state = rememberTooltipState()
                     ) {
-                        Icon(Icons.Default.Menu, contentDescription = "Outline")
+                        IconButton(
+                            onClick = onBackClick,
+                            enabled = canGoBack,
+                            modifier = Modifier.focusProperties { canFocus = !isSearching }
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
-                    IconButton(onClick = onFavoriteClick) {
-                        Icon(
-                            imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
-                        )
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Forward") } },
+                        state = rememberTooltipState()
+                    ) {
+                        IconButton(
+                            onClick = onForwardClick,
+                            enabled = canGoForward,
+                            modifier = Modifier.focusProperties { canFocus = !isSearching }
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                        }
+                    }
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Home / Contents") } },
+                        state = rememberTooltipState()
+                    ) {
+                        IconButton(
+                            onClick = onHomeClick,
+                            modifier = Modifier.focusProperties { canFocus = !isSearching }
+                        ) {
+                            Icon(Icons.Default.Home, contentDescription = "Contents")
+                        }
+                    }
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text("Outline") } },
+                        state = rememberTooltipState()
+                    ) {
+                        IconButton(
+                            onClick = onOutlineClick,
+                            enabled = outlineEnabled,
+                            modifier = Modifier.focusProperties { canFocus = !isSearching }
+                        ) {
+                            Icon(Icons.Default.Menu, contentDescription = "Outline")
+                        }
+                    }
+                    TooltipBox(
+                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text(if (isFavorite) "Remove favorite" else "Add favorite") } },
+                        state = rememberTooltipState()
+                    ) {
+                        IconButton(
+                            onClick = onFavoriteClick,
+                            modifier = Modifier.focusProperties { canFocus = !isSearching }
+                        ) {
+                            Icon(
+                                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
+                            )
+                        }
                     }
                 }
             )
