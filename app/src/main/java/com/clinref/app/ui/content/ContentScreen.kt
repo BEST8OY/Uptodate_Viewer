@@ -424,7 +424,6 @@ private fun ContentFloatingToolbar(
                         decorationBox = { innerTextField ->
                             Row(
                                 modifier = Modifier
-                                    .fillMaxHeight()
                                     .padding(start = 8.dp, end = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
