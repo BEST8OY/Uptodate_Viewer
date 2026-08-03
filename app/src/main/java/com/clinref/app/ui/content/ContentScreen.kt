@@ -395,6 +395,7 @@ private fun ContentFloatingToolbar(
                 expanded = true,
                 shape = CircleShape,
                 colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
