@@ -51,27 +51,32 @@ import com.clinref.app.ui.settings.AiSettingsScreen
 import com.clinref.app.ui.settings.SettingsViewModel
 import kotlinx.serialization.Serializable
 
+@Serializable
 sealed interface TopLevelRoute : NavKey {
     val title: String
-    val icon: ImageVector
 }
+
+val TopLevelRoute.icon: ImageVector
+    get() = when (this) {
+        TocRoute -> Icons.Default.Home
+        HistoryRoute -> Icons.AutoMirrored.Filled.List
+        FavoritesRoute -> Icons.Default.Favorite
+        AiRoute -> Icons.AutoMirrored.Filled.Chat
+    }
 
 @Serializable
 data object TocRoute : TopLevelRoute {
     override val title = "Contents"
-    override val icon = Icons.Default.Home
 }
 
 @Serializable
 data object HistoryRoute : TopLevelRoute {
     override val title = "History"
-    override val icon = Icons.AutoMirrored.Filled.List
 }
 
 @Serializable
 data object FavoritesRoute : TopLevelRoute {
     override val title = "Favorites"
-    override val icon = Icons.Default.Favorite
 }
 
 @Serializable
@@ -80,7 +85,6 @@ data class ContentRoute(val topicId: String, val sectionId: String? = null) : Na
 @Serializable
 data object AiRoute : TopLevelRoute {
     override val title = "AI"
-    override val icon = Icons.AutoMirrored.Filled.Chat
 }
 
 @Serializable
@@ -123,7 +127,7 @@ fun NavGraph(
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
             val current = currentBackStack?.lastOrNull()
-            current is ContentRoute || current is ChatRoute || current is AiSettingsRoute
+            current !is TopLevelRoute
         }
     }
 
@@ -214,24 +218,36 @@ fun NavGraph(
             onBack = {
                 val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
                 val currentRoute = currentStack?.lastOrNull()
-                if (currentRoute == navigationState.topLevelRoute) {
-                    // At root of top-level route — finish without transitioning to TOC
+                if (currentRoute == navigationState.startRoute) {
                     activity?.finish()
                 } else {
                     navigator.goBack()
                 }
             },
+
             transitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
+                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
+                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
+                } else {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
+                }
             },
             popTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
+                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
+                } else {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                }
             },
             predictivePopTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
+                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
+                } else {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                }
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -269,3 +285,4 @@ fun NavGraph(
         }
     }
 }
+
