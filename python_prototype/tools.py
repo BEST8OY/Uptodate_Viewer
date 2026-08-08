@@ -71,15 +71,16 @@ def search_topics(query: str) -> str:
     results = _db.search_topics(clean_query, limit=10)
     suggestions = _db.get_suggestions(clean_query, limit=20)
 
-    # Auto-retry: if primary query returns no results, try first suggestion internally
+    # Auto-retry: if primary query returns no results, try available suggestions internally (up to top 5)
     if not results and suggestions:
-        first_suggestion = suggestions[0]
-        retry_results = _db.search_topics(first_suggestion, limit=10)
-        if retry_results:
-            remaining_suggestions = suggestions[1:]
-            results = retry_results
-            suggestions = remaining_suggestions
-            clean_query = first_suggestion
+        for suggestion in suggestions[:5]:
+            retry_results = _db.search_topics(suggestion, limit=10)
+            if retry_results:
+                remaining_suggestions = [s for s in suggestions if s != suggestion]
+                results = retry_results
+                suggestions = remaining_suggestions
+                clean_query = suggestion
+                break
 
     if not results:
         message = (

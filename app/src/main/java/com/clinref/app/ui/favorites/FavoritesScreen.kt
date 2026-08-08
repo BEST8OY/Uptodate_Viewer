@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation3.runtime.NavKey
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LifecycleStartEffect
 import com.clinref.app.R
 import com.clinref.app.domain.FavoriteEntry
 import com.clinref.app.ui.common.showUndoSnackbar
@@ -96,8 +97,8 @@ fun FavoritesScreen(
         selectedIds = emptySet()
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
+    LifecycleStartEffect(Unit) {
+        onStopOrDispose {
             pendingDelete = emptyList()
             selectedIds = emptySet()
         }
