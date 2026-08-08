@@ -2,8 +2,7 @@
 
 Connects to the same SQLite databases used by the Android app:
 - utdtoc.db: Table of contents + TOCMap
-- fsearch.db: FTS4 topic search
-- fcontentsearch.db: FTS4 content search with full text
+- fsearch.db: FTS4 topic & video search
 - utdasset.sqlite: Compressed topic/graphic assets (bodyHtml, outlineHtml)
 """
 
@@ -25,7 +24,6 @@ class ClinRefDatabase:
         self.db_dir = db_dir or _DB_DIR
         self._toc_conn: Optional[sqlite3.Connection] = None
         self._search_conn: Optional[sqlite3.Connection] = None
-        self._content_conn: Optional[sqlite3.Connection] = None
         self._asset_conn: Optional[sqlite3.Connection] = None
         self._qf_conn: Optional[sqlite3.Connection] = None
         self._unidex_conn: Optional[sqlite3.Connection] = None
@@ -50,15 +48,11 @@ class ClinRefDatabase:
         return self._get_conn("_search_conn", "fsearch.db")
 
     @property
-    def content(self) -> sqlite3.Connection:
-        return self._get_conn("_content_conn", "fcontentsearch.db")
-
-    @property
     def asset(self) -> sqlite3.Connection:
         return self._get_conn("_asset_conn", "utdasset.sqlite")
 
     def close(self):
-        for attr in ("_toc_conn", "_search_conn", "_content_conn", "_asset_conn"):
+        for attr in ("_toc_conn", "_search_conn", "_asset_conn", "_qf_conn", "_unidex_conn"):
             conn = getattr(self, attr)
             if conn:
                 conn.close()
@@ -158,36 +152,6 @@ class ClinRefDatabase:
         except Exception:
             pass
         return None
-
-    def _search_fts(self, db_conn: sqlite3.Connection, query: str, limit: int) -> list[dict]:
-        """FTS search against a database connection."""
-        rows = db_conn.execute(
-            "SELECT docid, displayname, URL FROM Search WHERE Search MATCH ? LIMIT ?",
-            (query, limit),
-        ).fetchall()
-        return [
-            {"id": r["URL"].replace("Topic-", ""), "title": r["displayname"], "url": r["URL"]}
-            for r in rows
-            if r["URL"].startswith("Topic-")
-        ]
-
-    def search_content(self, query: str, limit: int = 10) -> list[dict]:
-        """FTS search against full content text. Returns [{id, title, url, snippet}]."""
-        rows = self.content.execute(
-            "SELECT docid, displayname, URL, snippet(Search, 7, '<b>', '</b>', '...', 40) AS snip "
-            "FROM Search WHERE Search MATCH ? LIMIT ?",
-            (query, limit),
-        ).fetchall()
-        return [
-            {
-                "id": r["URL"].replace("Topic-", ""),
-                "title": r["displayname"],
-                "url": r["URL"],
-                "snippet": r["snip"],
-            }
-            for r in rows
-            if r["URL"].startswith("Topic-")
-        ]
 
     # ── Suggestions ────────────────────────────────────────────────────
 
@@ -297,16 +261,6 @@ class ClinRefDatabase:
             for r in self.toc.execute(
                 "SELECT id, title, parentId, leaf, section FROM TOC WHERE id = ?",
                 (toc_id,),
-            ).fetchall()
-        ]
-
-    def get_toc_children(self, parent_id: int) -> list[dict]:
-        """Get child TOC entries for a parent."""
-        return [
-            dict(r)
-            for r in self.toc.execute(
-                "SELECT id, title, parentId, leaf, section FROM TOC WHERE parentId = ? ORDER BY id",
-                (parent_id,),
             ).fetchall()
         ]
 

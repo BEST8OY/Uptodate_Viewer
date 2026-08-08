@@ -312,13 +312,13 @@ def run_tests(db_path: str):
     assert len(results) > 0, "Search returned no results"
     print("  PASS\n")
 
-    # Test 2: Content search
-    print("Test 2: Content search for 'anticoagulation'")
-    results = db.search_content("anticoagulation")
-    print(f"  Found {len(results)} results")
+    # Test 2: Suggestions
+    print("Test 2: Suggestions for 'anticoagulation'")
+    results = db.get_suggestions("anticoagulation")
+    print(f"  Found {len(results)} suggestions")
     for r in results[:3]:
-        print(f"  - [{r['id']}] {r['title']}")
-    assert len(results) > 0, "Content search returned no results"
+        print(f"  - {r}")
+    assert len(results) > 0, "Suggestions returned no results"
     print("  PASS\n")
 
     # Test 3: Topic asset

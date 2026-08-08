@@ -30,7 +30,6 @@ class DatabaseManager @Inject constructor(
             "unidex.en.sqlite",
             "utdtoc.db",
             "fsearch.db",
-            "fcontentsearch.db",
             "utdasset.sqlite",
             "utdqf.sqlite"
         )
@@ -132,7 +131,6 @@ class DatabaseManager @Inject constructor(
     fun getUnidexDb(): SQLiteDatabase = getConnection("unidex.en.sqlite")
     fun getTocDb(): SQLiteDatabase = getConnection("utdtoc.db")
     fun getFsearchDb(): SQLiteDatabase = getConnection("fsearch.db")
-    fun getFcontentsearchDb(): SQLiteDatabase = getConnection("fcontentsearch.db")
     fun getAssetsDb(): SQLiteDatabase = getConnection("utdasset.sqlite")
     fun getQfDb(): SQLiteDatabase = getConnection("utdqf.sqlite")
 

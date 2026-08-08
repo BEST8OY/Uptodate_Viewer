@@ -8,7 +8,7 @@
 ## Project Structure & Architecture
 - **Android App (`:app`)**: Package `com.clinref.app` using Compose M3, Hilt DI, Navigation 3, Room 3 (`androidx.room3`).
 - **Python Prototype (`python_prototype/`)**: LangGraph/LangChain agent in Python 3.13 (`uv`). Mirrors Kotlin agent logic 1:1.
-- **SQLite DBs (Project Root)**: 7 SQLite databases (`utdasset.sqlite`, `unidex.en.sqlite`, `fcontentsearch.db`, `fsearch.db`, `utdqf.sqlite`, `utdtoc.db`, `thumbs.db`) read directly by the search/agent pipeline.
+- **SQLite DBs (Project Root)**: 6 SQLite databases (`utdasset.sqlite`, `unidex.en.sqlite`, `fsearch.db`, `utdqf.sqlite`, `utdtoc.db`, `thumbs.db`) read directly by the search/agent pipeline.
 
 ## Verification & Commands
 
