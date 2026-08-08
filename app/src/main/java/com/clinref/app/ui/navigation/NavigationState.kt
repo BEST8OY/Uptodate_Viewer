@@ -18,22 +18,6 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.runtime.serialization.NavKeySerializer
 import androidx.savedstate.compose.serialization.serializers.MutableStateSerializer
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
-import kotlinx.serialization.modules.subclass
-
-val NavKeySerializersModule = SerializersModule {
-    polymorphic(NavKey::class) {
-        subclass(TocRoute::class, TocRoute.serializer())
-        subclass(HistoryRoute::class, HistoryRoute.serializer())
-        subclass(FavoritesRoute::class, FavoritesRoute.serializer())
-        subclass(ContentRoute::class, ContentRoute.serializer())
-        subclass(AiRoute::class, AiRoute.serializer())
-        subclass(AiSettingsRoute::class, AiSettingsRoute.serializer())
-        subclass(ConversationListRoute::class, ConversationListRoute.serializer())
-        subclass(ChatRoute::class, ChatRoute.serializer())
-    }
-}
 
 @Composable
 fun rememberNavigationState(
@@ -42,7 +26,7 @@ fun rememberNavigationState(
 ): NavigationState {
     val topLevelRoute = rememberSerializable(
         startRoute, topLevelRoutes,
-        serializer = MutableStateSerializer(NavKeySerializer(NavKeySerializersModule))
+        serializer = MutableStateSerializer(NavKeySerializer())
     ) {
         mutableStateOf(startRoute)
     }
