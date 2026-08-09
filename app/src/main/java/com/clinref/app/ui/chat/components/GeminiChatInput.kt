@@ -1,5 +1,6 @@
 package com.clinref.app.ui.chat.components
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -26,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,7 +42,7 @@ import com.clinref.app.domain.ai.PatientProfile
 
 private const val MAX_CHARS = 4000
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun GeminiChatInput(
     textValue: String,
@@ -53,8 +56,14 @@ fun GeminiChatInput(
     val maxLines = 8
     val isMultiLine = textValue.contains('\n') || textValue.length > 40
 
-    // Constant 34.dp rounded corners: fully rounded capsule in single line mode, zero radius change when expanded
-    val containerShape = RoundedCornerShape(34.dp)
+    // Material 3 Expressive spring shape morphing:
+    // Single line: CircleShape / extraExtraLarge (48.dp) -> Expanded: extraLargeIncreased (32.dp)
+    val cornerRadius by animateDpAsState(
+        targetValue = if (isMultiLine) 32.dp else 48.dp, // 32.dp = extraLargeIncreased, 48.dp = extraExtraLarge
+        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        label = "m3ExpressiveShapeMorph"
+    )
+    val containerShape = if (!isMultiLine && cornerRadius >= 46.dp) CircleShape else RoundedCornerShape(cornerRadius)
 
     Box(
         modifier = modifier
