@@ -11,33 +11,33 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 
 private const val MAX_CHARS = 4000
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeminiChatInput(
     textValue: String,
@@ -49,10 +49,16 @@ fun GeminiChatInput(
     modifier: Modifier = Modifier
 ) {
     val maxLines = 8
+    val isMultiLine = textValue.contains('\n') || textValue.length > 32
 
-    // 28.dp corner radius creates a rich, bulky M3 Expressive pill/capsule on single-line (container height ~56dp)
-    // and stays locked at 28.dp corners as text grows multi-line, preventing bottom roundness drift.
-    val containerShape = RoundedCornerShape(28.dp)
+    // CircleShape on single-line mode guarantees a 100% mathematical pill (semicircular ends with 0 flat vertical pixels).
+    // When text expands to multi-line (or with patient profile), transitions to RoundedCornerShape(28.dp)
+    // for a bulky M3 container with locked 28.dp bottom corners and zero drift.
+    val containerShape = if (!isMultiLine && patientProfile == null) {
+        CircleShape
+    } else {
+        RoundedCornerShape(28.dp)
+    }
 
     Box(
         modifier = modifier
@@ -79,7 +85,12 @@ fun GeminiChatInput(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 10.dp, top = 12.dp, bottom = 12.dp)
+                    .padding(
+                        start = if (!isMultiLine && patientProfile == null) 12.dp else 16.dp,
+                        end = 10.dp,
+                        top = 6.dp,
+                        bottom = 6.dp
+                    )
             ) {
                 patientProfile?.let { profile ->
                     val profileText = buildString {
@@ -97,7 +108,7 @@ fun GeminiChatInput(
                     if (profileText.isNotBlank()) {
                         Box(
                             modifier = Modifier
-                                .padding(bottom = 8.dp)
+                                .padding(start = 6.dp, bottom = 6.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -131,33 +142,38 @@ fun GeminiChatInput(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 8.dp, top = 6.dp, bottom = 6.dp)
                             .heightIn(min = 32.dp, max = 180.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
-                        if (textValue.isEmpty()) {
-                            Text(
-                                text = "Ask a clinical question...",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                            )
-                        }
-                        BasicTextField(
+                        TextField(
                             value = textValue,
                             onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
+                            placeholder = {
+                                Text(
+                                    text = "Ask a clinical question...",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                )
+                            },
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences
-                            ),
+                            singleLine = false,
                             maxLines = maxLines,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
 
                     Row(
+                        modifier = Modifier.padding(bottom = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -224,5 +240,6 @@ fun GeminiChatInput(
         }
     }
 }
+
 
 
