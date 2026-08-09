@@ -52,9 +52,9 @@ private val ACTION_ROW_SPACING = 8.dp        // M3 PaddingSmall
 private val MIC_ICON_PADDING = (BUTTON_TOUCH_TARGET_SIZE - ACTION_ICON_SIZE) / 2 // 12.dp
 
 // Material 3 Container Spacing Tokens (Strict 4dp/8dp Grid)
-private val CONTENT_VERTICAL_PADDING = 12.dp // M3 PaddingMedium
+private val CONTENT_VERTICAL_PADDING = 16.dp // M3 PaddingMedium
 private val CONTENT_START_PADDING = 20.dp    // M3 Extra Large Inset Token
-private val CONTENT_END_PADDING = 12.dp      // M3 PaddingMedium
+private val CONTENT_END_PADDING = 16.dp      // M3 PaddingMedium
 
 private val TEXT_BOX_END_PADDING = 8.dp      // M3 PaddingSmall
 private val TEXT_BOX_VERTICAL_PADDING = 4.dp // M3 PaddingExtraSmall
@@ -74,7 +74,7 @@ private val CHIP_ICON_SIZE = 16.dp           // M3 Small Icon
 private val CHIP_BOTTOM_PADDING = 8.dp       // M3 PaddingSmall
 
 // 48.dp corner radius token:
-// On single-line (72dp height), 48dp > height/2 guarantees Android Canvas automatically clamps corner rendering to a 100% full plush pill capsule.
+// On single-line (88dp height), 48dp > height/2 guarantees Android Canvas automatically clamps corner rendering to a 100% full plush pill capsule.
 // On multi-line (height expands to 200dp), 48dp remains constant, providing a rich, bulky M3 container with ZERO corner drift.
 private val CONTAINER_CORNER_RADIUS = 48.dp
 
@@ -92,8 +92,8 @@ fun GeminiChatInput(
 
     val isMultiLine = textCharSequence.contains('\n') || textCharSequence.length > SINGLE_LINE_CHAR_THRESHOLD
 
-    // Single-line container height = 12dp (top) + 48dp (row) + 12dp (bottom) = 72dp.
-    // Because 48.dp > 72dp/2 (36dp), Android Canvas automatically clamps corner rendering to a 100% full pill capsule on single-line,
+    // Single-line container height = 16dp (top) + 48dp (row) + 16dp (bottom) = 88dp.
+    // Because 48.dp > 88dp/2 (44dp), Android Canvas automatically clamps corner rendering to a 100% full pill capsule on single-line,
     // while remaining strictly 48.dp on multi-line expansion with ZERO corner radius drift.
     val containerShape = RoundedCornerShape(CONTAINER_CORNER_RADIUS)
 
