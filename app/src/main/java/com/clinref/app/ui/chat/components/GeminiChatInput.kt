@@ -52,9 +52,9 @@ private val ACTION_ROW_SPACING = 8.dp        // M3 PaddingSmall
 private val MIC_ICON_PADDING = (BUTTON_TOUCH_TARGET_SIZE - ACTION_ICON_SIZE) / 2 // 12.dp
 
 // Material 3 Container Spacing Tokens (Strict 4dp/8dp Grid)
-private val CONTENT_VERTICAL_PADDING = 16.dp // M3 PaddingMedium
+private val CONTENT_VERTICAL_PADDING = 8.dp  // M3 PaddingSmall
 private val CONTENT_START_PADDING = 20.dp    // M3 Extra Large Inset Token
-private val CONTENT_END_PADDING = 16.dp      // M3 PaddingMedium
+private val CONTENT_END_PADDING = 12.dp      // M3 PaddingMedium
 
 private val TEXT_BOX_END_PADDING = 8.dp      // M3 PaddingSmall
 private val TEXT_BOX_VERTICAL_PADDING = 4.dp // M3 PaddingExtraSmall
@@ -73,10 +73,11 @@ private val CHIP_VERTICAL_PADDING = 6.dp     // M3 AssistChip Standard Padding
 private val CHIP_ICON_SIZE = 16.dp           // M3 Small Icon
 private val CHIP_BOTTOM_PADDING = 8.dp       // M3 PaddingSmall
 
-// 48.dp corner radius token:
-// On single-line (88dp height), 48dp > height/2 guarantees Android Canvas automatically clamps corner rendering to a 100% full plush pill capsule.
-// On multi-line (height expands to 200dp), 48dp remains constant, providing a rich, bulky M3 container with ZERO corner drift.
-private val CONTAINER_CORNER_RADIUS = 48.dp
+// Material 3 Expressive Shape Token: extra-large-increased = 32.dp
+// Single-line container height = 8dp (top) + 48dp (action target) + 8dp (bottom) = 64dp.
+// Because 32.dp is exactly half of 64dp (64dp / 2 = 32dp), it forms a 100% mathematically exact pill capsule on single-line,
+// while remaining strictly 32.dp on multi-line expansion with ZERO corner radius drift or shape popping.
+private val CONTAINER_CORNER_RADIUS = 32.dp
 
 @Composable
 fun GeminiChatInput(
@@ -92,9 +93,9 @@ fun GeminiChatInput(
 
     val isMultiLine = textCharSequence.contains('\n') || textCharSequence.length > SINGLE_LINE_CHAR_THRESHOLD
 
-    // Single-line container height = 16dp (top) + 48dp (row) + 16dp (bottom) = 88dp.
-    // Because 48.dp > 88dp/2 (44dp), Android Canvas automatically clamps corner rendering to a 100% full pill capsule on single-line,
-    // while remaining strictly 48.dp on multi-line expansion with ZERO corner radius drift.
+    // Single-line container height = 8dp (top) + 48dp (row) + 8dp (bottom) = 64dp.
+    // 32dp corner radius (64dp / 2 = 32dp) forms a 100% mathematically exact pill capsule on single-line,
+    // while remaining strictly 32dp on multi-line expansion with ZERO corner radius drift.
     val containerShape = RoundedCornerShape(CONTAINER_CORNER_RADIUS)
 
     Box(
@@ -181,13 +182,13 @@ fun GeminiChatInput(
                             .padding(
                                 end = if (isMultiLine) 0.dp else (BUTTON_TOUCH_TARGET_SIZE * 2 + ACTION_ROW_SPACING + TEXT_BOX_END_PADDING),
                                 bottom = if (isMultiLine) (BUTTON_TOUCH_TARGET_SIZE + 8.dp) else 0.dp,
-                                top = TEXT_BOX_VERTICAL_PADDING
+                                top = if (isMultiLine) TEXT_BOX_VERTICAL_PADDING else 0.dp
                             )
                             .heightIn(
                                 min = if (isMultiLine) 60.dp else BUTTON_TOUCH_TARGET_SIZE,
                                 max = MAX_TEXT_BOX_HEIGHT
                             ),
-                        contentAlignment = Alignment.TopStart
+                        contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
                     ) {
                         if (textCharSequence.isEmpty()) {
                             Text(
