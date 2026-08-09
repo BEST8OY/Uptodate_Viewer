@@ -52,7 +52,9 @@ fun GeminiChatInput(
 ) {
     val maxLines = 8
     val isMultiLine = textValue.contains('\n') || textValue.length > 40
-    val containerShape = if (isMultiLine) RoundedCornerShape(36.dp) else CircleShape
+
+    // Constant 34.dp rounded corners: fully rounded capsule in single line mode, zero radius change when expanded
+    val containerShape = RoundedCornerShape(34.dp)
 
     Box(
         modifier = modifier
@@ -81,7 +83,7 @@ fun GeminiChatInput(
                     .fillMaxWidth()
                     .padding(
                         start = 20.dp,
-                        end = 10.dp,
+                        end = 20.dp,
                         top = 14.dp,
                         bottom = 14.dp
                     )
@@ -149,9 +151,7 @@ fun GeminiChatInput(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
                                 )
                             },
-                            textStyle = TextStyle(
-                                fontSize = 16.sp,
-                                lineHeight = 22.sp,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
                             singleLine = false,
