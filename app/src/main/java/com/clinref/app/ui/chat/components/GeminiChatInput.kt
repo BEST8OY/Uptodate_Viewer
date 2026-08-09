@@ -1,6 +1,5 @@
 package com.clinref.app.ui.chat.components
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,7 +17,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -28,7 +26,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,7 +39,7 @@ import com.clinref.app.domain.ai.PatientProfile
 
 private const val MAX_CHARS = 4000
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeminiChatInput(
     textValue: String,
@@ -56,14 +53,8 @@ fun GeminiChatInput(
     val maxLines = 8
     val isMultiLine = textValue.contains('\n') || textValue.length > 40
 
-    // Material 3 Expressive spring shape morphing:
-    // Single line: CircleShape / extraExtraLarge (48.dp) -> Expanded: extraLargeIncreased (32.dp)
-    val cornerRadius by animateDpAsState(
-        targetValue = if (isMultiLine) 48.dp else 48.dp, // 32.dp = extraLargeIncreased, 48.dp = extraExtraLarge
-        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
-        label = "m3ExpressiveShapeMorph"
-    )
-    val containerShape = if (!isMultiLine && cornerRadius >= 46.dp) CircleShape else RoundedCornerShape(cornerRadius)
+    // Uniform 32.dp rounding for top and bottom corners (Symmetric M3 Expressive shape, 0 corner jump)
+    val containerShape = RoundedCornerShape(32.dp)
 
     Box(
         modifier = modifier
@@ -91,10 +82,10 @@ fun GeminiChatInput(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        start = 20.dp,
-                        end = 20.dp,
-                        top = 14.dp,
-                        bottom = 14.dp
+                        start = 18.dp,
+                        end = 12.dp,
+                        top = 12.dp,
+                        bottom = 12.dp
                     )
             ) {
                 patientProfile?.let { profile ->
@@ -147,7 +138,7 @@ fun GeminiChatInput(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = 32.dp, max = 180.dp),
+                            .heightIn(min = 40.dp, max = 180.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         TextField(
