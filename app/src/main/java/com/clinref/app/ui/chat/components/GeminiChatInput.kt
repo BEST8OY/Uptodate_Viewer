@@ -59,7 +59,7 @@ fun GeminiChatInput(
     // Material 3 Expressive spring shape morphing:
     // Single line: CircleShape / extraExtraLarge (48.dp) -> Expanded: extraLargeIncreased (32.dp)
     val cornerRadius by animateDpAsState(
-        targetValue = if (isMultiLine) 32.dp else 48.dp, // 32.dp = extraLargeIncreased, 48.dp = extraExtraLarge
+        targetValue = if (isMultiLine) 48.dp else 48.dp, // 32.dp = extraLargeIncreased, 48.dp = extraExtraLarge
         animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
         label = "m3ExpressiveShapeMorph"
     )
