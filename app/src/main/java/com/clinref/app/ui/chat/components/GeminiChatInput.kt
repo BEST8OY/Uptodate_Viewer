@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 
 private const val MAX_CHARS = 4000
+private val BUTTON_TOUCH_TARGET_SIZE = 48.dp
+private val ACTION_ICON_SIZE = 24.dp
+private val CONTENT_VERTICAL_PADDING = 12.dp
 
 @Composable
 fun GeminiChatInput(
@@ -56,7 +59,7 @@ fun GeminiChatInput(
     val isTextNotBlank = textCharSequence.isNotBlank()
 
     // 36.dp corner radius (M3 Expressive ExtraLarge token):
-    // On single-line (container height ~68dp-72dp), 36.dp guarantees a 100% full plush pill capsule at any font scale.
+    // On single-line (container height ~72dp), 36.dp guarantees a 100% full plush pill capsule at any font scale.
     // On multi-line (container height expands to 200dp), 36.dp remains constant, providing a rich, bulky M3 container with ZERO rounding drift.
     val containerShape = RoundedCornerShape(36.dp)
 
@@ -88,8 +91,8 @@ fun GeminiChatInput(
                     .padding(
                         start = 22.dp,
                         end = 12.dp,
-                        top = 14.dp,
-                        bottom = 14.dp
+                        top = CONTENT_VERTICAL_PADDING,
+                        bottom = CONTENT_VERTICAL_PADDING
                     )
             ) {
                 patientProfile?.let { profile ->
@@ -142,8 +145,8 @@ fun GeminiChatInput(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 10.dp, top = 4.dp, bottom = 4.dp)
-                            .heightIn(min = 36.dp, max = 200.dp),
+                            .padding(end = 10.dp, top = CONTENT_VERTICAL_PADDING, bottom = CONTENT_VERTICAL_PADDING)
+                            .heightIn(min = BUTTON_TOUCH_TARGET_SIZE, max = 200.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (textCharSequence.isEmpty()) {
@@ -177,15 +180,15 @@ fun GeminiChatInput(
                             contentDescription = "Voice input",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(BUTTON_TOUCH_TARGET_SIZE)
                                 .clip(CircleShape)
-                                .padding(10.dp)
+                                .padding(12.dp)
                         )
 
                         if (isGenerating) {
                             FilledIconButton(
                                 onClick = onCancel,
-                                modifier = Modifier.size(44.dp),
+                                modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
                                 shape = CircleShape,
                                 colors = IconButtonDefaults.filledIconButtonColors(
                                     containerColor = MaterialTheme.colorScheme.errorContainer
@@ -195,7 +198,7 @@ fun GeminiChatInput(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Cancel generation",
                                     tint = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(ACTION_ICON_SIZE)
                                 )
                             }
                         } else {
@@ -205,7 +208,7 @@ fun GeminiChatInput(
                                         onSendMessage(textCharSequence.toString())
                                     }
                                 },
-                                modifier = Modifier.size(44.dp),
+                                modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
                                 shape = CircleShape,
                                 colors = IconButtonDefaults.filledIconButtonColors(
                                     containerColor = if (isTextNotBlank) {
@@ -225,7 +228,7 @@ fun GeminiChatInput(
                                     } else {
                                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                     },
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(ACTION_ICON_SIZE)
                                 )
                             }
                         }
