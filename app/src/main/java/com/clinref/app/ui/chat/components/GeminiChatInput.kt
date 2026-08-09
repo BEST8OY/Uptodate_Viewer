@@ -91,6 +91,10 @@ fun GeminiChatInput(
 
     val isMultiLine = textCharSequence.contains('\n') || textCharSequence.length > SINGLE_LINE_CHAR_THRESHOLD
 
+    // Single-line container height = 12dp (top padding) + 48dp (row) + 12dp (bottom padding) = 72dp.
+    // CONTAINER_CORNER_RADIUS = (48 + 12*2) / 2 = 36dp.
+    // 36dp radius on 72dp height forms a 100% mathematically exact pill capsule on single-line,
+    // while remaining strictly 36dp on multi-line expansion with ZERO corner radius drift or shape popping.
     val containerShape = RoundedCornerShape(CONTAINER_CORNER_RADIUS)
 
     Box(
@@ -168,100 +172,54 @@ fun GeminiChatInput(
                     }
                 }
 
-                if (!isMultiLine) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                end = if (isMultiLine) 0.dp else (BUTTON_TOUCH_TARGET_SIZE * 2 + ACTION_ROW_SPACING + TEXT_BOX_END_PADDING),
+                                bottom = if (isMultiLine) (BUTTON_TOUCH_TARGET_SIZE + 8.dp) else 0.dp,
+                                top = TEXT_BOX_VERTICAL_PADDING
+                            )
+                            .heightIn(
+                                min = if (isMultiLine) 60.dp else BUTTON_TOUCH_TARGET_SIZE,
+                                max = MAX_TEXT_BOX_HEIGHT
+                            ),
+                        contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(
-                                    end = TEXT_BOX_END_PADDING,
-                                    top = TEXT_BOX_VERTICAL_PADDING,
-                                    bottom = TEXT_BOX_VERTICAL_PADDING
-                                )
-                                .heightIn(min = BUTTON_TOUCH_TARGET_SIZE),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            if (textCharSequence.isEmpty()) {
-                                Text(
-                                    text = "Ask a clinical question...",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                                )
-                            }
-                            BasicTextField(
-                                state = state,
-                                inputTransformation = InputTransformation.maxLength(MAX_CHARS),
-                                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = MAX_INPUT_LINES),
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                keyboardOptions = KeyboardOptions(
-                                    capitalization = KeyboardCapitalization.Sentences
-                                ),
-                                modifier = Modifier.fillMaxWidth()
+                        if (textCharSequence.isEmpty()) {
+                            Text(
+                                text = "Ask a clinical question...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
                             )
                         }
+                        BasicTextField(
+                            state = state,
+                            inputTransformation = InputTransformation.maxLength(MAX_CHARS),
+                            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = MAX_INPUT_LINES),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Sentences
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
+                    Box(
+                        modifier = Modifier.align(if (isMultiLine) Alignment.BottomEnd else Alignment.CenterEnd)
+                    ) {
                         ActionButtons(
                             isGenerating = isGenerating,
                             isTextNotBlank = isTextNotBlank,
                             onSendMessage = { if (isTextNotBlank) onSendMessage(textCharSequence.toString()) },
                             onCancel = onCancel
                         )
-                    }
-                } else {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    end = TEXT_BOX_END_PADDING,
-                                    top = TEXT_BOX_VERTICAL_PADDING,
-                                    bottom = TEXT_BOX_VERTICAL_PADDING
-                                )
-                                .heightIn(min = 60.dp, max = MAX_TEXT_BOX_HEIGHT),
-                            contentAlignment = Alignment.TopStart
-                        ) {
-                            if (textCharSequence.isEmpty()) {
-                                Text(
-                                    text = "Ask a clinical question...",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                                )
-                            }
-                            BasicTextField(
-                                state = state,
-                                inputTransformation = InputTransformation.maxLength(MAX_CHARS),
-                                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = MAX_INPUT_LINES),
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                keyboardOptions = KeyboardOptions(
-                                    capitalization = KeyboardCapitalization.Sentences
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ActionButtons(
-                                isGenerating = isGenerating,
-                                isTextNotBlank = isTextNotBlank,
-                                onSendMessage = { if (isTextNotBlank) onSendMessage(textCharSequence.toString()) },
-                                onCancel = onCancel
-                            )
-                        }
                     }
                 }
             }
