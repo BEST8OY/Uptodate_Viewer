@@ -73,9 +73,10 @@ private val CHIP_VERTICAL_PADDING = 6.dp     // M3 AssistChip Standard Padding
 private val CHIP_ICON_SIZE = 16.dp           // M3 Small Icon
 private val CHIP_BOTTOM_PADDING = 8.dp       // M3 PaddingSmall
 
-// Material 3 Expressive CornerExtraLarge Token: (48dp + 12dp + 12dp) / 2 = 36dp
-// Guarantees a 100% exact pill capsule on single-line and 0.0dp radius drift on multi-line expansion.
-private val CONTAINER_CORNER_RADIUS = (BUTTON_TOUCH_TARGET_SIZE + (CONTENT_VERTICAL_PADDING * 2)) / 2
+// 48.dp corner radius token:
+// On single-line (72dp height), 48dp > height/2 guarantees Android Canvas automatically clamps corner rendering to a 100% full plush pill capsule.
+// On multi-line (height expands to 200dp), 48dp remains constant, providing a rich, bulky M3 container with ZERO corner drift.
+private val CONTAINER_CORNER_RADIUS = 48.dp
 
 @Composable
 fun GeminiChatInput(
@@ -91,10 +92,9 @@ fun GeminiChatInput(
 
     val isMultiLine = textCharSequence.contains('\n') || textCharSequence.length > SINGLE_LINE_CHAR_THRESHOLD
 
-    // Single-line container height = 12dp (top padding) + 48dp (row) + 12dp (bottom padding) = 72dp.
-    // CONTAINER_CORNER_RADIUS = (48 + 12*2) / 2 = 36dp.
-    // 36dp radius on 72dp height forms a 100% mathematically exact pill capsule on single-line,
-    // while remaining strictly 36dp on multi-line expansion with ZERO corner radius drift or shape popping.
+    // Single-line container height = 12dp (top) + 48dp (row) + 12dp (bottom) = 72dp.
+    // Because 48.dp > 72dp/2 (36dp), Android Canvas automatically clamps corner rendering to a 100% full pill capsule on single-line,
+    // while remaining strictly 48.dp on multi-line expansion with ZERO corner radius drift.
     val containerShape = RoundedCornerShape(CONTAINER_CORNER_RADIUS)
 
     Box(
@@ -187,7 +187,7 @@ fun GeminiChatInput(
                                 min = if (isMultiLine) 60.dp else BUTTON_TOUCH_TARGET_SIZE,
                                 max = MAX_TEXT_BOX_HEIGHT
                             ),
-                        contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
+                        contentAlignment = Alignment.TopStart
                     ) {
                         if (textCharSequence.isEmpty()) {
                             Text(
@@ -212,7 +212,7 @@ fun GeminiChatInput(
                     }
 
                     Box(
-                        modifier = Modifier.align(if (isMultiLine) Alignment.BottomEnd else Alignment.CenterEnd)
+                        modifier = Modifier.align(Alignment.BottomEnd)
                     ) {
                         ActionButtons(
                             isGenerating = isGenerating,
