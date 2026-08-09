@@ -1,5 +1,10 @@
 package com.clinref.app.ui.chat.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +29,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,10 +37,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,42 +48,38 @@ import com.clinref.app.domain.ai.PatientProfile
 
 private const val MAX_CHARS = 4000
 private const val MAX_INPUT_LINES = 8
-private const val SINGLE_LINE_CHAR_THRESHOLD = 35
 
 // Material 3 Component & Target Tokens
 private val BUTTON_TOUCH_TARGET_SIZE = 48.dp // M3 MinTouchTargetSize
-private val ACTION_ICON_SIZE = 24.dp         // M3 Standard Icon Size
+private val ACTION_ICON_SIZE = 18.dp         // Sleek, refined action icon size
 private val ACTION_ROW_SPACING = 8.dp        // M3 PaddingSmall
 
-private val MIC_ICON_PADDING = (BUTTON_TOUCH_TARGET_SIZE - ACTION_ICON_SIZE) / 2 // 12.dp
-
-// Material 3 Container Spacing Tokens (Strict 4dp/8dp Grid)
-private val CONTENT_VERTICAL_PADDING = 8.dp  // M3 PaddingSmall
-private val CONTENT_START_PADDING = 20.dp    // M3 Extra Large Inset Token
-private val CONTENT_END_PADDING = 12.dp      // M3 PaddingMedium
+// Material 3 Container Spacing Tokens (Official M3 Scale: 4dp, 8dp, 12dp, 16dp, 24dp, 32dp)
+private val CONTENT_VERTICAL_PADDING = 12.dp // M3 Grid Spacing
+private val CONTENT_START_PADDING = 24.dp    // M3 Grid Spacing (Large inset)
+private val CONTENT_END_PADDING = 12.dp      // M3 Grid Spacing
 
 private val TEXT_BOX_END_PADDING = 8.dp      // M3 PaddingSmall
-private val TEXT_BOX_VERTICAL_PADDING = 4.dp // M3 PaddingExtraSmall
+private val TEXT_BOX_VERTICAL_PADDING = 8.dp // M3 PaddingSmall (Corrected from non-standard 6.dp)
 private val MAX_TEXT_BOX_HEIGHT = 200.dp
 
-private val OUTER_HORIZONTAL_PADDING = 16.dp // M3 Screen Edge Margin
-private val OUTER_TOP_PADDING = 8.dp         // M3 PaddingSmall
-private val OUTER_BOTTOM_PADDING = 16.dp     // M3 PaddingLarge
+private val OUTER_HORIZONTAL_PADDING = 16.dp // M3 Screen Edge Margin (PaddingMedium)
+private val OUTER_TOP_PADDING = 12.dp        // M3 Grid Spacing
+private val OUTER_BOTTOM_PADDING = 16.dp     // M3 Screen Edge Margin (PaddingMedium)
 
 // Material 3 Surface & Chip Tokens (No drop shadows)
 private val SURFACE_SHADOW_ELEVATION = 0.dp  // Clean flat surface
 private val SURFACE_TONAL_ELEVATION = 0.dp   // Container color tinting only
 
 private val CHIP_HORIZONTAL_PADDING = 12.dp  // M3 AssistChip Standard Padding
-private val CHIP_VERTICAL_PADDING = 6.dp     // M3 AssistChip Standard Padding
+private val CHIP_VERTICAL_PADDING = 4.dp     // M3 PaddingExtraSmall (Corrected from non-standard 6.dp)
 private val CHIP_ICON_SIZE = 16.dp           // M3 Small Icon
 private val CHIP_BOTTOM_PADDING = 8.dp       // M3 PaddingSmall
 
-// Material 3 Expressive Shape Token: extra-large-increased = 32.dp
-// Single-line container height = 8dp (top) + 48dp (action target) + 8dp (bottom) = 64dp.
-// Because 32.dp is exactly half of 64dp (64dp / 2 = 32dp), it forms a 100% mathematically exact pill capsule on single-line,
-// while remaining strictly 32.dp on multi-line expansion with ZERO corner radius drift or shape popping.
-private val CONTAINER_CORNER_RADIUS = 32.dp
+// Material 3 Expressive Shape Token: 36.dp
+// Single-line container height = 12dp (top) + 48dp (action target) + 12dp (bottom) = 72dp.
+// 36.dp is exactly half of 72dp (72dp / 2 = 36dp), forming a 100% mathematically exact pill capsule on single-line.
+private val CONTAINER_CORNER_RADIUS = 36.dp
 
 @Composable
 fun GeminiChatInput(
@@ -86,16 +88,13 @@ fun GeminiChatInput(
     onCancel: () -> Unit,
     isGenerating: Boolean,
     patientProfile: PatientProfile? = null,
+    onVoiceInput: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val textCharSequence = state.text
     val isTextNotBlank = textCharSequence.isNotBlank()
+    val isMultiLine = textCharSequence.contains('\n')
 
-    val isMultiLine = textCharSequence.contains('\n') || textCharSequence.length > SINGLE_LINE_CHAR_THRESHOLD
-
-    // Single-line container height = 8dp (top) + 48dp (row) + 8dp (bottom) = 64dp.
-    // 32dp corner radius (64dp / 2 = 32dp) forms a 100% mathematically exact pill capsule on single-line,
-    // while remaining strictly 32dp on multi-line expansion with ZERO corner radius drift.
     val containerShape = RoundedCornerShape(CONTAINER_CORNER_RADIUS)
 
     Box(
@@ -105,8 +104,8 @@ fun GeminiChatInput(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.35f),
-                        MaterialTheme.colorScheme.background.copy(alpha = 0.85f)
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                     )
                 )
             )
@@ -114,7 +113,9 @@ fun GeminiChatInput(
             .padding(top = OUTER_TOP_PADDING, bottom = OUTER_BOTTOM_PADDING)
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize(),
             shape = containerShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = SURFACE_TONAL_ELEVATION,
@@ -144,14 +145,16 @@ fun GeminiChatInput(
                         }
                     }
                     if (profileText.isNotBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .padding(start = 4.dp, bottom = CHIP_BOTTOM_PADDING)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .padding(horizontal = CHIP_HORIZONTAL_PADDING, vertical = CHIP_VERTICAL_PADDING)
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            modifier = Modifier.padding(start = 4.dp, bottom = CHIP_BOTTOM_PADDING)
                         ) {
                             Row(
+                                modifier = Modifier.padding(
+                                    horizontal = CHIP_HORIZONTAL_PADDING,
+                                    vertical = CHIP_VERTICAL_PADDING
+                                ),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(ACTION_ROW_SPACING)
                             ) {
@@ -190,13 +193,6 @@ fun GeminiChatInput(
                             ),
                         contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
                     ) {
-                        if (textCharSequence.isEmpty()) {
-                            Text(
-                                text = "Ask a clinical question...",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-                            )
-                        }
                         BasicTextField(
                             state = state,
                             inputTransformation = InputTransformation.maxLength(MAX_CHARS),
@@ -206,8 +202,21 @@ fun GeminiChatInput(
                             ),
                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                             keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences
+                                capitalization = KeyboardCapitalization.Sentences,
+                                imeAction = ImeAction.Default
                             ),
+                            decorator = { innerTextField ->
+                                Box(contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart) {
+                                    if (textCharSequence.isEmpty()) {
+                                        Text(
+                                            text = "Ask a clinical question...",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -219,7 +228,8 @@ fun GeminiChatInput(
                             isGenerating = isGenerating,
                             isTextNotBlank = isTextNotBlank,
                             onSendMessage = { if (isTextNotBlank) onSendMessage(textCharSequence.toString()) },
-                            onCancel = onCancel
+                            onCancel = onCancel,
+                            onVoiceInput = onVoiceInput
                         )
                     }
                 }
@@ -233,67 +243,80 @@ private fun ActionButtons(
     isGenerating: Boolean,
     isTextNotBlank: Boolean,
     onSendMessage: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onVoiceInput: (() -> Unit)? = null
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ACTION_ROW_SPACING)
     ) {
-        Icon(
-            imageVector = Icons.Default.Mic,
-            contentDescription = "Voice input",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .size(BUTTON_TOUCH_TARGET_SIZE)
-                .clip(CircleShape)
-                .padding(MIC_ICON_PADDING)
-        )
+        IconButton(
+            onClick = { onVoiceInput?.invoke() },
+            enabled = onVoiceInput != null,
+            modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Mic,
+                contentDescription = "Voice input",
+                tint = if (onVoiceInput != null) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                },
+                modifier = Modifier.size(ACTION_ICON_SIZE)
+            )
+        }
 
-        if (isGenerating) {
-            FilledIconButton(
-                onClick = onCancel,
-                modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Cancel generation",
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.size(ACTION_ICON_SIZE)
-                )
-            }
-        } else {
-            FilledIconButton(
-                onClick = onSendMessage,
-                modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = if (isTextNotBlank) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerHighest
-                    },
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                ),
-                enabled = isTextNotBlank
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowUpward,
-                    contentDescription = "Send message",
-                    tint = if (isTextNotBlank) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    },
-                    modifier = Modifier.size(ACTION_ICON_SIZE)
-                )
+        AnimatedContent(
+            targetState = isGenerating,
+            transitionSpec = {
+                fadeIn() togetherWith fadeOut()
+            },
+            label = "ActionButtonTransition"
+        ) { generating ->
+            if (generating) {
+                FilledIconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel generation",
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(ACTION_ICON_SIZE)
+                    )
+                }
+            } else {
+                FilledIconButton(
+                    onClick = onSendMessage,
+                    modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (isTextNotBlank) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        },
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    ),
+                    enabled = isTextNotBlank
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Send message",
+                        tint = if (isTextNotBlank) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        },
+                        modifier = Modifier.size(ACTION_ICON_SIZE)
+                    )
+                }
             }
         }
     }
 }
-
-
-
