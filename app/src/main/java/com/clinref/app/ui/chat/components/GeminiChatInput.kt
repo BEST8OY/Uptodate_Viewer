@@ -1,7 +1,6 @@
 package com.clinref.app.ui.chat.components
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -50,17 +49,17 @@ private const val MAX_CHARS = 4000
 private const val MAX_INPUT_LINES = 8
 
 // Material 3 Component & Target Tokens
-private val BUTTON_TOUCH_TARGET_SIZE = 48.dp // M3 MinTouchTargetSize
-private val ACTION_ICON_SIZE = 18.dp         // Sleek, refined action icon size
+private val BUTTON_TOUCH_TARGET_SIZE = 32.dp // Action button container size (32.dp)
+private val ACTION_ICON_SIZE = 20.dp         // Proportional action icon size (20.dp)
 private val ACTION_ROW_SPACING = 8.dp        // M3 PaddingSmall
 
-// Material 3 Container Spacing Tokens (Official M3 Scale: 4dp, 8dp, 12dp, 16dp, 24dp, 32dp)
-private val CONTENT_VERTICAL_PADDING = 12.dp // M3 Grid Spacing
+// Material 3 Container Spacing Tokens
+private val CONTENT_VERTICAL_PADDING = 16.dp // 16.dp vertical padding + 32.dp button = 64.dp height (32.dp radius)
 private val CONTENT_START_PADDING = 24.dp    // M3 Grid Spacing (Large inset)
 private val CONTENT_END_PADDING = 12.dp      // M3 Grid Spacing
 
 private val TEXT_BOX_END_PADDING = 8.dp      // M3 PaddingSmall
-private val TEXT_BOX_VERTICAL_PADDING = 8.dp // M3 PaddingSmall (Corrected from non-standard 6.dp)
+private val TEXT_BOX_VERTICAL_PADDING = 6.dp // Matches single-line centered offset (32dp - 20dp)/2 = 6dp
 private val MAX_TEXT_BOX_HEIGHT = 200.dp
 
 private val OUTER_HORIZONTAL_PADDING = 16.dp // M3 Screen Edge Margin (PaddingMedium)
@@ -72,14 +71,14 @@ private val SURFACE_SHADOW_ELEVATION = 0.dp  // Clean flat surface
 private val SURFACE_TONAL_ELEVATION = 0.dp   // Container color tinting only
 
 private val CHIP_HORIZONTAL_PADDING = 12.dp  // M3 AssistChip Standard Padding
-private val CHIP_VERTICAL_PADDING = 4.dp     // M3 PaddingExtraSmall (Corrected from non-standard 6.dp)
+private val CHIP_VERTICAL_PADDING = 4.dp     // M3 PaddingExtraSmall
 private val CHIP_ICON_SIZE = 16.dp           // M3 Small Icon
 private val CHIP_BOTTOM_PADDING = 8.dp       // M3 PaddingSmall
 
-// Material 3 Expressive Shape Token: 36.dp
-// Single-line container height = 12dp (top) + 48dp (action target) + 12dp (bottom) = 72dp.
-// 36.dp is exactly half of 72dp (72dp / 2 = 36dp), forming a 100% mathematically exact pill capsule on single-line.
-private val CONTAINER_CORNER_RADIUS = 36.dp
+// Material 3 Expressive Shape Token: 32.dp
+// Single-line container height = 16dp (top) + 32dp (button) + 16dp (bottom) = 64dp.
+// 32.dp is exactly half of 64dp (64dp / 2 = 32dp), forming a 100% mathematically exact pill capsule on single-line.
+private val CONTAINER_CORNER_RADIUS = 32.dp
 
 @Composable
 fun GeminiChatInput(
@@ -113,9 +112,7 @@ fun GeminiChatInput(
             .padding(top = OUTER_TOP_PADDING, bottom = OUTER_BOTTOM_PADDING)
     ) {
         Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize(),
+            modifier = Modifier.fillMaxWidth(),
             shape = containerShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = SURFACE_TONAL_ELEVATION,
