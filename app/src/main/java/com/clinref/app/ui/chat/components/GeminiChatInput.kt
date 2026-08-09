@@ -5,12 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -82,10 +80,10 @@ fun GeminiChatInput(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        start = if (isMultiLine) 20.dp else 22.dp,
-                        end = if (isMultiLine) 14.dp else 10.dp,
-                        top = if (isMultiLine) 14.dp else 14.dp,
-                        bottom = if (isMultiLine) 10.dp else 14.dp
+                        start = 20.dp,
+                        end = 10.dp,
+                        top = 14.dp,
+                        bottom = 14.dp
                     )
             ) {
                 patientProfile?.let { profile ->
@@ -104,7 +102,7 @@ fun GeminiChatInput(
                     if (profileText.isNotBlank()) {
                         Box(
                             modifier = Modifier
-                                .padding(bottom = 8.dp)
+                                .padding(bottom = 6.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -133,13 +131,13 @@ fun GeminiChatInput(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = if (isMultiLine) Alignment.Top else Alignment.CenterVertically
+                    verticalAlignment = Alignment.Bottom
                 ) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .heightIn(min = 32.dp, max = 180.dp),
-                        contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
+                        contentAlignment = Alignment.CenterStart
                     ) {
                         TextField(
                             value = textValue,
@@ -170,89 +168,17 @@ fun GeminiChatInput(
                         )
                     }
 
-                    if (!isMultiLine) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Voice input",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(24.dp)
-                            )
-
-                            if (isGenerating) {
-                                FilledIconButton(
-                                    onClick = onCancel,
-                                    modifier = Modifier.size(40.dp),
-                                    shape = CircleShape,
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.errorContainer
-                                    )
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Cancel generation",
-                                        tint = MaterialTheme.colorScheme.onErrorContainer,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            } else {
-                                FilledIconButton(
-                                    onClick = {
-                                        if (textValue.isNotBlank()) {
-                                            onSendMessage(textValue)
-                                        }
-                                    },
-                                    modifier = Modifier.size(40.dp),
-                                    shape = CircleShape,
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = if (textValue.isNotBlank()) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.surfaceContainerHighest
-                                        },
-                                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                                    ),
-                                    enabled = textValue.isNotBlank()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowUpward,
-                                        contentDescription = "Send message",
-                                        tint = if (textValue.isNotBlank()) {
-                                            MaterialTheme.colorScheme.onPrimary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                        },
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (isMultiLine) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
+                        modifier = Modifier.padding(bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Spacer(modifier = Modifier.weight(1f))
-
                         Icon(
                             imageVector = Icons.Default.Mic,
                             contentDescription = "Voice input",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .padding(end = 2.dp)
+                            modifier = Modifier.size(24.dp)
                         )
-
-                        Spacer(modifier = Modifier.width(6.dp))
 
                         if (isGenerating) {
                             FilledIconButton(
