@@ -13,6 +13,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.maxLength
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
@@ -40,8 +44,7 @@ private const val MAX_CHARS = 4000
 
 @Composable
 fun GeminiChatInput(
-    textValue: String,
-    onValueChange: (String) -> Unit,
+    state: TextFieldState,
     onSendMessage: (String) -> Unit,
     onCancel: () -> Unit,
     isGenerating: Boolean,
@@ -49,7 +52,9 @@ fun GeminiChatInput(
     modifier: Modifier = Modifier
 ) {
     val maxLines = 8
-    val isMultiLine = textValue.contains('\n') || textValue.length > 32
+    val textCharSequence = state.text
+    val isTextNotBlank = textCharSequence.isNotBlank()
+    val isMultiLine = textCharSequence.contains('\n') || textCharSequence.length > 32
 
     // 36.dp corner radius matches official Gemini app's ultra-rounded M3 Expressive signature look.
     // On single-line (container height ~54dp), 36.dp > height/2 guarantees a 100% full pill capsule.
@@ -146,7 +151,7 @@ fun GeminiChatInput(
                             .heightIn(min = 28.dp, max = 180.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
-                        if (textValue.isEmpty()) {
+                        if (textCharSequence.isEmpty()) {
                             Text(
                                 text = "Ask a clinical question...",
                                 style = MaterialTheme.typography.bodyLarge,
@@ -154,8 +159,9 @@ fun GeminiChatInput(
                             )
                         }
                         BasicTextField(
-                            value = textValue,
-                            onValueChange = { if (it.length <= MAX_CHARS) onValueChange(it) },
+                            state = state,
+                            inputTransformation = InputTransformation.maxLength(MAX_CHARS),
+                            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = maxLines),
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
@@ -163,7 +169,6 @@ fun GeminiChatInput(
                             keyboardOptions = KeyboardOptions(
                                 capitalization = KeyboardCapitalization.Sentences
                             ),
-                            maxLines = maxLines,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -201,26 +206,26 @@ fun GeminiChatInput(
                         } else {
                             FilledIconButton(
                                 onClick = {
-                                    if (textValue.isNotBlank()) {
-                                        onSendMessage(textValue)
+                                    if (isTextNotBlank) {
+                                        onSendMessage(textCharSequence.toString())
                                     }
                                 },
                                 modifier = Modifier.size(40.dp),
                                 shape = CircleShape,
                                 colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = if (textValue.isNotBlank()) {
+                                    containerColor = if (isTextNotBlank) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
                                         MaterialTheme.colorScheme.surfaceContainerHighest
                                     },
                                     disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
                                 ),
-                                enabled = textValue.isNotBlank()
+                                enabled = isTextNotBlank
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ArrowUpward,
                                     contentDescription = "Send message",
-                                    tint = if (textValue.isNotBlank()) {
+                                    tint = if (isTextNotBlank) {
                                         MaterialTheme.colorScheme.onPrimary
                                     } else {
                                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)

@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -29,7 +33,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,18 +52,17 @@ fun PatientProfileSheet(
 ) {
     val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
 
-
-    var age by remember { mutableStateOf("") }
+    val ageState = rememberTextFieldState()
     var sex by remember { mutableStateOf("") }
     var sexExpanded by remember { mutableStateOf(false) }
     val conditions = remember { mutableStateListOf<String>() }
     val medications = remember { mutableStateListOf<String>() }
     val allergies = remember { mutableStateListOf<String>() }
-    var notes by remember { mutableStateOf("") }
+    val notesState = rememberTextFieldState()
 
-    var conditionInput by remember { mutableStateOf("") }
-    var medicationInput by remember { mutableStateOf("") }
-    var allergyInput by remember { mutableStateOf("") }
+    val conditionInputState = rememberTextFieldState()
+    val medicationInputState = rememberTextFieldState()
+    val allergyInputState = rememberTextFieldState()
 
     val sexOptions = listOf("Male", "Female", "Other", "")
 
@@ -88,12 +90,11 @@ fun PatientProfileSheet(
 
             // Age
             OutlinedTextField(
-                value = age,
-                onValueChange = { age = it },
+                state = ageState,
                 label = { Text("Age") },
                 placeholder = { Text("e.g. 45") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                lineLimits = TextFieldLineLimits.SingleLine
             )
 
             // Sex
@@ -131,13 +132,13 @@ fun PatientProfileSheet(
             ChipInputSection(
                 label = "Conditions",
                 placeholder = "e.g. Diabetes, Hypertension",
-                input = conditionInput,
-                onInputChange = { conditionInput = it },
+                state = conditionInputState,
                 items = conditions,
                 onAdd = {
-                    if (conditionInput.isNotBlank()) {
-                        conditions.add(conditionInput.trim())
-                        conditionInput = ""
+                    val text = conditionInputState.text.toString().trim()
+                    if (text.isNotBlank()) {
+                        conditions.add(text)
+                        conditionInputState.clearText()
                     }
                 },
                 onRemove = { conditions.remove(it) }
@@ -147,13 +148,13 @@ fun PatientProfileSheet(
             ChipInputSection(
                 label = "Medications",
                 placeholder = "e.g. Metformin, Lisinopril",
-                input = medicationInput,
-                onInputChange = { medicationInput = it },
+                state = medicationInputState,
                 items = medications,
                 onAdd = {
-                    if (medicationInput.isNotBlank()) {
-                        medications.add(medicationInput.trim())
-                        medicationInput = ""
+                    val text = medicationInputState.text.toString().trim()
+                    if (text.isNotBlank()) {
+                        medications.add(text)
+                        medicationInputState.clearText()
                     }
                 },
                 onRemove = { medications.remove(it) }
@@ -163,13 +164,13 @@ fun PatientProfileSheet(
             ChipInputSection(
                 label = "Allergies",
                 placeholder = "e.g. Penicillin, Sulfa",
-                input = allergyInput,
-                onInputChange = { allergyInput = it },
+                state = allergyInputState,
                 items = allergies,
                 onAdd = {
-                    if (allergyInput.isNotBlank()) {
-                        allergies.add(allergyInput.trim())
-                        allergyInput = ""
+                    val text = allergyInputState.text.toString().trim()
+                    if (text.isNotBlank()) {
+                        allergies.add(text)
+                        allergyInputState.clearText()
                     }
                 },
                 onRemove = { allergies.remove(it) }
@@ -177,13 +178,11 @@ fun PatientProfileSheet(
 
             // Notes
             OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
+                state = notesState,
                 label = { Text("Notes") },
                 placeholder = { Text("Additional clinical context...") },
                 modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                maxLines = 4
+                lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 2, maxHeightInLines = 4)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -193,12 +192,12 @@ fun PatientProfileSheet(
                 onClick = {
                     onStart(
                         PatientProfile(
-                            age = age.trim(),
+                            age = ageState.text.toString().trim(),
                             sex = sex.trim(),
                             conditions = conditions.toList(),
                             medications = medications.toList(),
                             allergies = allergies.toList(),
-                            notes = notes.trim()
+                            notes = notesState.text.toString().trim()
                         )
                     )
                     onDismiss()
@@ -216,8 +215,7 @@ fun PatientProfileSheet(
 private fun ChipInputSection(
     label: String,
     placeholder: String,
-    input: String,
-    onInputChange: (String) -> Unit,
+    state: TextFieldState,
     items: List<String>,
     onAdd: () -> Unit,
     onRemove: (String) -> Unit
@@ -226,11 +224,10 @@ private fun ChipInputSection(
         Text(label, style = MaterialTheme.typography.titleMedium)
         Row(modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
-                value = input,
-                onValueChange = onInputChange,
+                state = state,
                 placeholder = { Text(placeholder) },
                 modifier = Modifier.weight(1f),
-                singleLine = true
+                lineLimits = TextFieldLineLimits.SingleLine
             )
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(onClick = onAdd) {

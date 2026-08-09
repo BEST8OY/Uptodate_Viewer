@@ -10,8 +10,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,9 +60,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.PlainTooltip
@@ -72,6 +75,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -141,7 +145,7 @@ fun ContentScreen(
     val navigateToGraphic by viewModel.onNavigateToGraphic.collectAsStateWithLifecycle()
 
     var showSearch by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    val searchFieldState = rememberTextFieldState()
     var webView by remember { mutableStateOf<WebView?>(null) }
     var searchResultCount by remember { mutableStateOf(0) }
     var searchResultIndex by remember { mutableStateOf(0) }
@@ -149,11 +153,23 @@ fun ContentScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
+    LaunchedEffect(searchFieldState) {
+        snapshotFlow { searchFieldState.text.toString() }
+            .collect { query ->
+                searchResultIndex = 0
+                if (query.isNotEmpty()) {
+                    webView?.findAllAsync(query)
+                } else {
+                    webView?.clearMatches()
+                }
+            }
+    }
+
     BackHandler(enabled = showSearch || showOutline || canGoBack) {
         when {
             showSearch -> {
                 showSearch = false
-                searchQuery = ""
+                searchFieldState.clearText()
                 searchResultIndex = 0
                 webView?.clearMatches()
             }
@@ -196,7 +212,7 @@ fun ContentScreen(
                     when {
                         showSearch -> {
                             showSearch = false
-                            searchQuery = ""
+                            searchFieldState.clearText()
                             searchResultIndex = 0
                             webView?.clearMatches()
                         }
@@ -220,7 +236,7 @@ fun ContentScreen(
                 canGoForward = canGoForward,
                 isFavorite = isFavorite,
                 outlineEnabled = outlineSections.isNotEmpty(),
-                searchQuery = searchQuery,
+                searchFieldState = searchFieldState,
                 searchResultCount = searchResultCount,
                 searchResultIndex = searchResultIndex,
                 onBackClick = {
@@ -233,11 +249,6 @@ fun ContentScreen(
                 onFavoriteClick = { viewModel.toggleFavorite() },
                 onOutlineClick = { viewModel.toggleOutline() },
                 onSearchClick = { showSearch = !showSearch },
-                onSearchQueryChange = {
-                    searchQuery = it
-                    searchResultIndex = 0
-                    webView?.findAllAsync(it)
-                },
                 onSearchPrevious = {
                     if (searchResultCount > 0) {
                         webView?.findNext(false)
@@ -252,7 +263,7 @@ fun ContentScreen(
                 },
                 onSearchClose = {
                     showSearch = false
-                    searchQuery = ""
+                    searchFieldState.clearText()
                     searchResultIndex = 0
                     webView?.clearMatches()
                 },
@@ -363,7 +374,7 @@ private fun ContentFloatingToolbar(
     canGoForward: Boolean,
     isFavorite: Boolean,
     outlineEnabled: Boolean,
-    searchQuery: String,
+    searchFieldState: TextFieldState,
     searchResultCount: Int,
     searchResultIndex: Int,
     onBackClick: () -> Unit,
@@ -372,7 +383,6 @@ private fun ContentFloatingToolbar(
     onFavoriteClick: () -> Unit,
     onOutlineClick: () -> Unit,
     onSearchClick: () -> Unit,
-    onSearchQueryChange: (String) -> Unit,
     onSearchPrevious: () -> Unit,
     onSearchNext: () -> Unit,
     onSearchClose: () -> Unit,
@@ -382,6 +392,8 @@ private fun ContentFloatingToolbar(
     val keyboardController = LocalSoftwareKeyboardController.current
     val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
     val motionScheme = MaterialTheme.motionScheme
+    val textCharSequence = searchFieldState.text
+    val isQueryNotEmpty = textCharSequence.isNotEmpty()
 
     AnimatedContent(
         targetState = showSearch,
@@ -403,45 +415,43 @@ private fun ContentFloatingToolbar(
                     .fillMaxWidth()
                     .height(64.dp), // Hard-bounded 64.dp height cap matching initial toolbar height
                 content = {
-                    TextField(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChange,
-                        placeholder = {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(start = 12.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (textCharSequence.isEmpty()) {
                             Text(
                                 text = "Find in page",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
-                        },
-                        textStyle = MaterialTheme.typography.bodyLarge,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            imeAction = ImeAction.Search
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onSearch = {
-                                if (searchQuery.isNotEmpty()) {
+                        }
+                        BasicTextField(
+                            state = searchFieldState,
+                            lineLimits = TextFieldLineLimits.SingleLine,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(
+                                imeAction = ImeAction.Search
+                            ),
+                            onKeyboardAction = {
+                                if (isQueryNotEmpty) {
                                     onSearchNext()
                                 }
-                            }
-                        ),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            disabledIndicatorColor = Color.Transparent
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .padding(start = 4.dp)
-                            .focusRequester(searchFocusRequester)
-                            .focusProperties { canFocus = isSearching }
-                    )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocusRequester)
+                                .focusProperties { canFocus = isSearching }
+                        )
+                    }
 
-                    if (searchQuery.isNotEmpty()) {
+                    if (isQueryNotEmpty) {
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
@@ -466,7 +476,7 @@ private fun ContentFloatingToolbar(
                     ) {
                         IconButton(
                             onClick = onSearchPrevious,
-                            enabled = searchQuery.isNotEmpty(),
+                            enabled = isQueryNotEmpty,
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .focusProperties { canFocus = isSearching }
@@ -488,7 +498,7 @@ private fun ContentFloatingToolbar(
                     ) {
                         IconButton(
                             onClick = onSearchNext,
-                            enabled = searchQuery.isNotEmpty(),
+                            enabled = isQueryNotEmpty,
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .focusProperties { canFocus = isSearching }

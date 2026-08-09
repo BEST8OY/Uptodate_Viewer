@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
@@ -84,7 +86,7 @@ fun ChatScreen(
     val isGenerating = agentState is StreamingManager.AgentState.ToolCallInProgress ||
         agentState is StreamingManager.AgentState.WaitingForLlm
 
-    var activeInputText by remember { mutableStateOf("") }
+    val textFieldState = rememberTextFieldState()
     var chatInputHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val chatInputHeightDp = remember(chatInputHeightPx, density) {
@@ -292,11 +294,10 @@ fun ChatScreen(
                 )
 
                 GeminiChatInput(
-                    textValue = activeInputText,
-                    onValueChange = { activeInputText = it },
-                    onSendMessage = {
-                        viewModel.sendMessage(it)
-                        activeInputText = ""
+                    state = textFieldState,
+                    onSendMessage = { text ->
+                        viewModel.sendMessage(text)
+                        textFieldState.clearText()
                     },
                     onCancel = { viewModel.cancelGeneration() },
                     isGenerating = isGenerating,
