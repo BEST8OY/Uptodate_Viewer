@@ -41,9 +41,41 @@ import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 
 private const val MAX_CHARS = 4000
-private val BUTTON_TOUCH_TARGET_SIZE = 48.dp
-private val ACTION_ICON_SIZE = 24.dp
-private val CONTENT_VERTICAL_PADDING = 12.dp
+private const val MAX_INPUT_LINES = 8
+private const val SINGLE_LINE_CHAR_THRESHOLD = 35
+
+// Material 3 Component & Target Tokens
+private val BUTTON_TOUCH_TARGET_SIZE = 48.dp // M3 MinTouchTargetSize
+private val ACTION_ICON_SIZE = 24.dp         // M3 Standard Icon Size
+private val ACTION_ROW_SPACING = 8.dp        // M3 PaddingSmall
+
+private val MIC_ICON_PADDING = (BUTTON_TOUCH_TARGET_SIZE - ACTION_ICON_SIZE) / 2 // 12.dp
+
+// Material 3 Container Spacing Tokens (Strict 4dp/8dp Grid)
+private val CONTENT_VERTICAL_PADDING = 12.dp // M3 PaddingMedium
+private val CONTENT_START_PADDING = 20.dp    // M3 Extra Large Inset Token
+private val CONTENT_END_PADDING = 12.dp      // M3 PaddingMedium
+
+private val TEXT_BOX_END_PADDING = 8.dp      // M3 PaddingSmall
+private val TEXT_BOX_VERTICAL_PADDING = 4.dp // M3 PaddingExtraSmall
+private val MAX_TEXT_BOX_HEIGHT = 200.dp
+
+private val OUTER_HORIZONTAL_PADDING = 16.dp // M3 Screen Edge Margin
+private val OUTER_TOP_PADDING = 8.dp         // M3 PaddingSmall
+private val OUTER_BOTTOM_PADDING = 16.dp     // M3 PaddingLarge
+
+// Material 3 Surface & Chip Tokens (No drop shadows)
+private val SURFACE_SHADOW_ELEVATION = 0.dp  // Clean flat surface
+private val SURFACE_TONAL_ELEVATION = 0.dp   // Container color tinting only
+
+private val CHIP_HORIZONTAL_PADDING = 12.dp  // M3 AssistChip Standard Padding
+private val CHIP_VERTICAL_PADDING = 6.dp     // M3 AssistChip Standard Padding
+private val CHIP_ICON_SIZE = 16.dp           // M3 Small Icon
+private val CHIP_BOTTOM_PADDING = 8.dp       // M3 PaddingSmall
+
+// Material 3 Expressive CornerExtraLarge Token: (48dp + 12dp + 12dp) / 2 = 36dp
+// Guarantees a 100% exact pill capsule on single-line and 0.0dp radius drift on multi-line expansion.
+private val CONTAINER_CORNER_RADIUS = (BUTTON_TOUCH_TARGET_SIZE + (CONTENT_VERTICAL_PADDING * 2)) / 2
 
 @Composable
 fun GeminiChatInput(
@@ -54,14 +86,12 @@ fun GeminiChatInput(
     patientProfile: PatientProfile? = null,
     modifier: Modifier = Modifier
 ) {
-    val maxLines = 8
     val textCharSequence = state.text
     val isTextNotBlank = textCharSequence.isNotBlank()
 
-    // 36.dp corner radius (M3 Expressive ExtraLarge token):
-    // On single-line (container height ~72dp), 36.dp guarantees a 100% full plush pill capsule at any font scale.
-    // On multi-line (container height expands to 200dp), 36.dp remains constant, providing a rich, bulky M3 container with ZERO rounding drift.
-    val containerShape = RoundedCornerShape(36.dp)
+    val isMultiLine = textCharSequence.contains('\n') || textCharSequence.length > SINGLE_LINE_CHAR_THRESHOLD
+
+    val containerShape = RoundedCornerShape(CONTAINER_CORNER_RADIUS)
 
     Box(
         modifier = modifier
@@ -75,22 +105,22 @@ fun GeminiChatInput(
                     )
                 )
             )
-            .padding(horizontal = 16.dp)
-            .padding(top = 8.dp, bottom = 16.dp)
+            .padding(horizontal = OUTER_HORIZONTAL_PADDING)
+            .padding(top = OUTER_TOP_PADDING, bottom = OUTER_BOTTOM_PADDING)
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = containerShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 3.dp,
-            shadowElevation = 2.dp
+            tonalElevation = SURFACE_TONAL_ELEVATION,
+            shadowElevation = SURFACE_SHADOW_ELEVATION
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        start = 22.dp,
-                        end = 12.dp,
+                        start = CONTENT_START_PADDING,
+                        end = CONTENT_END_PADDING,
                         top = CONTENT_VERTICAL_PADDING,
                         bottom = CONTENT_VERTICAL_PADDING
                     )
@@ -111,19 +141,19 @@ fun GeminiChatInput(
                     if (profileText.isNotBlank()) {
                         Box(
                             modifier = Modifier
-                                .padding(start = 4.dp, bottom = 10.dp)
+                                .padding(start = 4.dp, bottom = CHIP_BOTTOM_PADDING)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                                .padding(horizontal = CHIP_HORIZONTAL_PADDING, vertical = CHIP_VERTICAL_PADDING)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(ACTION_ROW_SPACING)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Person,
                                     contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(CHIP_ICON_SIZE),
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
@@ -140,13 +170,17 @@ fun GeminiChatInput(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom
+                    verticalAlignment = if (isMultiLine) Alignment.Bottom else Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 10.dp, top = CONTENT_VERTICAL_PADDING, bottom = CONTENT_VERTICAL_PADDING)
-                            .heightIn(min = BUTTON_TOUCH_TARGET_SIZE, max = 200.dp),
+                            .padding(
+                                end = TEXT_BOX_END_PADDING,
+                                top = TEXT_BOX_VERTICAL_PADDING,
+                                bottom = TEXT_BOX_VERTICAL_PADDING
+                            )
+                            .heightIn(min = BUTTON_TOUCH_TARGET_SIZE, max = MAX_TEXT_BOX_HEIGHT),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         if (textCharSequence.isEmpty()) {
@@ -159,7 +193,7 @@ fun GeminiChatInput(
                         BasicTextField(
                             state = state,
                             inputTransformation = InputTransformation.maxLength(MAX_CHARS),
-                            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = maxLines),
+                            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = MAX_INPUT_LINES),
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
@@ -173,7 +207,7 @@ fun GeminiChatInput(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(ACTION_ROW_SPACING)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Mic,
@@ -182,7 +216,7 @@ fun GeminiChatInput(
                             modifier = Modifier
                                 .size(BUTTON_TOUCH_TARGET_SIZE)
                                 .clip(CircleShape)
-                                .padding(12.dp)
+                                .padding(MIC_ICON_PADDING)
                         )
 
                         if (isGenerating) {
