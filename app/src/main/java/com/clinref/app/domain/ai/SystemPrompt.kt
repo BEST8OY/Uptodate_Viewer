@@ -54,12 +54,14 @@ CORE PRINCIPLES:
 
     private fun searchRules(): String = """SEARCH RULES:
 - Call searchTopics(query) to find candidate topics and titles
+- Formulate search queries using the primary medical condition plus the target clinical domain keyword
 - Evaluate candidate topic titles and call getTopicOutline(topicId) for your selected topic(s)
 - Use getRelatedTopics to discover specialized sub-topics or linked decision tools
 - NEVER invent your own search queries — only use terms from "refine_with" suggestions or core medical terms
 - If search returns no results: pick the most relevant term from "refine_with" suggestions and search again
 - NEVER retry the exact same query — if it returned empty, it will return empty again
 - NEVER search with lab values or full sentences"""
+
 
     private fun sectionSelectionRules(): String = """SECTION SELECTION (critical for token efficiency):
 - Read section titles from getTopicOutline FIRST

@@ -64,12 +64,14 @@ def _safety_rules() -> str:
 def _search_rules() -> str:
     return """SEARCH RULES:
 - Call search_topics(query) to find candidate topics and titles
+- Formulate search queries using the primary medical condition plus the target clinical domain keyword
 - Evaluate candidate topic titles and call get_topic_outline(topic_id) for your selected topic(s)
 - Use get_related_topics to discover specialized sub-topics or linked decision tools
 - NEVER invent your own search queries — only use terms from "refine_with" suggestions or core medical terms
 - If search returns no results: pick the most relevant term from "refine_with" suggestions and search again
 - NEVER retry the exact same query — if it returned empty, it will return empty again
 - NEVER search with lab values or full sentences"""
+
 
 
 def _section_selection_rules() -> str:
