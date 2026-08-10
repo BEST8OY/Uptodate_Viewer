@@ -132,7 +132,7 @@ class MedicalDatabaseTools @Inject constructor(
     }
 
     private fun formatSearchResults(searchResults: List<com.clinref.app.domain.SearchResult>): List<JsonObject> {
-        return searchResults.mapIndexed { index, result ->
+        return searchResults.map { result ->
             val id = when (result) {
                 is com.clinref.app.domain.SearchResult.Topic -> result.topicId
                 is com.clinref.app.domain.SearchResult.Graphic -> result.graphicId
@@ -140,40 +140,6 @@ class MedicalDatabaseTools @Inject constructor(
             buildJsonObject {
                 put("id", id)
                 put("title", result.title)
-                if (index == 0) {
-                    val outlineHtml = contentRepository.getTopicContent(id)?.outlineHtml
-                    if (!outlineHtml.isNullOrBlank()) {
-                        val outline = parseOutline(outlineHtml)
-                        putJsonObject("outline") {
-                            putJsonArray("sections") {
-                                for (sec in outline.sections.take(10)) {
-                                    add(buildJsonObject {
-                                        put("id", sec["id"] ?: "")
-                                        put("title", sec["title"] ?: "")
-                                    })
-                                }
-                            }
-                            putJsonArray("graphics") {
-                                for (g in outline.graphics) {
-                                    add(buildJsonObject {
-                                        put("id", g["id"] ?: "")
-                                        put("title", g["title"] ?: "")
-                                        put("type", g["type"] ?: "graphic")
-                                        put("subtype", g["subtype"] ?: "graphic_table")
-                                    })
-                                }
-                            }
-                            putJsonArray("relatedTopics") {
-                                for (rt in outline.relatedTopics) {
-                                    add(buildJsonObject {
-                                        put("id", rt["id"] ?: "")
-                                        put("title", rt["title"] ?: "")
-                                    })
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -189,33 +155,43 @@ class MedicalDatabaseTools @Inject constructor(
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found: $cleanTopicId"
         val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
-        val outline = parseOutline(content.outlineHtml)
-
+        val isCalc = content.outlineHtml.isBlank()
         return buildJsonObject {
             put("topicId", cleanTopicId)
             put("title", title)
+            put("topicType", if (isCalc) "calc" else "article")
             putJsonArray("sections") {
-                for (sec in outline.sections) {
+                if (isCalc) {
                     add(buildJsonObject {
-                        put("id", sec["id"] ?: "")
-                        put("title", sec["title"] ?: "")
+                        put("id", "FULL")
+                        put("title", "Calculator Tool Content")
                     })
+                } else {
+                    for (sec in outline.sections) {
+                        add(buildJsonObject {
+                            put("id", sec["id"] ?: "")
+                            put("title", sec["title"] ?: "")
+                        })
+                    }
                 }
             }
             putJsonArray("graphics") {
                 for (g in outline.graphics) {
-                    add(buildJsonObject {
-                        put("id", g["id"] ?: "")
-                        put("title", g["title"] ?: "")
-                        put("type", g["type"] ?: "graphic")
-                        put("subtype", g["subtype"] ?: "graphic_table")
-                    })
+                    if (g["isTable"] == "true") {
+                        val rawTitle = g["title"] ?: ""
+                        val cleanTitle = rawTitle.replace(Regex("^[-–—]+\\s*"), "")
+                        add(buildJsonObject {
+                            put("id", g["id"] ?: "")
+                            put("title", cleanTitle)
+                            put("isTable", true)
+                        })
+                    }
                 }
             }
             putJsonArray("relatedTopics") {
                 for (rt in outline.relatedTopics) {
                     add(buildJsonObject {
-                        put("id", rt["id"] ?: "")
+                        put("id", rt["topicId"] ?: rt["id"] ?: "")
                         put("title", rt["title"] ?: "")
                     })
                 }
@@ -264,6 +240,20 @@ class MedicalDatabaseTools @Inject constructor(
         // Build section ID -> title map from outline
         val outlineSections = parseOutline(content.outlineHtml).sections
         val idToTitle = outlineSections.associate { it["id"]!! to (it["title"] ?: "") }
+
+        val cleanUpper = sectionIds.map { it.trim().uppercase() }
+        val isCalc = content.outlineHtml.isBlank()
+        if (idToTitle.isEmpty() || isCalc || cleanUpper.contains("FULL") || cleanUpper.contains("ALL")) {
+            val markdown = htmlToMarkdown(content.bodyHtml) { tid ->
+                topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
+            }
+            val header = if (isCalc) "=== Calculator: $topicTitle ===" else "=== Section: FULL ==="
+            return buildJsonObject {
+                put("topicTitle", topicTitle)
+                putJsonObject("sectionTitles") { put("FULL", topicTitle) }
+                put("markdown", "$header\n$markdown")
+            }.toString()
+        }
 
         // Validate: separate valid from invalid section IDs
         val validIds = mutableListOf<String>()

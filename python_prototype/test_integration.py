@@ -407,33 +407,22 @@ class TestFullPipeline:
             )
 
 
-class TestRealDatabaseSpeculativeBundling:
-    """Test tools.search_topics against real database for speculative outline bundling."""
+class TestRealDatabasePureSearchPipeline:
+    """Test tools.search_topics and tools.get_topic_outline against real database for 3-stage pipeline."""
 
-    def test_search_topics_includes_all_graphics_in_outline(self, db):
+    def test_search_topics_returns_pure_candidate_list(self, db):
         import tools
         tools.init_tools(db)
 
-        # Search for a topic known to have graphics (e.g. "atrial fibrillation")
         res_json = tools.search_topics.invoke({"query": "atrial fibrillation"})
         data = json.loads(res_json)
         assert len(data["results"]) > 0, "Expected search results for 'atrial fibrillation'"
         top_match = data["results"][0]
-        assert "outline" in top_match, "Top search match should contain speculative outline"
-
-        outline = top_match["outline"]
-        assert "sections" in outline
-        assert "graphics" in outline
-
-        # Verify all graphics from the outline HTML are included (no truncation to top 5)
-        raw_outline_html = db.get_topic_outline(top_match["id"])
-        expected_graphics = extract_graphics_from_outline(raw_outline_html)
-        assert len(outline["graphics"]) == len(expected_graphics), (
-            f"Expected all {len(expected_graphics)} graphics, got {len(outline['graphics'])}"
-        )
+        assert "id" in top_match and "title" in top_match
+        assert "outline" not in top_match, "search_topics should return candidate topics without embedded outline"
 
     @pytest.mark.parametrize("query", ["asthma", "gout", "apixaban", "pneumonia"])
-    def test_search_topics_speculative_outline_multiple_queries(self, db, query):
+    def test_search_topics_and_get_outline_pipeline(self, db, query):
         import tools
         tools.init_tools(db)
 
@@ -441,9 +430,11 @@ class TestRealDatabaseSpeculativeBundling:
         data = json.loads(res_json)
         assert "results" in data
         if data["results"]:
-            top = data["results"][0]
-            assert "outline" in top, f"Top result for query '{query}' missing outline"
-            assert len(top["outline"]["sections"]) <= 10
+            top_id = data["results"][0]["id"]
+            outline_json = tools.get_topic_outline.invoke({"topic_id": top_id})
+            outline_data = json.loads(outline_json)
+            assert "sections" in outline_data
+            assert "graphics" in outline_data
 
 
 class TestDiverseHTMLHandling:
@@ -454,7 +445,7 @@ class TestDiverseHTMLHandling:
     def test_html_cleaned_across_diverse_topics(self, db):
         clean_failures = []
         for tid in self.DIVERSE_TOPIC_IDS:
-            if not db.has_topic_asset(tid):
+            if not db.get_topic_asset(tid):
                 continue
             outline = db.get_topic_outline(tid)
             body = db.get_topic_body(tid)
@@ -473,3 +464,25 @@ class TestDiverseHTMLHandling:
                 if re.search(r"\[\d+(?:\s*[-,]\s*\d+)*\]", md):
                     clean_failures.append(f"Topic {tid} Section {sec['id']} has uncleaned footnotes")
         assert not clean_failures, "HTML cleaning issues found:\n" + "\n".join(clean_failures)
+
+
+class TestCalculatorSupport:
+    """Test calculator topic support and full-text fallback."""
+
+    def test_search_topics_returns_calculator(self, db):
+        import json
+        from tools import init_tools, search_topics
+        init_tools(db)
+        res_str = search_topics.invoke({"query": "ascvd risk calculator"})
+        data = json.loads(res_str)
+        assert len(data["results"]) > 0
+
+    def test_get_topic_sections_text_calculator_fallback(self, db):
+        import json
+        from tools import init_tools, get_topic_sections_text
+        init_tools(db)
+        res_str = get_topic_sections_text.invoke({"topic_id": "148929", "section_ids": ["FULL"]})
+        data = json.loads(res_str)
+        assert "topicTitle" in data
+        assert "=== Calculator:" in data["markdown"]
+        assert "Age" in data["markdown"] or "Inputs" in data["markdown"]

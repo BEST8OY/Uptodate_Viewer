@@ -656,16 +656,15 @@ class TestSearchTopics:
         assert len(data["results"]) == 1
         assert data["results"][0]["id"] == "123"
 
-    def test_speculative_bundling_includes_outline(self):
+    def test_search_topics_returns_pure_candidate_results(self):
         import tools
         self.mock_db.search_topics.return_value = [{"id": "123", "title": "Aspirin"}]
         self.mock_db.get_suggestions.return_value = ["aspirin dose"]
-        self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a>'
         result = tools.search_topics.invoke({"query": "aspirin"})
         data = json.loads(result)
         assert len(data["results"]) == 1
-        assert "outline" in data["results"][0]
-        assert data["results"][0]["outline"]["sections"][0]["id"] == "H1"
+        assert data["results"][0]["id"] == "123"
+        assert "outline" not in data["results"][0]
 
     def test_no_results_returns_suggestions(self):
         import tools

@@ -47,24 +47,11 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `searchTopics embeds speculative outline with sections graphics and related topics`() {
+    fun `searchTopics returns pure candidate topics without embedded outlines`() {
         every { searchRepository.searchTopics("aspirin") } returns listOf(
             SearchResult.Topic("Aspirin Overview", "123")
         )
         every { searchRepository.getSuggestions("aspirin") } returns listOf("aspirin dose")
-
-        val outlineHtml = """
-            <a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Dosing</a>
-            <a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Side Effects</a>
-            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;G1&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})">Table 1</a>
-            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;G2&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_figure&quot;}]})">Fig 1</a>
-            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;999&quot;,&quot;type&quot;:&quot;medical&quot;}]})">Related Drug</a>
-        """.trimIndent()
-
-        every { contentRepository.getTopicContent("123") } returns ContentRepository.TopicContent(
-            outlineHtml = outlineHtml,
-            bodyHtml = "<div id='H1'>Content</div>"
-        )
 
         val resultJson = tools.searchTopics("aspirin")
         val obj = json.parseToJsonElement(resultJson).jsonObject
@@ -73,13 +60,8 @@ class MedicalDatabaseToolsTest {
 
         val topMatch = results[0].jsonObject
         assertEquals("123", topMatch["id"]!!.jsonPrimitive.content)
-        assertTrue(topMatch.containsKey("outline"))
-
-        val outline = topMatch["outline"]!!.jsonObject
-        assertEquals(2, outline["sections"]!!.jsonArray.size)
-        // All graphics included (no 5-item cutoff)
-        assertEquals(2, outline["graphics"]!!.jsonArray.size)
-        assertEquals(1, outline["relatedTopics"]!!.jsonArray.size)
+        assertEquals("Aspirin Overview", topMatch["title"]!!.jsonPrimitive.content)
+        assertFalse(topMatch.containsKey("outline"))
     }
 
     @Test
@@ -98,10 +80,11 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicOutline parses outline html into sections and graphics`() {
+    fun `getTopicOutline parses outline html into sections and table graphics and sets topicType article`() {
         val outlineHtml = """
             <a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a>
-            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})">Table A</a>
+            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})">-Table A</a>
+            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;222&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_figure&quot;}]})">Figure B</a>
         """.trimIndent()
 
         every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
@@ -111,8 +94,41 @@ class MedicalDatabaseToolsTest {
         val obj = json.parseToJsonElement(outlineJson).jsonObject
 
         assertEquals("Topic 100", obj["title"]!!.jsonPrimitive.content)
+        assertEquals("article", obj["topicType"]!!.jsonPrimitive.content)
         assertEquals(1, obj["sections"]!!.jsonArray.size)
+        // Only graphic_table is included (111), graphic_figure (222) is filtered out
         assertEquals(1, obj["graphics"]!!.jsonArray.size)
+        assertEquals("111", obj["graphics"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content)
+        // Leading dash stripped from title
+        assertEquals("Table A", obj["graphics"]!!.jsonArray[0].jsonObject["title"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `getTopicOutline handles calculator topic with empty outlineHtml`() {
+        every { contentRepository.getTopicContent("148929") } returns ContentRepository.TopicContent(outlineHtml = "", bodyHtml = "<div>Calculator Input</div>")
+        every { contentRepository.getTopicTitle("148929") } returns "AHA PREVENT Calculator"
+
+        val outlineJson = tools.getTopicOutline("148929")
+        val obj = json.parseToJsonElement(outlineJson).jsonObject
+
+        assertEquals("calc", obj["topicType"]!!.jsonPrimitive.content)
+        val sections = obj["sections"]!!.jsonArray
+        assertEquals(1, sections.size)
+        assertEquals("FULL", sections[0].jsonObject["id"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `getTopicSectionsText renders full bodyHtml for calculator topics or FULL section`() {
+        every { contentRepository.getTopicContent("148929") } returns ContentRepository.TopicContent(outlineHtml = "", bodyHtml = "<p>Age input and risk options</p>")
+        every { contentRepository.getTopicTitle("148929") } returns "AHA PREVENT Calculator"
+
+        val resJson = tools.getTopicSectionsText("148929", listOf("FULL"))
+        val obj = json.parseToJsonElement(resJson).jsonObject
+        val md = obj["markdown"]!!.jsonPrimitive.content
+
+        assertTrue(md.contains("=== Calculator: AHA PREVENT Calculator ==="))
+        assertTrue(md.contains("Age input and risk options"))
+
     }
 
     @Test

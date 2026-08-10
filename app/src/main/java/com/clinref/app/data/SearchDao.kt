@@ -274,21 +274,17 @@ class SearchDao @Inject constructor(
 
     private fun hasTopicAsset(topicId: String): Boolean {
         if (topicId.isEmpty()) return false
+        val numericId = topicId.removePrefix("topic-")
         return try {
             val db = dbManager.getAssetsDb()
             val cursor = db.rawQuery(
-                "SELECT payload FROM topic_asset WHERE id = ? LIMIT 1",
-                arrayOf(topicId)
+                "SELECT 1 FROM topic_asset WHERE id = ? LIMIT 1",
+                arrayOf(numericId)
             )
-            cursor.use {
-                if (!it.moveToFirst()) return false
-                val payload = it.getBlob(0) ?: return false
-                val jsonStr = String(java.util.zip.GZIPInputStream(java.io.ByteArrayInputStream(payload)).readBytes())
-                val obj = org.json.JSONObject(jsonStr)
-                obj.has("outlineHtml") && obj.getString("outlineHtml").isNotEmpty()
-            }
+            cursor.use { it.moveToFirst() }
         } catch (_: Exception) {
             false
         }
     }
 }
+

@@ -64,23 +64,23 @@ class ClinRefDatabase:
         """Search topics using unidex only (no FTS fallback).
 
         FTS fallback returns low-quality results. Unidex has curated mappings.
-        Filters out topics without assets to prevent LLM dead ends.
         """
         # 1. Try unidex (exact query → topic hits)
         unidex_results = self._search_unidex(query)
         if unidex_results:
-            filtered = [r for r in unidex_results if self.has_topic_asset(r["id"])]
-            if filtered:
-                return filtered[:limit]
+            valid = [r for r in unidex_results if r.get("title") and self.has_topic_asset(r["id"])]
+            if valid:
+                return valid[:limit]
 
         # 2. If query has special chars, strip them and retry unidex
         cleaned = re.sub(r'[^a-zA-Z0-9 ]', '', query).lower().strip()
         if cleaned and cleaned != query:
             cleaned_results = self._search_unidex(cleaned)
             if cleaned_results:
-                filtered = [r for r in cleaned_results if self.has_topic_asset(r["id"])]
-                if filtered:
-                    return filtered[:limit]
+                valid = [r for r in cleaned_results if r.get("title") and self.has_topic_asset(r["id"])]
+                if valid:
+                    return valid[:limit]
+
 
         # 3. No FTS fallback — return empty, LLM will use suggestions
         return []
@@ -267,17 +267,22 @@ class ClinRefDatabase:
     # ── Topic Assets ────────────────────────────────────────────────────
 
     def has_topic_asset(self, topic_id: str) -> bool:
-        """Check if a topic has a usable asset (outlineHtml not empty)."""
+        """Fast check if a topic asset exists in utdasset.sqlite without payload decompression."""
+        if not topic_id:
+            return False
         row = self.asset.execute(
-            "SELECT payload FROM topic_asset WHERE id = ? LIMIT 1", (topic_id,)
+            "SELECT 1 FROM topic_asset WHERE id = ? LIMIT 1", (topic_id,)
         ).fetchone()
-        if not row or not row["payload"]:
-            return False
-        try:
-            data = json.loads(gzip.decompress(row["payload"]))
-            return bool(data.get("outlineHtml"))
-        except Exception:
-            return False
+        return row is not None
+
+    @staticmethod
+
+    def get_topic_type(asset: dict) -> str:
+        """Returns 'calc' for calculators, 'article' for narrative medical/drug topics."""
+        topic_info = asset.get("topicInfo", {})
+        if topic_info.get("type") == "calc" or not asset.get("outlineHtml"):
+            return "calc"
+        return "article"
 
     def get_topic_asset(self, topic_id: str) -> Optional[dict]:
         """Load and decompress a topic asset from utdasset.sqlite.

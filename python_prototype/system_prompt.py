@@ -64,9 +64,10 @@ def _safety_rules() -> str:
 def _search_rules() -> str:
     return """SEARCH RULES:
 - Call search_topics(query) to find candidate topics and titles
-- Use get_related_topics or get_topic_outline to evaluate candidate topic structures
+- Evaluate candidate topic titles and call get_topic_outline(topic_id) for your selected topic(s)
+- Use get_related_topics to discover specialized sub-topics or linked decision tools
 - NEVER invent your own search queries — only use terms from "refine_with" suggestions or core medical terms
-- If search returns no results: pick the FIRST suggestion from "refine_with" and search again
+- If search returns no results: pick the most relevant term from "refine_with" suggestions and search again
 - NEVER retry the exact same query — if it returned empty, it will return empty again
 - NEVER search with lab values or full sentences"""
 
@@ -75,6 +76,7 @@ def _section_selection_rules() -> str:
     return """SECTION SELECTION (critical for token efficiency):
 - Read section titles from get_topic_outline FIRST
 - Pick only sections that directly answer the question
+- For Calculator topics (topic_type: 'calc' or section ID 'FULL'): pass section_ids: ['FULL'] to get_topic_sections_text to retrieve calculator inputs and risk thresholds.
 - Skip background, pathophysiology, epidemiology unless specifically asked
 - Aim for 4-8 most relevant sections per topic
 - ALWAYS use get_topic_sections_text (batch) instead of individual section calls
@@ -86,9 +88,11 @@ GRAPHICS:
 
 
 def _candidate_pool() -> str:
-    return """CANDIDATE POOL:
-- Review all results from search_topics or get_related_topics to build a candidate pool of topics
-- Compare topic titles and select the most relevant topic(s) before fetching outlines or sections"""
+    return """CANDIDATE POOL (2-stage expansion):
+- For direct/simple queries: evaluate search_topics results directly.
+- For complex, multi-condition, or differential questions: call get_related_topics on initial search hits to discover specialized sub-topics and linked decision tools/calculators.
+- Merge initial search hits + get_related_topics hits into a single Unified Candidate Pool.
+- Compare candidate titles across the unified pool and select the most specific target topic before fetching outlines or sections."""
 
 
 def _final_answer_rules() -> str:
@@ -99,11 +103,12 @@ def _final_answer_rules() -> str:
 
 def _full_workflow() -> str:
     return f"""WORKFLOW:
-1. search_topics to explore candidate topics
-2. Evaluate topic titles and call get_topic_outline on the most relevant topic(s)
-3. get_topic_sections_text (batch): Fetch chosen sections in ONE call
-4. get_graphic_content: Read relevant tables from outlines
-5. MUST call submit_clinical_answer with your final response
+1. search_topics to explore initial candidate topics
+2. Evaluate candidate titles and call get_topic_outline on the most relevant topic(s)
+3. For complex/multi-condition cases: call get_related_topics to discover specialized sub-topics and calculators
+4. get_topic_sections_text (batch): Fetch chosen sections in ONE call
+5. get_graphic_content: Read relevant tables from outlines
+6. MUST call submit_clinical_answer with your final response
 
 {_search_rules()}
 
@@ -120,9 +125,10 @@ def _ollama_workflow() -> str:
     return f"""WORKFLOW:
 1. search_topics to find candidate topics
 2. Call get_topic_outline for relevant topic(s)
-3. get_topic_sections_text (batch): Fetch sections in ONE call
-4. get_graphic_content: Read relevant tables
-5. MUST call submit_clinical_answer with final response
+3. For complex queries: call get_related_topics to expand candidate pool with sub-topics
+4. get_topic_sections_text (batch): Fetch sections in ONE call
+5. get_graphic_content: Read relevant tables
+6. MUST call submit_clinical_answer with final response
 
 {_search_rules()}
 

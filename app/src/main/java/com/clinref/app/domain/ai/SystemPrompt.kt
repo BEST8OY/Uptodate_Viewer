@@ -54,15 +54,17 @@ CORE PRINCIPLES:
 
     private fun searchRules(): String = """SEARCH RULES:
 - Call searchTopics(query) to find candidate topics and titles
-- Use getRelatedTopics or getTopicOutline to evaluate candidate topic structures
+- Evaluate candidate topic titles and call getTopicOutline(topicId) for your selected topic(s)
+- Use getRelatedTopics to discover specialized sub-topics or linked decision tools
 - NEVER invent your own search queries — only use terms from "refine_with" suggestions or core medical terms
-- If search returns no results: pick the FIRST suggestion from "refine_with" and search again
+- If search returns no results: pick the most relevant term from "refine_with" suggestions and search again
 - NEVER retry the exact same query — if it returned empty, it will return empty again
 - NEVER search with lab values or full sentences"""
 
     private fun sectionSelectionRules(): String = """SECTION SELECTION (critical for token efficiency):
 - Read section titles from getTopicOutline FIRST
 - Pick only sections that directly answer the question
+- For Calculator topics (topicType: 'calc' or section ID 'FULL'): pass section_ids: ['FULL'] to getTopicSectionsText to retrieve calculator inputs and risk thresholds.
 - Skip background, pathophysiology, epidemiology unless specifically asked
 - Aim for 4-8 most relevant sections per topic
 - ALWAYS use getTopicSectionsText (batch) instead of individual section calls
@@ -72,9 +74,11 @@ GRAPHICS:
 - Call getGraphicContent for any table that could answer part of the question
 - Skip algorithms, figures, images, waveforms, movies — only tables are readable"""
 
-    private fun candidatePool(): String = """CANDIDATE POOL:
-- Review all results from searchTopics or getRelatedTopics to build a candidate pool of topics
-- Compare topic titles and select the most relevant topic(s) before fetching outlines or sections"""
+    private fun candidatePool(): String = """CANDIDATE POOL (2-stage expansion):
+- For direct/simple queries: evaluate searchTopics results directly.
+- For complex, multi-condition, or differential questions: call getRelatedTopics on initial search hits to discover specialized sub-topics and linked decision tools/calculators.
+- Merge initial search hits + getRelatedTopics hits into a single Unified Candidate Pool.
+- Compare candidate titles across the unified pool and select the most specific target topic before fetching outlines or sections."""
 
     private fun finalAnswerRules(): String = """FINAL ANSWER:
 - ALWAYS call submitClinicalAnswer as your final tool call
@@ -82,10 +86,11 @@ GRAPHICS:
 
     private fun fullWorkflow(): String = """WORKFLOW:
 1. searchTopics to explore candidate topics
-2. Evaluate topic titles and call getTopicOutline on the most relevant topic(s)
-3. getTopicSectionsText (batch): Fetch chosen sections in ONE call
-4. getGraphicContent: Read relevant tables from outlines
-5. MUST call submitClinicalAnswer with your final response
+2. Evaluate candidate titles and call getTopicOutline on the most relevant topic(s)
+3. For complex/multi-condition cases: call getRelatedTopics to discover specialized sub-topics and calculators
+4. getTopicSectionsText (batch): Fetch chosen sections in ONE call
+5. getGraphicContent: Read relevant tables from outlines
+6. MUST call submitClinicalAnswer with your final response
 
 ${searchRules()}
 
@@ -100,9 +105,10 @@ ${finalAnswerRules()}"""
     private fun ollamaWorkflow(): String = """WORKFLOW:
 1. searchTopics to find candidate topics
 2. Call getTopicOutline for relevant topic(s)
-3. getTopicSectionsText (batch): Fetch sections in ONE call
-4. getGraphicContent: Read relevant tables
-5. MUST call submitClinicalAnswer with final response
+3. For complex queries: call getRelatedTopics to expand candidate pool with sub-topics
+4. getTopicSectionsText (batch): Fetch sections in ONE call
+5. getGraphicContent: Read relevant tables
+6. MUST call submitClinicalAnswer with final response
 
 ${searchRules()}
 

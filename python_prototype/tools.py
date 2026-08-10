@@ -95,23 +95,8 @@ def search_topics(query: str) -> str:
             "message": message,
         })
 
-    # Speculative Bundling: embed outline for top match if asset exists
-    formatted_results = []
-    for i, r in enumerate(results):
-        tid = r["id"]
-        res_dict = {"id": tid, "title": r["title"]}
-        if i == 0:
-            outline_html = _db.get_topic_outline(tid)
-            if outline_html and isinstance(outline_html, str):
-                sections = extract_outline_sections(outline_html)
-                graphics = extract_graphics_from_outline(outline_html)
-                related = extract_related_topics(outline_html)
-                res_dict["outline"] = {
-                    "sections": sections[:10],
-                    "graphics": graphics,
-                    "related_topics": related,
-                }
-        formatted_results.append(res_dict)
+    # Pure candidate topics list
+    formatted_results = [{"id": r["id"], "title": r["title"]} for r in results]
 
     return json.dumps({
         "query": clean_query,
@@ -132,17 +117,34 @@ def get_topic_outline(topic_id: str) -> str:
 
     clean_id = topic_id.strip()
     outline_html = _db.get_topic_outline(clean_id)
-    if not outline_html:
+    asset = _db.get_topic_asset(clean_id) if (not outline_html and hasattr(_db, "get_topic_asset")) else None
+    if asset is not None and not isinstance(asset, dict):
+        asset = None
+
+    if not outline_html and not (asset and asset.get("bodyHtml")):
         return json.dumps({"error": f"Topic not found: {clean_id}"})
 
     title = _db.get_topic_title(clean_id) or clean_id
-    sections = extract_outline_sections(outline_html)
-    graphics = extract_graphics_from_outline(outline_html)
-    related = extract_related_topics(outline_html)
+    t_type = ClinRefDatabase.get_topic_type(asset) if asset else ("calc" if not outline_html else "article")
+
+    if t_type == "calc":
+        return json.dumps({
+            "topicId": clean_id,
+            "title": title,
+            "topic_type": "calc",
+            "sections": [{"id": "FULL", "title": "Calculator Tool Content"}],
+            "graphics": [],
+            "related_topics": [],
+        }, indent=2)
+
+    sections = extract_outline_sections(outline_html or "")
+    graphics = [g for g in extract_graphics_from_outline(outline_html or "") if g.get("is_table")]
+    related = extract_related_topics(outline_html or "")
 
     return json.dumps({
         "topicId": clean_id,
         "title": title,
+        "topic_type": "article",
         "sections": sections,
         "graphics": graphics,
         "related_topics": related,
@@ -176,8 +178,12 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
     clean_topic_id = topic_id.strip()
     body_html = _db.get_topic_body(clean_topic_id)
     outline_html = _db.get_topic_outline(clean_topic_id)
+    asset = _db.get_topic_asset(clean_topic_id) if (not outline_html and hasattr(_db, "get_topic_asset")) else None
+    if asset is not None and not isinstance(asset, dict):
+        asset = None
 
-    if not body_html or not outline_html:
+
+    if not body_html:
         return "Topic not found"
 
     title_val = _db.get_topic_title(clean_topic_id)
@@ -186,8 +192,22 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
     if isinstance(section_ids, str):
         section_ids = [section_ids]
 
+    t_type = ClinRefDatabase.get_topic_type(asset) if asset else ("calc" if not outline_html else "article")
+    clean_sids = [sid.strip().upper() for sid in section_ids]
+
+    # Explicit handling for calculator topic type or full text requests
+    if t_type == "calc" or not outline_html or "FULL" in clean_sids or "ALL" in clean_sids:
+        markdown = html_to_markdown(body_html)
+        header = f"=== Calculator: {topic_title} ===" if t_type == "calc" else "=== Section: FULL ==="
+        return json.dumps({
+            "topicTitle": topic_title,
+            "topic_type": t_type,
+            "sectionTitles": {"FULL": topic_title},
+            "markdown": f"{header}\n{markdown}",
+        })
+
     # Build section ID -> title map from outline
-    outline_sections = extract_outline_sections(outline_html)
+    outline_sections = extract_outline_sections(outline_html or "")
     id_to_title = {s["id"]: s["title"] for s in outline_sections}
 
     # Validate: filter out section IDs that don't exist in the outline
@@ -213,7 +233,7 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
     for section_id in valid_ids:
         title = id_to_title.get(section_id, "")
         section_titles[section_id] = title
-        section_html = extract_section_html(body_html, outline_html, section_id)
+        section_html = extract_section_html(body_html, outline_html or "", section_id)
         if section_html:
             markdown = html_to_markdown(section_html)
             sections_md.append(f"=== Section: {section_id} ===\n{markdown}")

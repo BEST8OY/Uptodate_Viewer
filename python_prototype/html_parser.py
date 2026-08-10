@@ -114,7 +114,8 @@ def extract_graphics_from_outline(outline_html: str) -> list[dict]:
             subtype_match = re.search(r'"subtype"\s*:\s*"([^"]+)"', href, re.IGNORECASE)
             subtype = subtype_match.group(1) if subtype_match else ""
             is_table = subtype == "graphic_table"
-            graphics.append({"id": gid, "type": subtype or "unknown", "title": title, "is_table": is_table})
+            clean_title = re.sub(r"^[-–—]+\s*", "", title)
+            graphics.append({"id": gid, "type": subtype or "unknown", "title": clean_title, "is_table": is_table})
 
     return graphics
 
