@@ -155,7 +155,9 @@ class MedicalDatabaseTools @Inject constructor(
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found: $cleanTopicId"
         val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
+        val outline = parseOutline(content.outlineHtml)
         val isCalc = content.outlineHtml.isBlank()
+
         return buildJsonObject {
             put("topicId", cleanTopicId)
             put("title", title)
