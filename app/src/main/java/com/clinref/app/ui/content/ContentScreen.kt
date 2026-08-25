@@ -32,15 +32,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -112,22 +113,22 @@ fun ContentScreen(
     // at this call site rather than via FloatingToolbarScrollBehavior, whose collapse
     // distance is derived from the immediate parent node (a content-sized AnimatedContent
     // wrapper here) and would leave part of the toolbar visible.
-    val coroutineScope = rememberCoroutineScope()
-    val motionScheme = MaterialTheme.motionScheme
     val density = LocalDensity.current
     val context = LocalContext.current
     val accessibilityManager = remember {
         context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
     }
-    val toolbarHide = remember(coroutineScope, motionScheme) {
-        FloatingToolbarHideBehavior(coroutineScope, motionScheme.defaultSpatialSpec()).apply {
-            gate = {
-                !(showSearch || showOutline) &&
-                    accessibilityManager?.isTouchExplorationEnabled != true
-            }
+    // Single policy owner for all scroll-driven chrome over the article. NestedScrollWebView
+    // bridges drag and edge deltas into the nested-scroll chain; this state consumes them and
+    // exposes hideFraction, which each chrome element translates against its own distance.
+    val scrollState = rememberArticleScrollState().apply {
+        gate = {
+            !(showSearch || showOutline) &&
+                accessibilityManager?.isTouchExplorationEnabled != true
         }
+        hideActivationThresholdPx = with(density) { 48.dp.toPx() }
     }
-    toolbarHide.hideActivationThresholdPx = with(density) { 48.dp.toPx() }
+    var toolbarTravelPx by remember { mutableFloatStateOf(0f) }
     val bottomMarginPx = with(density) { 16.dp.toPx() }
 
     SideEffect {
@@ -136,7 +137,6 @@ fun ContentScreen(
             searchResultCount = count
             searchResultIndex = activeOrdinal
         }
-        webView.onContentScrolled = { dy -> toolbarHide.onScrolled(dy) }
     }
 
     val closeSearch: () -> Unit = {
@@ -176,13 +176,13 @@ fun ContentScreen(
     // Reveal the toolbar whenever content changes or an overlay (search/outline) closes,
     // since upward-scroll reveal is unavailable while an overlay intercepts input.
     LaunchedEffect(processedHtml, showSearch, showOutline) {
-        toolbarHide.reveal()
+        scrollState.reveal()
     }
 
     LaunchedEffect(scrollToSection) {
         scrollToSection?.let { section ->
-            toolbarHide.suppressFor()
-            toolbarHide.reveal()
+            scrollState.suppressFor()
+            scrollState.reveal()
             webView.scrollToSection(section)
             viewModel.clearScrollToSection()
         }
@@ -216,6 +216,7 @@ fun ContentScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .nestedScroll(scrollState)
         ) {
             // Composition order (this Box's first child) gives the toolbar focus priority for
             // a11y traversal; zIndex(1f) additionally draws it above the content Column.
@@ -252,9 +253,10 @@ fun ContentScreen(
                     .imePadding()
                     .zIndex(1f)
                     .onSizeChanged { size ->
-                        toolbarHide.hideDistancePx = size.height + bottomMarginPx
+                        toolbarTravelPx = size.height + bottomMarginPx
+                        scrollState.travelDistancePx = toolbarTravelPx
                     }
-                    .graphicsLayer { translationY = toolbarHide.translationY }
+                    .graphicsLayer { translationY = scrollState.hideFraction * toolbarTravelPx }
             )
 
             Column(modifier = Modifier.fillMaxSize()) {
