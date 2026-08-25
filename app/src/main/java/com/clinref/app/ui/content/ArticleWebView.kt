@@ -1,6 +1,7 @@
 package com.clinref.app.ui.content
 
 import android.annotation.SuppressLint
+import android.view.MotionEvent
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.material3.MaterialTheme
@@ -106,8 +107,35 @@ internal fun HtmlContentWebView(
                 setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
                     controller.onFindResult?.invoke(numberOfMatches, activeMatchOrdinal)
                 }
+                // While a finger is down, gesture deltas drive hide/reveal — this also works at
+                // the content edges where scrollY never changes. After lift (fling), the scroll
+                // listener takes over; only one channel is ever live for a given motion.
+                var pointerDown = false
+                var lastTouchY = 0f
+                setOnTouchListener { _, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            pointerDown = true
+                            lastTouchY = event.y
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val dy = (lastTouchY - event.y).toInt()
+                            lastTouchY = event.y
+                            if (pointerDown && dy != 0) {
+                                controller.onContentScrolled?.invoke(dy)
+                            }
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> pointerDown = false
+                    }
+                    false
+                }
                 setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                    controller.onContentScrolled?.invoke(scrollY - oldScrollY)
+                    if (!pointerDown) {
+                        val dy = scrollY - oldScrollY
+                        if (dy != 0) {
+                            controller.onContentScrolled?.invoke(dy)
+                        }
+                    }
                 }
                 addJavascriptInterface(
                     JsBridge { jsonStr ->
