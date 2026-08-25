@@ -110,7 +110,7 @@ class ArticleScrollState(
     }
 
     companion object {
-        private const val SETTLE_DEBOUNCE_MS = 180L
+        private const val SETTLE_DEBOUNCE_MS = 120L
         private const val SUPPRESSION_MS = 1_000L
     }
 }
@@ -118,6 +118,6 @@ class ArticleScrollState(
 @Composable
 fun rememberArticleScrollState(): ArticleScrollState {
     val scope = rememberCoroutineScope()
-    val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+    val settleSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
     return remember(scope, settleSpec) { ArticleScrollState(scope, settleSpec) }
 }

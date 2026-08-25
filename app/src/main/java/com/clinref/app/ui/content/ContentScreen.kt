@@ -133,9 +133,6 @@ fun ContentScreen(
     }
     var toolbarTravelPx by remember { mutableFloatStateOf(0f) }
     var articleProgress by remember { mutableFloatStateOf(0f) }
-    val breadcrumbTrail = remember(outlineSections, activeSectionId) {
-        buildBreadcrumbTrail(outlineSections, activeSectionId)
-    }
     val bottomMarginPx = with(density) { 16.dp.toPx() }
 
     SideEffect {
@@ -145,11 +142,6 @@ fun ContentScreen(
             searchResultIndex = activeOrdinal
         }
         webView.onProgressChanged = { fraction -> articleProgress = fraction }
-        webView.onActiveSectionDetected = { sectionId ->
-            if (!showOutline && outlineSections.any { it.id == sectionId }) {
-                viewModel.setActiveSection(sectionId)
-            }
-        }
     }
 
     val closeSearch: () -> Unit = {
@@ -223,7 +215,6 @@ fun ContentScreen(
             Column {
                 ContentTopBar(
                     title = articleTitle,
-                    hideFraction = scrollState.hideFraction,
                     onBackClick = { handleTopBarBackNavigation() }
                 )
                 Box(
@@ -289,16 +280,6 @@ fun ContentScreen(
                     .graphicsLayer { translationY = scrollState.hideFraction * toolbarTravelPx }
             )
 
-            SectionBreadcrumb(
-                visible = !isLoading && !showOutline && articleProgress > 0.02f,
-                trail = breadcrumbTrail,
-                onClick = { viewModel.toggleOutline() },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 4.dp, start = 16.dp, end = 16.dp)
-                    .zIndex(1f)
-            )
-
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f)) {
                     HtmlContentWebView(
@@ -362,7 +343,6 @@ fun ContentScreen(
 @Composable
 private fun ContentTopBar(
     title: String,
-    hideFraction: Float,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -379,8 +359,7 @@ private fun ContentTopBar(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
         },
-        // Dim (never remove) while reading so the back affordance stays reachable.
-        modifier = modifier.graphicsLayer { alpha = 1f - 0.45f * hideFraction }
+        modifier = modifier
     )
 }
 
