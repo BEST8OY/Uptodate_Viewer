@@ -13,12 +13,29 @@ import androidx.compose.ui.viewinterop.AndroidView
 fun scrollToSectionJs(sectionId: String): String =
     "document.getElementById('$sectionId')?.scrollIntoView({behavior:'smooth', block:'start'})"
 
+/**
+ * Reports the section currently crossing the upper reading band of the viewport so the
+ * breadcrumb can track position without any polling from Kotlin.
+ */
+private const val SCROLL_SPY_JS = """(function(){
+if (window.__clinrefSpy) return;
+window.__clinrefSpy = true;
+var observer = new IntersectionObserver(function(entries){
+for (var i = entries.length - 1; i >= 0; i--) {
+if (entries[i].isIntersecting) { window.Android.sectionEntered(entries[i].target.id); break; }
+}
+}, {rootMargin: '0px 0px -55% 0px'});
+document.querySelectorAll('[id]').forEach(function(el){ observer.observe(el); });
+})();"""
+
 class ArticleWebViewController {
 
     private var view: WebView? = null
 
     var onAction: ((String) -> Unit)? = null
     var onFindResult: ((count: Int, activeMatchOrdinal: Int) -> Unit)? = null
+    var onProgressChanged: ((Float) -> Unit)? = null
+    var onActiveSectionDetected: ((String) -> Unit)? = null
 
     fun attach(view: WebView) {
         this.view = view
@@ -95,6 +112,8 @@ internal fun HtmlContentWebView(
                         if (initialSectionId != null) {
                             view?.evaluateJavascript(scrollToSectionJs(initialSectionId), null)
                         }
+                        view?.evaluateJavascript(SCROLL_SPY_JS, null)
+                        view?.post { emitProgress() }
                     }
                 }
                 settings.javaScriptEnabled = true
@@ -106,11 +125,19 @@ internal fun HtmlContentWebView(
                     controller.onFindResult?.invoke(numberOfMatches, activeMatchOrdinal)
                 }
                 addJavascriptInterface(
-                    JsBridge { jsonStr ->
-                        controller.onAction?.invoke("manual_$jsonStr")
-                    },
+                    JsBridge(
+                        onAction = { jsonStr ->
+                            controller.onAction?.invoke("manual_$jsonStr")
+                        },
+                        onSectionEntered = { sectionId ->
+                            controller.onActiveSectionDetected?.invoke(sectionId)
+                        }
+                    ),
                     "Android"
                 )
+                progressEmitter = { fraction ->
+                    controller.onProgressChanged?.invoke(fraction)
+                }
                 controller.attach(this)
             }
         },

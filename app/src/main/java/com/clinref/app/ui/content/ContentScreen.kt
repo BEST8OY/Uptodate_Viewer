@@ -6,10 +6,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -129,6 +132,10 @@ fun ContentScreen(
         hideActivationThresholdPx = with(density) { 48.dp.toPx() }
     }
     var toolbarTravelPx by remember { mutableFloatStateOf(0f) }
+    var articleProgress by remember { mutableFloatStateOf(0f) }
+    val breadcrumbTrail = remember(outlineSections, activeSectionId) {
+        buildBreadcrumbTrail(outlineSections, activeSectionId)
+    }
     val bottomMarginPx = with(density) { 16.dp.toPx() }
 
     SideEffect {
@@ -136,6 +143,12 @@ fun ContentScreen(
         webView.onFindResult = { count, activeOrdinal ->
             searchResultCount = count
             searchResultIndex = activeOrdinal
+        }
+        webView.onProgressChanged = { fraction -> articleProgress = fraction }
+        webView.onActiveSectionDetected = { sectionId ->
+            if (!showOutline && outlineSections.any { it.id == sectionId }) {
+                viewModel.setActiveSection(sectionId)
+            }
         }
     }
 
@@ -176,6 +189,7 @@ fun ContentScreen(
     // Reveal the toolbar whenever content changes or an overlay (search/outline) closes,
     // since upward-scroll reveal is unavailable while an overlay intercepts input.
     LaunchedEffect(processedHtml, showSearch, showOutline) {
+        articleProgress = 0f
         scrollState.reveal()
     }
 
@@ -206,10 +220,26 @@ fun ContentScreen(
 
     Scaffold(
         topBar = {
-            ContentTopBar(
-                title = articleTitle,
-                onBackClick = { handleTopBarBackNavigation() }
-            )
+            Column {
+                ContentTopBar(
+                    title = articleTitle,
+                    hideFraction = scrollState.hideFraction,
+                    onBackClick = { handleTopBarBackNavigation() }
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(articleProgress)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+            }
         }
     ) { padding ->
         Box(
@@ -257,6 +287,16 @@ fun ContentScreen(
                         scrollState.travelDistancePx = toolbarTravelPx
                     }
                     .graphicsLayer { translationY = scrollState.hideFraction * toolbarTravelPx }
+            )
+
+            SectionBreadcrumb(
+                visible = !isLoading && !showOutline && articleProgress > 0.02f,
+                trail = breadcrumbTrail,
+                onClick = { viewModel.toggleOutline() },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 4.dp, start = 16.dp, end = 16.dp)
+                    .zIndex(1f)
             )
 
             Column(modifier = Modifier.fillMaxSize()) {
@@ -322,6 +362,7 @@ fun ContentScreen(
 @Composable
 private fun ContentTopBar(
     title: String,
+    hideFraction: Float,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -338,7 +379,8 @@ private fun ContentTopBar(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
         },
-        modifier = modifier
+        // Dim (never remove) while reading so the back affordance stays reachable.
+        modifier = modifier.graphicsLayer { alpha = 1f - 0.45f * hideFraction }
     )
 }
 

@@ -31,6 +31,23 @@ class NestedScrollWebView @JvmOverloads constructor(
     private var activePointerId = -1
     private var lastTouchY = 0f
 
+    /** Emits reading progress (0f..1f) whenever the page scroll position changes. */
+    var progressEmitter: ((Float) -> Unit)? = null
+
+    override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
+        super.onScrollChanged(l, t, oldl, oldt)
+        emitProgress()
+    }
+
+    fun emitProgress() {
+        val range = computeVerticalScrollRange() - computeVerticalScrollExtent()
+        if (range > 0) {
+            progressEmitter?.invoke(
+                (computeVerticalScrollOffset().toFloat() / range).coerceIn(0f, 1f)
+            )
+        }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
