@@ -103,7 +103,7 @@ internal fun HtmlContentWebView(
                 settings.setSupportZoom(true)
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
-                setFindListener { _, numberOfMatches, activeMatchOrdinal ->
+                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
                     controller.onFindResult?.invoke(numberOfMatches, activeMatchOrdinal)
                 }
                 setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->

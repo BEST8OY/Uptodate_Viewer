@@ -28,8 +28,8 @@ class FloatingToolbarHideBehavior(
             val limit = state.offsetLimit
             if (limit != 0f) {
                 val target = if (state.offset < limit / 2f) limit else 0f
-                Animatable(state.offset).animateTo(target, spatialSpec) { value ->
-                    state.offset = value
+                Animatable(state.offset).animateTo(target, spatialSpec) {
+                    state.offset = this.value
                 }
             }
         }
