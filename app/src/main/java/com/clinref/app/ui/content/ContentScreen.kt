@@ -107,11 +107,11 @@ fun ContentScreen(
     val webView = rememberArticleWebViewController()
 
     // Hides the nav toolbar as the user scrolls the article down and reveals it on upward
-    // scroll. The WebView does not participate in Compose nested scroll, so its scroll deltas
-    // drive the behavior directly; translation is applied via graphicsLayer on the toolbar
-    // because the library's own scrollBehavior computes its collapse distance from the
-    // immediate parent node (here a content-sized AnimatedContent wrapper), which would leave
-    // part of the toolbar visible.
+    // scroll. The WebView does not participate in Compose nested scroll, so scroll and
+    // gesture deltas drive the behavior directly. Translation is applied via graphicsLayer
+    // at this call site rather than via FloatingToolbarScrollBehavior, whose collapse
+    // distance is derived from the immediate parent node (a content-sized AnimatedContent
+    // wrapper here) and would leave part of the toolbar visible.
     val coroutineScope = rememberCoroutineScope()
     val motionScheme = MaterialTheme.motionScheme
     val density = LocalDensity.current

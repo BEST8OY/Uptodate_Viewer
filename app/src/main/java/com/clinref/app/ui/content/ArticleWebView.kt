@@ -118,12 +118,18 @@ internal fun HtmlContentWebView(
                             pointerDown = true
                             lastTouchY = event.y
                         }
-                        MotionEvent.ACTION_MOVE -> {
-                            val dy = (lastTouchY - event.y).toInt()
+                        MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
+                            // Re-anchor on pointer-count changes so pinch gestures never emit deltas.
                             lastTouchY = event.y
-                            if (pointerDown && dy != 0) {
-                                controller.onContentScrolled?.invoke(dy)
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            if (pointerDown && event.pointerCount == 1) {
+                                val dy = (lastTouchY - event.y).toInt()
+                                if (dy != 0) {
+                                    controller.onContentScrolled?.invoke(dy)
+                                }
                             }
+                            lastTouchY = event.y
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> pointerDown = false
                     }
