@@ -1,106 +1,55 @@
 package com.clinref.app.ui.content
 
-import android.annotation.SuppressLint
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.clearText
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.Surface
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.FloatingToolbarExitDirection
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.VerticalDivider
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
-
-private sealed class OutlineItem {
-    data class Section(val section: OutlineSection) : OutlineItem()
-    data class GroupHeader(val title: String, val indented: Boolean = false) : OutlineItem()
-    data class Spacer(val dp: Int) : OutlineItem()
-}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -127,8 +76,6 @@ fun ContentScreen(
         viewModel.setThemeColors(ThemeColors.fromColorScheme(colorScheme))
     }
 
-    val currentTopicId by viewModel.currentTopicId.collectAsStateWithLifecycle()
-
     val processedHtml by viewModel.processedHtml.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
@@ -146,44 +93,82 @@ fun ContentScreen(
 
     var showSearch by remember { mutableStateOf(false) }
     val searchFieldState = rememberTextFieldState()
-    var webView by remember { mutableStateOf<WebView?>(null) }
     var searchResultCount by remember { mutableStateOf(0) }
+    // Authoritative active-match ordinal reported by WebView's FindListener; 0-based.
     var searchResultIndex by remember { mutableStateOf(0) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+
+    val webView = rememberArticleWebViewController()
+
+    // Hides the nav toolbar as the user scrolls the article down and reveals it on upward
+    // scroll. The WebView does not participate in Compose nested scroll, so its scroll deltas
+    // are fed into the official FloatingToolbarScrollBehavior state.
+    val navToolbarScrollBehavior =
+        FloatingToolbarDefaults.exitAlwaysScrollBehavior(FloatingToolbarExitDirection.Bottom)
+    val coroutineScope = rememberCoroutineScope()
+    val motionScheme = MaterialTheme.motionScheme
+    val toolbarHide = remember(navToolbarScrollBehavior, coroutineScope, motionScheme) {
+        FloatingToolbarHideBehavior(navToolbarScrollBehavior, coroutineScope, motionScheme.defaultSpatialSpec()).apply {
+            gate = { !(showSearch || showOutline) }
+        }
+    }
+
+    SideEffect {
+        webView.onAction = viewModel::handleAction
+        webView.onFindResult = { count, activeOrdinal ->
+            searchResultCount = count
+            searchResultIndex = activeOrdinal
+        }
+        webView.onContentScrolled = { dy -> toolbarHide.onScrolled(dy) }
+    }
+
+    val closeSearch: () -> Unit = {
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        showSearch = false
+        searchFieldState.clearText()
+        searchResultIndex = 0
+        webView.clearFindMatches()
+    }
+
+    fun handleTopBarBackNavigation() {
+        when {
+            showSearch -> closeSearch()
+            showOutline -> viewModel.toggleOutline()
+            canGoBack -> viewModel.goBack()
+            else -> onBack()
+        }
+    }
 
     LaunchedEffect(searchFieldState) {
         snapshotFlow { searchFieldState.text.toString() }
             .collect { query ->
                 searchResultIndex = 0
                 if (query.isNotEmpty()) {
-                    webView?.findAllAsync(query)
+                    webView.findAll(query)
                 } else {
-                    webView?.clearMatches()
+                    webView.clearFindMatches()
                 }
             }
     }
 
     BackHandler(enabled = showSearch || showOutline || canGoBack) {
-        when {
-            showSearch -> {
-                showSearch = false
-                searchFieldState.clearText()
-                searchResultIndex = 0
-                webView?.clearMatches()
-            }
-            showOutline -> viewModel.toggleOutline()
-            canGoBack -> viewModel.goBack()
-        }
+        handleTopBarBackNavigation()
+    }
+
+    // Reveal the toolbar whenever content changes or an overlay (search/outline) closes,
+    // since upward-scroll reveal is unavailable while an overlay intercepts input.
+    LaunchedEffect(processedHtml, showSearch, showOutline) {
+        toolbarHide.reveal()
     }
 
     LaunchedEffect(scrollToSection) {
         scrollToSection?.let { section ->
-            webView?.evaluateJavascript(
-                "document.getElementById('$section')?.scrollIntoView({behavior:'smooth'})",
-                null
-            )
+            toolbarHide.suppressFor()
+            toolbarHide.reveal()
+            webView.scrollToSection(section)
             viewModel.clearScrollToSection()
         }
     }
@@ -208,19 +193,7 @@ fun ContentScreen(
         topBar = {
             ContentTopBar(
                 title = articleTitle,
-                onBackClick = {
-                    when {
-                        showSearch -> {
-                            showSearch = false
-                            searchFieldState.clearText()
-                            searchResultIndex = 0
-                            webView?.clearMatches()
-                        }
-                        showOutline -> viewModel.toggleOutline()
-                        canGoBack -> viewModel.goBack()
-                        else -> onBack()
-                    }
-                }
+                onBackClick = { handleTopBarBackNavigation() }
             )
         }
     ) { padding ->
@@ -229,7 +202,8 @@ fun ContentScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // The toolbar should receive focus before screen content for a11y, so place it first with zIndex(1f)
+            // Composition order (this Box's first child) gives the toolbar focus priority for
+            // a11y traversal; zIndex(1f) additionally draws it above the content Column.
             ContentFloatingToolbar(
                 showSearch = showSearch,
                 canGoBack = canGoBack,
@@ -239,6 +213,7 @@ fun ContentScreen(
                 searchFieldState = searchFieldState,
                 searchResultCount = searchResultCount,
                 searchResultIndex = searchResultIndex,
+                scrollBehavior = navToolbarScrollBehavior,
                 onBackClick = {
                     viewModel.goBack()
                 },
@@ -250,23 +225,12 @@ fun ContentScreen(
                 onOutlineClick = { viewModel.toggleOutline() },
                 onSearchClick = { showSearch = !showSearch },
                 onSearchPrevious = {
-                    if (searchResultCount > 0) {
-                        webView?.findNext(false)
-                        searchResultIndex = if (searchResultIndex > 0) searchResultIndex - 1 else searchResultCount - 1
-                    }
+                    if (searchResultCount > 0) webView.findNext(forward = false)
                 },
                 onSearchNext = {
-                    if (searchResultCount > 0) {
-                        webView?.findNext(true)
-                        searchResultIndex = if (searchResultIndex < searchResultCount - 1) searchResultIndex + 1 else 0
-                    }
+                    if (searchResultCount > 0) webView.findNext(forward = true)
                 },
-                onSearchClose = {
-                    showSearch = false
-                    searchFieldState.clearText()
-                    searchResultIndex = 0
-                    webView?.clearMatches()
-                },
+                onSearchClose = closeSearch,
                 searchFocusRequester = searchFocusRequester,
                 modifier = modifier
                     .align(Alignment.BottomCenter)
@@ -279,13 +243,8 @@ fun ContentScreen(
                 Box(modifier = Modifier.weight(1f)) {
                     HtmlContentWebView(
                         processedHtml = processedHtml,
-                        topicId = topicId,
-                        onAction = { actionId ->
-                            viewModel.handleAction(actionId)
-                        },
-                        onFindResult = { searchResultCount = it },
-                        onWebViewCreated = { webView = it },
-                        scrollToSectionId = scrollToSectionId,
+                        controller = webView,
+                        initialSectionId = scrollToSectionId,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -307,10 +266,7 @@ fun ContentScreen(
                             if (section.actionJson != null) {
                                 viewModel.handleOutlineAction(section.actionJson)
                             } else {
-                                webView?.evaluateJavascript(
-                                    "document.getElementById('${section.id}')?.scrollIntoView({behavior:'smooth'})",
-                                    null
-                                )
+                                webView.scrollToSection(section.id)
                             }
                             if (section.sectionType != SectionType.GRAPHIC) {
                                 viewModel.toggleOutline()
@@ -366,365 +322,6 @@ private fun ContentTopBar(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun ContentFloatingToolbar(
-    showSearch: Boolean,
-    canGoBack: Boolean,
-    canGoForward: Boolean,
-    isFavorite: Boolean,
-    outlineEnabled: Boolean,
-    searchFieldState: TextFieldState,
-    searchResultCount: Int,
-    searchResultIndex: Int,
-    onBackClick: () -> Unit,
-    onForwardClick: () -> Unit,
-    onHomeClick: () -> Unit,
-    onFavoriteClick: () -> Unit,
-    onOutlineClick: () -> Unit,
-    onSearchClick: () -> Unit,
-    onSearchPrevious: () -> Unit,
-    onSearchNext: () -> Unit,
-    onSearchClose: () -> Unit,
-    searchFocusRequester: FocusRequester,
-    modifier: Modifier = Modifier
-) {
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
-    val motionScheme = MaterialTheme.motionScheme
-    val textCharSequence = searchFieldState.text
-    val isQueryNotEmpty = textCharSequence.isNotEmpty()
-
-    AnimatedContent(
-        targetState = showSearch,
-        transitionSpec = {
-            fadeIn(motionScheme.defaultEffectsSpec()) togetherWith
-                    fadeOut(motionScheme.defaultEffectsSpec())
-        },
-        label = "SearchToolbarTransition",
-        modifier = modifier
-    ) { isSearching ->
-        if (isSearching) {
-            HorizontalFloatingToolbar(
-                expanded = true,
-                shape = CircleShape,
-                colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
-                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth()
-                    .height(64.dp), // Hard-bounded 64.dp height cap matching initial toolbar height
-                content = {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .padding(start = 12.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        if (textCharSequence.isEmpty()) {
-                            Text(
-                                text = "Find in page",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        BasicTextField(
-                            state = searchFieldState,
-                            lineLimits = TextFieldLineLimits.SingleLine,
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                color = MaterialTheme.colorScheme.onSurface
-                            ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            keyboardOptions = KeyboardOptions(
-                                imeAction = ImeAction.Search
-                            ),
-                            onKeyboardAction = {
-                                if (isQueryNotEmpty) {
-                                    onSearchNext()
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(searchFocusRequester)
-                                .focusProperties { canFocus = isSearching }
-                        )
-                    }
-
-                    if (isQueryNotEmpty) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .align(Alignment.CenterVertically)
-                                .padding(horizontal = 4.dp)
-                        ) {
-                            Text(
-                                text = "${if (searchResultCount > 0) searchResultIndex + 1 else 0}/$searchResultCount",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Find previous") } },
-                        state = rememberTooltipState(),
-                        modifier = Modifier.fillMaxHeight()
-                    ) {
-                        IconButton(
-                            onClick = onSearchPrevious,
-                            enabled = isQueryNotEmpty,
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .focusProperties { canFocus = isSearching }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "Find Previous",
-                                modifier = Modifier.size(24.dp),
-                                tint = LocalContentColor.current
-                            )
-                        }
-                    }
-
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Find next") } },
-                        state = rememberTooltipState(),
-                        modifier = Modifier.fillMaxHeight()
-                    ) {
-                        IconButton(
-                            onClick = onSearchNext,
-                            enabled = isQueryNotEmpty,
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .focusProperties { canFocus = isSearching }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Find Next",
-                                modifier = Modifier.size(24.dp),
-                                tint = LocalContentColor.current
-                            )
-                        }
-                    }
-
-                    VerticalDivider(
-                        modifier = Modifier
-                            .align(Alignment.CenterVertically)
-                            .height(20.dp)
-                            .padding(horizontal = 2.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant
-                    )
-
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Close search") } },
-                        state = rememberTooltipState(),
-                        modifier = Modifier.fillMaxHeight()
-                    ) {
-                        IconButton(
-                            onClick = {
-                                onSearchClose()
-                                keyboardController?.hide()
-                            },
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .focusProperties { canFocus = isSearching }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close Search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            )
-        } else {
-            HorizontalFloatingToolbar(
-                expanded = true,
-                floatingActionButton = {
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Search in document") } },
-                        state = rememberTooltipState()
-                    ) {
-                        FloatingToolbarDefaults.VibrantFloatingActionButton(
-                            onClick = onSearchClick,
-                            shape = CircleShape,
-                            modifier = Modifier.focusProperties { canFocus = !isSearching }
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
-                        }
-                    }
-                },
-                colors = vibrantColors,
-                content = {
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Back") } },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onBackClick,
-                            enabled = canGoBack,
-                            modifier = Modifier.focusProperties { canFocus = !isSearching }
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Forward") } },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onForwardClick,
-                            enabled = canGoForward,
-                            modifier = Modifier.focusProperties { canFocus = !isSearching }
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Home / Contents") } },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onHomeClick,
-                            modifier = Modifier.focusProperties { canFocus = !isSearching }
-                        ) {
-                            Icon(Icons.Default.Home, contentDescription = "Contents")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Outline") } },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onOutlineClick,
-                            enabled = outlineEnabled,
-                            modifier = Modifier.focusProperties { canFocus = !isSearching }
-                        ) {
-                            Icon(Icons.Default.Menu, contentDescription = "Outline")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text(if (isFavorite) "Remove favorite" else "Add favorite") } },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onFavoriteClick,
-                            modifier = Modifier.focusProperties { canFocus = !isSearching }
-                        ) {
-                            Icon(
-                                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
-                            )
-                        }
-                    }
-                }
-            )
-        }
-    }
-}
-
-@SuppressLint("SetJavaScriptEnabled")
-@Composable
-private fun HtmlContentWebView(
-    processedHtml: String?,
-    topicId: String,
-    onAction: (String) -> Unit,
-    onFindResult: (Int) -> Unit,
-    onWebViewCreated: (WebView) -> Unit,
-    scrollToSectionId: String? = null,
-    modifier: Modifier = Modifier
-) {
-    val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
-
-    AndroidView(
-        factory = { context ->
-            WebView(context).apply {
-                setBackgroundColor(backgroundColor)
-                setOnApplyWindowInsetsListener { _, insets ->
-                    insets
-                }
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(
-                        view: WebView?,
-                        request: android.webkit.WebResourceRequest?
-                    ): Boolean {
-                        val url = request?.url?.toString() ?: return false
-                        if (url.startsWith("appaction://")) {
-                            val actionId = url.removePrefix("appaction://")
-                            onAction(actionId)
-                            return true
-                        }
-                        if (url.startsWith("http://") || url.startsWith("https://")) {
-                            val intent = android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                request.url
-                            )
-                            try {
-                                context.startActivity(intent)
-                            } catch (_: Exception) { }
-                            return true
-                        }
-                        return false
-                    }
-
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        if (scrollToSectionId != null) {
-                            view?.evaluateJavascript(
-                                "document.getElementById('$scrollToSectionId')?.scrollIntoView({behavior: 'smooth', block: 'start'})",
-                                null
-                            )
-                        }
-                    }
-                }
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.setSupportZoom(true)
-                settings.builtInZoomControls = true
-                settings.displayZoomControls = false
-                setFindListener { _, numberOfMatches, _ ->
-                    onFindResult(numberOfMatches)
-                }
-                addJavascriptInterface(
-                    JsBridge { jsonStr ->
-                        onAction("manual_$jsonStr")
-                    },
-                    "Android"
-                )
-                onWebViewCreated(this)
-            }
-        },
-        update = { wv ->
-            val html = processedHtml
-            if (html != null) {
-                val htmlHash = html.hashCode().toString()
-                if (wv.tag != htmlHash) {
-                    wv.tag = htmlHash
-                    wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
-                }
-            }
-        },
-        onRelease = { wv ->
-            wv.stopLoading()
-            wv.destroy()
-        },
-        modifier = modifier
-    )
-}
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ContentLoadingView(
@@ -759,155 +356,5 @@ private fun ContentErrorView(
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun OutlineOverlay(
-    showOutline: Boolean,
-    outlineSections: List<OutlineSection>,
-    activeSectionId: String?,
-    onSectionClick: (OutlineSection) -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    if (!showOutline || outlineSections.isEmpty()) return
-
-    val displayItems = remember(outlineSections) {
-        buildList {
-            var lastType: SectionType? = null
-            var lastGraphicGroup = ""
-            add(OutlineItem.GroupHeader("Outline"))
-            for (section in outlineSections) {
-                if (section.sectionType != lastType) {
-                    when (section.sectionType) {
-                        SectionType.GRAPHIC -> {
-                            add(OutlineItem.Spacer(8))
-                            add(OutlineItem.GroupHeader("Graphics"))
-                        }
-                        SectionType.RELATED -> {
-                            add(OutlineItem.Spacer(8))
-                            add(OutlineItem.GroupHeader("Related Topics"))
-                        }
-                        else -> {}
-                    }
-                }
-                if (section.sectionType == SectionType.GRAPHIC) {
-                    val group = when (section.graphicSubtype) {
-                        "graphic_table" -> "Tables"
-                        "graphic_figure" -> "Figures"
-                        "graphic_algorithm" -> "Algorithms"
-                        "graphic_picture" -> "Pictures"
-                        "graphic_movie" -> "Movies"
-                        "graphic_waveform" -> "Waveforms"
-                        "graphic_diagnosticimage" -> "Diagnostic Images"
-                        else -> "Other"
-                    }
-                    if (group != lastGraphicGroup) {
-                        if (lastGraphicGroup.isNotEmpty()) add(OutlineItem.Spacer(4))
-                        add(OutlineItem.GroupHeader(group, indented = true))
-                        lastGraphicGroup = group
-                    }
-                } else {
-                    lastGraphicGroup = ""
-                }
-                add(OutlineItem.Section(section))
-                lastType = section.sectionType
-            }
-        }
-    }
-
-    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 16.dp)
-        ) {
-            itemsIndexed(
-                items = displayItems,
-                key = { index, item ->
-                    when (item) {
-                        is OutlineItem.Section -> "section_${index}_${item.section.id}"
-                        is OutlineItem.GroupHeader -> "header_${index}_${item.title}"
-                        is OutlineItem.Spacer -> "spacer_${index}_${item.dp}"
-                    }
-                }
-            ) { _, item ->
-                when (item) {
-                    is OutlineItem.Spacer -> {
-                        Spacer(modifier = Modifier.height(item.dp.dp))
-                    }
-                    is OutlineItem.GroupHeader -> {
-                        Text(
-                            text = item.title.uppercase(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(
-                                start = if (item.indented) 28.dp else 16.dp,
-                                top = 12.dp,
-                                bottom = 6.dp
-                            )
-                        )
-                    }
-                    is OutlineItem.Section -> {
-                        val section = item.section
-                        val isTopic = section.sectionType == SectionType.TOPIC
-                        val isActive = section.id == activeSectionId
-                        Surface(
-                            onClick = {
-                                onSectionClick(section)
-                            },
-                            color = if (isActive) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerLow
-                            },
-                            shape = MaterialTheme.shapes.small
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        start = (12 + section.depth * 16).dp,
-                                        end = 12.dp,
-                                        top = 10.dp,
-                                        bottom = 10.dp
-                                    ),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isTopic && section.depth == 0) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(4.dp)
-                                            .background(
-                                                MaterialTheme.colorScheme.primary,
-                                                MaterialTheme.shapes.extraSmall
-                                            )
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                                Text(
-                                    text = section.title,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = when {
-                                        isActive -> MaterialTheme.colorScheme.onPrimaryContainer
-                                        section.sectionType == SectionType.GRAPHIC -> MaterialTheme.colorScheme.tertiary
-                                        section.sectionType == SectionType.RELATED -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    },
-                                    fontWeight = if ((isTopic && section.depth == 0) || isActive) FontWeight.Medium else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
