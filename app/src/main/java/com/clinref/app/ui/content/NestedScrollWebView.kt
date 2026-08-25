@@ -159,9 +159,11 @@ class NestedScrollWebView @JvmOverloads constructor(
         offsetInWindow: IntArray?,
         type: Int,
         consumed: IntArray
-    ): Boolean = childHelper.dispatchNestedScroll(
-        dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, offsetInWindow, type, consumed
-    )
+    ) {
+        childHelper.dispatchNestedScroll(
+            dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, offsetInWindow, type, consumed
+        )
+    }
 
     override fun dispatchNestedPreScroll(
         dx: Int,
