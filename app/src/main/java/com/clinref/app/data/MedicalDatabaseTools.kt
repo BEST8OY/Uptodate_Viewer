@@ -43,6 +43,10 @@ class MedicalDatabaseTools @Inject constructor(
             setOf(RegexOption.IGNORE_CASE)
         )
         private val STRIP_TAGS_REGEX = Regex("<[^>]*>")
+        private val NON_TEXT_BLOCKS_REGEX = Regex(
+            "<(script|style|noscript|iframe)\\b[^>]*>.*?</\\1>",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
         private val GRAPHIC_TYPE_REGEX = Regex(
             """type(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
             setOf(RegexOption.IGNORE_CASE)
@@ -438,6 +442,8 @@ class MedicalDatabaseTools @Inject constructor(
 
     private fun htmlToMarkdown(html: String, titleLookup: (String) -> String = { it }): String {
         var s = html
+
+        s = NON_TEXT_BLOCKS_REGEX.replace(s, "")
 
         s = A_TAG_REGEX.replace(s) { match ->
             val href = match.groupValues[1]
