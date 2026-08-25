@@ -19,7 +19,6 @@ class ArticleWebViewController {
 
     var onAction: ((String) -> Unit)? = null
     var onFindResult: ((count: Int, activeMatchOrdinal: Int) -> Unit)? = null
-    var onProgressChanged: ((Float) -> Unit)? = null
 
     fun attach(view: WebView) {
         this.view = view
@@ -96,7 +95,6 @@ internal fun HtmlContentWebView(
                         if (initialSectionId != null) {
                             view?.evaluateJavascript(scrollToSectionJs(initialSectionId), null)
                         }
-                        view?.post { emitProgress() }
                     }
                 }
                 settings.javaScriptEnabled = true
@@ -113,9 +111,6 @@ internal fun HtmlContentWebView(
                     },
                     "Android"
                 )
-                progressEmitter = { fraction ->
-                    controller.onProgressChanged?.invoke(fraction)
-                }
                 controller.attach(this)
             }
         },

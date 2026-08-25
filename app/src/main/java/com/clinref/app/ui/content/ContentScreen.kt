@@ -6,13 +6,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -132,7 +129,6 @@ fun ContentScreen(
         hideActivationThresholdPx = with(density) { 48.dp.toPx() }
     }
     var toolbarTravelPx by remember { mutableFloatStateOf(0f) }
-    var articleProgress by remember { mutableFloatStateOf(0f) }
     val bottomMarginPx = with(density) { 16.dp.toPx() }
 
     SideEffect {
@@ -141,7 +137,6 @@ fun ContentScreen(
             searchResultCount = count
             searchResultIndex = activeOrdinal
         }
-        webView.onProgressChanged = { fraction -> articleProgress = fraction }
     }
 
     val closeSearch: () -> Unit = {
@@ -181,7 +176,6 @@ fun ContentScreen(
     // Reveal the toolbar whenever content changes or an overlay (search/outline) closes,
     // since upward-scroll reveal is unavailable while an overlay intercepts input.
     LaunchedEffect(processedHtml, showSearch, showOutline) {
-        articleProgress = 0f
         scrollState.reveal()
     }
 
@@ -212,25 +206,10 @@ fun ContentScreen(
 
     Scaffold(
         topBar = {
-            Column {
-                ContentTopBar(
-                    title = articleTitle,
-                    onBackClick = { handleTopBarBackNavigation() }
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(articleProgress)
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
+            ContentTopBar(
+                title = articleTitle,
+                onBackClick = { handleTopBarBackNavigation() }
+            )
         }
     ) { padding ->
         Box(
