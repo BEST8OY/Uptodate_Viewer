@@ -53,16 +53,17 @@ class ArticleScrollStateTest {
         state.feedDown(40f)
         state.feedDown(10f)
         runCurrent()
-        assertEquals(0.1f, state.hideFraction, 0.001f)
+        assertEquals(0.5f, state.hideFraction, 0.001f)
 
         state.feedUp(20f)
         runCurrent()
-        assertEquals(0.1f, state.hideFraction, 0.001f)
+        // Upward delta must decrease the offset toward visible, not increase it.
+        assertEquals(0.3f, state.hideFraction, 0.001f)
 
         // Accumulator was reset: a small downward scroll must not resume hiding.
         state.feedDown(15f)
         runCurrent()
-        assertEquals(0.1f, state.hideFraction, 0.001f)
+        assertEquals(0.3f, state.hideFraction, 0.001f)
     }
 
     @Test

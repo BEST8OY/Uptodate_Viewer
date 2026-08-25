@@ -65,7 +65,7 @@ class ArticleScrollState(
     }
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-        settle()
+        settleToNearest()
         return Velocity.Zero
     }
 
@@ -85,7 +85,7 @@ class ArticleScrollState(
         scope.launch {
             if (webViewDy < 0) {
                 pendingHidePx = 0f
-                offsetPx.snapTo((offsetPx.value - webViewDy).coerceIn(0f, travelDistancePx))
+                offsetPx.snapTo((offsetPx.value + webViewDy).coerceIn(0f, travelDistancePx))
             } else {
                 pendingHidePx += webViewDy
                 if (pendingHidePx >= hideActivationThresholdPx) {
@@ -94,17 +94,19 @@ class ArticleScrollState(
             }
             settleJob = scope.launch {
                 delay(SETTLE_DEBOUNCE_MS)
-                settle()
+                animateToNearestEnd()
             }
         }
     }
 
-    private fun settle() {
-        scope.launch {
-            val target =
-                if (offsetPx.value > travelDistancePx / 2f) travelDistancePx else 0f
-            offsetPx.animateTo(target, settleSpec)
-        }
+    private fun settleToNearest() {
+        settleJob?.cancel()
+        settleJob = scope.launch { animateToNearestEnd() }
+    }
+
+    private suspend fun animateToNearestEnd() {
+        val target = if (offsetPx.value > travelDistancePx / 2f) travelDistancePx else 0f
+        offsetPx.animateTo(target, settleSpec)
     }
 
     companion object {
