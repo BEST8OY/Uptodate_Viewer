@@ -15,20 +15,29 @@ class FloatingToolbarHideBehavior(
 
     var hideDistancePx: Float = 0f
 
+    var hideActivationThresholdPx: Float = 0f
+
     val translationY: Float
         get() = offset.value
 
     private val offset = Animatable(0f)
     private var settleJob: Job? = null
     private var suppressUntilNanos = 0L
+    private var pendingDownPx = 0f
 
     fun onScrolled(dy: Int) {
         if (!gate() || System.nanoTime() < suppressUntilNanos || hideDistancePx <= 0f) return
         settleJob?.cancel()
         scope.launch {
-            // WebView dy > 0 means scrolling down -> grow offset -> translate off-screen;
-            // dy < 0 (upward) returns toward 0.
-            offset.snapTo((offset.value + dy).coerceIn(0f, hideDistancePx))
+            if (dy < 0) {
+                pendingDownPx = 0f
+                offset.snapTo((offset.value + dy).coerceIn(0f, hideDistancePx))
+            } else {
+                pendingDownPx += dy
+                if (pendingDownPx >= hideActivationThresholdPx) {
+                    offset.snapTo((offset.value + dy).coerceIn(0f, hideDistancePx))
+                }
+            }
             settleJob = scope.launch {
                 delay(SETTLE_DEBOUNCE_MS)
                 val target = if (offset.value > hideDistancePx / 2f) hideDistancePx else 0f
@@ -38,6 +47,7 @@ class FloatingToolbarHideBehavior(
     }
 
     fun reveal() {
+        pendingDownPx = 0f
         settleJob?.cancel()
         scope.launch { offset.snapTo(0f) }
     }

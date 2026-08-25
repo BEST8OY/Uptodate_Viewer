@@ -1,5 +1,7 @@
 package com.clinref.app.ui.content
 
+import android.content.Context
+import android.view.accessibility.AccessibilityManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -40,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -112,11 +115,19 @@ fun ContentScreen(
     val coroutineScope = rememberCoroutineScope()
     val motionScheme = MaterialTheme.motionScheme
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val accessibilityManager = remember {
+        context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+    }
     val toolbarHide = remember(coroutineScope, motionScheme) {
         FloatingToolbarHideBehavior(coroutineScope, motionScheme.defaultSpatialSpec()).apply {
-            gate = { !(showSearch || showOutline) }
+            gate = {
+                !(showSearch || showOutline) &&
+                    accessibilityManager?.isTouchExplorationEnabled != true
+            }
         }
     }
+    toolbarHide.hideActivationThresholdPx = with(density) { 48.dp.toPx() }
     val bottomMarginPx = with(density) { 16.dp.toPx() }
 
     SideEffect {
