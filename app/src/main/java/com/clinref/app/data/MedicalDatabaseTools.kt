@@ -64,7 +64,7 @@ class MedicalDatabaseTools @Inject constructor(
     @Tool
     @LLMDescription(
         "Search medical topics by focused core keywords (e.g., 'apixaban', 'asthma', 'gout'). " +
-        "Returns matching topics, optional inline outline for top match, and 'refine_with' suggestions. " +
+        "Returns matching candidate topics ({id, title}) and 'refine_with' suggestions. " +
         "For multi-concept questions, execute separate searches per concept. " +
         "Avoid searching full patient sentences or lab measurements."
     )
@@ -327,7 +327,7 @@ class MedicalDatabaseTools @Inject constructor(
         @LLMDescription("The graphic ID from getTopicOutline (e.g., 'Graphic-12345' or '12345')") graphicId: String
     ): String {
         val cleanId = graphicId.trim()
-        val rawGraphicId = cleanId.removePrefix("Graphic-").removePrefix("graphic-")
+        val rawGraphicId = cleanId.replace(Regex("(?i)^graphic-"), "")
 
         val graphicData = assetRepository.getGraphic(rawGraphicId)
             ?: return buildJsonObject { put("error", "Graphic $cleanId not found") }.toString()

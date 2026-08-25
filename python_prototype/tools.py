@@ -1,7 +1,7 @@
 """LangChain tools for medical database access.
 
-Mirrors Kotlin MedicalDatabaseTools — 7 tools:
-1. search_topics — FTS search
+Mirrors Kotlin MedicalDatabaseTools — 6 tools:
+1. search_topics — unidex curated topic search
 2. get_topic_outline — Section list for a topic
 3. get_related_topics — Related topic IDs + titles for candidate pool
 4. get_topic_sections_text — Batch section retrieval
@@ -10,6 +10,7 @@ Mirrors Kotlin MedicalDatabaseTools — 7 tools:
 """
 
 import json
+import re
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -55,11 +56,11 @@ def init_tools(db: ClinRefDatabase) -> list:
 def search_topics(query: str) -> str:
     """Search medical topics by focused core keywords (e.g., 'apixaban', 'asthma', 'gout').
 
-    Returns matching topics, optional inline outline for top match, and 'refine_with' suggestions.
+    Returns matching candidate topics ({id, title}) and 'refine_with' suggestions.
     For multi-concept questions, execute separate searches per concept.
     Avoid searching full patient sentences or lab measurements.
 
-    Returns: {query, results: [{id, title, outline: Optional[{sections, graphics}]}], refine_with: [suggested queries], message}
+    Returns: {query, results: [{id, title}], refine_with: [suggested queries], message}
     """
     if _db is None:
         return json.dumps({"error": "Database not initialized"})
@@ -160,6 +161,14 @@ def get_related_topics(topic_id: str) -> str:
     clean_id = topic_id.strip()
     outline_html = _db.get_topic_outline(clean_id)
     if not outline_html:
+        # Calculator topics have no outlineHtml but do exist — return an
+        # empty pool instead of an error (mirrors Kotlin getRelatedTopics).
+        asset = _db.get_topic_asset(clean_id) if hasattr(_db, "get_topic_asset") else None
+        if asset is not None and isinstance(asset, dict):
+            return json.dumps({
+                "topicId": clean_id,
+                "related_topics": [],
+            }, indent=2)
         return json.dumps({"error": f"Topic not found: {clean_id}"})
 
     related = extract_related_topics(outline_html)
@@ -264,7 +273,7 @@ def get_graphic_content(graphic_id: str) -> str:
         return json.dumps({"error": "Database not initialized"})
 
     clean_id = graphic_id.strip()
-    raw_id = clean_id.removeprefix("Graphic-").removeprefix("graphic-")
+    raw_id = re.sub(r"(?i)^graphic-", "", clean_id)
 
     asset = _db.get_graphic_asset(raw_id)
     if not asset:

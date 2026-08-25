@@ -3,6 +3,7 @@ package com.clinref.app.domain.ai
 import android.util.Log
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
@@ -207,6 +208,21 @@ class TurnContextAccumulator {
         val trimmed = result.trim()
         if (trimmed.startsWith("Topic not found", ignoreCase = true)) return true
         if (trimmed.equals("Section not found.", ignoreCase = true)) return true
+
+        // JSON envelopes: {"error": "..."} from failed fetches, or batch section
+        // responses where every requested ID was invalid (empty markdown).
+        if (trimmed.startsWith("{")) {
+            return try {
+                val obj = json.parseToJsonElement(trimmed) as? JsonObject ?: return false
+                val error = obj["error"]?.jsonPrimitive?.contentOrNull
+                if (!error.isNullOrBlank()) return true
+                val markdown = obj["markdown"]?.jsonPrimitive?.contentOrNull
+                val invalid = obj["invalidSections"] as? kotlinx.serialization.json.JsonArray
+                return markdown != null && markdown.isEmpty() && invalid != null && invalid.isNotEmpty()
+            } catch (_: Exception) {
+                false
+            }
+        }
         return false
     }
 

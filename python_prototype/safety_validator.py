@@ -188,14 +188,11 @@ class SafetyValidator:
         if not answer_metrics:
             return None
 
-        # Extract numbers from user's question — these are patient-specific values
-        question_metrics = set()
-        if user_question_text:
-            question_metrics = {m.strip() for m in CLINICAL_QUANTITY_REGEX.findall(user_question_text) if m.strip()}
-
         unverified = []
         for metric in answer_metrics:
-            if metric in question_metrics:
+            # Quantities stated by the user are patient-specific values —
+            # substring containment mirrors Kotlin's contains(metric, ignoreCase).
+            if user_question_text and metric.lower() in user_question_text.lower():
                 continue
             if self._is_quantity_in_text(metric, all_tool_text):
                 continue
@@ -244,7 +241,7 @@ class SafetyValidator:
         """
         variants = SafetyValidator._normalize_quantity(metric)
         text_uncomma = text.replace(",", "")
-        text_unspace = text.replace(" ", "")
+        text_unspace = re.sub(r"\s+", "", text)
 
         for variant in variants:
             escaped = re.escape(variant)
@@ -257,7 +254,7 @@ class SafetyValidator:
                 if re.search(rf"(?<!\d){uncomma_escaped}(?!\d)", text_uncomma, re.IGNORECASE):
                     return True
             # Also try without space before unit (e.g., "10mg" in text when metric is "10 mg")
-            compact = metric.replace(" ", "")
+            compact = re.sub(r"\s+", "", metric)
             if compact != metric and re.search(rf"(?<!\d){escaped}(?!\d)", text_unspace, re.IGNORECASE):
                 return True
         return False

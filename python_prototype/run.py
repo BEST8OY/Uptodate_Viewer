@@ -148,20 +148,20 @@ def run_interactive(provider: str, model: str, db_path: str):
             print("Goodbye.")
             break
 
-        # Build messages with history
-        messages = conversation_history + [{"role": "user", "content": user_input}]
-
-        from langchain_core.messages import HumanMessage, SystemMessage
+        # Build initial state with full conversation history
+        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
         initial_state = {
-            "messages": [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_input),
-            ],
+            "messages": (
+                [SystemMessage(content=system_prompt)]
+                + list(conversation_history)
+                + [HumanMessage(content=user_input)]
+            ),
             "system_prompt": system_prompt,
             "turn_context": TurnContext().model_dump(),
             "user_question": user_input,
             "retry_count": 0,
             "validation_result": None,
+            "tool_rounds": 0,
         }
 
         # Run agent with streaming output
@@ -217,10 +217,10 @@ def run_interactive(provider: str, model: str, db_path: str):
         # Show token usage
         token_tracker.print_summary()
 
-        # Update conversation history
-        from langchain_core.messages import HumanMessage, AIMessage
-        conversation_history.append({"role": "user", "content": user_input})
-        conversation_history.append({"role": "assistant", "content": answer})
+        # Update conversation history (as message objects for the next turn)
+        from langchain_core.messages import AIMessage
+        conversation_history.append(HumanMessage(content=user_input))
+        conversation_history.append(AIMessage(content=answer))
 
         # Keep history manageable (last 10 exchanges)
         if len(conversation_history) > 20:
@@ -304,7 +304,7 @@ def run_tests(db_path: str):
     db = ClinRefDatabase(db_dir=Path(db_path))
 
     # Test 1: Search
-    print("Test 1: FTS search for 'atrial fibrillation'")
+    print("Test 1: Search for 'atrial fibrillation'")
     results = db.search_topics("atrial fibrillation")
     print(f"  Found {len(results)} results")
     for r in results[:3]:

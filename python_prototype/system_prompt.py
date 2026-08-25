@@ -27,7 +27,10 @@ def build_system_prompt(
 
 
 def build_correction_prompt(blocked_reason: str, evidence_summary: str) -> str:
-    """Format remedial instruction prompt when safety validator blocks a response."""
+    """Format remedial instruction prompt when safety validator blocks a response.
+
+    Mirrors Kotlin SystemPrompt.buildCorrectionPrompt — keep both in sync.
+    """
     return f"""SYSTEM NOTICE: Your prior response was paused due to clinical verification rules.
 REASON: {blocked_reason}
 
@@ -37,7 +40,9 @@ EVIDENCE RETRIEVED IN THIS TURN:
 REMEDIAL INSTRUCTIONS:
 1. Re-evaluate your answer using ONLY the retrieved evidence above.
 2. Ensure all quoted dosages and figures are verified against the retrieved sections.
-3. Do NOT invent clinical quantities not present in the evidence."""
+3. Include full citations in format: Topic: <Title>, Section: <Title> (ID: <SectionID>)
+4. Do NOT invent clinical quantities not present in the evidence.
+5. MUST call submit_clinical_answer as your final tool call."""
 
 
 def _persona_block() -> str:
