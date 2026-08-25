@@ -20,8 +20,6 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.FloatingToolbarExitDirection
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +38,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -104,16 +105,19 @@ fun ContentScreen(
 
     // Hides the nav toolbar as the user scrolls the article down and reveals it on upward
     // scroll. The WebView does not participate in Compose nested scroll, so its scroll deltas
-    // are fed into the official FloatingToolbarScrollBehavior state.
-    val navToolbarScrollBehavior =
-        FloatingToolbarDefaults.exitAlwaysScrollBehavior(FloatingToolbarExitDirection.Bottom)
+    // drive the behavior directly; translation is applied via graphicsLayer on the toolbar
+    // because the library's own scrollBehavior computes its collapse distance from the
+    // immediate parent node (here a content-sized AnimatedContent wrapper), which would leave
+    // part of the toolbar visible.
     val coroutineScope = rememberCoroutineScope()
     val motionScheme = MaterialTheme.motionScheme
-    val toolbarHide = remember(navToolbarScrollBehavior, coroutineScope, motionScheme) {
-        FloatingToolbarHideBehavior(navToolbarScrollBehavior, coroutineScope, motionScheme.defaultSpatialSpec()).apply {
+    val density = LocalDensity.current
+    val toolbarHide = remember(coroutineScope, motionScheme) {
+        FloatingToolbarHideBehavior(coroutineScope, motionScheme.defaultSpatialSpec()).apply {
             gate = { !(showSearch || showOutline) }
         }
     }
+    val bottomMarginPx = with(density) { 16.dp.toPx() }
 
     SideEffect {
         webView.onAction = viewModel::handleAction
@@ -213,7 +217,6 @@ fun ContentScreen(
                 searchFieldState = searchFieldState,
                 searchResultCount = searchResultCount,
                 searchResultIndex = searchResultIndex,
-                scrollBehavior = navToolbarScrollBehavior,
                 onBackClick = {
                     viewModel.goBack()
                 },
@@ -237,6 +240,10 @@ fun ContentScreen(
                     .padding(bottom = 16.dp)
                     .imePadding()
                     .zIndex(1f)
+                    .onSizeChanged { size ->
+                        toolbarHide.hideDistancePx = size.height + bottomMarginPx
+                    }
+                    .graphicsLayer { translationY = toolbarHide.translationY }
             )
 
             Column(modifier = Modifier.fillMaxSize()) {

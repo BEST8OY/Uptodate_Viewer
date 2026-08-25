@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingToolbarDefaults
-import androidx.compose.material3.FloatingToolbarScrollBehavior
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,11 +52,26 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AccessiblePlainTooltip(text: String) {
+    // b/496338253: tooltip text is not announced by screen readers without these semantics
+    PlainTooltip(
+        modifier = Modifier.semantics {
+            liveRegion = LiveRegionMode.Assertive
+            paneTitle = text
+        }
+    ) {
+        Text(text)
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -70,7 +84,6 @@ internal fun ContentFloatingToolbar(
     searchFieldState: TextFieldState,
     searchResultCount: Int,
     searchResultIndex: Int,
-    scrollBehavior: FloatingToolbarScrollBehavior?,
     onBackClick: () -> Unit,
     onForwardClick: () -> Unit,
     onHomeClick: () -> Unit,
@@ -169,7 +182,7 @@ internal fun ContentFloatingToolbar(
 
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Find previous") } },
+                        tooltip = { AccessiblePlainTooltip("Find previous") },
                         state = rememberTooltipState(),
                         modifier = Modifier.fillMaxHeight()
                     ) {
@@ -192,7 +205,7 @@ internal fun ContentFloatingToolbar(
 
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Find next") } },
+                        tooltip = { AccessiblePlainTooltip("Find next") },
                         state = rememberTooltipState(),
                         modifier = Modifier.fillMaxHeight()
                     ) {
@@ -223,7 +236,7 @@ internal fun ContentFloatingToolbar(
 
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Close search") } },
+                        tooltip = { AccessiblePlainTooltip("Close search") },
                         state = rememberTooltipState(),
                         modifier = Modifier.fillMaxHeight()
                     ) {
@@ -249,7 +262,7 @@ internal fun ContentFloatingToolbar(
                 floatingActionButton = {
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Search in document") } },
+                        tooltip = { AccessiblePlainTooltip("Search in document") },
                         state = rememberTooltipState()
                     ) {
                         FloatingToolbarDefaults.VibrantFloatingActionButton(
@@ -264,11 +277,10 @@ internal fun ContentFloatingToolbar(
                     }
                 },
                 colors = vibrantColors,
-                scrollBehavior = scrollBehavior,
                 content = {
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Back") } },
+                        tooltip = { AccessiblePlainTooltip("Back") },
                         state = rememberTooltipState()
                     ) {
                         IconButton(
@@ -283,7 +295,7 @@ internal fun ContentFloatingToolbar(
                     }
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Forward") } },
+                        tooltip = { AccessiblePlainTooltip("Forward") },
                         state = rememberTooltipState()
                     ) {
                         IconButton(
@@ -298,7 +310,7 @@ internal fun ContentFloatingToolbar(
                     }
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Home / Contents") } },
+                        tooltip = { AccessiblePlainTooltip("Home / Contents") },
                         state = rememberTooltipState()
                     ) {
                         IconButton(
@@ -312,7 +324,7 @@ internal fun ContentFloatingToolbar(
                     }
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text("Outline") } },
+                        tooltip = { AccessiblePlainTooltip("Outline") },
                         state = rememberTooltipState()
                     ) {
                         IconButton(
@@ -327,7 +339,7 @@ internal fun ContentFloatingToolbar(
                     }
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { PlainTooltip { Text(if (isFavorite) "Remove favorite" else "Add favorite") } },
+                        tooltip = { AccessiblePlainTooltip(if (isFavorite) "Remove favorite" else "Add favorite") },
                         state = rememberTooltipState()
                     ) {
                         IconButton(
