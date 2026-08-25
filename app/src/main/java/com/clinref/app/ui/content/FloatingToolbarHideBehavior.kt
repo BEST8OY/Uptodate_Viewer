@@ -26,7 +26,9 @@ class FloatingToolbarHideBehavior(
         if (!gate() || System.nanoTime() < suppressUntilNanos || hideDistancePx <= 0f) return
         settleJob?.cancel()
         scope.launch {
-            offset.snapTo((offset.value - dy).coerceIn(0f, hideDistancePx))
+            // WebView dy > 0 means scrolling down -> grow offset -> translate off-screen;
+            // dy < 0 (upward) returns toward 0.
+            offset.snapTo((offset.value + dy).coerceIn(0f, hideDistancePx))
             settleJob = scope.launch {
                 delay(SETTLE_DEBOUNCE_MS)
                 val target = if (offset.value > hideDistancePx / 2f) hideDistancePx else 0f
