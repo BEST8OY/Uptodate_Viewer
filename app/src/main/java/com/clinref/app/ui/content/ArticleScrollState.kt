@@ -118,6 +118,6 @@ class ArticleScrollState(
 @Composable
 fun rememberArticleScrollState(): ArticleScrollState {
     val scope = rememberCoroutineScope()
-    val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec()
+    val settleSpec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     return remember(scope, settleSpec) { ArticleScrollState(scope, settleSpec) }
 }
