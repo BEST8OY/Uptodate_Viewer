@@ -25,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.SheetValue
 import androidx.compose.runtime.Composable
@@ -57,6 +58,7 @@ fun GraphicSheet(
 ) {
     val graphicData by viewModel.graphicData.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val isError by viewModel.isError.collectAsStateWithLifecycle()
 
     LaunchedEffect(graphicId) {
         viewModel.loadGraphic(graphicId)
@@ -102,7 +104,16 @@ fun GraphicSheet(
             }
         }
 
-        if (graphicData != null && fullHtml != null) {
+        if (isError) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Failed to load graphic")
+            }
+        } else if (graphicData != null && fullHtml != null) {
             key(graphicId) {
                 GraphicSheetContent(
                     graphicId = graphicId,
@@ -172,6 +183,7 @@ internal fun GraphicSheetContent(
     val currentOnLoadingFinished by rememberUpdatedState(onLoadingFinished)
     val currentOnLoadingError by rememberUpdatedState(onLoadingError)
     val context = LocalContext.current
+    var loadedHtml by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = modifier.semantics {
@@ -218,7 +230,10 @@ internal fun GraphicSheetContent(
                 }
             },
             update = { webView ->
-                webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
+                if (loadedHtml != fullHtml) {
+                    loadedHtml = fullHtml
+                    webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
+                }
             },
             onRelease = { webView -> webView.destroy() },
             modifier = Modifier.fillMaxSize(),
