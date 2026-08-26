@@ -3,7 +3,7 @@
 ## Critical Execution Rules
 - **NEVER run `./gradlew` or Gradle commands**: There is no Android SDK on this machine.
 - **Do NOT commit `python_prototype/.env`**: Contains local API keys.
-- **Only run `pytest` when modifying `python_prototype/`**: Do NOT run `pytest` for Kotlin-only, Android UI, or Room DAO changes.
+- **Only run `pytest` when modifying real Python code in `python_prototype/`**: Do NOT run `pytest` unconditionally. Specifically, NEVER run `pytest` for Kotlin-only changes, Android UI/Compose changes, XML resources, Gradle configs, Room DAOs, documentation, or code audits.
 
 ## Project Structure & Architecture
 - **Android App (`:app`)**: Package `com.clinref.app` using Compose M3, Hilt DI, Navigation 3, Room 3 (`androidx.room3`).
@@ -13,9 +13,10 @@
 ## Verification & Commands
 
 ### Python Prototype (`python_prototype/`)
+> **Important**: Run these commands **ONLY** when you have modified `.py` files inside `python_prototype/`.
 ```bash
-uv run pytest test_clinref.py        # Run 90 unit tests
-uv run pytest test_integration.py   # Run 49 integration tests against root SQLite DBs
+uv run pytest test_clinref.py        # Run 90 unit tests (ONLY when python_prototype/ code was modified)
+uv run pytest test_integration.py   # Run 49 integration tests against root SQLite DBs (ONLY when python_prototype/ code was modified)
 uv run python run.py                 # Run interactive CLI agent
 ```
 

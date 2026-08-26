@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,47 +19,47 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.clinref.app.R
 import com.clinref.app.domain.GraphicData
 import kotlinx.coroutines.launch
+import org.jsoup.Jsoup
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun GraphicSheet(
     graphicId: String,
     onDismiss: () -> Unit,
-    viewModel: GraphicViewModel = hiltViewModel()
+    viewModel: GraphicViewModel = hiltViewModel(),
 ) {
-    val graphicData by viewModel.graphicData.collectAsStateWithLifecycle()
-    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
-    val isError by viewModel.isError.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(graphicId) {
         viewModel.loadGraphic(graphicId)
@@ -73,10 +74,14 @@ fun GraphicSheet(
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var sheetLoading by remember(graphicId) { mutableStateOf(true) }
+    var webViewError by remember(graphicId) { mutableStateOf(false) }
 
-    val fullHtml = graphicData?.let { data ->
-        remember(data, graphicCss) { buildGraphicHtml(data, graphicCss) }
+    fun retryLoading() {
+        sheetLoading = true
+        webViewError = false
+        viewModel.retry()
     }
 
     ModalBottomSheet(
@@ -99,64 +104,136 @@ fun GraphicSheet(
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
+                    contentDescription = stringResource(R.string.close_sheet),
                 )
             }
         }
 
-        if (isError) {
+        if (webViewError || uiState is GraphicUiState.Error) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(200.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Failed to load graphic")
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(stringResource(R.string.graphic_load_failed))
+                    TextButton(onClick = ::retryLoading) {
+                        Text(stringResource(R.string.retry))
+                    }
+                }
             }
-        } else if (graphicData != null && fullHtml != null) {
-            key(graphicId) {
-                GraphicSheetContent(
-                    graphicId = graphicId,
-                    fullHtml = fullHtml,
-                    isLoading = sheetLoading,
-                    onLoadingFinished = { sheetLoading = false },
-                    onLoadingError = { sheetLoading = false },
+        } else {
+            when (val state = uiState) {
+                GraphicUiState.Loading -> Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                )
-            }
-        } else if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
+                }
+
+                GraphicUiState.Error -> Unit
+
+                is GraphicUiState.Success -> {
+                    val fullHtml = remember(state.data, graphicCss) {
+                        buildGraphicHtml(state.data, graphicCss)
+                    }
+                    var loadedHtml by remember(graphicId) { mutableStateOf<String?>(null) }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .semantics { contentDescription = "Graphic: $graphicId" },
+                    ) {
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    webViewClient = object : WebViewClient() {
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            sheetLoading = false
+                                        }
+
+                                        override fun onReceivedError(
+                                            view: WebView?,
+                                            request: WebResourceRequest?,
+                                            error: WebResourceError?,
+                                        ) {
+                                            if (request?.isForMainFrame == true) {
+                                                sheetLoading = false
+                                                webViewError = true
+                                            }
+                                        }
+
+                                        override fun shouldOverrideUrlLoading(
+                                            view: WebView?,
+                                            request: WebResourceRequest?,
+                                        ): Boolean {
+                                            val url = request?.url?.toString() ?: return false
+                                            if (url.startsWith("http://") || url.startsWith("https://")) {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                                return true
+                                            }
+                                            return false
+                                        }
+                                    }
+                                    with(settings) {
+                                        javaScriptEnabled = false
+                                        allowFileAccess = false
+                                        setSupportZoom(true)
+                                        builtInZoomControls = true
+                                        displayZoomControls = false
+                                    }
+                                }
+                            },
+                            update = { webView ->
+                                if (loadedHtml != fullHtml) {
+                                    loadedHtml = fullHtml
+                                    webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
+                                }
+                            },
+                            onRelease = { webView -> webView.destroy() },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
+                        AnimatedVisibility(
+                            visible = sheetLoading,
+                            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surface),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-private val SRC_REGEX = Regex("""src="[^"]+"""", RegexOption.IGNORE_CASE)
-private val GRAPHIC_CLASS_REGEX = Regex("""class\s*=\s*["']graphic["']""", RegexOption.IGNORE_CASE)
 private val BASE64_VALIDATION_REGEX = Regex("^[A-Za-z0-9+/=\n\r ]+$")
 
 internal fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
-    var html = graphicData.imageHtml
+    val doc = Jsoup.parseBodyFragment(graphicData.imageHtml)
+    doc.outputSettings().prettyPrint(false)
 
-    if (graphicData.base64Image != null && BASE64_VALIDATION_REGEX.matches(graphicData.base64Image)) {
-        html = html.replace(
-            regex = SRC_REGEX,
-            replacement = """src="data:image/png;base64,${graphicData.base64Image}"""",
-        )
+    val base64Image = graphicData.base64Image
+    if (base64Image != null && BASE64_VALIDATION_REGEX.matches(base64Image)) {
+        doc.body().select("img[src]").first()
+            ?.attr("src", "data:image/png;base64,$base64Image")
     }
-
-    html = html.replace(
-        regex = GRAPHIC_CLASS_REGEX,
-        replacement = """class="graphic_view"""",
-    )
+    doc.body().getElementsByClass("graphic").forEach { element ->
+        element.removeClass("graphic").addClass("graphic_view")
+    }
 
     return """
         <!DOCTYPE html>
@@ -165,94 +242,7 @@ internal fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
             <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes">
             <style>$css</style>
         </head>
-        <body>$html</body>
+        <body>${doc.body().html()}</body>
         </html>
     """.trimIndent()
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-internal fun GraphicSheetContent(
-    graphicId: String,
-    fullHtml: String,
-    isLoading: Boolean,
-    onLoadingFinished: () -> Unit,
-    onLoadingError: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val currentOnLoadingFinished by rememberUpdatedState(onLoadingFinished)
-    val currentOnLoadingError by rememberUpdatedState(onLoadingError)
-    val context = LocalContext.current
-    var loadedHtml by remember { mutableStateOf<String?>(null) }
-
-    Box(
-        modifier = modifier.semantics {
-            contentDescription = "Graphic: $graphicId"
-        },
-    ) {
-        AndroidView(
-            factory = { ctx ->
-                WebView(ctx).apply {
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageFinished(view: WebView?, url: String?) {
-                            currentOnLoadingFinished()
-                        }
-
-                        override fun onReceivedError(
-                            view: WebView?,
-                            request: WebResourceRequest?,
-                            error: WebResourceError?,
-                        ) {
-                            if (request?.isForMainFrame == true) {
-                                currentOnLoadingError()
-                            }
-                        }
-
-                        override fun shouldOverrideUrlLoading(
-                            view: WebView?,
-                            request: WebResourceRequest?,
-                        ): Boolean {
-                            val url = request?.url?.toString() ?: return false
-                            if (url.startsWith("http://") || url.startsWith("https://")) {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                return true
-                            }
-                            return false
-                        }
-                    }
-                    with(settings) {
-                        javaScriptEnabled = false
-                        allowFileAccess = false
-                        setSupportZoom(true)
-                        builtInZoomControls = true
-                        displayZoomControls = false
-                    }
-                }
-            },
-            update = { webView ->
-                if (loadedHtml != fullHtml) {
-                    loadedHtml = fullHtml
-                    webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
-                }
-            },
-            onRelease = { webView -> webView.destroy() },
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        AnimatedVisibility(
-            visible = isLoading,
-            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center,
-            ) {
-                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
-            }
-        }
-    }
 }

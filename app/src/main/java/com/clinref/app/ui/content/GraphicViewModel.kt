@@ -1,47 +1,55 @@
 package com.clinref.app.ui.content
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.clinref.app.domain.GraphicData
+import com.clinref.app.di.IoDispatcher
 import com.clinref.app.repository.AssetRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
 class GraphicViewModel @Inject constructor(
-    private val assetRepository: AssetRepository
+    private val assetRepository: AssetRepository,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
-    private val _graphicData = MutableStateFlow<GraphicData?>(null)
-    val graphicData: StateFlow<GraphicData?> = _graphicData
+    private val _uiState = MutableStateFlow<GraphicUiState>(GraphicUiState.Loading)
+    val uiState: StateFlow<GraphicUiState> = _uiState.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading
-
-    private val _isError = MutableStateFlow(false)
-    val isError: StateFlow<Boolean> = _isError
+    private var lastGraphicId: String? = null
 
     fun loadGraphic(graphicId: String) {
+        lastGraphicId = graphicId
+        load(graphicId)
+    }
+
+    fun retry() {
+        lastGraphicId?.let { load(it) }
+    }
+
+    private fun load(graphicId: String) {
         viewModelScope.launch {
-            _isLoading.value = true
-            _isError.value = false
-            _graphicData.value = null
+            _uiState.value = GraphicUiState.Loading
             try {
-                val result = withContext(Dispatchers.IO) {
+                val result = withContext(ioDispatcher) {
                     assetRepository.getGraphic(graphicId)
                 }
-                _graphicData.value = result
-                _isError.value = result == null
-            } catch (_: Exception) {
-                _isError.value = true
-            } finally {
-                _isLoading.value = false
+                _uiState.value = result?.let { GraphicUiState.Success(it) } ?: GraphicUiState.Error
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load graphic $graphicId", e)
+                _uiState.value = GraphicUiState.Error
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "GraphicViewModel"
     }
 }
