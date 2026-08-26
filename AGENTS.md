@@ -1,67 +1,38 @@
-# AGENTS.md — ClinRef (Uptodate Viewer)
+# ClinRef — Agent Instructions
 
-## Build
+## Critical Execution Rules
+- **NEVER run `./gradlew` or Gradle commands**: There is no Android SDK on this machine.
+- **Do NOT commit `python_prototype/.env`**: Contains local API keys.
+- **Only run `pytest` when modifying real Python code in `python_prototype/`**: Do NOT run `pytest` unconditionally. Specifically, NEVER run `pytest` for Kotlin-only changes, Android UI/Compose changes, XML resources, Gradle configs, Room DAOs, documentation, or code audits.
 
-Single-module Android app (`:app`). No multi-module complexity.
+## Project Structure & Architecture
+- **Android App (`:app`)**: Package `com.clinref.app` using Compose M3, Hilt DI, Navigation 3, Room 3 (`androidx.room3`).
+- **Python Prototype (`python_prototype/`)**: LangGraph/LangChain agent in Python 3.13 (`uv`). Mirrors Kotlin agent logic 1:1.
+- **SQLite DBs (Project Root)**: 6 SQLite databases (`utdasset.sqlite`, `unidex.en.sqlite`, `fsearch.db`, `utdqf.sqlite`, `utdtoc.db`, `thumbs.db`) read directly by the search/agent pipeline.
 
-**No Android SDK on this dev machine** — Gradle builds are not available locally. CI verifies via `./gradlew assembleRelease --stacktrace`.
+## Verification & Commands
 
-**No tests exist.** No lint config, no ktlint/detekt.
-
-## Toolchain (non-obvious versions)
-
-- AGP 9.2.1, Kotlin 2.4.0, Gradle 9.6.1
-- `compileSdk = 37`, `minSdk = 31`, JVM target 17
-- CI uses JDK 21 (Temurin)
-- Hilt annotation processing uses **KSP** (not kapt)
-- `libs.versions.toml` is the single source of truth for dependency versions
-
-## Architecture
-
-```
-com.clinref.app/
-├── ClinRefApp.kt          # @HiltAndroidApp Application
-├── MainActivity.kt        # @AndroidEntryPoint, edge-to-edge, single Activity
-├── di/AppModule.kt        # Hilt @Module — provides DAOs
-├── data/                  # DatabaseManager + DAOs (raw SQLite, NOT Room)
-├── domain/                # Data classes (serializable models)
-├── repository/            # Repository layer (uses DAOs)
-├── ui/                    # Compose screens + ViewModels
-│   ├── navigation/        # Navigation 3 (NavDisplay, NavKey routes)
-│   ├── content/           # WebView content viewer + JsBridge
-│   ├── toc/               # Table of contents
-│   ├── search/            # Search
-│   ├── favorites/         # Favorites
-│   ├── history/           # Reading history
-│   ├── setup/             # First-run DB directory picker
-│   └── theme/             # ClinRefTheme
-└── util/                  # GzipUtil, HtmlNormalizer, TimeUtils
+### Python Prototype (`python_prototype/`)
+> **Important**: Run these commands **ONLY** when you have modified `.py` files inside `python_prototype/`.
+```bash
+uv run pytest test_clinref.py        # Run 90 unit tests (ONLY when python_prototype/ code was modified)
+uv run pytest test_integration.py   # Run 49 integration tests against root SQLite DBs (ONLY when python_prototype/ code was modified)
+uv run python run.py                 # Run interactive CLI agent
 ```
 
-## Key conventions
+### Kotlin Unit Tests (`app/src/test/java/com/clinref/app/`)
+- `data/MedicalDatabaseToolsTest.kt`: Speculative outline bundling, link parsing, footnote bracket removal, graphic table markdown.
+- `domain/ai/SafetyValidatorTest.kt`: Intent-aware rules, compound slashed units (`5 u/x`, `0.5 mcg/kg/min`), thousand-separator comma normalization (`1,200 mg` vs `1200 mg`).
+- `domain/ai/TurnContextAccumulatorTest.kt`: Tool call deduplication, outline title dash stripping (`-Antiplatelet` -> `Antiplatelet`), ref auto-population.
 
-### Navigation
-Uses **Navigation 3** (`androidx.navigation3`), NOT the older Navigation Compose. Routes are `@Serializable data object/data class` implementing `NavKey`. See `ui/navigation/NavGraph.kt`.
+## Architectural Parity Rules (Kotlin & Python)
+1. **Pure 3-Stage Pipeline**: `searchTopics` / `search_topics` returns candidate topics `[{id, title}]`; `getTopicOutline` / `get_topic_outline` retrieves topic outline (sections, table graphics, `topicType`).
+2. **Intent-Aware Safety Validation**: Non-clinical greetings bypass tool requirements. Answers containing clinical numbers/units (`CLINICAL_QUANTITY_REGEX`) require tool verification; unverified quantities trigger a hard block for self-correction.
+3. **Number & Quantity Normalization**: Range bounds (`5-10 mg`) and thousand separators (`1,200 mg` vs `1200 mg`) are normalized during text verification. Structural numbers (section IDs, years, list steps) are exempted.
+4. **HTML & Link Sanitization**: `javascript:appAction(...)` JSON link payloads convert to `[Text](Topic-ID)` / `[Text](Graphic-ID)`. Footnote citation brackets (`[1]`, `[1, 2]`) are stripped.
 
-### Data layer
-**Raw SQLite** via `SQLiteDatabase.openDatabase()` — NOT Room. `DatabaseManager` opens external `.sqlite`/`.db` files selected by the user at first run. DAOs are plain classes (not Room DAOs). The app expects 6 specific DB files in the user-selected directory.
+## Known Quirks
+- **Koog Duplicate Classes**: `utils-android` must remain excluded in `app/build.gradle.kts` (line 130); `utils-jvm` is used instead.
+- **ProGuard**: Keep rules in `app/proguard-rules.pro` for Koog, Room3, Hilt, serialization, and Compose must not be trimmed.
+- **KMP AGP 9 Setup**: `:shared` uses `com.android.kotlin.multiplatform.library` plugin with `withHostTest { }` inside `kotlin { android { ... } }`. Source sets (`commonMain`, `commonTest`, `androidMain`, `androidUnitTest`) use explicit KMP DSL accessors.
 
-### WebView content
-Content is rendered in WebView. `JsBridge` exposes a `@JavascriptInterface` method (`appAction`) for JS-to-native communication. ProGuard keep rules for JsBridge are in `proguard-rules.pro` — keep them if modifying JsBridge.
-
-### Compose
-- Material3 alpha (`1.5.0-alpha23`) — experimental APIs are common here
-- `ExperimentalMaterial3ExpressiveApi` is used in several composables
-- Compose BOM `2026.06.01`
-- Edge-to-edge is enabled in MainActivity
-
-### Serialization
-`kotlinx.serialization` for route definitions and domain models. ProGuard rules keep `$$serializer` classes and `Companion` members for `com.clinref.app.**`.
-
-## Gotchas
-
-- **No bundled databases.** The app is useless without user-provided SQLite files. `SetupScreen` handles first-run directory selection.
-- **CI only builds release APK** — no test step, no lint step. The only CI verification is `assembleRelease`.
-- **`resolutionStrategy.force`** pins `compose-group-mapping:2.4.0` in `build.gradle.kts` — this is a Compose/Kotlin compatibility fix, don't remove without understanding the version matrix.
-- **`useLegacyPackaging = true`** for JNI libs — needed for native library loading from assets.
-- **`@SuppressLint("SetJavaScriptEnabled")`** is only justified in `HtmlContentWebView` (has JsBridge). Don't add it to other WebViews — `GraphicSheet` explicitly disables JS, and `ContributorsDialog` loads static HTML.

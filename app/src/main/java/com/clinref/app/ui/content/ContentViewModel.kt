@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -124,8 +125,16 @@ class ContentViewModel @Inject constructor(
         """.trimIndent()
     }
 
-    fun loadTopic(topicId: String, addToHistory: Boolean = true) {
+    private val _scrollToSectionId = MutableStateFlow<String?>(null)
+    val scrollToSectionId: StateFlow<String?> = _scrollToSectionId.asStateFlow()
+
+    fun scrollToSection(sectionId: String) {
+        _scrollToSectionId.value = sectionId
+    }
+
+    fun loadTopic(topicId: String, addToHistory: Boolean = true, sectionId: String? = null) {
         currentLoadJob?.cancel()
+        _scrollToSectionId.value = sectionId
         currentLoadJob = viewModelScope.launch {
             _isLoading.value = true
             _error.value = null

@@ -1,10 +1,10 @@
 [versions]
-agp = "9.2.1"
-kotlin = "2.4.0"
-ksp = "2.3.9"
-hilt = "2.60"
+agp = "9.3.0"
+kotlin = "2.4.10"
+ksp = "2.3.10"
+hilt = "2.60.1"
 composeBom = "2026.06.01"
-composeMaterial3 = "1.5.0-alpha23"
+composeMaterial3 = "1.5.0-alpha24"
 coreKtx = "1.19.0"
 lifecycleRuntimeKtx = "2.11.0"
 activityCompose = "1.13.0"
@@ -13,15 +13,23 @@ hiltNavigationCompose = "1.4.0"
 datastorePreferences = "1.2.1"
 webkit = "1.16.0"
 kotlinxSerializationJson = "1.11.0"
-zstdJni = "1.5.7-11"
+koog = "1.1.1"
+room = "3.0.0"
+sqlite = "2.7.0"
+securityCrypto = "1.1.0-alpha06"
+composeRichtext = "1.0.0-alpha05"
+jsoup = "1.23.1"
+kzstd = "0.1.2"
+junit = "4.13.2"
+mockk = "1.13.13"
+coroutinesTest = "1.10.1"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "composeMaterial3" }
-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
-compose-ui = { group = "androidx.compose.ui", name = "ui" }
-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended", version = "1.7.8" }
+compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "composeMaterial3" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview", version.ref = "composeMaterial3" }
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
@@ -32,14 +40,56 @@ lifecycle-viewmodel-navigation3 = { group = "androidx.lifecycle", name = "lifecy
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
 hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
+error-prone-annotations = { group = "com.google.errorprone", name = "error_prone_annotations", version = "2.36.0" }
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
-zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
+
+# Koog AI agents (modular — each feature is a separate artifact)
+koog-agents = { group = "ai.koog", name = "koog-agents", version.ref = "koog" }
+koog-agents-tools = { group = "ai.koog", name = "agents-tools", version.ref = "koog" }
+koog-agents-features-event-handler = { group = "ai.koog", name = "agents-features-event-handler", version.ref = "koog" }
+koog-agents-features-memory = { group = "ai.koog", name = "agents-features-memory", version.ref = "koog" }
+koog-agents-features-trace = { group = "ai.koog", name = "agents-features-trace", version.ref = "koog" }
+koog-prompt-executor-openai-client = { group = "ai.koog", name = "prompt-executor-openai-client", version.ref = "koog" }
+koog-prompt-executor-anthropic-client = { group = "ai.koog", name = "prompt-executor-anthropic-client", version.ref = "koog" }
+koog-prompt-executor-google-client = { group = "ai.koog", name = "prompt-executor-google-client", version = "1.1.1-beta" }
+koog-prompt-executor-mistralai-client = { group = "ai.koog", name = "prompt-executor-mistralai-client", version = "1.1.1-beta" }
+koog-prompt-executor-openrouter-client = { group = "ai.koog", name = "prompt-executor-openrouter-client", version.ref = "koog" }
+koog-prompt-executor-ollama-client = { group = "ai.koog", name = "prompt-executor-ollama-client", version.ref = "koog" }
+koog-prompt-executor-llms-all = { group = "ai.koog", name = "prompt-executor-llms-all", version = "1.1.1-beta" }
+koog-http-client-okhttp = { group = "ai.koog", name = "http-client-okhttp", version.ref = "koog" }
+koog-utils-jvm = { group = "ai.koog", name = "utils-jvm", version.ref = "koog" }
+
+# Room database (3.0)
+room3-runtime = { group = "androidx.room3", name = "room3-runtime-android", version.ref = "room" }
+room3-compiler = { group = "androidx.room3", name = "room3-compiler", version.ref = "room" }
+sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "sqlite" }
+
+# Security
+security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+
+# Markdown in Compose
+compose-richtext-commonmark = { group = "com.halilibo.compose-richtext", name = "richtext-commonmark", version.ref = "composeRichtext" }
+compose-richtext-ui-material3 = { group = "com.halilibo.compose-richtext", name = "richtext-ui-material3", version.ref = "composeRichtext" }
+
+# HTML parsing
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+
+# Zstandard decompression (pure-Kotlin multiplatform codec)
+kzstd = { group = "org.meshtastic", name = "kzstd", version.ref = "kzstd" }
+
+# Testing
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+androidMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+room3 = { id = "androidx.room3", version.ref = "room" }

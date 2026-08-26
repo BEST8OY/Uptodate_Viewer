@@ -1,6 +1,7 @@
 package com.clinref.app.ui.setup
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
@@ -45,8 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-
-private const val DEFAULT_DB_PATH = "/storage/emulated/0/UpToDateDB"
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -60,6 +61,10 @@ fun SetupScreen(
     val context = LocalContext.current
     var navigated by remember { mutableStateOf(false) }
 
+    val defaultDbPath = remember {
+        File(Environment.getExternalStorageDirectory(), "UpToDateDB").absolutePath
+    }
+
     BackHandler { }
 
     val hasStoragePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -72,9 +77,15 @@ fun SetupScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { /* re-check happens on recomposition */ }
 
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.selectDirectoryUri(it) }
+    }
+
     LaunchedEffect(hasStoragePermission, isConfigured) {
         if (hasStoragePermission && !isConfigured && !isValidating) {
-            viewModel.selectDirectory(DEFAULT_DB_PATH)
+            viewModel.selectDirectory(defaultDbPath)
         }
     }
 
@@ -113,7 +124,7 @@ fun SetupScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "This app reads from\n$DEFAULT_DB_PATH",
+                text = "This app reads from\n$defaultDbPath",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -125,7 +136,7 @@ fun SetupScreen(
                 Button(
                     onClick = {
                         val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                            data = android.net.Uri.parse("package:${context.packageName}")
+                            data = Uri.parse("package:${context.packageName}")
                         }
                         manageStorageLauncher.launch(intent)
                     },
@@ -153,16 +164,26 @@ fun SetupScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = { folderPickerLauncher.launch(null) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Select Database Folder")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
-                    onClick = { viewModel.selectDirectory(DEFAULT_DB_PATH) },
+                    onClick = { viewModel.selectDirectory(defaultDbPath) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Retry")
+                    Text("Retry Default Path")
                 }
             }
         }
     }
 }
+

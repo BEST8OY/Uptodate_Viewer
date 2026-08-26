@@ -14,9 +14,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -32,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
@@ -42,45 +45,69 @@ import com.clinref.app.ui.favorites.FavoritesScreen
 import com.clinref.app.ui.history.HistoryScreen
 import com.clinref.app.ui.setup.SetupScreen
 import com.clinref.app.ui.toc.TocScreen
+import com.clinref.app.ui.chat.ChatScreen
+import com.clinref.app.ui.conversations.ConversationListScreen
+import com.clinref.app.ui.settings.AiSettingsScreen
+import com.clinref.app.ui.settings.SettingsViewModel
 import kotlinx.serialization.Serializable
 
+@Serializable
 sealed interface TopLevelRoute : NavKey {
     val title: String
-    val icon: ImageVector
 }
+
+val TopLevelRoute.icon: ImageVector
+    get() = when (this) {
+        TocRoute -> Icons.Default.Home
+        HistoryRoute -> Icons.AutoMirrored.Filled.List
+        FavoritesRoute -> Icons.Default.Favorite
+        AiRoute -> Icons.AutoMirrored.Filled.Chat
+    }
 
 @Serializable
 data object TocRoute : TopLevelRoute {
     override val title = "Contents"
-    override val icon = Icons.Default.Home
 }
 
 @Serializable
 data object HistoryRoute : TopLevelRoute {
     override val title = "History"
-    override val icon = Icons.AutoMirrored.Filled.List
 }
 
 @Serializable
 data object FavoritesRoute : TopLevelRoute {
     override val title = "Favorites"
-    override val icon = Icons.Default.Favorite
 }
 
 @Serializable
-data class ContentRoute(val topicId: String) : NavKey
+data class ContentRoute(val topicId: String, val sectionId: String? = null) : NavKey
+
+@Serializable
+data object AiRoute : TopLevelRoute {
+    override val title = "AI"
+}
+
+@Serializable
+data object AiSettingsRoute : NavKey
+
+@Serializable
+data object ConversationListRoute : NavKey
+
+@Serializable
+data class ChatRoute(val conversationId: String) : NavKey
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
     HistoryRoute,
-    FavoritesRoute
+    FavoritesRoute,
+    AiRoute
 )
 
 @Composable
 fun NavGraph(
     databaseManager: DatabaseManager
 ) {
-    val isConfigured = databaseManager.isConfigured()
+    val isConfigured by databaseManager.isConfiguredFlow.collectAsStateWithLifecycle()
 
     if (!isConfigured) {
         SetupScreen(
@@ -100,7 +127,7 @@ fun NavGraph(
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
             val current = currentBackStack?.lastOrNull()
-            current is ContentRoute
+            current !is TopLevelRoute
         }
     }
 
@@ -146,11 +173,39 @@ fun NavGraph(
         entry<ContentRoute> { key ->
             ContentScreen(
                 topicId = key.topicId,
+                sectionId = key.sectionId,
                 onBack = { navigator.goBack() },
                 onHome = { navigator.navigate(TocRoute) },
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
                 }
+            )
+        }
+        entry<AiRoute> {
+            ConversationListScreen(
+                onConversationSelected = { conversationId ->
+                    navigator.navigate(ChatRoute(conversationId))
+                },
+                onOpenSettings = {
+                    navigator.navigate(AiSettingsRoute)
+                }
+            )
+        }
+        entry<AiSettingsRoute> {
+            AiSettingsScreen(
+                onBack = { navigator.goBack() }
+            )
+        }
+        entry<ChatRoute> { key ->
+            ChatScreen(
+                conversationId = key.conversationId,
+                onNavigateToContent = { topicId, sectionId ->
+                    navigator.navigate(ContentRoute(topicId, sectionId))
+                },
+                onGraphicSelected = { graphicId ->
+                    selectedGraphicId = graphicId
+                },
+                onBack = { navigator.goBack() }
             )
         }
     }
@@ -163,23 +218,36 @@ fun NavGraph(
             onBack = {
                 val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
                 val currentRoute = currentStack?.lastOrNull()
-                if (currentRoute == navigationState.topLevelRoute) {
+                if (currentRoute == navigationState.startRoute) {
                     activity?.finish()
                 } else {
                     navigator.goBack()
                 }
             },
+
             transitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
+                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
+                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
+                } else {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
+                }
             },
             popTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
+                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
+                } else {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                }
             },
             predictivePopTransitionSpec = {
-                slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                    slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
+                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
+                } else {
+                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
+                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
+                }
             },
             modifier = Modifier.fillMaxSize()
         )

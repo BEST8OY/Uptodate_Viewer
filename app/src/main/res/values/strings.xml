@@ -7,4 +7,6 @@
     <string name="favorite_removed">Favorite removed</string>
     <string name="history_deleted">History entry deleted</string>
     <string name="undo">Undo</string>
+    <string name="graphic_load_failed">Failed to load graphic</string>
+    <string name="retry">Retry</string>
 </resources>

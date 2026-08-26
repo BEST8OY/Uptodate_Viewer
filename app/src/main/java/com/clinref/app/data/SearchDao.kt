@@ -22,6 +22,9 @@ class SearchDao @Inject constructor(
     }
 
     fun getSuggestions(query: String): List<String> {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return emptyList()
+
         val unidexAvailable = try {
             dbManager.getUnidexDb()
             true
@@ -29,10 +32,41 @@ class SearchDao @Inject constructor(
             false
         }
 
-        if (unidexAvailable) {
-            return getUnidexSuggestions(query)
+        // Try full query first
+        val fullResults = if (unidexAvailable) {
+            getUnidexSuggestions(trimmed)
+        } else {
+            getQfSuggestions(trimmed)
         }
-        return getQfSuggestions(query)
+        if (fullResults.isNotEmpty()) return fullResults
+
+        val words = trimmed.split("\\s+".toRegex())
+
+        // Try individual words (longest first) — finds core medical terms
+        // e.g., "how to treat diabetes" -> try "diabetes", "treat", "how"
+        for (word in words.sortedByDescending { it.length }) {
+            if (word.length > 3) {
+                val wordResults = if (unidexAvailable) {
+                    getUnidexSuggestions(word)
+                } else {
+                    getQfSuggestions(word)
+                }
+                if (wordResults.isNotEmpty()) return wordResults
+            }
+        }
+
+        // Try progressively shorter word prefixes
+        for (i in words.size - 1 downTo 1) {
+            val prefix = words.subList(0, i).joinToString(" ")
+            val prefixResults = if (unidexAvailable) {
+                getUnidexSuggestions(prefix)
+            } else {
+                getQfSuggestions(prefix)
+            }
+            if (prefixResults.isNotEmpty()) return prefixResults
+        }
+
+        return emptyList()
     }
 
     private fun getUnidexSuggestions(query: String): List<String> {
@@ -96,12 +130,23 @@ class SearchDao @Inject constructor(
 
     fun searchTopics(query: String, preference: String = "X"): List<Map<String, String>> {
         val primaryResults = searchUnidex(query, preference)
-        if (primaryResults.isNotEmpty()) return primaryResults
+        if (primaryResults.isNotEmpty()) {
+            val filtered = primaryResults.filter { hasTopicAsset(it["topic_id"] ?: "") }
+            if (filtered.isNotEmpty()) return filtered
+        }
 
-        val fcontentResults = searchFts(dbManager.getFcontentsearchDb(), query)
-        if (fcontentResults.isNotEmpty()) return fcontentResults
+        // If query has special chars, strip them and retry unidex
+        val cleaned = query.replace(Regex("[^a-zA-Z0-9 ]"), "").lowercase().trim()
+        if (cleaned.isNotEmpty() && cleaned != query) {
+            val cleanedResults = searchUnidex(cleaned, preference)
+            if (cleanedResults.isNotEmpty()) {
+                val filtered = cleanedResults.filter { hasTopicAsset(it["topic_id"] ?: "") }
+                if (filtered.isNotEmpty()) return filtered
+            }
+        }
 
-        return searchFts(dbManager.getFsearchDb(), query)
+        // No FTS fallback — return empty, LLM will use suggestions
+        return emptyList()
     }
 
     private fun searchUnidex(query: String, preference: String): List<Map<String, String>> {
@@ -226,4 +271,20 @@ class SearchDao @Inject constructor(
             }
         }
     }
+
+    private fun hasTopicAsset(topicId: String): Boolean {
+        if (topicId.isEmpty()) return false
+        val numericId = topicId.removePrefix("topic-")
+        return try {
+            val db = dbManager.getAssetsDb()
+            val cursor = db.rawQuery(
+                "SELECT 1 FROM topic_asset WHERE id = ? LIMIT 1",
+                arrayOf(numericId)
+            )
+            cursor.use { it.moveToFirst() }
+        } catch (_: Exception) {
+            false
+        }
+    }
 }
+

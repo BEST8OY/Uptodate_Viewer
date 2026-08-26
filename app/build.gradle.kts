@@ -1,9 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.compose.compiler)
 }
 
 android {
@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "com.clinref.app"
-        minSdk = 31
+        minSdk = 35
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"
@@ -46,28 +46,29 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-}
 
-kotlin {
-    compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-    }
-}
-
-configurations.all {
-    resolutionStrategy {
-        force("org.jetbrains.kotlin:compose-group-mapping:2.4.0")
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
     }
 }
 
 dependencies {
-    // Compose
+    implementation(project(":shared"))
+
+    // Hilt
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.hilt.navigation.compose)
+    compileOnly(libs.error.prone.annotations)
+
+    // Compose BOM
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
-    debugImplementation(libs.compose.ui.tooling)
 
     // Core
     implementation(libs.core.ktx)
@@ -80,12 +81,6 @@ dependencies {
     implementation(libs.navigation3.ui)
     implementation(libs.lifecycle.viewmodel.navigation3)
 
-    // Hilt
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    implementation(libs.hilt.navigation.compose)
-    implementation("com.google.errorprone:error_prone_annotations:2.50.0")
-
     // DataStore
     implementation(libs.datastore.preferences)
 
@@ -94,4 +89,52 @@ dependencies {
 
     // JSON
     implementation(libs.kotlinx.serialization.json)
+
+    // Koog AI agents
+    implementation(libs.koog.agents)
+    implementation(libs.koog.agents.tools)
+    implementation(libs.koog.agents.features.event.handler)
+    implementation(libs.koog.agents.features.memory)
+    implementation(libs.koog.agents.features.trace)
+    implementation(libs.koog.prompt.executor.openai.client)
+    implementation(libs.koog.prompt.executor.anthropic.client)
+    implementation(libs.koog.prompt.executor.google.client)
+    implementation(libs.koog.prompt.executor.mistralai.client)
+    implementation(libs.koog.prompt.executor.openrouter.client)
+    implementation(libs.koog.prompt.executor.ollama.client)
+    implementation(libs.koog.prompt.executor.llms.all)
+    implementation(libs.koog.http.client.okhttp)
+    implementation(libs.koog.utils.jvm)
+
+    // Room database (3.0)
+    implementation(libs.room3.runtime)
+    ksp(libs.room3.compiler)
+    implementation(libs.sqlite.bundled)
+
+    // Security (encrypted key storage)
+    implementation(libs.security.crypto)
+
+    // Markdown rendering in Compose
+    implementation(libs.compose.richtext.commonmark)
+    implementation(libs.compose.richtext.ui.material3)
+
+    // HTML parsing
+    implementation(libs.jsoup)
+
+    // Zstandard payload decompression
+    implementation(libs.kzstd)
+
+    // Testing
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.coroutines.test)
+    testImplementation(libs.kotlinx.serialization.json)
+}
+
+// Koog utils-jvm has Coroutines_jvmKt which http-client-okhttp references.
+// utils-android has Coroutines_androidKt instead — they're platform-specific, not duplicates.
+// But base classes (CloseableKt, StringExtensionsKt, etc.) are identical in both,
+// causing duplicate class errors. Must use utils-jvm and exclude utils-android.
+configurations.configureEach {
+    exclude(group = "ai.koog", module = "utils-android")
 }

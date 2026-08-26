@@ -1,12 +1,8 @@
 package com.clinref.app.ui.toc
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,29 +14,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.AppBarWithSearch
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExpandedFullScreenContainedSearchBar
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarValue
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberContainedSearchBarState
 import androidx.compose.runtime.Composable
@@ -56,21 +48,17 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.clinref.app.domain.Audience
-import com.clinref.app.domain.SearchResult
 import com.clinref.app.domain.TocItem
+import com.clinref.app.ui.search.SearchResultsContent
 import com.clinref.app.ui.search.SearchViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, ExperimentalLayoutApi::class, FlowPreview::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, FlowPreview::class)
 @Composable
 fun TocScreen(
     onTopicSelected: (String) -> Unit,
@@ -238,120 +226,16 @@ fun TocScreen(
         }
     ) { padding ->
         if (isShowingResults) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
-                item {
-                    FlowRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Audience.entries.forEach { audience ->
-                            FilterChip(
-                                selected = selectedAudience == audience,
-                                onClick = { searchViewModel.onAudienceChanged(audience) },
-                                label = { Text(audience.label) }
-                            )
-                        }
-                    }
-                }
-
-                if (searchError != null) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.ErrorOutline,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = searchError ?: "",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (searchResults.isEmpty() && searchError == null && !isSearchLoading) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.SearchOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "No results found" +
-                                        if (selectedAudience != Audience.ALL) " for ${selectedAudience.label}" else "",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (isSearchLoading) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
-                        }
-                    }
-                }
-
-                if (searchResults.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "${searchResults.size} result${if (searchResults.size != 1) "s" else ""} found",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
-                        )
-                    }
-                    items(searchResults.size) { idx ->
-                        val result = searchResults[idx]
-                        SegmentedListItem(
-                            onClick = {
-                                when (result) {
-                                    is SearchResult.Topic -> onTopicSelected(result.topicId)
-                                    is SearchResult.Graphic -> onGraphicSelected(result.graphicId)
-                                }
-                            },
-                            shapes = ListItemDefaults.segmentedShapes(index = idx, count = searchResults.size),
-                            content = { Text(result.title) }
-                        )
-                    }
-                }
-            }
+            SearchResultsContent(
+                searchResults = searchResults,
+                selectedAudience = selectedAudience,
+                isSearchLoading = isSearchLoading,
+                searchError = searchError,
+                onAudienceChanged = searchViewModel::onAudienceChanged,
+                onTopicSelected = onTopicSelected,
+                onGraphicSelected = onGraphicSelected,
+                modifier = Modifier.padding(padding)
+            )
         } else if (!expanded) {
             when {
                 isLoading -> {
@@ -446,62 +330,4 @@ fun TocScreen(
             }
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-fun TocItemRow(
-    item: TocItem,
-    level: Int,
-    index: Int,
-    totalCount: Int,
-    isExpanded: Boolean,
-    onTopicSelected: (String) -> Unit,
-    onGraphicSelected: (String) -> Unit,
-    onLoadChildren: (String) -> Unit,
-    onToggleExpand: (String) -> Unit,
-    onResolveTopicId: (String) -> String? = { null },
-    modifier: Modifier = Modifier
-) {
-    SegmentedListItem(
-        onClick = {
-            if (item.isLeaf) {
-                if (item.type == "GRAPHIC") {
-                    onGraphicSelected(item.id)
-                } else {
-                    val topicId = onResolveTopicId(item.id) ?: item.id
-                    onTopicSelected(topicId)
-                }
-            } else {
-                if (item.childrenInfo == null) {
-                    onLoadChildren(item.id)
-                }
-                onToggleExpand(item.id)
-            }
-        },
-        shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
-        modifier = modifier
-            .padding(start = (16 + level * 24).dp)
-            .semantics(mergeDescendants = true) {
-                if (!item.isLeaf) {
-                    val expandDesc = if (isExpanded) "Collapse" else "Expand"
-                    contentDescription = "${item.title}, $expandDesc"
-                }
-            },
-        leadingContent = {
-            if (!item.isLeaf) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        },
-        content = {
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.bodyLarge
-            )
-        }
-    )
 }

@@ -1,0 +1,103 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'app/src/**'
+      - 'shared/src/**'
+      - 'gradle/**'
+      - 'app/build.gradle.kts'
+      - 'shared/build.gradle.kts'
+      - '.github/workflows/unit-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'app/src/**'
+      - 'shared/src/**'
+      - 'gradle/**'
+      - 'app/build.gradle.kts'
+      - 'shared/build.gradle.kts'
+  workflow_dispatch:
+    inputs:
+      run_jvm_tests:
+        description: 'Run Kotlin JVM Unit Tests (testDebugUnitTest)'
+        type: boolean
+        required: true
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '21'
+  JAVA_DISTRIBUTION: 'temurin'
+
+jobs:
+  jvm-unit-tests:
+    name: Kotlin JVM Unit Tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_jvm_tests }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v5
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: true
+          add-job-summary: on-failure
+          cache-cleanup: on-success
+
+
+      - name: Run JVM unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Upload JVM test results
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: jvm-test-results-${{ github.sha }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
+
+      - name: Show failed test details
+        if: failure()
+        run: |
+          echo "### Failed JVM Test Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            if [ -f "$f" ]; then
+              echo "<details>" >> $GITHUB_STEP_SUMMARY
+              echo "<summary>$(basename $f .xml)</summary>" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo '```xml' >> $GITHUB_STEP_SUMMARY
+              cat "$f" | grep -A10 'failure\|error' | head -50 >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "</details>" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "### Kotlin JVM Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+

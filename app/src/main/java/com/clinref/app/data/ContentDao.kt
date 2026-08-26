@@ -1,6 +1,6 @@
 package com.clinref.app.data
 
-import com.clinref.app.util.GzipUtil
+import com.clinref.app.util.ZstdUtil
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -24,7 +24,6 @@ class ContentDao @Inject constructor(
 
     fun getTopicContent(topicId: String): TopicContent? {
         return loadFromAssets(topicId)
-            ?: loadFromFcontentsearch(topicId)
             ?: TopicContent(bodyHtml = "<h1>Content not found</h1><p>Could not retrieve content for this topic.</p>")
     }
 
@@ -43,7 +42,7 @@ class ContentDao @Inject constructor(
         return db.rawQuery("SELECT payload FROM topic_asset WHERE id = ?", arrayOf(numericId.toString())).use { cursor ->
             if (!cursor.moveToFirst()) return null
 
-            val payloadStr = GzipUtil.decodePayload(cursor.getBlob(0))
+            val payloadStr = ZstdUtil.decodePayload(cursor.getBlob(0))
             val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
 
             TopicContent(
@@ -51,22 +50,6 @@ class ContentDao @Inject constructor(
                 outlineHtml = jsonObj.string("outlineHtml"),
                 contributors = jsonObj.contributors("contributors")
             )
-        }
-    }
-
-    private fun loadFromFcontentsearch(topicId: String): TopicContent? {
-        val db = dbManager.getFcontentsearchDb()
-
-        val result = queryFcontentsearch(db, "topic-$topicId")
-            ?: queryFcontentsearch(db, topicId)
-            ?: return null
-
-        return TopicContent(bodyHtml = result)
-    }
-
-    private fun queryFcontentsearch(db: android.database.sqlite.SQLiteDatabase, url: String): String? {
-        return db.rawQuery("SELECT Text FROM search WHERE URL = ?", arrayOf(url)).use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
         }
     }
 
