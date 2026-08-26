@@ -19,6 +19,7 @@ sqlite = "2.7.0"
 securityCrypto = "1.1.0-alpha06"
 composeRichtext = "1.0.0-alpha05"
 jsoup = "1.23.1"
+kzstd = "0.1.2"
 junit = "4.13.2"
 mockk = "1.13.13"
 coroutinesTest = "1.10.1"
@@ -74,6 +75,9 @@ compose-richtext-ui-material3 = { group = "com.halilibo.compose-richtext", name 
 
 # HTML parsing
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+
+# Zstandard decompression (pure-Kotlin multiplatform codec)
+kzstd = { group = "org.meshtastic", name = "kzstd", version.ref = "kzstd" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }

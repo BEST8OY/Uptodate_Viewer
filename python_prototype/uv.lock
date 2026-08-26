@@ -465,6 +465,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pytest" },
     { name = "python-dotenv" },
+    { name = "zstandard" },
 ]
 
 [package.optional-dependencies]
@@ -492,6 +493,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "zstandard", specifier = ">=0.25.0" },
 ]
 provides-extras = ["agent"]
 

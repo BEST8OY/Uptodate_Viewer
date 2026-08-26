@@ -1,6 +1,6 @@
 package com.clinref.app.data
 
-import com.clinref.app.util.GzipUtil
+import com.clinref.app.util.ZstdUtil
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -42,7 +42,7 @@ class ContentDao @Inject constructor(
         return db.rawQuery("SELECT payload FROM topic_asset WHERE id = ?", arrayOf(numericId.toString())).use { cursor ->
             if (!cursor.moveToFirst()) return null
 
-            val payloadStr = GzipUtil.decodePayload(cursor.getBlob(0))
+            val payloadStr = ZstdUtil.decodePayload(cursor.getBlob(0))
             val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
 
             TopicContent(

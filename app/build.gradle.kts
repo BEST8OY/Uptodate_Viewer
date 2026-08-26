@@ -121,6 +121,9 @@ dependencies {
     // HTML parsing
     implementation(libs.jsoup)
 
+    // Zstandard payload decompression
+    implementation(libs.kzstd)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

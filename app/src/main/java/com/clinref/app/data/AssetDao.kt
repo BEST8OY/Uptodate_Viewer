@@ -1,7 +1,6 @@
 package com.clinref.app.data
 
-import android.graphics.BitmapFactory
-import com.clinref.app.util.GzipUtil
+import com.clinref.app.util.ZstdUtil
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -21,23 +20,6 @@ class AssetDao @Inject constructor(
         val base64Image: String? = null
     )
 
-    fun getGraphic(graphicId: String): android.graphics.Bitmap? {
-        val db = dbManager.getAssetsDb()
-        val cursor = db.rawQuery(
-            "SELECT payload FROM other_asset WHERE id = ?",
-            arrayOf("RESOURCE/graphic-$graphicId.jpg")
-        )
-
-        return cursor.use {
-            if (it.moveToFirst()) {
-                val payload = it.getBlob(0)
-                BitmapFactory.decodeByteArray(payload, 0, payload.size)
-            } else {
-                null
-            }
-        }
-    }
-
     fun getGraphicJson(graphicId: String): Map<String, Any?>? {
         val db = dbManager.getAssetsDb()
         val cursor = db.rawQuery(
@@ -48,7 +30,7 @@ class AssetDao @Inject constructor(
         return cursor.use {
             if (it.moveToFirst()) {
                 val payload = it.getBlob(0)
-                val payloadStr = GzipUtil.decodePayload(payload)
+                val payloadStr = ZstdUtil.decodePayload(payload)
 
                 try {
                     val decoded = json.decodeFromString<GraphicPayload>(payloadStr)
@@ -75,7 +57,7 @@ class AssetDao @Inject constructor(
         return cursor.use {
             if (it.moveToFirst()) {
                 val payload = it.getBlob(0)
-                val payloadStr = GzipUtil.decodePayload(payload)
+                val payloadStr = ZstdUtil.decodePayload(payload)
                 try {
                     val element = json.parseToJsonElement(payloadStr)
                     val graphicInfo = element.jsonObject["graphicInfo"]?.jsonObject

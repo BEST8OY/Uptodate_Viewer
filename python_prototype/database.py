@@ -6,15 +6,18 @@ Connects to the same SQLite databases used by the Android app:
 - utdasset.sqlite: Compressed topic/graphic assets (bodyHtml, outlineHtml)
 """
 
-import gzip
 import json
 import re
 import sqlite3
 from pathlib import Path
 from typing import Optional
 
+import zstandard
+
 # Default paths — override via environment or constructor
 _DB_DIR = Path(__file__).parent.parent
+
+_ZSTD_DECOMPRESSOR = zstandard.ZstdDecompressor()
 
 
 class ClinRefDatabase:
@@ -295,9 +298,9 @@ class ClinRefDatabase:
         if not row or not row["payload"]:
             return None
         try:
-            decompressed = gzip.decompress(row["payload"])
+            decompressed = _ZSTD_DECOMPRESSOR.decompressobj().decompress(row["payload"])
             return json.loads(decompressed)
-        except (gzip.BadGzipFile, json.JSONDecodeError):
+        except (zstandard.ZstdError, json.JSONDecodeError):
             return None
 
     def get_graphic_asset(self, graphic_id: str) -> Optional[dict]:
@@ -308,9 +311,9 @@ class ClinRefDatabase:
         if not row or not row["payload"]:
             return None
         try:
-            decompressed = gzip.decompress(row["payload"])
+            decompressed = _ZSTD_DECOMPRESSOR.decompressobj().decompress(row["payload"])
             return json.loads(decompressed)
-        except (gzip.BadGzipFile, json.JSONDecodeError):
+        except (zstandard.ZstdError, json.JSONDecodeError):
             return None
 
     def get_topic_title(self, topic_id: str) -> Optional[str]:
