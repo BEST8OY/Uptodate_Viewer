@@ -74,7 +74,6 @@ fun GraphicSheet(
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
     var sheetLoading by remember(graphicId) { mutableStateOf(true) }
     var webViewError by remember(graphicId) { mutableStateOf(false) }
 
@@ -140,81 +139,106 @@ fun GraphicSheet(
                     val fullHtml = remember(state.data, graphicCss) {
                         buildGraphicHtml(state.data, graphicCss)
                     }
-                    var loadedHtml by remember(graphicId) { mutableStateOf<String?>(null) }
 
-                    Box(
+                    GraphicWebViewContent(
+                        graphicId = graphicId,
+                        fullHtml = fullHtml,
+                        sheetLoading = sheetLoading,
+                        onPageFinished = { sheetLoading = false },
+                        onPageError = {
+                            sheetLoading = false
+                            webViewError = true
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
-                            .semantics { contentDescription = "Graphic: $graphicId" },
-                    ) {
-                        AndroidView(
-                            factory = { ctx ->
-                                WebView(ctx).apply {
-                                    webViewClient = object : WebViewClient() {
-                                        override fun onPageFinished(view: WebView?, url: String?) {
-                                            sheetLoading = false
-                                        }
+                            .weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
 
-                                        override fun onReceivedError(
-                                            view: WebView?,
-                                            request: WebResourceRequest?,
-                                            error: WebResourceError?,
-                                        ) {
-                                            if (request?.isForMainFrame == true) {
-                                                sheetLoading = false
-                                                webViewError = true
-                                            }
-                                        }
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun GraphicWebViewContent(
+    graphicId: String,
+    fullHtml: String,
+    sheetLoading: Boolean,
+    onPageFinished: () -> Unit,
+    onPageError: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var loadedHtml by remember(graphicId) { mutableStateOf<String?>(null) }
 
-                                        override fun shouldOverrideUrlLoading(
-                                            view: WebView?,
-                                            request: WebResourceRequest?,
-                                        ): Boolean {
-                                            val url = request?.url?.toString() ?: return false
-                                            if (url.startsWith("http://") || url.startsWith("https://")) {
-                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                                return true
-                                            }
-                                            return false
-                                        }
-                                    }
-                                    with(settings) {
-                                        javaScriptEnabled = false
-                                        allowFileAccess = false
-                                        setSupportZoom(true)
-                                        builtInZoomControls = true
-                                        displayZoomControls = false
-                                    }
-                                }
-                            },
-                            update = { webView ->
-                                if (loadedHtml != fullHtml) {
-                                    loadedHtml = fullHtml
-                                    webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
-                                }
-                            },
-                            onRelease = { webView -> webView.destroy() },
-                            modifier = Modifier.fillMaxSize(),
-                        )
+    Box(
+        modifier = modifier.semantics {
+            contentDescription = "Graphic: $graphicId"
+        },
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            onPageFinished()
+                        }
 
-                        AnimatedVisibility(
-                            visible = sheetLoading,
-                            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                            modifier = Modifier.fillMaxSize(),
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?,
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.surface),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
+                            if (request?.isForMainFrame == true) {
+                                onPageError()
                             }
                         }
+
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): Boolean {
+                            val url = request?.url?.toString() ?: return false
+                            if (url.startsWith("http://") || url.startsWith("https://")) {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    with(settings) {
+                        javaScriptEnabled = false
+                        allowFileAccess = false
+                        setSupportZoom(true)
+                        builtInZoomControls = true
+                        displayZoomControls = false
                     }
                 }
+            },
+            update = { webView ->
+                if (loadedHtml != fullHtml) {
+                    loadedHtml = fullHtml
+                    webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)
+                }
+            },
+            onRelease = { webView -> webView.destroy() },
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        AnimatedVisibility(
+            visible = sheetLoading,
+            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center,
+            ) {
+                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
             }
         }
     }
