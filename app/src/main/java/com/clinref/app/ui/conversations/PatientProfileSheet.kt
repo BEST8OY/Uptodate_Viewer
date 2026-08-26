@@ -2,32 +2,21 @@ package com.clinref.app.ui.conversations
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -44,7 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PatientProfileSheet(
     onDismiss: () -> Unit,
@@ -205,60 +194,6 @@ fun PatientProfileSheet(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Start Conversation")
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ChipInputSection(
-    label: String,
-    placeholder: String,
-    state: TextFieldState,
-    items: List<String>,
-    onAdd: () -> Unit,
-    onRemove: (String) -> Unit
-) {
-    Column {
-        Text(label, style = MaterialTheme.typography.titleMedium)
-        Row(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                state = state,
-                placeholder = { Text(placeholder) },
-                modifier = Modifier.weight(1f),
-                lineLimits = TextFieldLineLimits.SingleLine
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = onAdd) {
-                Icon(Icons.Default.Add, contentDescription = "Add $label")
-            }
-        }
-        if (items.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items.forEach { item ->
-                    FilterChip(
-                        selected = true,
-                        onClick = { },
-                        label = { Text(item) },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = { onRemove(item) },
-                                modifier = Modifier.height(18.dp).width(18.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Remove $item",
-                                    modifier = Modifier.height(14.dp)
-                                )
-                            }
-                        }
-                    )
-                }
             }
         }
     }
