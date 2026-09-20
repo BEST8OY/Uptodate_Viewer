@@ -65,7 +65,7 @@ import com.clinref.app.ui.settings.SettingsViewModel
 import kotlinx.serialization.Serializable
 
 @Serializable
-sealed interface TopLevelRoute : NavKey {
+sealed interface TopLevelRoute : NavKey, java.io.Serializable {
     val title: String
 }
 
@@ -99,7 +99,7 @@ data object FavoritesRoute : TopLevelRoute {
 }
 
 @Serializable
-data class ContentRoute(val topicId: String, val sectionId: String? = null) : NavKey
+data class ContentRoute(val topicId: String, val sectionId: String? = null) : NavKey, java.io.Serializable
 
 @Serializable
 data object AiRoute : TopLevelRoute {
@@ -107,13 +107,13 @@ data object AiRoute : TopLevelRoute {
 }
 
 @Serializable
-data object AiSettingsRoute : NavKey
+data object AiSettingsRoute : NavKey, java.io.Serializable
 
 @Serializable
-data object ConversationListRoute : NavKey
+data object ConversationListRoute : NavKey, java.io.Serializable
 
 @Serializable
-data class ChatRoute(val conversationId: String) : NavKey
+data class ChatRoute(val conversationId: String) : NavKey, java.io.Serializable
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
@@ -162,7 +162,6 @@ fun NavGraph(
 
     val entryProvider = entryProvider {
         entry<TocRoute>(
-            clazzContentKey = { it },
             metadata = metadata { put(RouteMetadataKey, TocRoute) }
         ) {
             TocScreen(
@@ -176,7 +175,6 @@ fun NavGraph(
             )
         }
         entry<HistoryRoute>(
-            clazzContentKey = { it },
             metadata = metadata { put(RouteMetadataKey, HistoryRoute) }
         ) {
             HistoryScreen(
@@ -192,7 +190,6 @@ fun NavGraph(
             )
         }
         entry<FavoritesRoute>(
-            clazzContentKey = { it },
             metadata = metadata { put(RouteMetadataKey, FavoritesRoute) }
         ) {
             FavoritesScreen(
@@ -208,7 +205,6 @@ fun NavGraph(
             )
         }
         entry<ContentRoute>(
-            clazzContentKey = { it },
             metadata = { key -> metadata { put(RouteMetadataKey, key) } }
         ) { key ->
             ContentScreen(
@@ -222,7 +218,6 @@ fun NavGraph(
             )
         }
         entry<AiRoute>(
-            clazzContentKey = { it },
             metadata = metadata { put(RouteMetadataKey, AiRoute) }
         ) {
             ConversationListScreen(
@@ -236,7 +231,6 @@ fun NavGraph(
             )
         }
         entry<AiSettingsRoute>(
-            clazzContentKey = { it },
             metadata = metadata { put(RouteMetadataKey, AiSettingsRoute) }
         ) {
             AiSettingsScreen(
@@ -244,7 +238,6 @@ fun NavGraph(
             )
         }
         entry<ChatRoute>(
-            clazzContentKey = { it },
             metadata = { key -> metadata { put(RouteMetadataKey, key) } }
         ) { key ->
             ChatScreen(
