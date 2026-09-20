@@ -24,9 +24,9 @@ class SafeKoogHttpClientFactory(
         baseUrl: String,
         headers: Map<String, String>,
         queryParameters: Map<String, String>,
-        callTimeout: Long,
-        connectTimeout: Long,
-        readTimeout: Long,
+        requestTimeoutMillis: Long,
+        connectTimeoutMillis: Long,
+        socketTimeoutMillis: Long,
         json: Json
     ): KoogHttpClient {
         val mergedHeaders = if (headers.keys.any { it.equals("Content-Type", ignoreCase = true) }) {
@@ -36,14 +36,14 @@ class SafeKoogHttpClientFactory(
         }
 
         val client = delegate.create(
-            clientName,
-            baseUrl,
-            mergedHeaders,
-            queryParameters,
-            callTimeout,
-            connectTimeout,
-            readTimeout,
-            json
+            clientName = clientName,
+            baseUrl = baseUrl,
+            headers = mergedHeaders,
+            queryParameters = queryParameters,
+            requestTimeoutMillis = requestTimeoutMillis,
+            connectTimeoutMillis = connectTimeoutMillis,
+            socketTimeoutMillis = socketTimeoutMillis,
+            json = json
         )
         return SafeKoogHttpClient(client)
     }
@@ -68,36 +68,36 @@ class SafeKoogHttpClientFactory(
 
         override suspend fun <T : Any, R : Any> post(
             path: String,
-            body: T,
-            bodyType: KClass<T>,
+            requestBody: T,
+            requestBodyType: KClass<T>,
             responseType: KClass<R>,
             parameters: Map<String, String>,
             headers: Map<String, String>
         ): R {
-            val withContentType = ensureJsonContentType(headers, body)
+            val withContentType = ensureJsonContentType(headers, requestBody)
             val fixedHeaders = if (withContentType.keys.any { it.equals("Accept", ignoreCase = true) }) {
                 withContentType
             } else {
                 withContentType + ("Accept" to "application/json")
             }
-            return delegate.post(path, body, bodyType, responseType, parameters, fixedHeaders)
+            return delegate.post(path, requestBody, requestBodyType, responseType, parameters, fixedHeaders)
         }
 
         override fun <T : Any, R : Any, O : Any> sse(
             path: String,
-            body: T,
-            bodyType: KClass<T>,
-            dataFilter: (String) -> Boolean,
+            requestBody: T,
+            requestBodyType: KClass<T>,
+            dataFilter: (String?) -> Boolean,
             decodeStreamingResponse: (String) -> R,
-            processStreamingChunk: (R) -> O,
+            processStreamingChunk: (R) -> O?,
             parameters: Map<String, String>,
             headers: Map<String, String>
         ): Flow<O> {
-            val fixedHeaders = ensureJsonContentType(headers, body)
+            val fixedHeaders = ensureJsonContentType(headers, requestBody)
             return delegate.sse(
                 path,
-                body,
-                bodyType,
+                requestBody,
+                requestBodyType,
                 dataFilter,
                 decodeStreamingResponse,
                 processStreamingChunk,
@@ -108,13 +108,13 @@ class SafeKoogHttpClientFactory(
 
         override fun <T : Any> lines(
             path: String,
-            body: T,
-            bodyType: KClass<T>,
+            requestBody: T,
+            requestBodyType: KClass<T>,
             parameters: Map<String, String>,
             headers: Map<String, String>
         ): Flow<String> {
-            val fixedHeaders = ensureJsonContentType(headers, body)
-            return delegate.lines(path, body, bodyType, parameters, fixedHeaders)
+            val fixedHeaders = ensureJsonContentType(headers, requestBody)
+            return delegate.lines(path, requestBody, requestBodyType, parameters, fixedHeaders)
         }
 
         private fun ensureJsonContentType(headers: Map<String, String>, body: Any?): Map<String, String> {
