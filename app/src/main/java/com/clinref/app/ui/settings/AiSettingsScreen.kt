@@ -159,7 +159,8 @@ fun AiSettingsScreen(
 
                     // Base URL for custom endpoints
                     if (configuration.provider == AiProvider.OLLAMA ||
-                        configuration.provider == AiProvider.OPENROUTER
+                        configuration.provider == AiProvider.OPENROUTER ||
+                        configuration.provider == AiProvider.MISTRAL
                     ) {
                         OutlinedTextField(
                             value = configuration.baseUrl,
@@ -167,8 +168,11 @@ fun AiSettingsScreen(
                             label = { Text("Base Gateway URL") },
                             placeholder = {
                                 Text(
-                                    if (configuration.provider == AiProvider.OLLAMA) "http://localhost:11434"
-                                    else "https://openrouter.ai/api/v1"
+                                    when (configuration.provider) {
+                                        AiProvider.OLLAMA -> "http://localhost:11434"
+                                        AiProvider.MISTRAL -> "https://api.mistral.ai/v1"
+                                        else -> "https://openrouter.ai/api/v1"
+                                    }
                                 )
                             },
                             shape = RoundedCornerShape(16.dp),

@@ -99,7 +99,6 @@ dependencies {
     implementation(libs.koog.prompt.executor.openai.client)
     implementation(libs.koog.prompt.executor.anthropic.client)
     implementation(libs.koog.prompt.executor.google.client)
-    implementation(libs.koog.prompt.executor.mistralai.client)
     implementation(libs.koog.prompt.executor.openrouter.client)
     implementation(libs.koog.prompt.executor.ollama.client)
     implementation(libs.koog.http.client.okhttp)

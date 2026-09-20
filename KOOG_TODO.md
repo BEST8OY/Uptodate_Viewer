@@ -50,9 +50,10 @@ This document records the comprehensive architectural reengineering of the JetBr
 
 ### C. Decoupled Provider Clients & Lean Dependencies
 - **Removal of Umbrella Dependency**: Completely dropped `ai.koog:prompt-executor-llms-all` from [gradle/libs.versions.toml](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/gradle/libs.versions.toml) and [app/build.gradle.kts](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/app/build.gradle.kts).
-- **Decoupled Ollama & Anthropic**:
-  - [OllamaProvider.kt](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/app/src/main/java/com/clinref/app/domain/ai/providers/OllamaProvider.kt): Direct native `OpenAILLMClient` with `OpenAIClientSettings(baseUrl = .../v1)` and `SingleLLMPromptExecutor`.
+- **Decoupled Ollama, Anthropic & Mistral**:
+  - [OllamaProvider.kt](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/app/src/main/java/com/clinref/app/domain/ai/providers/OllamaProvider.kt): Direct native `OpenAILLMClient` with `OpenAIClientSettings(baseUrl = .../v1)` and `MultiLLMPromptExecutor`.
   - [AnthropicProvider.kt](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/app/src/main/java/com/clinref/app/domain/ai/providers/AnthropicProvider.kt): Direct native `AnthropicLLMClient` with `AnthropicClientSettings` and `MultiLLMPromptExecutor`.
+  - [MistralAIProvider.kt](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/app/src/main/java/com/clinref/app/domain/ai/providers/MistralAIProvider.kt): Direct native `OpenAILLMClient` targeting Mistral's OpenAI-compatible endpoint (`https://api.mistral.ai/v1`) with `MultiLLMPromptExecutor`.
 
 ### D. Multi-Tool Concurrency & Streaming
 - [StreamingManager.kt](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/app/src/main/java/com/clinref/app/domain/ai/StreamingManager.kt) tracks concurrent active tool executions via `activeToolCalls`, preventing premature transition to `WaitingForLlm`.

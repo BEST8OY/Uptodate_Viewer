@@ -60,7 +60,12 @@ class OllamaProvider(
             httpClientFactory = httpClientFactory
         )
 
-        return MultiLLMPromptExecutor(client)
+        return MultiLLMPromptExecutor(
+            mapOf(
+                LLMProvider.Ollama to client,
+                LLMProvider.OpenAI to client
+            )
+        )
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {
