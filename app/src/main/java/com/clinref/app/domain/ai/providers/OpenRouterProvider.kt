@@ -1,6 +1,6 @@
 package com.clinref.app.domain.ai.providers
 
-import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.http.client.KoogHttpClient
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterClientSettings
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterLLMClient
 import ai.koog.prompt.executor.clients.openrouter.OpenRouterModels
@@ -22,7 +22,7 @@ import kotlin.math.roundToInt
  * API: https://openrouter.ai/docs
  */
 class OpenRouterProvider(
-    private val httpClientFactory: OkHttpKoogHttpClient.Factory
+    private val httpClientFactory: KoogHttpClient.Factory
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {

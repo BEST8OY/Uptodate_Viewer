@@ -35,7 +35,7 @@ class KoogAgentFactory @Inject constructor(
     private val secureLogger: SecureLogger
 ) {
 
-    private val httpClientFactory = OkHttpKoogHttpClient.Factory()
+    private val httpClientFactory: ai.koog.http.client.KoogHttpClient.Factory = SafeKoogHttpClientFactory()
     private val executorCache = java.util.concurrent.ConcurrentHashMap<String, ai.koog.prompt.executor.model.PromptExecutor>()
 
     private val providers: Map<AiProvider, AiProviderFactory> by lazy {

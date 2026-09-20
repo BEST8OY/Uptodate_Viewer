@@ -1,6 +1,6 @@
 package com.clinref.app.domain.ai.providers
 
-import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.http.client.KoogHttpClient
 import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
 import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
 import ai.koog.prompt.executor.clients.openai.OpenAIChatParams
@@ -17,7 +17,7 @@ import com.clinref.app.domain.ai.ProviderSettings
 import kotlin.math.roundToInt
 
 class OpenAIProvider(
-    private val httpClientFactory: OkHttpKoogHttpClient.Factory
+    private val httpClientFactory: KoogHttpClient.Factory
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {

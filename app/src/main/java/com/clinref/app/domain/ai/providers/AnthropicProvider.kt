@@ -1,6 +1,6 @@
 package com.clinref.app.domain.ai.providers
 
-import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.http.client.KoogHttpClient
 import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
 import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
 import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
@@ -22,7 +22,7 @@ import kotlin.math.roundToInt
  * API: https://docs.anthropic.com
  */
 class AnthropicProvider(
-    private val httpClientFactory: OkHttpKoogHttpClient.Factory
+    private val httpClientFactory: KoogHttpClient.Factory
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {
