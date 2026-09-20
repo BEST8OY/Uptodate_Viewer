@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.NavMetadataKey
 import androidx.navigation3.runtime.entryProvider
@@ -65,7 +66,7 @@ import com.clinref.app.ui.settings.SettingsViewModel
 import kotlinx.serialization.Serializable
 
 @Serializable
-sealed interface TopLevelRoute : NavKey, java.io.Serializable {
+sealed interface TopLevelRoute : NavKey {
     val title: String
 }
 
@@ -99,7 +100,7 @@ data object FavoritesRoute : TopLevelRoute {
 }
 
 @Serializable
-data class ContentRoute(val topicId: String, val sectionId: String? = null) : NavKey, java.io.Serializable
+data class ContentRoute(val topicId: String, val sectionId: String? = null) : NavKey
 
 @Serializable
 data object AiRoute : TopLevelRoute {
@@ -107,13 +108,13 @@ data object AiRoute : TopLevelRoute {
 }
 
 @Serializable
-data object AiSettingsRoute : NavKey, java.io.Serializable
+data object AiSettingsRoute : NavKey
 
 @Serializable
-data object ConversationListRoute : NavKey, java.io.Serializable
+data object ConversationListRoute : NavKey
 
 @Serializable
-data class ChatRoute(val conversationId: String) : NavKey, java.io.Serializable
+data class ChatRoute(val conversationId: String) : NavKey
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
@@ -160,7 +161,7 @@ fun NavGraph(
         navigator.navigate(navigationState.startRoute)
     }
 
-    val entryProvider = entryProvider {
+    val entryProvider: (NavKey) -> NavEntry<NavKey> = entryProvider {
         entry<TocRoute>(
             metadata = metadata { put(RouteMetadataKey, TocRoute) }
         ) {
