@@ -220,7 +220,7 @@ class ChatViewModel @Inject constructor(
                                 id = UUID.randomUUID().toString(),
                                 conversationId = conversationId,
                                 role = "assistant",
-                                content = mapErrorToUserMessage(errorState.type, errorState.error),
+                                content = mapErrorToUserMessage(errorState.type, errorState.message),
                                 timestamp = System.currentTimeMillis(),
                                 isError = true
                             )
@@ -238,7 +238,7 @@ class ChatViewModel @Inject constructor(
                                 id = UUID.randomUUID().toString(),
                                 conversationId = conversationId,
                                 role = "assistant",
-                                content = mapErrorToUserMessage(errorState.type, errorState.error),
+                                content = mapErrorToUserMessage(errorState.type, errorState.message),
                                 timestamp = System.currentTimeMillis(),
                                 isError = true
                             )
@@ -318,7 +318,7 @@ class ChatViewModel @Inject constructor(
                     id = UUID.randomUUID().toString(),
                     conversationId = conversationId,
                     role = "assistant",
-                    content = mapErrorToUserMessage(state.type, state.error),
+                    content = mapErrorToUserMessage(state.type, state.message),
                     timestamp = System.currentTimeMillis(),
                     isError = true
                 )
