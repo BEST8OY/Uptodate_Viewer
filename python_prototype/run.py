@@ -197,6 +197,9 @@ def run_interactive(provider: str, model: str, db_path: str):
                             print(f"  Tool -> {preview}")
 
                 elif node_name == "validate_safety":
+                    for msg in messages:
+                        if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                            answer = msg.content
                     val = node_output.get("validation_result")
                     if val:
                         validation_result = val
@@ -208,8 +211,13 @@ def run_interactive(provider: str, model: str, db_path: str):
                             for w in val["warnings"]:
                                 print(f"    Warning: {w}")
 
-        # Append references section to answer
-        answer += _build_references_section(validation_result)
+        if validation_result and not validation_result.get("passed"):
+            blocked_reason = validation_result.get("blocked_reason") or "Output quarantined by safety rules."
+            if not answer.startswith("Clinical Response Verification Blocked:"):
+                answer = f"Clinical Response Verification Blocked: {blocked_reason}"
+        else:
+            # Append references section to answer
+            answer += _build_references_section(validation_result)
 
         # Show final answer
         print(f"\nClinRef: {answer}\n")
@@ -281,14 +289,22 @@ def run_single_query(query: str, provider: str, model: str, db_path: str):
                         print(f"  Tool -> {preview}")
 
             elif node_name == "validate_safety":
+                for msg in messages:
+                    if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                        answer = msg.content
                 val = node_output.get("validation_result")
                 if val:
                     validation_result = val
                     status = "PASSED" if val.get("passed") else "BLOCKED"
                     print(f"  Validation: {status}")
 
-    # Append references section to answer
-    answer += _build_references_section(validation_result)
+    if validation_result and not validation_result.get("passed"):
+        blocked_reason = validation_result.get("blocked_reason") or "Output quarantined by safety rules."
+        if not answer.startswith("Clinical Response Verification Blocked:"):
+            answer = f"Clinical Response Verification Blocked: {blocked_reason}"
+    else:
+        # Append references section to answer
+        answer += _build_references_section(validation_result)
 
     print(f"\n{answer}")
 

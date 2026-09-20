@@ -363,6 +363,13 @@ class TestExtractOutlineSections:
         sections = extract_outline_sections(html)
         assert len(sections) == 0
 
+    def test_strips_legacy_topic_view_hyphen_span(self):
+        html = '<a href="appAction({&quot;section&quot;:&quot;H2&quot;})"><span class="legacyTopicViewHyphen">- </span>Incision and drainage</a>'
+        sections = extract_outline_sections(html)
+        assert len(sections) == 1
+        assert sections[0]["id"] == "H2"
+        assert sections[0]["title"] == "Incision and drainage"
+
 
 class TestExtractRelatedTopics:
     """Tests for extract_related_topics()."""
@@ -427,6 +434,13 @@ class TestExtractGraphicsFromOutline:
         assert graphics[0]["is_table"] is True
         assert graphics[1]["is_table"] is False
         assert graphics[2]["is_table"] is False
+
+    def test_strips_legacy_topic_view_hyphen_span(self):
+        html = '<a href="appAction({&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;,&quot;id&quot;:&quot;12345&quot;})"><span class="legacyTopicViewHyphen">- </span>Diagnosis criteria</a>'
+        graphics = extract_graphics_from_outline(html)
+        assert len(graphics) == 1
+        assert graphics[0]["id"] == "12345"
+        assert graphics[0]["title"] == "Diagnosis criteria"
 
     def test_empty_html(self):
         graphics = extract_graphics_from_outline("")
@@ -967,3 +981,102 @@ class TestAutoPopulateRefs:
         assert len(ctx.structured_topic_refs) == 1
         assert ctx.structured_topic_refs[0].label == "ASPIRIN"
         assert ctx.structured_topic_refs[0].section_id == "H4"
+
+    def test_strips_leading_dashes_from_section_title(self):
+        """Sections with leading dashes should be stripped to clean labels."""
+        from agent import _auto_populate_refs
+        from safety_validator import TurnContext, FetchedSection
+
+        ctx = TurnContext(
+            fetched_sections=[
+                FetchedSection(
+                    topic_id="94",
+                    topic_title="Antiplatelet Therapy",
+                    section_id="H1",
+                    section_title="-Antiplatelet Agents",
+                ),
+                FetchedSection(
+                    topic_id="94",
+                    topic_title="Antiplatelet Therapy",
+                    section_id="H2",
+                    section_title="—Special Considerations",
+                ),
+            ],
+        )
+        _auto_populate_refs(ctx, "{}")
+        assert len(ctx.structured_topic_refs) == 2
+        assert ctx.structured_topic_refs[0].label == "Antiplatelet Agents"
+        assert ctx.structured_topic_refs[1].label == "Special Considerations"
+
+
+class TestSchemaParityAndSafetyBlock:
+    """Verify schema parity with Kotlin responses and in-graph safety blocking."""
+
+    def test_get_topic_outline_includes_canonical_camel_case_keys(self):
+        import tools
+        from unittest.mock import MagicMock
+        mock_db = MagicMock()
+        mock_db.get_topic_outline.return_value = """
+            <ul>
+                <li><a href="#H1">Section 1</a></li>
+                <li><a href="javascript:appAction('graphic', {'subtype': 'graphic_table'})">Table 1</a></li>
+            </ul>
+        """
+        mock_db.get_topic_title.return_value = "Test Topic"
+        tools.init_tools(mock_db)
+
+        outline_str = tools.get_topic_outline.invoke({"topic_id": "123"})
+        data = json.loads(outline_str)
+        assert "topicType" in data
+        assert data["topicType"] == "article"
+        assert "relatedTopics" in data
+        assert "graphics" in data
+        if data["graphics"]:
+            assert data["graphics"][0].get("isTable") is True
+
+    def test_get_related_topics_includes_canonical_camel_case_keys(self):
+        import tools
+        from unittest.mock import MagicMock
+        mock_db = MagicMock()
+        mock_db.get_topic_outline.return_value = "<p>Test</p>"
+        tools.init_tools(mock_db)
+
+        related_str = tools.get_related_topics.invoke({"topic_id": "123"})
+        data = json.loads(related_str)
+        assert "relatedTopics" in data
+        assert "related_topics" in data
+
+    def test_validate_safety_emits_blocked_ai_message_when_retries_exhausted(self):
+        from langchain_core.messages import AIMessage, HumanMessage
+        from agent import create_clinical_agent
+        from safety_validator import TurnContext
+
+        # Test agent graph validation node logic
+        class DummyLLM:
+            def bind_tools(self, tools):
+                return self
+            def invoke(self, messages, config=None):
+                # Return unverified clinical answer with numbers
+                return AIMessage(content="The recommended dose is 50 mg twice daily.")
+
+        dummy_llm = DummyLLM()
+        agent = create_clinical_agent(
+            llm=dummy_llm,
+            tools=[],
+            system_prompt="Test",
+            max_safety_retries=0,  # 0 retries to exhaust immediately
+        )
+        initial_state = {
+            "messages": [HumanMessage(content="What is the dose?")],
+            "system_prompt": "Test",
+            "turn_context": TurnContext(answer="").model_dump(),
+            "user_question": "What is the dose?",
+            "retry_count": 0,
+            "validation_result": None,
+            "tool_rounds": 0,
+        }
+        final_state = agent.invoke(initial_state)
+        last_msg = final_state["messages"][-1]
+        assert isinstance(last_msg, AIMessage)
+        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
+

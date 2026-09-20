@@ -67,7 +67,12 @@ def search_topics(query: str) -> str:
 
     clean_query = query.strip()
     if not clean_query:
-        return json.dumps({"results": [], "refine_with": []})
+        return json.dumps({
+            "query": "",
+            "results": [],
+            "refine_with": [],
+            "message": "",
+        })
 
     results = _db.search_topics(clean_query, limit=10)
     suggestions = _db.get_suggestions(clean_query, limit=20)
@@ -132,22 +137,28 @@ def get_topic_outline(topic_id: str) -> str:
         return json.dumps({
             "topicId": clean_id,
             "title": title,
+            "topicType": "calc",
             "topic_type": "calc",
             "sections": [{"id": "FULL", "title": "Calculator Tool Content"}],
             "graphics": [],
+            "relatedTopics": [],
             "related_topics": [],
         }, indent=2)
 
     sections = extract_outline_sections(outline_html or "")
     graphics = [g for g in extract_graphics_from_outline(outline_html or "") if g.get("is_table")]
+    for g in graphics:
+        g["isTable"] = True
     related = extract_related_topics(outline_html or "")
 
     return json.dumps({
         "topicId": clean_id,
         "title": title,
+        "topicType": "article",
         "topic_type": "article",
         "sections": sections,
         "graphics": graphics,
+        "relatedTopics": related,
         "related_topics": related,
     }, indent=2)
 
@@ -167,6 +178,7 @@ def get_related_topics(topic_id: str) -> str:
         if asset is not None and isinstance(asset, dict):
             return json.dumps({
                 "topicId": clean_id,
+                "relatedTopics": [],
                 "related_topics": [],
             }, indent=2)
         return json.dumps({"error": f"Topic not found: {clean_id}"})
@@ -174,6 +186,7 @@ def get_related_topics(topic_id: str) -> str:
     related = extract_related_topics(outline_html)
     return json.dumps({
         "topicId": clean_id,
+        "relatedTopics": related,
         "related_topics": related,
     }, indent=2)
 

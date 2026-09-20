@@ -199,11 +199,11 @@ def create_clinical_agent(
                     topic_id = outline_data.get("topicId", args.get("topic_id", ""))
                     if topic_id and topic_title:
                         tc.topic_titles[topic_id] = topic_title
-                    # Store full section ID → title map
+                    # Store full section ID → title map (strip leading outline dashes)
                     sections = outline_data.get("sections", [])
                     if topic_id and sections:
                         tc.outline_sections[topic_id] = {
-                            s["id"]: s["title"] for s in sections if s.get("id")
+                            s["id"]: s["title"].lstrip("-–— ") for s in sections if s.get("id")
                         }
                 except (json.JSONDecodeError, AttributeError):
                     pass
@@ -228,7 +228,12 @@ def create_clinical_agent(
                 try:
                     batch_data = json.loads(result_content)
                     topic_title = batch_data.get("topicTitle", "")
-                    section_titles = batch_data.get("sectionTitles", {})
+                    raw_section_titles = batch_data.get("sectionTitles", {})
+                    section_titles = (
+                        {k: v.lstrip("-–— ") for k, v in raw_section_titles.items()}
+                        if isinstance(raw_section_titles, dict)
+                        else {}
+                    )
                     if topic_id and topic_title:
                         tc.topic_titles[topic_id] = topic_title
                     if topic_id and section_titles:
@@ -243,7 +248,7 @@ def create_clinical_agent(
                             topic_id=topic_id,
                             topic_title=tc.topic_titles.get(topic_id, ""),
                             section_id=sid,
-                            section_title=section_map.get(sid, ""),
+                            section_title=section_map.get(sid, "").lstrip("-–— "),
                             content_snippet=result_content[:2000],
                         )
                     )
@@ -328,6 +333,17 @@ def create_clinical_agent(
                 "validation_result": validation.model_dump(),
             }
 
+        # Terminal state: if validation blocked after max retries, emit blocked message (mirrors Kotlin nodeSafetyBlock)
+        if not validation.passed:
+            blocked_msg = AIMessage(
+                content=f"Clinical Response Verification Blocked: {validation.blocked_reason}"
+            )
+            return {
+                "messages": [blocked_msg],
+                "validation_result": validation.model_dump(),
+                "turn_context": tc.model_dump(),
+            }
+
         return {
             "validation_result": validation.model_dump(),
             "turn_context": tc.model_dump(),
@@ -391,7 +407,7 @@ def _auto_populate_refs(tc: TurnContext, result: str) -> None:
             TopicRef(
                 topic_id=sec.topic_id,
                 section_id=sec.section_id,
-                label=sec.section_title,
+                label=sec.section_title.lstrip("-–— "),
                 topic_title=topic_title,
             )
         )

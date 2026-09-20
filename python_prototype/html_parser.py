@@ -22,6 +22,8 @@ def extract_outline_sections(outline_html: str) -> list[dict]:
     Strips leading dashes from sub-section titles (e.g., "-Antiplatelet" -> "Antiplatelet").
     """
     soup = BeautifulSoup(outline_html, "html.parser")
+    for el in soup.find_all(class_="legacyTopicViewHyphen"):
+        el.decompose()
     sections = []
     seen_ids = set()
     for a_tag in soup.find_all("a", href=True):
@@ -58,6 +60,8 @@ def extract_related_topics(outline_html: str) -> list[dict]:
     Skips hrefs containing "section" or "type":"graphic" (matches Kotlin logic).
     """
     soup = BeautifulSoup(outline_html, "html.parser")
+    for el in soup.find_all(class_="legacyTopicViewHyphen"):
+        el.decompose()
     topics = []
     seen_ids = set()
     for a_tag in soup.find_all("a", href=True):
@@ -91,6 +95,8 @@ def extract_graphics_from_outline(outline_html: str) -> list[dict]:
     Returns [{id, type, title, is_table}].
     """
     soup = BeautifulSoup(outline_html, "html.parser")
+    for el in soup.find_all(class_="legacyTopicViewHyphen"):
+        el.decompose()
     graphics = []
     seen_ids = set()
     for a_tag in soup.find_all("a", href=True):
