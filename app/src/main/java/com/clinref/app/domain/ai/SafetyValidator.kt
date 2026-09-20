@@ -1,7 +1,10 @@
 package com.clinref.app.domain.ai
 
+import kotlinx.serialization.Serializable
+
 class SafetyValidator {
 
+    @Serializable
     data class ValidationResult(
         val passed: Boolean,
         val warnings: List<String>,
@@ -10,6 +13,7 @@ class SafetyValidator {
         val blockedReason: String? = null
     )
 
+    @Serializable
     data class ToolCallRecord(
         val toolName: String,
         val arguments: Map<String, String>,
@@ -17,6 +21,7 @@ class SafetyValidator {
         val success: Boolean
     )
 
+    @Serializable
     data class FetchedSection(
         val topicId: String,
         val topicTitle: String,
@@ -25,6 +30,7 @@ class SafetyValidator {
         val contentSnippet: String = ""
     )
 
+    @Serializable
     data class TopicRef(
         val topicId: String,
         val sectionId: String = "",
@@ -32,6 +38,7 @@ class SafetyValidator {
         val topicTitle: String = ""
     )
 
+    @Serializable
     data class GraphicRef(
         val graphicId: String,
         val label: String
