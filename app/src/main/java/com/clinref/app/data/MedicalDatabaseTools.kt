@@ -34,7 +34,11 @@ class MedicalDatabaseTools @Inject constructor(
         submitClinicalAnswerTool
     )
 
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+        encodeDefaults = true
+    }
 
     companion object {
         private val A_TAG_REGEX = Regex(
