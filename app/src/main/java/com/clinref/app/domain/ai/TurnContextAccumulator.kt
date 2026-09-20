@@ -29,6 +29,7 @@ class TurnContextAccumulator {
     private val executedToolCalls = CopyOnWriteArrayList<Pair<String, String>>() // toolName, argsJson
     private val cachedResults = ConcurrentHashMap<String, String>() // argsJson -> result
     private val json = Json { ignoreUnknownKeys = true }
+    private var lastTopicId: String = ""
 
     fun reset() {
         toolCalls.clear()
@@ -45,6 +46,7 @@ class TurnContextAccumulator {
         submittedAnswerText = ""
         structuredTopicRefs = emptyList()
         structuredGraphicRefs = emptyList()
+        lastTopicId = ""
     }
 
     fun setUserQuestion(question: String) {
@@ -59,10 +61,21 @@ class TurnContextAccumulator {
         if (toolCallId.isNotBlank()) {
             pendingToolArgs[toolCallId] = args
         }
+        pendingToolArgs["_last_"] = args
     }
 
-    fun onToolCallCompleted(toolCallId: String, toolName: String, result: String, success: Boolean) {
-        val args = pendingToolArgs.remove(toolCallId) ?: ""
+    fun onToolCallCompleted(
+        toolCallId: String,
+        toolName: String,
+        result: String,
+        success: Boolean,
+        toolArgs: String? = null
+    ) {
+        val args = if (!toolArgs.isNullOrBlank() && toolArgs != "{}") {
+            toolArgs
+        } else {
+            pendingToolArgs.remove(toolCallId) ?: pendingToolArgs.remove("_last_") ?: ""
+        }
 
         // Deduplication: if same tool+args already executed, skip
         val argsKey = args.trim()
@@ -113,15 +126,17 @@ class TurnContextAccumulator {
 
         // Auto-populate refs from fetched sections and graphic IDs
         val autoTopicRefs = if (structuredTopicRefs.isNotEmpty()) structuredTopicRefs else {
-            sectionsWithTitle
-                .filter { it.sectionTitle.isNotEmpty() }
-                .distinctBy { it.sectionId }
-                .map {
-                    val topicTitle = topicTitles[it.topicId] ?: it.topicId
+            val validSections = sectionsWithTitle.filter { it.sectionTitle.isNotEmpty() }
+            val candidateSections = if (validSections.isNotEmpty()) validSections else sectionsWithTitle
+            candidateSections
+                .distinctBy { it.topicId to it.sectionId }
+                .map { sec ->
+                    val topicTitle = topicTitles[sec.topicId] ?: sec.topicTitle.ifEmpty { sec.topicId }
+                    val label = sec.sectionTitle.ifBlank { topicTitle }
                     SafetyValidator.TopicRef(
-                        topicId = it.topicId,
-                        sectionId = it.sectionId,
-                        label = it.sectionTitle,
+                        topicId = sec.topicId,
+                        sectionId = sec.sectionId,
+                        label = label,
                         topicTitle = topicTitle
                     )
                 }
@@ -157,6 +172,7 @@ class TurnContextAccumulator {
         snapshot.graphicTitles.putAll(this.graphicTitles)
         snapshot.topicTitles.putAll(this.topicTitles)
         snapshot.outlineSections.putAll(this.outlineSections)
+        snapshot.lastTopicId = this.lastTopicId
         // Copy tool calls and results as evidence (read-only, won't re-execute)
         snapshot.toolCalls.addAll(this.toolCalls)
         snapshot.toolResults.addAll(this.toolResults)
@@ -249,6 +265,7 @@ class TurnContextAccumulator {
             val obj = element as? JsonObject ?: return
             val topicId = obj["topicId"]?.jsonPrimitive?.content
                 ?: args["topicId"] ?: return
+            lastTopicId = topicId
             val title = obj["title"]?.jsonPrimitive?.content ?: ""
             if (title.isNotEmpty()) {
                 topicTitles[topicId] = title
@@ -269,7 +286,7 @@ class TurnContextAccumulator {
     }
 
     private fun parseBatchSectionResult(args: Map<String, String>, result: String) {
-        val topicId = args["topicId"] ?: ""
+        var topicId = args["topicId"] ?: args["topic_id"] ?: lastTopicId
         val sectionIds = mutableListOf<String>()
 
         val singleSectionId = args["sectionId"] ?: args["section_id"]
@@ -293,31 +310,46 @@ class TurnContextAccumulator {
         }
 
         // Parse structured JSON result from batch tool
-        var sectionMap = outlineSections[topicId] ?: emptyMap()
+        var sectionMap = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
+        var respTopicTitle = ""
         try {
             val element = json.parseToJsonElement(result)
             val obj = element as? JsonObject
             if (obj != null) {
-                val topicTitle = obj["topicTitle"]?.jsonPrimitive?.content ?: ""
-                if (topicId.isNotEmpty() && topicTitle.isNotEmpty()) {
-                    topicTitles[topicId] = topicTitle
+                respTopicTitle = obj["topicTitle"]?.jsonPrimitive?.content ?: ""
+                if (respTopicTitle.isNotEmpty()) {
+                    if (topicId.isEmpty()) {
+                        topicId = topicTitles.entries.firstOrNull { it.value == respTopicTitle }?.key ?: lastTopicId
+                    }
+                    if (topicId.isNotEmpty()) {
+                        topicTitles[topicId] = respTopicTitle
+                        lastTopicId = topicId
+                    }
                 }
                 val sectionTitles = obj["sectionTitles"] as? JsonObject
                 if (sectionTitles != null) {
-                    val existing = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
                     for ((k, v) in sectionTitles) {
                         val titleStr = v.jsonPrimitive.content.trimStart('-', '–', '—')
                         if (titleStr.isNotBlank()) {
-                            existing[k] = titleStr
+                            sectionMap[k] = titleStr
                         }
                     }
                     if (topicId.isNotEmpty()) {
-                        outlineSections[topicId] = existing
+                        outlineSections[topicId] = sectionMap
                     }
-                    sectionMap = existing
                 }
             }
         } catch (e: Exception) { Log.w(TAG, "parseBatchSectionResult: ${e.message}") }
+
+        // Fallback: If sectionIds was empty from args, use all sectionTitles from the result JSON
+        if (sectionIds.isEmpty() && sectionMap.isNotEmpty()) {
+            sectionIds.addAll(sectionMap.keys)
+        }
+        if (sectionIds.isEmpty() && (result.contains("=== Section: FULL ===") || result.contains("=== Calculator:"))) {
+            sectionIds.add("FULL")
+        }
+
+        val finalTopicTitle = topicTitles[topicId] ?: respTopicTitle
 
         for (sectionId in sectionIds) {
             if (sectionId.isNotEmpty()) {
@@ -325,7 +357,7 @@ class TurnContextAccumulator {
                 fetchedSections.add(
                     SafetyValidator.FetchedSection(
                         topicId = topicId,
-                        topicTitle = topicTitles[topicId] ?: "",
+                        topicTitle = finalTopicTitle,
                         sectionId = sectionId,
                         sectionTitle = resolvedTitle,
                         contentSnippet = result.take(2000)

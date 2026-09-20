@@ -68,6 +68,9 @@ fun ChatScreen(
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
     val agentState by viewModel.agentState.collectAsStateWithLifecycle()
     val toolProgress by viewModel.toolProgress.collectAsStateWithLifecycle()
+    val orchestrationSteps by viewModel.orchestrationSteps.collectAsStateWithLifecycle()
+    val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
+    val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
     val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
     val isLoadingOlder by viewModel.isLoadingOlder.collectAsStateWithLifecycle()
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
@@ -105,10 +108,13 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(streamingText) {
-        if (streamingText.isNotEmpty()) {
+    LaunchedEffect(streamingText, orchestrationSteps.size) {
+        if (streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty()) {
             coroutineScope.launch {
-                listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
+                val count = listState.layoutInfo.totalItemsCount
+                if (count > 0) {
+                    listState.animateScrollToItem(count - 1)
+                }
             }
         }
     }
@@ -230,9 +236,13 @@ fun ChatScreen(
                         }
                     }
 
-                    if (toolProgress != null) {
-                        item {
-                            GeminiOrchestrationIndicator(progress = toolProgress!!)
+                    if (isGenerating) {
+                        item(key = "orchestration_card") {
+                            GeminiOrchestrationIndicator(
+                                steps = orchestrationSteps,
+                                currentStatusText = currentStatusText,
+                                liveSources = liveSources
+                            )
                         }
                     }
 
@@ -252,23 +262,6 @@ fun ChatScreen(
                                 onNavigateToContent = onNavigateToContent,
                                 onGraphicSelected = onGraphicSelected
                             )
-                        }
-                    }
-
-                    if (isGenerating && toolProgress == null) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
                         }
                     }
                 }

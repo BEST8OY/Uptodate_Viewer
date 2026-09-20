@@ -381,4 +381,45 @@ class TurnContextAccumulatorTest {
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals(2, ctx.toolCalls.size)
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Blank toolCallId & Direct toolArgs
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `tracks tool call when toolCallId is blank using direct toolArgs`() {
+        accumulator.onToolCallStarting("", "")
+        accumulator.onToolCallCompleted(
+            toolCallId = "",
+            toolName = "getTopicSectionsText",
+            result = """{"topicTitle":"TSH Measurement","sectionTitles":{"H1":"Reference Ranges"},"markdown":"content"}""",
+            success = true,
+            toolArgs = """{"topicId":"123","sectionIds":["H1"]}"""
+        )
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.toolCalls.size)
+        assertEquals(1, ctx.fetchedSections.size)
+        assertEquals("TSH Measurement", ctx.fetchedSections[0].topicTitle)
+        assertEquals("Reference Ranges", ctx.fetchedSections[0].sectionTitle)
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("TSH Measurement", ctx.topicRefs[0].topicTitle)
+        assertEquals("Reference Ranges", ctx.topicRefs[0].label)
+    }
+
+    @Test
+    fun `recovers sectionIds from response sectionTitles when args sectionIds empty`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"123"}""")
+        accumulator.onToolCallCompleted(
+            "call-1", "getTopicSectionsText",
+            """{"topicTitle":"Thyroid Function","sectionTitles":{"H1":"Normal Levels","H2":"Abnormal Levels"},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(2, ctx.fetchedSections.size)
+        assertEquals(2, ctx.topicRefs.size)
+        assertEquals("Thyroid Function", ctx.topicRefs[0].topicTitle)
+        assertEquals("Thyroid Function", ctx.topicRefs[1].topicTitle)
+    }
 }

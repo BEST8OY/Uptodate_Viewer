@@ -135,28 +135,13 @@ fun GeminiMessageItem(
                         )
                     }
 
-                    val allRefs = message.graphicRefs.map { it.title to { onGraphicSelected(it.graphicId) } } +
-                        message.topicRefs.map { it.title to { onNavigateToContent(it.topicId, it.sectionId) } }
-                    if (allRefs.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(message.graphicRefs) { ref ->
-                                GeminiGraphicPill(
-                                    label = ref.title,
-                                    graphicId = ref.graphicId,
-                                    onClick = { onGraphicSelected(ref.graphicId) }
-                                )
-                            }
-                            items(message.topicRefs) { ref ->
-                                GeminiTopicPill(
-                                    label = ref.title,
-                                    onClick = { onNavigateToContent(ref.topicId, ref.sectionId) }
-                                )
-                            }
-                        }
+                    if (message.topicRefs.isNotEmpty() || message.graphicRefs.isNotEmpty()) {
+                        ClinicalReferencesSection(
+                            topicRefs = message.topicRefs,
+                            graphicRefs = message.graphicRefs,
+                            onNavigateToContent = onNavigateToContent,
+                            onGraphicSelected = onGraphicSelected
+                        )
                     }
                 }
 

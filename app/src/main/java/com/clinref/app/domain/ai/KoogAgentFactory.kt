@@ -128,8 +128,9 @@ class KoogAgentFactory @Inject constructor(
                         }
                         is ai.koog.prompt.streaming.StreamFrame.ToolCallDelta -> {
                             streamingManager.onStreamingToolCallDelta(
-                                frame.id ?: "",
-                                frame.content ?: ""
+                                callId = frame.id ?: "",
+                                content = frame.content ?: "",
+                                toolName = frame.name
                             )
                         }
                         is ai.koog.prompt.streaming.StreamFrame.End -> {
@@ -143,9 +144,10 @@ class KoogAgentFactory @Inject constructor(
                     val callId = eventContext.toolCallId ?: ""
                     val resultText = eventContext.toolResult?.toString() ?: ""
                     val success = eventContext.toolResult != null
+                    val toolArgsStr = eventContext.toolArgs.toString()
                     Log.d(TAG, "Tool completed: ${eventContext.toolName} success=$success result=${resultText.take(200)}")
-                    accumulator.onToolCallCompleted(callId, eventContext.toolName, resultText, success)
-                    streamingManager.onToolCallCompleted(eventContext.toolName)
+                    accumulator.onToolCallCompleted(callId, eventContext.toolName, resultText, success, toolArgsStr)
+                    streamingManager.onToolCallCompleted(eventContext.toolName, resultText)
                     streamingManager.onWaitingForLlm()
                 }
 

@@ -35,7 +35,12 @@ import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 
-data class ResolvedTopicRef(val topicId: String, val title: String, val sectionId: String? = null)
+data class ResolvedTopicRef(
+    val topicId: String,
+    val title: String,
+    val sectionId: String? = null,
+    val topicTitle: String = ""
+)
 data class ResolvedGraphicRef(val graphicId: String, val title: String)
 
 data class MessageUiModel(
@@ -81,6 +86,9 @@ class ChatViewModel @Inject constructor(
 
     val agentState: StateFlow<StreamingManager.AgentState> = streamingManager.agentState
     val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
+    val orchestrationSteps: StateFlow<List<StreamingManager.OrchestrationStep>> = streamingManager.orchestrationSteps
+    val currentStatusText: StateFlow<String> = streamingManager.currentStatusText
+    val liveDiscoveredSources: StateFlow<List<SafetyValidator.TopicRef>> = streamingManager.liveDiscoveredSources
     val streamingText: StateFlow<String> = streamingManager.streamingText
 
     private val _currentConversationId = MutableStateFlow<String?>(null)
@@ -396,7 +404,12 @@ class ChatViewModel @Inject constructor(
 
         val topicRefs = if (!topicRefsJson.isNullOrBlank()) {
             try { json.decodeFromString<List<SafetyValidator.TopicRef>>(topicRefsJson).map {
-                ResolvedTopicRef(it.topicId, it.label, it.sectionId.ifEmpty { null })
+                ResolvedTopicRef(
+                    topicId = it.topicId,
+                    title = it.label,
+                    sectionId = it.sectionId.ifEmpty { null },
+                    topicTitle = it.topicTitle.ifEmpty { it.label }
+                )
             } } catch (_: Exception) { emptyList() }
         } else emptyList()
         val graphicRefs = if (!graphicRefsJson.isNullOrBlank()) {
