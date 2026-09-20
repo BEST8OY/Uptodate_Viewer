@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.clinref.app.ui.navigation.FavoritesRoute
+import kotlinx.coroutines.flow.Flow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -64,8 +67,18 @@ fun FavoritesScreen(
     onTopicSelected: (String) -> Unit,
     currentRoute: NavKey,
     modifier: Modifier = Modifier,
+    reselectEvents: Flow<NavKey>? = null,
     viewModel: FavoritesViewModel = hiltViewModel()
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(reselectEvents) {
+        reselectEvents?.collect { route ->
+            if (route == FavoritesRoute) {
+                listState.animateScrollToItem(0)
+            }
+        }
+    }
+
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedIds.isNotEmpty()
@@ -231,6 +244,7 @@ fun FavoritesScreen(
             )
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),

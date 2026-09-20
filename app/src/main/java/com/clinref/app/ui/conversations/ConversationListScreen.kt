@@ -93,16 +93,29 @@ import com.clinref.app.ui.common.ScrollToTopFAB
 import com.clinref.app.ui.common.showUndoSnackbar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
+import androidx.navigation3.runtime.NavKey
+import com.clinref.app.ui.navigation.AiRoute
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationListScreen(
     onConversationSelected: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    reselectEvents: Flow<NavKey>? = null,
     viewModel: ConversationListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+
+    LaunchedEffect(reselectEvents) {
+        reselectEvents?.collect { route ->
+            if (route == AiRoute) {
+                listState.animateScrollToItem(0)
+            }
+        }
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     var showProfileSheet by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -54,9 +55,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.TocItem
 import com.clinref.app.ui.search.SearchResultsContent
 import com.clinref.app.ui.search.SearchViewModel
-import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import androidx.navigation3.runtime.NavKey
+import com.clinref.app.ui.navigation.TocRoute
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, FlowPreview::class)
 @Composable
@@ -64,9 +67,19 @@ fun TocScreen(
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
+    reselectEvents: Flow<NavKey>? = null,
     viewModel: TocViewModel = hiltViewModel(),
     searchViewModel: SearchViewModel = hiltViewModel()
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(reselectEvents) {
+        reselectEvents?.collect { route ->
+            if (route == TocRoute) {
+                listState.animateScrollToItem(0)
+            }
+        }
+    }
+
     val tocItems by viewModel.tocItems.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
@@ -296,6 +309,7 @@ fun TocScreen(
                 }
                 else -> {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(padding)

@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.clinref.app.ui.navigation.HistoryRoute
+import kotlinx.coroutines.flow.Flow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -64,8 +67,18 @@ fun HistoryScreen(
     onTopicSelected: (String) -> Unit,
     currentRoute: NavKey,
     modifier: Modifier = Modifier,
+    reselectEvents: Flow<NavKey>? = null,
     viewModel: HistoryViewModel = hiltViewModel()
 ) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(reselectEvents) {
+        reselectEvents?.collect { route ->
+            if (route == HistoryRoute) {
+                listState.animateScrollToItem(0)
+            }
+        }
+    }
+
     val history by viewModel.history.collectAsStateWithLifecycle()
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
     val isSelectionMode = selectedIds.isNotEmpty()
@@ -231,6 +244,7 @@ fun HistoryScreen(
             )
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
