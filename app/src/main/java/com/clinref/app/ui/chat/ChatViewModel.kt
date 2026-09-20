@@ -43,6 +43,11 @@ data class ResolvedTopicRef(
 )
 data class ResolvedGraphicRef(val graphicId: String, val title: String)
 
+sealed interface ChatListItem {
+    data class Message(val message: MessageUiModel) : ChatListItem
+    data class DateSeparator(val dateText: String) : ChatListItem
+}
+
 data class MessageUiModel(
     val id: String,
     val role: String,
@@ -50,14 +55,10 @@ data class MessageUiModel(
     val timestamp: Long,
     val warnings: List<String> = emptyList(),
     val isError: Boolean = false,
-    val showTimestamp: Boolean = true,
+    val showTimestamp: Boolean = false,
     val topicRefs: List<ResolvedTopicRef> = emptyList(),
     val graphicRefs: List<ResolvedGraphicRef> = emptyList()
 )
-
-sealed interface ChatListItem {
-    data class Message(val uiModel: MessageUiModel) : ChatListItem
-}
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -403,14 +404,16 @@ class ChatViewModel @Inject constructor(
         } else warnings
 
         val topicRefs = if (!topicRefsJson.isNullOrBlank()) {
-            try { json.decodeFromString<List<SafetyValidator.TopicRef>>(topicRefsJson).map {
-                ResolvedTopicRef(
-                    topicId = it.topicId,
-                    title = it.label,
-                    sectionId = it.sectionId.ifEmpty { null },
-                    topicTitle = it.topicTitle.ifEmpty { it.label }
-                )
-            } } catch (_: Exception) { emptyList() }
+            try {
+                json.decodeFromString<List<SafetyValidator.TopicRef>>(topicRefsJson).map {
+                    ResolvedTopicRef(
+                        topicId = it.topicId,
+                        title = it.label,
+                        sectionId = it.sectionId.ifEmpty { null },
+                        topicTitle = it.topicTitle.ifEmpty { it.label }
+                    )
+                }
+            } catch (_: Exception) { emptyList() }
         } else emptyList()
         val graphicRefs = if (!graphicRefsJson.isNullOrBlank()) {
             try { json.decodeFromString<List<SafetyValidator.GraphicRef>>(graphicRefsJson).map {

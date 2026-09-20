@@ -160,8 +160,12 @@ fun ClinicalReferencesSection(
                 // Topic References
                 groupedTopics.forEach { (topicKey, refs) ->
                     val primaryRef = refs.first()
-                    val topicTitle = primaryRef.topicTitle.ifEmpty {
-                        if (primaryRef.topicId.isNotBlank()) "Topic: ${primaryRef.topicId}" else primaryRef.title
+                    val rawTitle = primaryRef.topicTitle.ifEmpty { primaryRef.title }
+                    val topicTitle = if (rawTitle.isBlank() || rawTitle.all { it.isDigit() }) {
+                        val numeric = primaryRef.topicId.ifEmpty { topicKey }
+                        if (numeric.isNotBlank()) "Clinical Topic #$numeric" else "Clinical Topic"
+                    } else {
+                        rawTitle
                     }
                     val validTopicId = primaryRef.topicId.ifEmpty { topicKey }
 
@@ -215,7 +219,10 @@ fun ClinicalReferencesSection(
 
                                 // Section chips
                                 val sectionsWithLabels = refs.filter {
-                                    it.title.isNotBlank() && !it.title.equals(topicTitle, ignoreCase = true)
+                                    it.title.isNotBlank() &&
+                                    !it.title.equals(topicTitle, ignoreCase = true) &&
+                                    !it.title.all { c -> c.isDigit() } &&
+                                    it.sectionId != "FULL"
                                 }
                                 if (sectionsWithLabels.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(6.dp))

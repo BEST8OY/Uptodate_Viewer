@@ -32,8 +32,9 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -48,7 +49,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.StreamingManager
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun GeminiOrchestrationIndicator(
     steps: List<StreamingManager.OrchestrationStep>,
@@ -86,12 +87,16 @@ fun GeminiOrchestrationIndicator(
         label = "sparkle_pulse"
     )
 
-    val geminiBrush = Brush.linearGradient(
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+
+    val expressiveBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0xFF3B82F6),
-            Color(0xFF8B5CF6),
-            Color(0xFFEC4899),
-            Color(0xFF3B82F6)
+            primaryColor,
+            tertiaryColor,
+            secondaryColor,
+            primaryColor
         ),
         start = Offset(offsetProgress - 450f, 0f),
         end = Offset(offsetProgress, 0f)
@@ -198,10 +203,9 @@ fun GeminiOrchestrationIndicator(
                         }
                     }
 
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
+                    LoadingIndicator(
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -274,10 +278,9 @@ fun GeminiOrchestrationIndicator(
                                     )
                                 }
                                 StreamingManager.StepStatus.IN_PROGRESS -> {
-                                    CircularProgressIndicator(
-                                        strokeWidth = 1.8.dp,
+                                    LoadingIndicator(
                                         color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(12.dp)
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
                                 StreamingManager.StepStatus.FAILED -> {
@@ -320,7 +323,7 @@ fun GeminiOrchestrationIndicator(
                     .fillMaxWidth()
                     .height(3.dp)
                     .clip(RoundedCornerShape(1.5.dp))
-                    .background(geminiBrush)
+                    .background(expressiveBrush)
             )
         }
     }
