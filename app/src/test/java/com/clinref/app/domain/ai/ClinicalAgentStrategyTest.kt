@@ -1,5 +1,6 @@
 package com.clinref.app.domain.ai
 
+import ai.koog.agents.core.agent.collectGraphData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -18,7 +19,8 @@ class ClinicalAgentStrategyTest {
     @Test
     fun `strategy contains all required lifecycle, safety, and remediation nodes`() {
         val strategy = ClinicalAgentStrategy.create()
-        val nodeNames = strategy.nodes.map { it.name }.toSet()
+        val graph = strategy.collectGraphData()
+        val nodeNames = graph.nodes.values.map { it.name }.toSet()
 
         assertTrue("Must contain nodeSendInput", nodeNames.any { it.contains("nodeSendInput") })
         assertTrue("Must contain nodeExecuteTool", nodeNames.any { it.contains("nodeExecuteTool") })
@@ -31,42 +33,43 @@ class ClinicalAgentStrategyTest {
     @Test
     fun `strategy defines edges connecting start, tool loop, validation, remediation, and finish`() {
         val strategy = ClinicalAgentStrategy.create()
+        val graph = strategy.collectGraphData()
 
-        assertTrue("Strategy must have multiple directed edges", strategy.edges.isNotEmpty())
+        assertTrue("Strategy must have multiple directed edges", graph.edges.isNotEmpty())
 
         // Start node connects to LLM input
         assertTrue(
             "An edge must originate from startNode",
-            strategy.edges.any { it.from == strategy.nodeStart }
+            graph.edges.any { it.fromNode.id == strategy.nodeStart.id }
         )
 
         // Finish node must be targeted by safety valid path and safety block path
-        val finishEdges = strategy.edges.filter { it.to == strategy.nodeFinish }
+        val finishEdges = graph.edges.filter { it.toNode.id == strategy.nodeFinish.id }
         assertTrue("At least one edge must target nodeFinish", finishEdges.isNotEmpty())
 
         // Remediation must loop back to nodeSendInput
-        val sendInputNode = strategy.nodes.first { it.name.contains("nodeSendInput") }
-        val remediateNode = strategy.nodes.first { it.name == "build_remediation" }
+        val sendInputNode = graph.nodes.values.first { it.name.contains("nodeSendInput") }
+        val remediateNode = graph.nodes.values.first { it.name == "build_remediation" }
         assertTrue(
             "Remediation node must edge forwardTo nodeSendInput",
-            strategy.edges.any { it.from == remediateNode && it.to == sendInputNode }
+            graph.edges.any { it.fromNode.id == remediateNode.id && it.toNode.id == sendInputNode.id }
         )
 
         // Safety validation node must edge to finish, remediation, and safety_block
-        val validateNode = strategy.nodes.first { it.name == "validate_safety" }
-        val safetyBlockNode = strategy.nodes.first { it.name == "safety_block" }
+        val validateNode = graph.nodes.values.first { it.name == "validate_safety" }
+        val safetyBlockNode = graph.nodes.values.first { it.name == "safety_block" }
 
         assertTrue(
             "validate_safety must connect to nodeFinish",
-            strategy.edges.any { it.from == validateNode && it.to == strategy.nodeFinish }
+            graph.edges.any { it.fromNode.id == validateNode.id && it.toNode.id == strategy.nodeFinish.id }
         )
         assertTrue(
             "validate_safety must connect to build_remediation",
-            strategy.edges.any { it.from == validateNode && it.to == remediateNode }
+            graph.edges.any { it.fromNode.id == validateNode.id && it.toNode.id == remediateNode.id }
         )
         assertTrue(
             "validate_safety must connect to safety_block",
-            strategy.edges.any { it.from == validateNode && it.to == safetyBlockNode }
+            graph.edges.any { it.fromNode.id == validateNode.id && it.toNode.id == safetyBlockNode.id }
         )
     }
 
