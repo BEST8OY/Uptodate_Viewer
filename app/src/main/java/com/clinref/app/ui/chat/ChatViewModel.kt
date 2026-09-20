@@ -285,7 +285,7 @@ class ChatViewModel @Inject constructor(
     ) {
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
-                if (state.validation.passed) {
+                if (state.validation.passed && !result.startsWith("Clinical Response Verification Blocked:")) {
                     saveSuccessfulMessage(
                         conversationId, result, state.validation, state.tokenUsage
                     )
@@ -294,23 +294,23 @@ class ChatViewModel @Inject constructor(
                         ?: "Output quarantined by safety rules."
                     secureLogger.log(
                         SecureLogger.Level.WARN, "ChatViewModel",
-                        "Safety blocked: $blockedReason. Executing self-correction turn."
+                        "Safety blocked: $blockedReason."
                     )
-
-                    val correctionSuccess = runCorrectionTurn(conversationId, blockedReason, accumulator)
-
-                    if (!correctionSuccess) {
-                        val blockedMsg = MessageEntity(
-                            id = UUID.randomUUID().toString(),
-                            conversationId = conversationId,
-                            role = "assistant",
-                            content = "Clinical Response Verification Blocked: $blockedReason",
-                            timestamp = System.currentTimeMillis(),
-                            isError = true
-                        )
-                        conversationRepository.addMessage(blockedMsg)
-                        _messages.value = _messages.value + blockedMsg.toUiModel(isError = true)
+                    val content = if (result.startsWith("Clinical Response Verification Blocked:")) {
+                        result
+                    } else {
+                        "Clinical Response Verification Blocked: $blockedReason"
                     }
+                    val blockedMsg = MessageEntity(
+                        id = UUID.randomUUID().toString(),
+                        conversationId = conversationId,
+                        role = "assistant",
+                        content = content,
+                        timestamp = System.currentTimeMillis(),
+                        isError = true
+                    )
+                    conversationRepository.addMessage(blockedMsg)
+                    _messages.value = _messages.value + blockedMsg.toUiModel(isError = true)
                 }
             }
             is StreamingManager.AgentState.Error -> {
@@ -328,56 +328,6 @@ class ChatViewModel @Inject constructor(
             else -> {
                 secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: state ${state::class.simpleName}")
             }
-        }
-    }
-
-    private suspend fun runCorrectionTurn(
-        conversationId: String,
-        blockedReason: String,
-        accumulator: TurnContextAccumulator?
-    ): Boolean {
-        return try {
-            val patientProfile = conversationRepository.getPatientProfile(conversationId)
-            val config = configuration.value
-
-            streamingManager.reset()
-
-            val snapshot = accumulator?.snapshotForCorrection()
-            val (correctionAgent, _) = koogAgentFactory.createAgent(
-                config = config,
-                conversationId = conversationId,
-                patientProfile = patientProfile,
-                streamingManager = streamingManager,
-                existingAccumulator = snapshot
-            ) ?: return false
-
-            val evidenceSummary = snapshot?.buildTurnContext("")?.fetchedSections
-                ?.joinToString("\n---\n") { sec ->
-                    if (sec.contentSnippet.isNotBlank()) {
-                        "Section [${sec.sectionId}] (${sec.sectionTitle}):\n${sec.contentSnippet}"
-                    } else {
-                        "Section [${sec.sectionId}] (${sec.sectionTitle}) from topic ${sec.topicTitle}"
-                    }
-                }
-                ?: "No section text was successfully fetched in the prior turn."
-
-            val correctionPrompt = SystemPrompt.buildCorrectionPrompt(blockedReason, evidenceSummary)
-
-            val correctedResult = correctionAgent.run(correctionPrompt, conversationId)
-
-            val finalState = streamingManager.agentState.value
-            if (finalState is StreamingManager.AgentState.Completed && finalState.validation.passed) {
-                saveSuccessfulMessage(
-                    conversationId, correctedResult, finalState.validation, finalState.tokenUsage
-                )
-                true
-            } else {
-                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "Self-correction turn failed validation.")
-                false
-            }
-        } catch (e: Exception) {
-            secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel", "Self-correction exception: ${e.message}")
-            false
         }
     }
 

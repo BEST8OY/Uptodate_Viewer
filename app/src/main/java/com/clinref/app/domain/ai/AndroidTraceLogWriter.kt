@@ -13,17 +13,34 @@ import kotlinx.coroutines.flow.StateFlow
  * Filter Logcat by tag [TAG] to see all agent trace events.
  */
 class AndroidTraceLogWriter(
+    private val secureLogger: SecureLogger? = null,
     private val tag: String = TAG,
     private val minLevel: Level = Level.DEBUG
 ) : FeatureMessageProcessor() {
 
-    enum class Level(val priority: Int) { DEBUG(Log.DEBUG), INFO(Log.INFO), WARN(Log.WARN), ERROR(Log.ERROR) }
+    enum class Level(val priority: Int) {
+        DEBUG(Log.DEBUG),
+        INFO(Log.INFO),
+        WARN(Log.WARN),
+        ERROR(Log.ERROR);
+
+        fun toSecureLoggerLevel(): SecureLogger.Level = when (this) {
+            DEBUG -> SecureLogger.Level.DEBUG
+            INFO -> SecureLogger.Level.INFO
+            WARN -> SecureLogger.Level.WARN
+            ERROR -> SecureLogger.Level.ERROR
+        }
+    }
 
     override val isOpen: StateFlow<Boolean> = MutableStateFlow(true)
 
     override suspend fun processMessage(message: FeatureMessage) {
-        val msg = message.toLogString()
-        Log.d(tag, msg)
+        val rawMsg = message.toLogString()
+        if (secureLogger != null) {
+            secureLogger.log(minLevel.toSecureLoggerLevel(), tag, rawMsg)
+        } else {
+            Log.println(minLevel.priority, tag, rawMsg)
+        }
     }
 
     override suspend fun close() {}

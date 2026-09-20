@@ -1,7 +1,10 @@
 package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
-import ai.koog.prompt.executor.llms.all.simpleOllamaAIExecutor
+import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
+import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
+import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
+import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
@@ -13,8 +16,9 @@ import kotlin.math.roundToInt
 /**
  * Ollama provider implementation (local models).
  *
+ * Connects via Ollama's native OpenAI-compatible /v1 endpoint without bloated umbrella dependencies.
  * Models: llama3.2, mistral, phi3, etc.
- * API: http://localhost:11434
+ * API: http://localhost:11434/v1
  */
 class OllamaProvider(
     private val httpClientFactory: OkHttpKoogHttpClient.Factory
@@ -30,19 +34,40 @@ class OllamaProvider(
             capabilities = listOf(
                 ai.koog.prompt.llm.LLMCapability.Completion,
                 ai.koog.prompt.llm.LLMCapability.Tools,
-                ai.koog.prompt.llm.LLMCapability.Temperature
+                ai.koog.prompt.llm.LLMCapability.Temperature,
+                ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions
             ),
             contextLength = contextLength.toLong()
         )
     }
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
-        val baseUrl = config.baseUrl.ifBlank { "http://localhost:11434" }
-        return simpleOllamaAIExecutor(baseUrl = baseUrl, httpClientFactory = httpClientFactory)
+        val rawBase = config.baseUrl.ifBlank { "http://localhost:11434" }.removeSuffix("/")
+        val baseUrl = if (rawBase.endsWith("/v1")) rawBase else "$rawBase/v1"
+
+        val settings = OpenAIClientSettings(
+            baseUrl = baseUrl,
+            timeoutConfig = ConnectionTimeoutConfig(
+                requestTimeoutMillis = 180_000L,
+                connectTimeoutMillis = 30_000L,
+                socketTimeoutMillis = 180_000L
+            )
+        )
+
+        val client = OpenAILLMClient(
+            apiKey = apiKey.ifBlank { "ollama" },
+            settings = settings,
+            httpClientFactory = httpClientFactory
+        )
+
+        return SingleLLMPromptExecutor(client)
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {
-        return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
+        return LLMParams(
+            temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0,
+            maxTokens = config.maxTokens
+        )
     }
 
     override fun getAvailableModels(): List<String> {

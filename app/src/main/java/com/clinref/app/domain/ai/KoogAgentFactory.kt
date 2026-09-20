@@ -5,13 +5,6 @@ import android.util.Log
 import ai.koog.agents.core.agent.AIAgent
 import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.tools.ToolRegistry
-import ai.koog.agents.core.dsl.builder.node
-import ai.koog.agents.core.dsl.builder.strategy
-import ai.koog.agents.core.dsl.extension.nodeLLMRequest
-import ai.koog.agents.core.dsl.extension.nodeExecuteTools
-import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResults
-import ai.koog.agents.core.dsl.extension.onTextMessage
-import ai.koog.agents.core.dsl.extension.onToolCalls
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
 import ai.koog.agents.features.tracing.feature.Tracing
@@ -38,10 +31,12 @@ class KoogAgentFactory @Inject constructor(
     private val securePreferences: SecurePreferences,
     private val medicalDatabaseTools: MedicalDatabaseTools,
     private val safetyValidator: SafetyValidator,
-    private val chatHistoryProvider: RoomChatHistoryProvider
+    private val chatHistoryProvider: RoomChatHistoryProvider,
+    private val secureLogger: SecureLogger
 ) {
 
     private val httpClientFactory = OkHttpKoogHttpClient.Factory()
+    private val executorCache = java.util.concurrent.ConcurrentHashMap<String, ai.koog.prompt.executor.model.PromptExecutor>()
 
     private val providers: Map<AiProvider, AiProviderFactory> by lazy {
         mapOf(
@@ -68,33 +63,22 @@ class KoogAgentFactory @Inject constructor(
         if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) return null
 
         val providerFactory = getProvider(config.provider) ?: return null
-        val executor = providerFactory.createExecutor(config, apiKey) ?: return null
+        val cacheKey = "${config.provider}_${apiKey.hashCode()}_${config.baseUrl}"
+        val executor = executorCache[cacheKey] ?: run {
+            val created = providerFactory.createExecutor(config, apiKey) ?: return null
+            executorCache[cacheKey] = created
+            created
+        }
         val model = providerFactory.resolveModel(config)
         val providerParams = providerFactory.createParams(config)
 
         val toolRegistry = ToolRegistry {
-            tools(medicalDatabaseTools)
+            tools(medicalDatabaseTools.asToolList())
         }
 
         val accumulator = existingAccumulator ?: TurnContextAccumulator()
         if (userMessage.isNotBlank()) {
             accumulator.setUserQuestion(userMessage)
-        }
-
-        val clinicalStrategy = strategy<String, String>("clinical-retrieval") {
-            val nodeSendInput by nodeLLMRequest()
-            val nodeExecuteTool by nodeExecuteTools()
-            val nodeSendToolResult by nodeLLMSendToolResults()
-
-            edge(nodeStart forwardTo nodeSendInput)
-
-            edge(nodeSendInput forwardTo nodeExecuteTool onToolCalls { true })
-            edge(nodeSendInput forwardTo nodeFinish onTextMessage { true })
-
-            edge(nodeExecuteTool forwardTo nodeSendToolResult)
-
-            edge(nodeSendToolResult forwardTo nodeExecuteTool onToolCalls { true })
-            edge(nodeSendToolResult forwardTo nodeFinish onTextMessage { true })
         }
 
         val agentConfig = AIAgentConfig(
@@ -111,18 +95,18 @@ class KoogAgentFactory @Inject constructor(
         val agent = AIAgent(
             promptExecutor = executor,
             agentConfig = agentConfig,
-            strategy = clinicalStrategy,
+            strategy = ClinicalAgentStrategy.createAutonomous(safetyValidator, accumulator),
             toolRegistry = toolRegistry
         ) {
             install(ChatMemory) {
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
+                filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
                 val windowSize = (config.historyCompressionThreshold / 500).coerceIn(5, 40)
                 windowSize(windowSize)
-                filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
             }
 
             install(Tracing.Feature) {
-                addMessageProcessor(AndroidTraceLogWriter())
+                addMessageProcessor(AndroidTraceLogWriter(secureLogger = secureLogger))
             }
 
             handleEvents {
@@ -138,6 +122,18 @@ class KoogAgentFactory @Inject constructor(
                     when (val frame = eventContext.streamFrame) {
                         is ai.koog.prompt.streaming.StreamFrame.TextDelta -> {
                             streamingManager.onStreamingTextDelta(frame.text)
+                        }
+                        is ai.koog.prompt.streaming.StreamFrame.ReasoningDelta -> {
+                            frame.text?.let { streamingManager.onStreamingReasoningDelta(it) }
+                        }
+                        is ai.koog.prompt.streaming.StreamFrame.ToolCallDelta -> {
+                            streamingManager.onStreamingToolCallDelta(
+                                frame.id ?: "",
+                                frame.content ?: ""
+                            )
+                        }
+                        is ai.koog.prompt.streaming.StreamFrame.End -> {
+                            streamingManager.onStreamingEnd()
                         }
                         else -> {}
                     }
@@ -167,7 +163,15 @@ class KoogAgentFactory @Inject constructor(
                 onAgentCompleted { eventContext ->
                     val result = eventContext.result?.toString() ?: ""
                     val turnContext = accumulator.buildTurnContext(result)
-                    val validation = safetyValidator.validate(turnContext)
+                    val validation = if (result.startsWith("Clinical Response Verification Blocked:")) {
+                        SafetyValidator.ValidationResult(
+                            passed = false,
+                            warnings = emptyList(),
+                            blockedReason = result.removePrefix("Clinical Response Verification Blocked:").trim()
+                        )
+                    } else {
+                        safetyValidator.validate(turnContext)
+                    }
                     Log.d(TAG, "Agent completed: tools=${turnContext.toolCalls.map { it.toolName }} validation=${validation.blockedReason ?: "OK"}")
                     streamingManager.onCompleted(result, validation)
                 }

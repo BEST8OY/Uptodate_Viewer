@@ -1,9 +1,12 @@
 package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
+import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
+import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicParams
-import ai.koog.prompt.executor.llms.all.simpleAnthropicExecutor
+import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
@@ -40,7 +43,22 @@ class AnthropicProvider(
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
         if (apiKey.isBlank()) return null
-        return simpleAnthropicExecutor(apiKey, httpClientFactory)
+
+        val settings = AnthropicClientSettings(
+            timeoutConfig = ConnectionTimeoutConfig(
+                requestTimeoutMillis = 120_000L,
+                connectTimeoutMillis = 30_000L,
+                socketTimeoutMillis = 120_000L
+            )
+        )
+
+        val client = AnthropicLLMClient(
+            apiKey = apiKey,
+            settings = settings,
+            httpClientFactory = httpClientFactory
+        )
+
+        return MultiLLMPromptExecutor(client)
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {

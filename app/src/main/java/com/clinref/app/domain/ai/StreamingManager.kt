@@ -48,31 +48,37 @@ class StreamingManager {
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
 
     private var stepCounter = 0
+    private var activeToolCalls = 0
     private var accumulatedUsage = TokenUsage()
     private val streamingBuffer = StringBuilder()
 
     fun onToolCallStarting(toolName: String, args: String) {
         stepCounter++
+        activeToolCalls++
         streamingBuffer.clear()
         _streamingText.value = ""
         val description = when (toolName) {
-            "quickSearchTopic" -> "Discovering topic outline\u2026"
-            "searchTopics" -> "Searching topics\u2026"
-            "getTopicOutline" -> "Reading topic outline\u2026"
-            "getTopicSectionsText" -> "Fetching section text\u2026"
-            "getGraphicContent" -> "Retrieving graphic table\u2026"
-            "submitClinicalAnswer" -> "Submitting response\u2026"
-            else -> "Calling $toolName\u2026"
+            "searchTopics" -> "Searching topics…"
+            "getTopicOutline" -> "Reading topic outline…"
+            "getRelatedTopics" -> "Finding related topics…"
+            "getTopicSectionsText" -> "Fetching section text…"
+            "getGraphicContent" -> "Retrieving graphic table…"
+            "submitClinicalAnswer" -> "Submitting response…"
+            else -> "Calling $toolName…"
         }
         _toolProgress.value = ToolProgress(toolName, description)
         _agentState.value = AgentState.ToolCallInProgress(toolName, args, stepCounter)
     }
 
     fun onToolCallCompleted(toolName: String) {
-        _toolProgress.value = null
+        activeToolCalls = (activeToolCalls - 1).coerceAtLeast(0)
+        if (activeToolCalls == 0) {
+            _toolProgress.value = null
+        }
     }
 
     fun onWaitingForLlm() {
+        if (activeToolCalls > 0) return
         streamingBuffer.clear()
         _streamingText.value = ""
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
@@ -81,6 +87,18 @@ class StreamingManager {
     fun onStreamingTextDelta(delta: String) {
         streamingBuffer.append(delta)
         _streamingText.value = streamingBuffer.toString()
+    }
+
+    fun onStreamingReasoningDelta(delta: String) {
+        // Reserved for models with chain-of-thought streaming (e.g. Gemini Thinking, o-series)
+    }
+
+    fun onStreamingToolCallDelta(callId: String, content: String) {
+        // Incremental tool argument chunks
+    }
+
+    fun onStreamingEnd() {
+        // LLM token emission completed for current turn
     }
 
     fun onLlmCallCompleted(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
@@ -92,6 +110,7 @@ class StreamingManager {
     }
 
     fun onCompleted(result: String, validation: SafetyValidator.ValidationResult) {
+        activeToolCalls = 0
         _toolProgress.value = null
         streamingBuffer.clear()
         _streamingText.value = ""
@@ -99,6 +118,7 @@ class StreamingManager {
     }
 
     fun onError(error: String) {
+        activeToolCalls = 0
         _toolProgress.value = null
         streamingBuffer.clear()
         _streamingText.value = ""
@@ -108,6 +128,7 @@ class StreamingManager {
 
     fun reset() {
         stepCounter = 0
+        activeToolCalls = 0
         accumulatedUsage = TokenUsage()
         streamingBuffer.clear()
         _streamingText.value = ""
