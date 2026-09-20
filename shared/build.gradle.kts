@@ -24,6 +24,8 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
+                implementation(libs.koog.agents)
+                implementation(libs.kotlinx.serialization.json)
             }
         }
 

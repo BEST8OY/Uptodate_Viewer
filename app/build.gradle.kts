@@ -102,7 +102,6 @@ dependencies {
     implementation(libs.koog.prompt.executor.mistralai.client)
     implementation(libs.koog.prompt.executor.openrouter.client)
     implementation(libs.koog.prompt.executor.ollama.client)
-    implementation(libs.koog.prompt.executor.llms.all)
     implementation(libs.koog.http.client.okhttp)
     implementation(libs.koog.utils.jvm)
 
@@ -129,6 +128,7 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.kotlinx.serialization.json)
+    testImplementation(libs.koog.agents.test)
 }
 
 // Koog utils-jvm has Coroutines_jvmKt which http-client-okhttp references.
