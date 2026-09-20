@@ -173,6 +173,8 @@ object HtmlNormalizer {
         val typePattern = Regex("""&quot;(assetType|type)&quot;\s*:\s*&quot;([^&]+)&quot;""")
         val subtypePattern = Regex("""&quot;subtype&quot;\s*:\s*&quot;([^&]+)&quot;""")
         val labelPattern = Regex("""&quot;label&quot;\s*:\s*&quot;([^&]+)&quot;""")
+        val legacyHyphenRegex = Regex("""<span[^>]*class="legacyTopicViewHyphen"[^>]*>.*?</span>""", RegexOption.IGNORE_CASE)
+        val stripTagsRegex = Regex("<[^>]+>")
 
         var depth = 0
         var i = 0
@@ -190,7 +192,10 @@ object HtmlNormalizer {
                 if (match != null && match.range.first == i) {
                     val hrefContent = match.groupValues[1]
                     val rawTitle = match.groupValues[2]
-                    val title = rawTitle.replace(Regex("<[^>]+>"), "").trim()
+                    val title = rawTitle
+                        .replace(legacyHyphenRegex, "")
+                        .replace(stripTagsRegex, "")
+                        .trim()
 
                     if (title.isNotEmpty()) {
                         val sectionMatch = sectionPattern.find(hrefContent)
@@ -216,9 +221,8 @@ object HtmlNormalizer {
                                 !isScrollable -> SectionType.RELATED
                                 else -> SectionType.TOPIC
                             }
-                            val cleanTitle = title.removePrefix("- ").trim()
                             val displayTitle = if (sectionType == SectionType.GRAPHIC && graphicLabel.isNotEmpty()) {
-                                "$graphicLabel - $cleanTitle"
+                                "$graphicLabel - $title"
                             } else {
                                 title
                             }
