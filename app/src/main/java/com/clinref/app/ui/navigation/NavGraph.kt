@@ -45,7 +45,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.NavMetadataKey
 import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.get
+import androidx.navigation3.runtime.metadata
+import androidx.navigation3.scene.Scene
 import androidx.navigation3.ui.NavDisplay
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.content.ContentScreen
@@ -72,6 +76,12 @@ val TopLevelRoute.icon: ImageVector
         FavoritesRoute -> Icons.Default.Favorite
         AiRoute -> Icons.AutoMirrored.Filled.Chat
     }
+
+private object RouteMetadataKey : NavMetadataKey<NavKey>
+
+private fun Scene<NavKey>.navKey(): NavKey? =
+    metadata[RouteMetadataKey] ?: (key as? NavKey) ?: entries.lastOrNull()?.contentKey as? NavKey
+
 
 @Serializable
 data object TocRoute : TopLevelRoute {
@@ -151,7 +161,10 @@ fun NavGraph(
     }
 
     val entryProvider = entryProvider {
-        entry<TocRoute> {
+        entry<TocRoute>(
+            clazzContentKey = { it },
+            metadata = metadata { put(RouteMetadataKey, TocRoute) }
+        ) {
             TocScreen(
                 onTopicSelected = { topicId ->
                     navigator.navigate(ContentRoute(topicId))
@@ -162,7 +175,10 @@ fun NavGraph(
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<HistoryRoute> {
+        entry<HistoryRoute>(
+            clazzContentKey = { it },
+            metadata = metadata { put(RouteMetadataKey, HistoryRoute) }
+        ) {
             HistoryScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
@@ -175,7 +191,10 @@ fun NavGraph(
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<FavoritesRoute> {
+        entry<FavoritesRoute>(
+            clazzContentKey = { it },
+            metadata = metadata { put(RouteMetadataKey, FavoritesRoute) }
+        ) {
             FavoritesScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
@@ -188,7 +207,10 @@ fun NavGraph(
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<ContentRoute> { key ->
+        entry<ContentRoute>(
+            clazzContentKey = { it },
+            metadata = { key -> metadata { put(RouteMetadataKey, key) } }
+        ) { key ->
             ContentScreen(
                 topicId = key.topicId,
                 sectionId = key.sectionId,
@@ -199,7 +221,10 @@ fun NavGraph(
                 }
             )
         }
-        entry<AiRoute> {
+        entry<AiRoute>(
+            clazzContentKey = { it },
+            metadata = metadata { put(RouteMetadataKey, AiRoute) }
+        ) {
             ConversationListScreen(
                 onConversationSelected = { conversationId ->
                     navigator.navigate(ChatRoute(conversationId))
@@ -210,12 +235,18 @@ fun NavGraph(
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<AiSettingsRoute> {
+        entry<AiSettingsRoute>(
+            clazzContentKey = { it },
+            metadata = metadata { put(RouteMetadataKey, AiSettingsRoute) }
+        ) {
             AiSettingsScreen(
                 onBack = { navigator.goBack() }
             )
         }
-        entry<ChatRoute> { key ->
+        entry<ChatRoute>(
+            clazzContentKey = { it },
+            metadata = { key -> metadata { put(RouteMetadataKey, key) } }
+        ) { key ->
             ChatScreen(
                 conversationId = key.conversationId,
                 onNavigateToContent = { topicId, sectionId ->
@@ -237,9 +268,9 @@ fun NavGraph(
         val fastEffectsSpec = motionScheme.fastEffectsSpec<Float>()
         val fastSpatialSpec = motionScheme.fastSpatialSpec<IntOffset>()
 
-        val forwardTransition: AnimatedContentTransitionScope<androidx.navigation3.runtime.NavEntry<NavKey>>.() -> ContentTransform = {
-            val initialKey = initialState.key
-            val targetKey = targetState.key
+        val forwardTransition: AnimatedContentTransitionScope<Scene<NavKey>>.() -> ContentTransform = {
+            val initialKey = initialState.navKey()
+            val targetKey = targetState.navKey()
 
             if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
                 val fromIndex = topLevelRoutes.indexOf(initialKey)
@@ -271,9 +302,9 @@ fun NavGraph(
             }
         }
 
-        val popTransition: AnimatedContentTransitionScope<androidx.navigation3.runtime.NavEntry<NavKey>>.() -> ContentTransform = {
-            val initialKey = initialState.key
-            val targetKey = targetState.key
+        val popTransition: AnimatedContentTransitionScope<Scene<NavKey>>.() -> ContentTransform = {
+            val initialKey = initialState.navKey()
+            val targetKey = targetState.navKey()
 
             if (initialKey is AiSettingsRoute) {
                 (scaleIn(floatSpatialSpec, initialScale = 0.96f) +
@@ -312,7 +343,7 @@ fun NavGraph(
             },
             transitionSpec = forwardTransition,
             popTransitionSpec = popTransition,
-            predictivePopTransitionSpec = popTransition,
+            predictivePopTransitionSpec = { popTransition() },
             modifier = Modifier.fillMaxSize()
         )
 
