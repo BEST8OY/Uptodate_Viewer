@@ -327,20 +327,7 @@ class ClinRefDatabase:
         """Get English title for a topic ID with 3-way multi-DB fallback."""
         num_id = self._extract_numeric_id(topic_id)
 
-        # 1. Try utdasset.sqlite
-        try:
-            asset = self.get_topic_asset(num_id)
-            if asset:
-                info = asset.get("topicInfo", {})
-                for t in info.get("translatedTopicInfos", []):
-                    if t.get("languageCode") == "en-US" and t.get("title"):
-                        return t.get("title").strip()
-                if info.get("title"):
-                    return info.get("title").strip()
-        except Exception:
-            pass
-
-        # 2. Try unidex.en.sqlite
+        # 1. Try unidex.en.sqlite (fast indexed lookup)
         try:
             row = self.unidex.execute(
                 "SELECT title FROM topic WHERE topic_id = ? LIMIT 1", (num_id,)
@@ -350,7 +337,7 @@ class ClinRefDatabase:
         except Exception:
             pass
 
-        # 3. Try utdtoc.db
+        # 2. Try utdtoc.db (fast indexed lookup)
         try:
             row = self.toc.execute(
                 "SELECT t.title FROM TOCMap m JOIN TOC t ON m.tocId = t.id WHERE m.topicId = ? LIMIT 1",
@@ -358,6 +345,19 @@ class ClinRefDatabase:
             ).fetchone()
             if row and row["title"]:
                 return row["title"].strip()
+        except Exception:
+            pass
+
+        # 3. Fallback: try utdasset.sqlite (payload decompression)
+        try:
+            asset = self.get_topic_asset(num_id)
+            if asset:
+                info = asset.get("topicInfo", {})
+                for t in info.get("translatedTopicInfos", []):
+                    if t.get("languageCode") == "en-US" and t.get("title"):
+                        return t.get("title").strip()
+                if info.get("title"):
+                    return info.get("title").strip()
         except Exception:
             pass
 

@@ -85,6 +85,7 @@ class StreamingManager {
     private var isStreamingAnswerText = false
     private var answerKeyFound = false
     private var answerExtractIndex = 0
+    private var isEscapeSequence = false
 
     fun onToolCallStarting(toolName: String, args: String) {
         stepCounter++
@@ -151,9 +152,11 @@ class StreamingManager {
         _streamingText.value = streamingBuffer.toString()
     }
 
-    fun onStreamingReasoningDelta(delta: String) {
+    fun onThinkingDelta(content: String) {
         // Reserved for models with chain-of-thought streaming (e.g. Gemini Thinking, o-series)
     }
+
+    fun onStreamingReasoningDelta(delta: String) = onThinkingDelta(delta)
 
     fun onStreamingToolCallDelta(callId: String, content: String, toolName: String? = null) {
         if (content.isEmpty()) return
@@ -178,11 +181,10 @@ class StreamingManager {
         if (isStreamingAnswerText && answerExtractIndex < raw.length) {
             val sb = StringBuilder()
             var i = answerExtractIndex
-            var inEscape = false
 
             while (i < raw.length) {
                 val c = raw[i]
-                if (inEscape) {
+                if (isEscapeSequence) {
                     when (c) {
                         'n' -> sb.append('\n')
                         'r' -> sb.append('\r')
@@ -197,14 +199,17 @@ class StreamingManager {
                                 val hex = raw.substring(i + 1, i + 5)
                                 hex.toIntOrNull(16)?.let { sb.append(it.toChar()) }
                                 i += 4
+                            } else {
+                                // Incomplete hex sequence across chunk boundary, resume on next delta
+                                break
                             }
                         }
                         else -> sb.append(c)
                     }
-                    inEscape = false
+                    isEscapeSequence = false
                     i++
                 } else if (c == '\\') {
-                    inEscape = true
+                    isEscapeSequence = true
                     i++
                 } else if (c == '"') {
                     // Reached unescaped ending quote of answer string
@@ -249,6 +254,7 @@ class StreamingManager {
         isStreamingAnswerText = false
         answerKeyFound = false
         answerExtractIndex = 0
+        isEscapeSequence = false
         _streamingText.value = ""
         _agentState.value = AgentState.Completed(result, validation, accumulatedUsage)
     }
@@ -265,6 +271,7 @@ class StreamingManager {
         isStreamingAnswerText = false
         answerKeyFound = false
         answerExtractIndex = 0
+        isEscapeSequence = false
         _streamingText.value = ""
         val type = classifyError(error)
         _agentState.value = AgentState.Error(error, type)
@@ -279,6 +286,7 @@ class StreamingManager {
         isStreamingAnswerText = false
         answerKeyFound = false
         answerExtractIndex = 0
+        isEscapeSequence = false
         _streamingText.value = ""
         _toolProgress.value = null
         _orchestrationSteps.value = emptyList()
@@ -355,23 +363,6 @@ class StreamingManager {
         try {
             val element = json.parseToJsonElement(resultText) as? JsonObject ?: return
             when (toolName) {
-                "searchTopics" -> {
-                    val results = element["results"] as? kotlinx.serialization.json.JsonArray
-                    if (results != null) {
-                        val current = _liveDiscoveredSources.value.toMutableList()
-                        for (item in results) {
-                            val itemObj = item as? JsonObject ?: continue
-                            val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
-                            val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
-                            if (id.isNotBlank() && title.isNotBlank() && !title.all { it.isDigit() }) {
-                                if (current.none { it.topicId == id }) {
-                                    current.add(SafetyValidator.TopicRef(topicId = id, label = title, topicTitle = title))
-                                }
-                            }
-                        }
-                        _liveDiscoveredSources.value = current
-                    }
-                }
                 "getTopicOutline" -> {
                     val topicId = element["topicId"]?.jsonPrimitive?.content ?: ""
                     val title = element["title"]?.jsonPrimitive?.content ?: ""

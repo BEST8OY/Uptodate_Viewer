@@ -44,8 +44,7 @@ data class ResolvedTopicRef(
 data class ResolvedGraphicRef(val graphicId: String, val title: String)
 
 sealed interface ChatListItem {
-    data class Message(val message: MessageUiModel) : ChatListItem
-    data class DateSeparator(val dateText: String) : ChatListItem
+    data class Message(val uiModel: MessageUiModel) : ChatListItem
 }
 
 data class MessageUiModel(

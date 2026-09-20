@@ -232,22 +232,9 @@ def create_clinical_agent(
                 except (json.JSONDecodeError, AttributeError):
                     pass
 
-            # Always try to get topic title from DB for any section-related tool
-            if name == "get_topic_sections_text":
-                topic_id = args.get("topic_id", "")
-                if topic_id and (topic_id not in tc.topic_titles or str(tc.topic_titles[topic_id]).isdigit()):
-                    try:
-                        from tools import _db
-                        if _db is not None:
-                            db_title = _db.get_topic_title(topic_id)
-                            if db_title and not str(db_title).isdigit():
-                                tc.topic_titles[topic_id] = db_title
-                    except Exception:
-                        pass
-
             # Batch section tracking
             if name == "get_topic_sections_text":
-                topic_id = args.get("topic_id", "")
+                topic_id = str(args.get("topic_id", args.get("topicId", ""))).strip()
                 # Parse structured JSON result from batch tool
                 try:
                     batch_data = json.loads(result_content)
@@ -264,6 +251,17 @@ def create_clinical_agent(
                         tc.outline_sections[topic_id] = section_titles
                 except (json.JSONDecodeError, TypeError):
                     section_titles = {}
+
+                # If topic title is still missing or all digits, resolve from DB
+                if topic_id and (topic_id not in tc.topic_titles or str(tc.topic_titles[topic_id]).isdigit()):
+                    try:
+                        from tools import _db
+                        if _db is not None:
+                            db_title = _db.get_topic_title(topic_id)
+                            if db_title and not str(db_title).isdigit():
+                                tc.topic_titles[topic_id] = db_title
+                    except Exception:
+                        pass
                 # Use stored outline sections for titles (fallback to parsed data)
                 section_map = tc.outline_sections.get(topic_id, section_titles)
                 for sid in args.get("section_ids", []):

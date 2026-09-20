@@ -49,7 +49,7 @@ class ContentDao @Inject constructor(
 
     private fun extractNumericId(topicId: String): Int? {
         return Regex("""^(?:topic-)?(\d+)$""", RegexOption.IGNORE_CASE)
-            .find(topicId)
+            .find(topicId.trim())
             ?.groupValues
             ?.get(1)
             ?.toIntOrNull()
