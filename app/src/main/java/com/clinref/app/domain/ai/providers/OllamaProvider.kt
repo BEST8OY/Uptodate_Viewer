@@ -4,7 +4,7 @@ import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
 import ai.koog.prompt.executor.clients.openai.OpenAIClientSettings
 import ai.koog.prompt.executor.clients.openai.OpenAILLMClient
-import ai.koog.prompt.executor.llms.SingleLLMPromptExecutor
+import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
@@ -60,7 +60,7 @@ class OllamaProvider(
             httpClientFactory = httpClientFactory
         )
 
-        return SingleLLMPromptExecutor(client)
+        return MultiLLMPromptExecutor(client)
     }
 
     override fun createParams(config: AiConfiguration): LLMParams {
