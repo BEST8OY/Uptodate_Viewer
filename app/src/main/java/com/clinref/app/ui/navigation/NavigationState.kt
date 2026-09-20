@@ -18,6 +18,9 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.runtime.serialization.NavKeySerializer
 import androidx.savedstate.compose.serialization.serializers.MutableStateSerializer
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 @Composable
 fun rememberNavigationState(
@@ -80,28 +83,39 @@ class NavigationState(
     }
 
     private fun getTopLevelRoutesInUse(): List<NavKey> =
-        if (topLevelRoute == startRoute) {
-            listOf(startRoute)
-        } else {
-            listOf(startRoute, topLevelRoute)
-        }
+        listOf(topLevelRoute)
 }
 
 class Navigator(val state: NavigationState) {
+    private val _reselectEvents = MutableSharedFlow<NavKey>(extraBufferCapacity = 1)
+    val reselectEvents: SharedFlow<NavKey> = _reselectEvents.asSharedFlow()
+
+    fun onReselect(route: NavKey) {
+        val stack = state.backStacks[route]
+        if (stack != null && stack.size > 1) {
+            // Re-selecting active top-level route while in sub-route pops sub-stack to root
+            while (stack.size > 1) {
+                stack.removeLastOrNull()
+            }
+        } else {
+            // Re-selecting when already at root emits reselect event (e.g. scroll to top)
+            _reselectEvents.tryEmit(route)
+        }
+    }
+
     fun navigate(route: NavKey) {
         if (route in state.backStacks.keys) {
             if (route == state.topLevelRoute) {
-                // Re-selecting active top-level route pops sub-stack to root
-                val stack = state.backStacks[route] ?: return
-                while (stack.size > 1) {
-                    stack.removeLastOrNull()
-                }
+                onReselect(route)
             } else {
                 // Switching top-level tab preserves sub-backstack state
                 state.topLevelRoute = route
             }
         } else {
-            state.backStacks[state.topLevelRoute]?.add(route)
+            val currentStack = state.backStacks[state.topLevelRoute] ?: return
+            if (currentStack.lastOrNull() != route) {
+                currentStack.add(route)
+            }
         }
     }
 
