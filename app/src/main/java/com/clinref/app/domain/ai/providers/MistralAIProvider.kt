@@ -25,7 +25,7 @@ class MistralAIProvider(
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {
-        val modelId = config.model.ifBlank { "mistral-large-latest" }
+        val modelId = config.model.ifBlank { "open-mistral-nemo" }
         return LLModel(
             provider = LLMProvider.MistralAI,
             id = modelId,
@@ -86,12 +86,12 @@ class MistralAIProvider(
 
     override fun getAvailableModels(): List<String> {
         return listOf(
-            "mistral-large-latest",
-            "mistral-small-latest",
-            "codestral-latest",
             "open-mistral-nemo",
             "ministral-8b-latest",
+            "codestral-latest",
             "ministral-3b-latest",
+            "mistral-small-latest",
+            "mistral-large-latest",
             "open-mixtral-8x7b",
             "open-mixtral-8x22b"
         )

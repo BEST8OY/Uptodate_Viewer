@@ -220,7 +220,7 @@ class ChatViewModel @Inject constructor(
                                 id = UUID.randomUUID().toString(),
                                 conversationId = conversationId,
                                 role = "assistant",
-                                content = mapErrorToUserMessage(errorState.type),
+                                content = mapErrorToUserMessage(errorState.type, errorState.error),
                                 timestamp = System.currentTimeMillis(),
                                 isError = true
                             )
@@ -238,7 +238,7 @@ class ChatViewModel @Inject constructor(
                                 id = UUID.randomUUID().toString(),
                                 conversationId = conversationId,
                                 role = "assistant",
-                                content = mapErrorToUserMessage(errorState.type),
+                                content = mapErrorToUserMessage(errorState.type, errorState.error),
                                 timestamp = System.currentTimeMillis(),
                                 isError = true
                             )
@@ -318,7 +318,7 @@ class ChatViewModel @Inject constructor(
                     id = UUID.randomUUID().toString(),
                     conversationId = conversationId,
                     role = "assistant",
-                    content = mapErrorToUserMessage(state.type),
+                    content = mapErrorToUserMessage(state.type, state.error),
                     timestamp = System.currentTimeMillis(),
                     isError = true
                 )
@@ -360,13 +360,23 @@ class ChatViewModel @Inject constructor(
         conversationRepository.updateLastPreview(conversationId, result.take(100))
     }
 
-    private fun mapErrorToUserMessage(type: StreamingManager.ErrorType): String = when (type) {
-        StreamingManager.ErrorType.INVALID_KEY -> "API Key validation rejected. Re-authenticate clinical tokens in Configuration."
-        StreamingManager.ErrorType.NO_NETWORK -> "Network layer unreachable. Please check connectivity."
-        StreamingManager.ErrorType.RATE_LIMIT -> "Upstream rate limit reached. Retrying..."
-        StreamingManager.ErrorType.TIMEOUT -> "Reference core timeout. Please resubmit."
-        StreamingManager.ErrorType.NO_RESULTS -> "Query executed, but reference matches returned no data."
-        StreamingManager.ErrorType.UNKNOWN -> "An error occurred during response generation."
+    private fun mapErrorToUserMessage(type: StreamingManager.ErrorType, detail: String? = null): String {
+        val baseMessage = when (type) {
+            StreamingManager.ErrorType.INVALID_KEY -> "API Key validation rejected. Re-authenticate clinical tokens in Configuration."
+            StreamingManager.ErrorType.NO_NETWORK -> "Network layer unreachable. Please check connectivity."
+            StreamingManager.ErrorType.RATE_LIMIT -> "Upstream rate limit reached. Retrying..."
+            StreamingManager.ErrorType.TIMEOUT -> "Reference core timeout. Please resubmit."
+            StreamingManager.ErrorType.NO_RESULTS -> "Query executed, but reference matches returned no data."
+            StreamingManager.ErrorType.UNKNOWN -> "An error occurred during response generation."
+        }
+        val cleanDetail = detail?.trim()?.takeIf {
+            it.isNotBlank() && !it.equals("Unknown error", ignoreCase = true) && !it.equals(baseMessage, ignoreCase = true)
+        }
+        return if (cleanDetail != null) {
+            "$baseMessage\n\n[$cleanDetail]"
+        } else {
+            baseMessage
+        }
     }
 
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {

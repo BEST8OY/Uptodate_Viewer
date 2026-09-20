@@ -178,7 +178,12 @@ class SettingsViewModel @Inject constructor(
     }
 
     private suspend fun loadModels(provider: AiProvider, baseUrl: String) {
-        _availableModels.value = koogAgentFactory.getAvailableModels(provider, baseUrl)
+        val models = koogAgentFactory.getAvailableModels(provider, baseUrl)
+        _availableModels.value = models
+        val currentModel = _configuration.value.model
+        if (currentModel.isBlank() || currentModel !in models) {
+            models.firstOrNull()?.let { updateModel(it) }
+        }
     }
 
     sealed class TestResult {

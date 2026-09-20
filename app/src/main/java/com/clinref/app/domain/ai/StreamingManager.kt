@@ -142,8 +142,8 @@ class StreamingManager {
             "api key" in lower || "unauthorized" in lower || "401" in lower -> ErrorType.INVALID_KEY
             "timeout" in lower || "deadline" in lower -> ErrorType.TIMEOUT
             "rate" in lower || "429" in lower -> ErrorType.RATE_LIMIT
-            "network" in lower || "connect" in lower -> ErrorType.NO_NETWORK
-            "no result" in lower || "not found" in lower -> ErrorType.NO_RESULTS
+            "network" in lower || "connect" in lower || "unreachable" in lower -> ErrorType.NO_NETWORK
+            "no topic match" in lower || "no results for" in lower || "no clinical data" in lower -> ErrorType.NO_RESULTS
             else -> ErrorType.UNKNOWN
         }
     }
