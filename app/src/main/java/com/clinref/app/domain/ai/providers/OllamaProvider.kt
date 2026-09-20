@@ -42,8 +42,7 @@ class OllamaProvider(
     }
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
-        val rawBase = config.baseUrl.ifBlank { "http://localhost:11434" }.removeSuffix("/")
-        val baseUrl = if (rawBase.endsWith("/v1")) rawBase else "$rawBase/v1"
+        val baseUrl = config.baseUrl.trim().removeSuffix("/").removeSuffix("/v1").ifBlank { "http://localhost:11434" }
 
         val settings = OpenAIClientSettings(
             baseUrl = baseUrl,

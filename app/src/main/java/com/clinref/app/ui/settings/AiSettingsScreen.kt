@@ -170,7 +170,7 @@ fun AiSettingsScreen(
                                 Text(
                                     when (configuration.provider) {
                                         AiProvider.OLLAMA -> "http://localhost:11434"
-                                        AiProvider.MISTRAL -> "https://api.mistral.ai/v1"
+                                        AiProvider.MISTRAL -> "https://api.mistral.ai"
                                         else -> "https://openrouter.ai/api/v1"
                                     }
                                 )
