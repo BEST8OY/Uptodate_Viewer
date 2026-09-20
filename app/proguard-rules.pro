@@ -38,10 +38,11 @@
 # OpenTelemetry (Koog transitive)
 -keep class io.opentelemetry.** { *; }
 -dontwarn com.google.auto.value.AutoValue**
--dontwarn io.opentelemetry.api.incubator.metrics.**
+-dontwarn io.opentelemetry.api.incubator.**
 -dontwarn io.opentelemetry.sdk.metrics.internal.descriptor.**
 -dontwarn io.opentelemetry.sdk.common.**
 -dontwarn io.opentelemetry.api.internal.**
+-dontwarn org.osgi.**
 
 # Ktor (Koog transitive)
 -keep class io.ktor.** { *; }
