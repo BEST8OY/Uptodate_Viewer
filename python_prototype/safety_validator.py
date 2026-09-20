@@ -166,7 +166,7 @@ class SafetyValidator:
 
     def _validate_section_content_required(self, ctx: TurnContext) -> Optional[ValidationResult]:
         has_section = any(
-            tc.tool_name in ("get_topic_sections_text", "get_graphic_content") and tc.success
+            tc.tool_name in ("get_topic_sections_text", "getTopicSectionsText", "get_graphic_content", "getGraphicContent") and tc.success
             for tc in ctx.tool_calls
         )
         if not has_section:

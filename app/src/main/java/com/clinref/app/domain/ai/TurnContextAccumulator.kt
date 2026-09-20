@@ -305,7 +305,7 @@ class TurnContextAccumulator {
             val element = json.parseToJsonElement(result)
             val obj = element as? JsonObject ?: return
             val topicId = obj["topicId"]?.jsonPrimitive?.content
-                ?: args["topicId"] ?: return
+                ?: args["topicId"] ?: args["topic_id"] ?: return
             lastTopicId = topicId
             val title = obj["title"]?.jsonPrimitive?.content ?: ""
             if (title.isNotEmpty() && !title.all { it.isDigit() }) {
@@ -394,7 +394,7 @@ class TurnContextAccumulator {
 
         for (sectionId in sectionIds) {
             if (sectionId.isNotEmpty()) {
-                val resolvedTitle = (sectionMap[sectionId] ?: args["sectionTitle"] ?: "").trimStart('-', '–', '—')
+                val resolvedTitle = (sectionMap[sectionId] ?: args["sectionTitle"] ?: args["section_title"] ?: "").trimStart('-', '–', '—')
                 fetchedSections.add(
                     SafetyValidator.FetchedSection(
                         topicId = topicId,
@@ -409,7 +409,7 @@ class TurnContextAccumulator {
     }
 
     private fun parseGraphicResult(args: Map<String, String>, result: String) {
-        val graphicId = args["graphicId"] ?: ""
+        val graphicId = args["graphicId"] ?: args["graphic_id"] ?: ""
         if (graphicId.isNotEmpty()) {
             graphicIds.add(graphicId)
             // Extract title from result: "### Graphic Table: {title}\n\n{markdown}"

@@ -91,7 +91,8 @@ class SafetyValidator {
 
     private fun validateSectionContentRequired(context: TurnContext): ValidationResult {
         val hasSectionFetch = context.toolCalls.any {
-            (it.toolName == "getTopicSectionsText" || it.toolName == "getGraphicContent") && it.success
+            (it.toolName == "getTopicSectionsText" || it.toolName == "get_topic_sections_text" ||
+             it.toolName == "getGraphicContent" || it.toolName == "get_graphic_content") && it.success
         }
         if (!hasSectionFetch) {
             return ValidationResult(

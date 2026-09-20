@@ -152,11 +152,9 @@ class StreamingManager {
         _streamingText.value = streamingBuffer.toString()
     }
 
-    fun onThinkingDelta(content: String) {
+    fun onStreamingReasoningDelta(delta: String) {
         // Reserved for models with chain-of-thought streaming (e.g. Gemini Thinking, o-series)
     }
-
-    fun onStreamingReasoningDelta(delta: String) = onThinkingDelta(delta)
 
     fun onStreamingToolCallDelta(callId: String, content: String, toolName: String? = null) {
         if (content.isEmpty()) return
@@ -304,7 +302,8 @@ class StreamingManager {
                     "Search Knowledge Base" to if (query.isNotBlank()) "Query: \"$query\"" else null
                 }
                 "getTopicOutline" -> {
-                    val topicId = element?.get("topicId")?.jsonPrimitive?.content ?: ""
+                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
+                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
                     "Examine Topic Outline" to if (topicId.isNotBlank()) "Topic ID: $topicId" else null
                 }
                 "getRelatedTopics" -> {
@@ -314,7 +313,8 @@ class StreamingManager {
                     "Retrieve Clinical Evidence" to "Fetching evidence sections"
                 }
                 "getGraphicContent" -> {
-                    val graphicId = element?.get("graphicId")?.jsonPrimitive?.content ?: ""
+                    val graphicId = element?.get("graphicId")?.jsonPrimitive?.content
+                        ?: element?.get("graphic_id")?.jsonPrimitive?.content ?: ""
                     "Load Reference Table" to if (graphicId.isNotBlank()) "Table ID: $graphicId" else null
                 }
                 "submitClinicalAnswer" -> {
@@ -364,7 +364,8 @@ class StreamingManager {
             val element = json.parseToJsonElement(resultText) as? JsonObject ?: return
             when (toolName) {
                 "getTopicOutline" -> {
-                    val topicId = element["topicId"]?.jsonPrimitive?.content ?: ""
+                    val topicId = element["topicId"]?.jsonPrimitive?.content
+                        ?: element["topic_id"]?.jsonPrimitive?.content ?: ""
                     val title = element["title"]?.jsonPrimitive?.content ?: ""
                     if (topicId.isNotBlank() && title.isNotBlank() && !title.all { it.isDigit() }) {
                         val current = _liveDiscoveredSources.value.toMutableList()

@@ -220,7 +220,7 @@ def create_clinical_agent(
                 try:
                     outline_data = json.loads(result_content)
                     topic_title = outline_data.get("title", "")
-                    topic_id = outline_data.get("topicId", args.get("topic_id", ""))
+                    topic_id = outline_data.get("topicId", args.get("topic_id", args.get("topicId", "")))
                     if topic_id and topic_title and not str(topic_title).isdigit():
                         tc.topic_titles[topic_id] = topic_title
                     # Store full section ID → title map (strip leading outline dashes)
@@ -264,7 +264,8 @@ def create_clinical_agent(
                         pass
                 # Use stored outline sections for titles (fallback to parsed data)
                 section_map = tc.outline_sections.get(topic_id, section_titles)
-                for sid in args.get("section_ids", []):
+                section_ids = args.get("section_ids") or args.get("sectionIds") or []
+                for sid in section_ids:
                     tc.fetched_sections.append(
                         FetchedSection(
                             topic_id=topic_id,
@@ -277,7 +278,7 @@ def create_clinical_agent(
 
             # Track graphic IDs and titles
             if name == "get_graphic_content":
-                graphic_id = args.get("graphic_id", "")
+                graphic_id = str(args.get("graphic_id", args.get("graphicId", ""))).strip()
                 if graphic_id:
                     tc.graphic_ids.add(graphic_id)
                     # Extract title from result: "### Graphic Table: {title}\n\n{markdown}"
