@@ -29,6 +29,6 @@ class ContentRepository @Inject constructor(
     }
 
     fun getTopicTitle(topicId: String): String? {
-        return searchDao.getTopicTitle(topicId)
+        return searchDao.getTopicTitle(topicId) ?: contentDao.getTopicTitle(topicId)
     }
 }

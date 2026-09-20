@@ -8,17 +8,40 @@ class SearchDao @Inject constructor(
     private val dbManager: DatabaseManager
 ) {
     fun getTopicTitle(topicId: String): String? {
-        val db = dbManager.getUnidexDb()
-        val numericId = topicId.removePrefix("topic-")
+        val clean = topicId.trim()
+        val numericId = Regex("""\d+""").find(clean)?.value ?: clean.removePrefix("topic-").removePrefix("Topic-")
 
-        val cursor = db.rawQuery(
-            "SELECT title FROM topic WHERE topic_id = ? LIMIT 1",
-            arrayOf(numericId)
-        )
+        // 1. Try unidex.en.sqlite topic table
+        try {
+            val db = dbManager.getUnidexDb()
+            val cursor = db.rawQuery(
+                "SELECT title FROM topic WHERE topic_id = ? LIMIT 1",
+                arrayOf(numericId)
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val title = it.getString(0)?.trim()
+                    if (!title.isNullOrBlank()) return title
+                }
+            }
+        } catch (_: Exception) { }
 
-        return cursor.use {
-            if (it.moveToFirst()) it.getString(0) else null
-        }
+        // 2. Fallback: try utdtoc.db (TOCMap + TOC)
+        try {
+            val tocDb = dbManager.getTocDb()
+            val cursor = tocDb.rawQuery(
+                "SELECT t.title FROM TOCMap m JOIN TOC t ON m.tocId = t.id WHERE m.topicId = ? LIMIT 1",
+                arrayOf(numericId)
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val title = it.getString(0)?.trim()
+                    if (!title.isNullOrBlank()) return title
+                }
+            }
+        } catch (_: Exception) { }
+
+        return null
     }
 
     fun getSuggestions(query: String): List<String> {
@@ -274,7 +297,7 @@ class SearchDao @Inject constructor(
 
     private fun hasTopicAsset(topicId: String): Boolean {
         if (topicId.isEmpty()) return false
-        val numericId = topicId.removePrefix("topic-")
+        val numericId = Regex("""\d+""").find(topicId.trim())?.value ?: topicId.trim().removePrefix("topic-").removePrefix("Topic-")
         return try {
             val db = dbManager.getAssetsDb()
             val cursor = db.rawQuery(

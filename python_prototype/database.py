@@ -269,17 +269,23 @@ class ClinRefDatabase:
 
     # ── Topic Assets ────────────────────────────────────────────────────
 
+    @staticmethod
+    def _extract_numeric_id(topic_id: str) -> str:
+        s = str(topic_id).strip()
+        m = re.search(r'\d+', s)
+        return m.group() if m else s
+
     def has_topic_asset(self, topic_id: str) -> bool:
-        """Fast check if a topic asset exists in utdasset.sqlite without payload decompression."""
+        """Check if a topic exists in utdasset.sqlite."""
         if not topic_id:
             return False
+        num_id = self._extract_numeric_id(topic_id)
         row = self.asset.execute(
-            "SELECT 1 FROM topic_asset WHERE id = ? LIMIT 1", (topic_id,)
+            "SELECT 1 FROM topic_asset WHERE id = ? LIMIT 1", (num_id,)
         ).fetchone()
         return row is not None
 
     @staticmethod
-
     def get_topic_type(asset: dict) -> str:
         """Returns 'calc' for calculators, 'article' for narrative medical/drug topics."""
         topic_info = asset.get("topicInfo", {})
@@ -292,8 +298,9 @@ class ClinRefDatabase:
 
         Returns dict with keys: topicInfo, bodyHtml, outlineHtml, etc.
         """
+        num_id = self._extract_numeric_id(topic_id)
         row = self.asset.execute(
-            "SELECT payload FROM topic_asset WHERE id = ?", (topic_id,)
+            "SELECT payload FROM topic_asset WHERE id = ?", (num_id,)
         ).fetchone()
         if not row or not row["payload"]:
             return None
@@ -317,15 +324,44 @@ class ClinRefDatabase:
             return None
 
     def get_topic_title(self, topic_id: str) -> Optional[str]:
-        """Get English title for a topic ID."""
-        asset = self.get_topic_asset(topic_id)
-        if not asset:
-            return None
-        info = asset.get("topicInfo", {})
-        for t in info.get("translatedTopicInfos", []):
-            if t.get("languageCode") == "en-US":
-                return t.get("title")
-        return info.get("title")
+        """Get English title for a topic ID with 3-way multi-DB fallback."""
+        num_id = self._extract_numeric_id(topic_id)
+
+        # 1. Try utdasset.sqlite
+        try:
+            asset = self.get_topic_asset(num_id)
+            if asset:
+                info = asset.get("topicInfo", {})
+                for t in info.get("translatedTopicInfos", []):
+                    if t.get("languageCode") == "en-US" and t.get("title"):
+                        return t.get("title").strip()
+                if info.get("title"):
+                    return info.get("title").strip()
+        except Exception:
+            pass
+
+        # 2. Try unidex.en.sqlite
+        try:
+            row = self.unidex.execute(
+                "SELECT title FROM topic WHERE topic_id = ? LIMIT 1", (num_id,)
+            ).fetchone()
+            if row and row["title"]:
+                return row["title"].strip()
+        except Exception:
+            pass
+
+        # 3. Try utdtoc.db
+        try:
+            row = self.toc.execute(
+                "SELECT t.title FROM TOCMap m JOIN TOC t ON m.tocId = t.id WHERE m.topicId = ? LIMIT 1",
+                (num_id,)
+            ).fetchone()
+            if row and row["title"]:
+                return row["title"].strip()
+        except Exception:
+            pass
+
+        return None
 
     def get_topic_outline(self, topic_id: str) -> Optional[str]:
         """Get raw outlineHtml for a topic."""

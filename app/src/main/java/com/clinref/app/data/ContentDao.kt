@@ -27,6 +27,26 @@ class ContentDao @Inject constructor(
             ?: TopicContent(bodyHtml = "<h1>Content not found</h1><p>Could not retrieve content for this topic.</p>")
     }
 
+    fun getTopicTitle(topicId: String): String? {
+        val numericId = extractNumericId(topicId) ?: return null
+        return try {
+            val db = dbManager.getAssetsDb()
+            db.rawQuery("SELECT payload FROM topic_asset WHERE id = ? LIMIT 1", arrayOf(numericId.toString())).use { cursor ->
+                if (!cursor.moveToFirst()) return null
+                val payloadStr = ZstdUtil.decodePayload(cursor.getBlob(0))
+                val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
+                val topicInfo = jsonObj["topicInfo"]?.let {
+                    try { it.jsonObject } catch (_: Exception) { null }
+                }
+                val title = topicInfo?.get("title")?.jsonPrimitive?.content
+                    ?: jsonObj["title"]?.jsonPrimitive?.content
+                title?.removeSurrounding("\"")?.trim()?.takeIf { it.isNotBlank() }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun extractNumericId(topicId: String): Int? {
         return Regex("""^(?:topic-)?(\d+)$""", RegexOption.IGNORE_CASE)
             .find(topicId)
