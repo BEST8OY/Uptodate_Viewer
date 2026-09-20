@@ -422,4 +422,52 @@ class TurnContextAccumulatorTest {
         assertEquals("Thyroid Function", ctx.topicRefs[0].topicTitle)
         assertEquals("Thyroid Function", ctx.topicRefs[1].topicTitle)
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Search & Related Topics Caching
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `caches topic titles from searchTopics results`() {
+        val searchResult = """{"query":"liver enzymes","results":[{"id":"3576","title":"Approach to the patient with abnormal liver tests"},{"id":"3573","title":"Overview of liver biochemical tests"}]}"""
+        accumulator.onToolCallStarting("call-1", """{"query":"liver enzymes"}""")
+        accumulator.onToolCallCompleted("call-1", "searchTopics", searchResult, true)
+
+        // Then model fetches sections from topic 3576 where response topicTitle is empty or raw id
+        accumulator.onToolCallStarting("call-2", """{"topicId":"3576","sectionIds":["H1"]}""")
+        accumulator.onToolCallCompleted(
+            "call-2", "getTopicSectionsText",
+            """{"topicTitle":"","sectionTitles":{"H1":"Initial Evaluation"},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("Approach to the patient with abnormal liver tests", ctx.topicRefs[0].topicTitle)
+        assertEquals("Initial Evaluation", ctx.topicRefs[0].label)
+    }
+
+    @Test
+    fun `does not overwrite cached topic title with all-digit id`() {
+        val searchResult = """{"query":"liver","results":[{"id":"3576","title":"Approach to the patient with abnormal liver tests"}]}"""
+        accumulator.onToolCallStarting("call-1", """{"query":"liver"}""")
+        accumulator.onToolCallCompleted("call-1", "searchTopics", searchResult, true)
+
+        // Model calls getTopicOutline which returns topicId as title
+        val outlineResult = """{"topicId":"3576","title":"3576","sections":[{"id":"H1","title":"Intro"}]}"""
+        accumulator.onToolCallStarting("call-2", """{"topicId":"3576"}""")
+        accumulator.onToolCallCompleted("call-2", "getTopicOutline", outlineResult, true)
+
+        // Then fetches sections
+        accumulator.onToolCallStarting("call-3", """{"topicId":"3576","sectionIds":["H1"]}""")
+        accumulator.onToolCallCompleted(
+            "call-3", "getTopicSectionsText",
+            """{"topicTitle":"3576","sectionTitles":{"H1":"Intro"},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("Approach to the patient with abnormal liver tests", ctx.topicRefs[0].topicTitle)
+    }
 }

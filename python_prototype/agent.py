@@ -191,13 +191,37 @@ def create_clinical_agent(
             tc.tool_calls[-1].result = result_content
             tc.tool_results.append(result_content)
 
+            # Track candidate topic titles from search_topics
+            if name == "search_topics":
+                try:
+                    search_data = json.loads(result_content)
+                    for item in search_data.get("results", []):
+                        tid = str(item.get("id", "")).strip()
+                        title = str(item.get("title", "")).strip()
+                        if tid and title and not title.isdigit():
+                            tc.topic_titles[tid] = title
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            # Track related topic titles
+            if name == "get_related_topics":
+                try:
+                    rel_data = json.loads(result_content)
+                    for item in rel_data.get("relatedTopics", rel_data.get("related_topics", [])):
+                        tid = str(item.get("id", item.get("topicId", ""))).strip()
+                        title = str(item.get("title", "")).strip()
+                        if tid and title and not title.isdigit():
+                            tc.topic_titles[tid] = title
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             # Track topic titles and section titles from outline
             if name == "get_topic_outline":
                 try:
                     outline_data = json.loads(result_content)
                     topic_title = outline_data.get("title", "")
                     topic_id = outline_data.get("topicId", args.get("topic_id", ""))
-                    if topic_id and topic_title:
+                    if topic_id and topic_title and not str(topic_title).isdigit():
                         tc.topic_titles[topic_id] = topic_title
                     # Store full section ID → title map (strip leading outline dashes)
                     sections = outline_data.get("sections", [])
@@ -211,12 +235,12 @@ def create_clinical_agent(
             # Always try to get topic title from DB for any section-related tool
             if name == "get_topic_sections_text":
                 topic_id = args.get("topic_id", "")
-                if topic_id and topic_id not in tc.topic_titles:
+                if topic_id and (topic_id not in tc.topic_titles or str(tc.topic_titles[topic_id]).isdigit()):
                     try:
                         from tools import _db
                         if _db is not None:
                             db_title = _db.get_topic_title(topic_id)
-                            if db_title:
+                            if db_title and not str(db_title).isdigit():
                                 tc.topic_titles[topic_id] = db_title
                     except Exception:
                         pass
@@ -234,7 +258,7 @@ def create_clinical_agent(
                         if isinstance(raw_section_titles, dict)
                         else {}
                     )
-                    if topic_id and topic_title:
+                    if topic_id and topic_title and not str(topic_title).isdigit():
                         tc.topic_titles[topic_id] = topic_title
                     if topic_id and section_titles:
                         tc.outline_sections[topic_id] = section_titles
@@ -398,11 +422,17 @@ def _auto_populate_refs(tc: TurnContext, result: str) -> None:
         seen_topics.add(key)
         if not sec.section_title:
             continue
-        topic_title = (
-            tc.topic_titles.get(sec.topic_id)
-            or sec.topic_title
-            or sec.topic_id
-        )
+        raw_title = tc.topic_titles.get(sec.topic_id) or sec.topic_title or ""
+        if not raw_title or str(raw_title).isdigit():
+            try:
+                from tools import _db
+                if _db is not None:
+                    db_title = _db.get_topic_title(sec.topic_id)
+                    if db_title and not str(db_title).isdigit():
+                        raw_title = db_title
+            except Exception:
+                pass
+        topic_title = raw_title if raw_title and not str(raw_title).isdigit() else sec.topic_id
         topic_refs.append(
             TopicRef(
                 topic_id=sec.topic_id,

@@ -103,6 +103,8 @@ class TurnContextAccumulator {
 
         if (logicalSuccess) {
             when (toolName) {
+                "searchTopics" -> parseSearchResults(result)
+                "getRelatedTopics" -> parseRelatedTopicsResult(result)
                 "getTopicOutline" -> parseOutlineResult(parsedArgs, result)
                 "getTopicSectionsText" -> parseBatchSectionResult(parsedArgs, result)
                 "getGraphicContent" -> parseGraphicResult(parsedArgs, result)
@@ -119,9 +121,10 @@ class TurnContextAccumulator {
 
         // Populate topicTitle on fetched sections from accumulated topicTitles
         val sectionsWithTitle = fetchedSections.map { sec ->
-            if (sec.topicTitle.isEmpty()) {
-                sec.copy(topicTitle = topicTitles[sec.topicId] ?: sec.topicId)
-            } else sec
+            val resolvedTitle = topicTitles[sec.topicId]?.takeIf { !it.all { c -> c.isDigit() } }
+                ?: sec.topicTitle.takeIf { !it.all { c -> c.isDigit() } }
+                ?: sec.topicId
+            sec.copy(topicTitle = resolvedTitle)
         }
 
         // Auto-populate refs from fetched sections and graphic IDs
@@ -131,7 +134,9 @@ class TurnContextAccumulator {
             candidateSections
                 .distinctBy { it.topicId to it.sectionId }
                 .map { sec ->
-                    val topicTitle = topicTitles[sec.topicId] ?: sec.topicTitle.ifEmpty { sec.topicId }
+                    val topicTitle = topicTitles[sec.topicId]?.takeIf { !it.all { c -> c.isDigit() } }
+                        ?: sec.topicTitle.takeIf { !it.all { c -> c.isDigit() } }
+                        ?: sec.topicId
                     val label = sec.sectionTitle.ifBlank { topicTitle }
                     SafetyValidator.TopicRef(
                         topicId = sec.topicId,
@@ -259,6 +264,42 @@ class TurnContextAccumulator {
         }
     }
 
+    private fun parseSearchResults(result: String) {
+        try {
+            val element = json.parseToJsonElement(result)
+            val obj = element as? JsonObject ?: return
+            val results = obj["results"] as? kotlinx.serialization.json.JsonArray ?: return
+            for (item in results) {
+                val itemObj = item as? JsonObject ?: continue
+                val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
+                val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
+                if (title.isNotBlank() && !title.all { it.isDigit() }) {
+                    topicTitles[id] = title
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "parseSearchResults: ${e.message}")
+        }
+    }
+
+    private fun parseRelatedTopicsResult(result: String) {
+        try {
+            val element = json.parseToJsonElement(result)
+            val obj = element as? JsonObject ?: return
+            val related = obj["relatedTopics"] as? kotlinx.serialization.json.JsonArray ?: return
+            for (item in related) {
+                val itemObj = item as? JsonObject ?: continue
+                val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
+                val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
+                if (title.isNotBlank() && !title.all { it.isDigit() }) {
+                    topicTitles[id] = title
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "parseRelatedTopicsResult: ${e.message}")
+        }
+    }
+
     private fun parseOutlineResult(args: Map<String, String>, result: String) {
         try {
             val element = json.parseToJsonElement(result)
@@ -267,7 +308,7 @@ class TurnContextAccumulator {
                 ?: args["topicId"] ?: return
             lastTopicId = topicId
             val title = obj["title"]?.jsonPrimitive?.content ?: ""
-            if (title.isNotEmpty()) {
+            if (title.isNotEmpty() && !title.all { it.isDigit() }) {
                 topicTitles[topicId] = title
             }
             // Store full section ID → title map
@@ -317,7 +358,7 @@ class TurnContextAccumulator {
             val obj = element as? JsonObject
             if (obj != null) {
                 respTopicTitle = obj["topicTitle"]?.jsonPrimitive?.content ?: ""
-                if (respTopicTitle.isNotEmpty()) {
+                if (respTopicTitle.isNotEmpty() && !respTopicTitle.all { it.isDigit() }) {
                     if (topicId.isEmpty()) {
                         topicId = topicTitles.entries.firstOrNull { it.value == respTopicTitle }?.key ?: lastTopicId
                     }

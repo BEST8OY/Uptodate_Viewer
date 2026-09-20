@@ -324,15 +324,20 @@ class StreamingManager {
         return try {
             val element = json.parseToJsonElement(resultText) as? JsonObject ?: return null
             when (toolName) {
+                "searchTopics" -> {
+                    val results = element["results"] as? kotlinx.serialization.json.JsonArray
+                    val count = results?.size ?: 0
+                    if (count > 0) "$count candidate topics identified" else "No topics found"
+                }
                 "getTopicOutline" -> {
                     val title = element["title"]?.jsonPrimitive?.content
-                    if (!title.isNullOrBlank()) "Outline: $title" else null
+                    if (!title.isNullOrBlank() && !title.all { it.isDigit() }) "Outline: $title" else "Outline loaded"
                 }
                 "getTopicSectionsText" -> {
                     val topicTitle = element["topicTitle"]?.jsonPrimitive?.content
                     val sectionTitles = element["sectionTitles"] as? JsonObject
                     val count = sectionTitles?.size ?: 0
-                    if (!topicTitle.isNullOrBlank()) {
+                    if (!topicTitle.isNullOrBlank() && !topicTitle.all { it.isDigit() }) {
                         "$count sections from \"$topicTitle\""
                     } else if (count > 0) {
                         "$count sections retrieved"
@@ -350,15 +355,35 @@ class StreamingManager {
         try {
             val element = json.parseToJsonElement(resultText) as? JsonObject ?: return
             when (toolName) {
+                "searchTopics" -> {
+                    val results = element["results"] as? kotlinx.serialization.json.JsonArray
+                    if (results != null) {
+                        val current = _liveDiscoveredSources.value.toMutableList()
+                        for (item in results) {
+                            val itemObj = item as? JsonObject ?: continue
+                            val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
+                            val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
+                            if (id.isNotBlank() && title.isNotBlank() && !title.all { it.isDigit() }) {
+                                if (current.none { it.topicId == id }) {
+                                    current.add(SafetyValidator.TopicRef(topicId = id, label = title, topicTitle = title))
+                                }
+                            }
+                        }
+                        _liveDiscoveredSources.value = current
+                    }
+                }
                 "getTopicOutline" -> {
                     val topicId = element["topicId"]?.jsonPrimitive?.content ?: ""
                     val title = element["title"]?.jsonPrimitive?.content ?: ""
-                    if (topicId.isNotBlank() && title.isNotBlank()) {
+                    if (topicId.isNotBlank() && title.isNotBlank() && !title.all { it.isDigit() }) {
                         val current = _liveDiscoveredSources.value.toMutableList()
-                        if (current.none { it.topicId == topicId }) {
+                        val existingIndex = current.indexOfFirst { it.topicId == topicId }
+                        if (existingIndex >= 0) {
+                            current[existingIndex] = current[existingIndex].copy(label = title, topicTitle = title)
+                        } else {
                             current.add(SafetyValidator.TopicRef(topicId = topicId, label = title, topicTitle = title))
-                            _liveDiscoveredSources.value = current
                         }
+                        _liveDiscoveredSources.value = current
                     }
                 }
                 "getTopicSectionsText" -> {
