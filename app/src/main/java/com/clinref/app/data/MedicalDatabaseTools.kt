@@ -1,24 +1,11 @@
 package com.clinref.app.data
 
-import ai.koog.agents.core.tools.annotations.Tool
-import ai.koog.agents.core.tools.annotations.LLMDescription
-import ai.koog.agents.core.tools.reflect.ToolSet
 import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
-import android.util.Log
 import org.jsoup.Jsoup
-import org.jsoup.nodes.Element
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,9 +16,25 @@ class MedicalDatabaseTools @Inject constructor(
     private val searchRepository: SearchRepository,
     private val contentRepository: ContentRepository,
     private val assetRepository: AssetRepository
-) : ToolSet {
+) {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    val searchTopicsTool by lazy { com.clinref.app.data.tools.SearchTopicsTool(this) }
+    val getTopicOutlineTool by lazy { com.clinref.app.data.tools.GetTopicOutlineTool(this) }
+    val getRelatedTopicsTool by lazy { com.clinref.app.data.tools.GetRelatedTopicsTool(this) }
+    val getTopicSectionsTextTool by lazy { com.clinref.app.data.tools.GetTopicSectionsTextTool(this) }
+    val getGraphicContentTool by lazy { com.clinref.app.data.tools.GetGraphicContentTool(this) }
+    val submitClinicalAnswerTool by lazy { com.clinref.app.data.tools.SubmitClinicalAnswerTool(this) }
+
+    fun asToolList(): List<ai.koog.agents.core.tools.Tool<*, *>> = listOf(
+        searchTopicsTool,
+        getTopicOutlineTool,
+        getRelatedTopicsTool,
+        getTopicSectionsTextTool,
+        getGraphicContentTool,
+        submitClinicalAnswerTool
+    )
+
+    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 
     companion object {
         private val A_TAG_REGEX = Regex(
@@ -63,24 +66,16 @@ class MedicalDatabaseTools @Inject constructor(
             """appAction\(([^)]*)\)""",
             setOf(RegexOption.DOT_MATCHES_ALL)
         )
+        private val LEGACY_HYPHEN_REGEX = Regex(
+            """<span[^>]*class="legacyTopicViewHyphen"[^>]*>.*?</span>""",
+            setOf(RegexOption.IGNORE_CASE)
+        )
     }
 
-    @Tool
-    @LLMDescription(
-        "Search medical topics by focused core keywords (e.g., 'apixaban', 'asthma', 'gout'). " +
-        "Returns matching candidate topics ({id, title}) and 'refine_with' suggestions. " +
-        "For multi-concept questions, execute separate searches per concept. " +
-        "Avoid searching full patient sentences or lab measurements."
-    )
-    fun searchTopics(
-        @LLMDescription("Single medical term or core clinical concept (e.g., 'asthma', 'metformin').") query: String
-    ): String {
+    fun searchTopics(query: String): String {
         val cleanQuery = query.trim()
         if (cleanQuery.isEmpty()) {
-            return buildJsonObject {
-                putJsonArray("results") {}
-                putJsonArray("refine_with") {}
-            }.toString()
+            return json.encodeToString(SearchTopicsResponse())
         }
 
         val searchResults = searchRepository.searchTopics(cleanQuery)
@@ -93,16 +88,14 @@ class MedicalDatabaseTools @Inject constructor(
                 val retryResults = searchRepository.searchTopics(suggestion)
                 val retryMapped = formatSearchResults(retryResults)
                 if (retryMapped.isNotEmpty()) {
-                    return buildJsonObject {
-                        put("query", suggestion)
-                        putJsonArray("results") {
-                            for (res in retryMapped) add(res)
-                        }
-                        putJsonArray("refine_with") {
-                            for (sug in suggestions.filter { it != suggestion }) add(sug)
-                        }
-                        put("message", "Auto-refined from '$cleanQuery' to '$suggestion'")
-                    }.toString()
+                    return json.encodeToString(
+                        SearchTopicsResponse(
+                            query = suggestion,
+                            results = retryMapped,
+                            refine_with = suggestions.filter { it != suggestion },
+                            message = "Auto-refined from '$cleanQuery' to '$suggestion'"
+                        )
+                    )
                 }
             }
             // Still no results after auto-retry
@@ -112,130 +105,86 @@ class MedicalDatabaseTools @Inject constructor(
             } else {
                 "No results for '$cleanQuery'. Try one of the 'refine_with' suggestions."
             }
-            return buildJsonObject {
-                put("query", cleanQuery)
-                putJsonArray("results") {}
-                putJsonArray("refine_with") {
-                    for (sug in allSuggestions) add(sug)
-                }
-                put("message", msg)
-            }.toString()
+            return json.encodeToString(
+                SearchTopicsResponse(
+                    query = cleanQuery,
+                    results = emptyList(),
+                    refine_with = allSuggestions,
+                    message = msg
+                )
+            )
         }
 
         val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-        return buildJsonObject {
-            put("query", cleanQuery)
-            putJsonArray("results") {
-                for (res in results) add(res)
-            }
-            putJsonArray("refine_with") {
-                for (sug in allSuggestions) add(sug)
-            }
-            put("message", "Success")
-        }.toString()
+        return json.encodeToString(
+            SearchTopicsResponse(
+                query = cleanQuery,
+                results = results,
+                refine_with = allSuggestions,
+                message = "Success"
+            )
+        )
     }
 
-    private fun formatSearchResults(searchResults: List<com.clinref.app.domain.SearchResult>): List<JsonObject> {
+    private fun formatSearchResults(searchResults: List<com.clinref.app.domain.SearchResult>): List<SearchResultTopicItem> {
         return searchResults.map { result ->
             val id = when (result) {
                 is com.clinref.app.domain.SearchResult.Topic -> result.topicId
                 is com.clinref.app.domain.SearchResult.Graphic -> result.graphicId
             }
-            buildJsonObject {
-                put("id", id)
-                put("title", result.title)
-            }
+            SearchResultTopicItem(id = id, title = result.title)
         }
     }
 
-    @Tool
-    @LLMDescription(
-        "Retrieve the topic outline containing section IDs, titles, graphic metadata, and related topics. " +
-        "ALWAYS call this after searchTopics to obtain sectionId values for getTopicSectionsText."
-    )
-    fun getTopicOutline(
-        @LLMDescription("The topic ID returned by searchTopics (e.g., '12345')") topicId: String
-    ): String {
+    fun getTopicOutline(topicId: String): String {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found: $cleanTopicId"
         val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
         val outline = parseOutline(content.outlineHtml)
         val isCalc = content.outlineHtml.isBlank()
 
-        return buildJsonObject {
-            put("topicId", cleanTopicId)
-            put("title", title)
-            put("topicType", if (isCalc) "calc" else "article")
-            putJsonArray("sections") {
-                if (isCalc) {
-                    add(buildJsonObject {
-                        put("id", "FULL")
-                        put("title", "Calculator Tool Content")
-                    })
-                } else {
-                    for (sec in outline.sections) {
-                        add(buildJsonObject {
-                            put("id", sec["id"] ?: "")
-                            put("title", sec["title"] ?: "")
-                        })
-                    }
-                }
-            }
-            putJsonArray("graphics") {
-                for (g in outline.graphics) {
-                    if (g["isTable"] == "true") {
-                        val rawTitle = g["title"] ?: ""
-                        val cleanTitle = rawTitle.replace(Regex("^[-–—]+\\s*"), "")
-                        add(buildJsonObject {
-                            put("id", g["id"] ?: "")
-                            put("title", cleanTitle)
-                            put("isTable", true)
-                        })
-                    }
-                }
-            }
-            putJsonArray("relatedTopics") {
-                for (rt in outline.relatedTopics) {
-                    add(buildJsonObject {
-                        put("id", rt["topicId"] ?: rt["id"] ?: "")
-                        put("title", rt["title"] ?: "")
-                    })
-                }
-            }
-        }.toString()
+        val sectionsList = if (isCalc) {
+            listOf(OutlineSectionItem(id = "FULL", title = "Calculator Tool Content"))
+        } else {
+            outline.sections.map { OutlineSectionItem(id = it["id"] ?: "", title = it["title"] ?: "") }
+        }
+
+        val graphicsList = outline.graphics.filter { it["isTable"] == "true" }.map { g ->
+            OutlineGraphicItem(id = g["id"] ?: "", title = g["title"] ?: "", isTable = true)
+        }
+
+        val relatedList = outline.relatedTopics.map { rt ->
+            RelatedTopicItem(id = rt["topicId"] ?: rt["id"] ?: "", title = rt["title"] ?: "")
+        }
+
+        return json.encodeToString(
+            TopicOutlineResponse(
+                topicId = cleanTopicId,
+                title = title,
+                topicType = if (isCalc) "calc" else "article",
+                sections = sectionsList,
+                graphics = graphicsList,
+                relatedTopics = relatedList
+            )
+        )
     }
 
-    @Tool
-    @LLMDescription(
-        "Get related topic IDs and titles for a topic. Use this to build a candidate pool before fetching sections."
-    )
-    fun getRelatedTopics(
-        @LLMDescription("The topic ID from searchTopics") topicId: String
-    ): String {
+    fun getRelatedTopics(topicId: String): String {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found: $cleanTopicId"
         val outline = parseOutline(content.outlineHtml)
-        return buildJsonObject {
-            put("topicId", cleanTopicId)
-            putJsonArray("relatedTopics") {
-                for (rt in outline.relatedTopics) {
-                    add(buildJsonObject {
-                        put("id", rt["topicId"] ?: rt["id"] ?: "")
-                        put("title", rt["title"] ?: "")
-                    })
-                }
-            }
-        }.toString()
+        val relatedList = outline.relatedTopics.map { rt ->
+            RelatedTopicItem(id = rt["topicId"] ?: rt["id"] ?: "", title = rt["title"] ?: "")
+        }
+        return json.encodeToString(
+            RelatedTopicsResponse(
+                topicId = cleanTopicId,
+                relatedTopics = relatedList
+            )
+        )
     }
 
-    @Tool
-    @LLMDescription(
-        "Retrieve multiple sections from the same topic in a single call."
-    )
-    fun getTopicSectionsText(
-        @LLMDescription("The topic ID") topicId: String,
-        @LLMDescription("List of section IDs to retrieve from getTopicOutline") sectionIds: List<String>
-    ): String {
+    fun getTopicSectionsText(topicId: String, sectionIds: List<String>): String {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId) ?: return "Topic not found"
 
@@ -254,11 +203,13 @@ class MedicalDatabaseTools @Inject constructor(
                 topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
             }
             val header = if (isCalc) "=== Calculator: $topicTitle ===" else "=== Section: FULL ==="
-            return buildJsonObject {
-                put("topicTitle", topicTitle)
-                putJsonObject("sectionTitles") { put("FULL", topicTitle) }
-                put("markdown", "$header\n$markdown")
-            }.toString()
+            return json.encodeToString(
+                TopicSectionsResponse(
+                    topicTitle = topicTitle,
+                    sectionTitles = mapOf("FULL" to topicTitle),
+                    markdown = "$header\n$markdown"
+                )
+            )
         }
 
         // Validate: separate valid from invalid section IDs
@@ -289,62 +240,40 @@ class MedicalDatabaseTools @Inject constructor(
             }
         }
 
-        return buildJsonObject {
-            put("topicTitle", topicTitle)
-            putJsonObject("sectionTitles") {
-                for ((k, v) in sectionTitles) put(k, v)
-            }
-            put("markdown", sectionsMd.joinToString("\n\n"))
-            if (invalidIds.isNotEmpty()) {
-                putJsonArray("invalidSections") {
-                    for (inv in invalidIds) add(inv)
-                }
-            }
-        }.toString()
+        return json.encodeToString(
+            TopicSectionsResponse(
+                topicTitle = topicTitle,
+                sectionTitles = sectionTitles,
+                markdown = sectionsMd.joinToString("\n\n"),
+                invalidSections = invalidIds.ifEmpty { null }
+            )
+        )
     }
 
-
-
-    @Tool
-    @LLMDescription(
-        "MUST be called to present your final clinical answer to the user. " +
-        "Provide the final text response and indicate if data was unavailable. " +
-        "References are automatically extracted from your tool calls."
-    )
-    fun submitClinicalAnswer(
-        @LLMDescription("The formatted markdown response text for the clinician.") answerText: String,
-        @LLMDescription("Set to true ONLY if the database search yielded no relevant clinical information.") noDataFound: Boolean = false
-    ): String {
-        return buildJsonObject {
-            put("status", "SUBMITTED")
-            put("answer", answerText)
-            put("noDataFound", noDataFound)
-        }.toString()
+    fun submitClinicalAnswer(answerText: String, noDataFound: Boolean = false): String {
+        return json.encodeToString(
+            ClinicalAnswerSubmission(
+                status = "SUBMITTED",
+                answer = answerText,
+                noDataFound = noDataFound
+            )
+        )
     }
 
-    @Tool
-    @LLMDescription(
-        "Retrieve graphic content for a graphic of type 'graphic_table' as formatted Markdown. " +
-        "Do NOT call for non-table graphics (figures, images, algorithms) as visual details cannot be analyzed."
-    )
-    fun getGraphicContent(
-        @LLMDescription("The graphic ID from getTopicOutline (e.g., 'Graphic-12345' or '12345')") graphicId: String
-    ): String {
+    fun getGraphicContent(graphicId: String): String {
         val cleanId = graphicId.trim()
         val rawGraphicId = cleanId.replace(Regex("(?i)^graphic-"), "")
 
         val graphicData = assetRepository.getGraphic(rawGraphicId)
-            ?: return buildJsonObject { put("error", "Graphic $cleanId not found") }.toString()
+            ?: return json.encodeToString(ToolErrorResponse("Graphic $cleanId not found"))
 
         if (graphicData.subtype.isNotEmpty() && !graphicData.isTable) {
-            return buildJsonObject {
-                put("error", "Graphic $cleanId is of type '${graphicData.subtype}', not a table. Only table content is retrievable.")
-            }.toString()
+            return json.encodeToString(ToolErrorResponse("Graphic $cleanId is of type '${graphicData.subtype}', not a table. Only table content is retrievable."))
         }
 
         val imageHtml = graphicData.imageHtml
         if (imageHtml.isBlank()) {
-            return buildJsonObject { put("error", "Graphic $cleanId has empty content") }.toString()
+            return json.encodeToString(ToolErrorResponse("Graphic $cleanId has empty content"))
         }
 
         val markdown = htmlToMarkdown(imageHtml)
@@ -366,7 +295,10 @@ class MedicalDatabaseTools @Inject constructor(
         for (match in A_TAG_REGEX.findAll(outlineHtml)) {
             val href = match.groupValues[1]
             val innerHtml = match.groupValues[2]
-            val text = innerHtml.replace(STRIP_TAGS_REGEX, "").trim()
+            val text = innerHtml
+                .replace(LEGACY_HYPHEN_REGEX, "")
+                .replace(STRIP_TAGS_REGEX, "")
+                .trim()
 
             val sectionMatch = SECTION_REGEX.find(href)
             val typeMatch = GRAPHIC_TYPE_REGEX.find(href)

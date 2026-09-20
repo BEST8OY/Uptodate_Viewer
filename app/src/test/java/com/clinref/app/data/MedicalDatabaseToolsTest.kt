@@ -7,6 +7,13 @@ import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
+import com.clinref.app.data.tools.GetGraphicContentTool
+import com.clinref.app.data.tools.GetRelatedTopicsTool
+import com.clinref.app.data.tools.GetTopicOutlineTool
+import com.clinref.app.data.tools.GetTopicSectionsTextTool
+import com.clinref.app.data.tools.SearchTopicsTool
+import com.clinref.app.data.tools.SubmitClinicalAnswerTool
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -83,7 +90,7 @@ class MedicalDatabaseToolsTest {
     fun `getTopicOutline parses outline html into sections and table graphics and sets topicType article`() {
         val outlineHtml = """
             <a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a>
-            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})">-Table A</a>
+            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})"><span class="legacyTopicViewHyphen">- </span>Table A</a>
             <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;222&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_figure&quot;}]})">Figure B</a>
         """.trimIndent()
 
@@ -99,7 +106,7 @@ class MedicalDatabaseToolsTest {
         // Only graphic_table is included (111), graphic_figure (222) is filtered out
         assertEquals(1, obj["graphics"]!!.jsonArray.size)
         assertEquals("111", obj["graphics"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content)
-        // Leading dash stripped from title
+        // Legacy hyphen span stripped from title
         assertEquals("Table A", obj["graphics"]!!.jsonArray[0].jsonObject["title"]!!.jsonPrimitive.content)
     }
 
@@ -182,5 +189,35 @@ class MedicalDatabaseToolsTest {
 
         val resJson = tools.getGraphicContent("999")
         assertTrue(resJson.contains("not a table"))
+    }
+
+    @Test
+    fun `asToolList returns 6 class-based tools with expected names`() {
+        val toolList = tools.asToolList()
+        assertEquals(6, toolList.size)
+        val names = toolList.map { it.name }.toSet()
+        assertTrue(names.contains("searchTopics"))
+        assertTrue(names.contains("getTopicOutline"))
+        assertTrue(names.contains("getRelatedTopics"))
+        assertTrue(names.contains("getTopicSectionsText"))
+        assertTrue(names.contains("getGraphicContent"))
+        assertTrue(names.contains("submitClinicalAnswer"))
+    }
+
+    @Test
+    fun `class-based tools execute properly and return structured content`() = runBlocking {
+        every { searchRepository.searchTopics("metformin") } returns listOf(
+            SearchResult.Topic("Metformin Overview", "456")
+        )
+        val searchToolResult = tools.searchTopicsTool.execute(SearchTopicsTool.Args("metformin"))
+        val searchObj = json.parseToJsonElement(searchToolResult).jsonObject
+        assertEquals(1, searchObj["results"]!!.jsonArray.size)
+
+        val submitResult = tools.submitClinicalAnswerTool.execute(
+            SubmitClinicalAnswerTool.Args("Follow up with metformin 500mg daily", false)
+        )
+        val submitObj = json.parseToJsonElement(submitResult).jsonObject
+        assertEquals("SUBMITTED", submitObj["status"]!!.jsonPrimitive.content)
+        assertEquals("Follow up with metformin 500mg daily", submitObj["answer"]!!.jsonPrimitive.content)
     }
 }
