@@ -1,12 +1,21 @@
 package com.clinref.app.ui.navigation
 
 import android.app.Activity
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -135,6 +144,12 @@ fun NavGraph(
 
     val activity = LocalContext.current as? Activity
 
+    BackHandler(
+        enabled = !isOnOverlayScreen && navigationState.topLevelRoute != navigationState.startRoute
+    ) {
+        navigator.navigate(navigationState.startRoute)
+    }
+
     val entryProvider = entryProvider {
         entry<TocRoute> {
             TocScreen(
@@ -143,7 +158,8 @@ fun NavGraph(
                 },
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
-                }
+                },
+                reselectEvents = navigator.reselectEvents
             )
         }
         entry<HistoryRoute> {
@@ -155,7 +171,8 @@ fun NavGraph(
                         navigator.navigate(ContentRoute(topicId))
                     }
                 },
-                currentRoute = navigationState.topLevelRoute
+                currentRoute = navigationState.topLevelRoute,
+                reselectEvents = navigator.reselectEvents
             )
         }
         entry<FavoritesRoute> {
@@ -167,7 +184,8 @@ fun NavGraph(
                         navigator.navigate(ContentRoute(topicId))
                     }
                 },
-                currentRoute = navigationState.topLevelRoute
+                currentRoute = navigationState.topLevelRoute,
+                reselectEvents = navigator.reselectEvents
             )
         }
         entry<ContentRoute> { key ->
@@ -188,7 +206,8 @@ fun NavGraph(
                 },
                 onOpenSettings = {
                     navigator.navigate(AiSettingsRoute)
-                }
+                },
+                reselectEvents = navigator.reselectEvents
             )
         }
         entry<AiSettingsRoute> {
@@ -212,59 +231,113 @@ fun NavGraph(
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val motionScheme = MaterialTheme.motionScheme
+        val spatialSpec = motionScheme.defaultSpatialSpec<IntOffset>()
+        val floatSpatialSpec = motionScheme.defaultSpatialSpec<Float>()
+        val effectsSpec = motionScheme.defaultEffectsSpec<Float>()
+        val fastEffectsSpec = motionScheme.fastEffectsSpec<Float>()
+        val fastSpatialSpec = motionScheme.fastSpatialSpec<IntOffset>()
+
+        val forwardTransition: AnimatedContentTransitionScope<androidx.navigation3.runtime.NavEntry<NavKey>>.() -> ContentTransform = {
+            val initialKey = initialState.key
+            val targetKey = targetState.key
+
+            if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
+                val fromIndex = topLevelRoutes.indexOf(initialKey)
+                val toIndex = topLevelRoutes.indexOf(targetKey)
+                if (toIndex > fromIndex) {
+                    (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
+                        fadeIn(effectsSpec)) togetherWith
+                        (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
+                            fadeOut(fastEffectsSpec))
+                } else if (toIndex < fromIndex) {
+                    (slideInHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
+                        fadeIn(effectsSpec)) togetherWith
+                        (slideOutHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
+                            fadeOut(fastEffectsSpec))
+                } else {
+                    fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
+                }
+            } else if (targetKey is AiSettingsRoute) {
+                (slideInVertically(spatialSpec) { (it * 0.15f).roundToInt() } +
+                    scaleIn(floatSpatialSpec, initialScale = 0.96f) +
+                    fadeIn(effectsSpec)) togetherWith
+                    (scaleOut(floatSpatialSpec, targetScale = 0.96f) +
+                        fadeOut(fastEffectsSpec))
+            } else {
+                (slideInHorizontally(spatialSpec) { it } +
+                    fadeIn(effectsSpec, initialAlpha = 0.85f)) togetherWith
+                    (slideOutHorizontally(spatialSpec) { -it / 3 } +
+                        fadeOut(fastEffectsSpec, targetAlpha = 0.5f))
+            }
+        }
+
+        val popTransition: AnimatedContentTransitionScope<androidx.navigation3.runtime.NavEntry<NavKey>>.() -> ContentTransform = {
+            val initialKey = initialState.key
+            val targetKey = targetState.key
+
+            if (initialKey is AiSettingsRoute) {
+                (scaleIn(floatSpatialSpec, initialScale = 0.96f) +
+                    fadeIn(effectsSpec)) togetherWith
+                    (slideOutVertically(spatialSpec) { (it * 0.15f).roundToInt() } +
+                        scaleOut(floatSpatialSpec, targetScale = 0.96f) +
+                        fadeOut(fastEffectsSpec))
+            } else if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
+                val fromIndex = topLevelRoutes.indexOf(initialKey)
+                val toIndex = topLevelRoutes.indexOf(targetKey)
+                if (toIndex > fromIndex) {
+                    (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
+                        fadeIn(effectsSpec)) togetherWith
+                        (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
+                            fadeOut(fastEffectsSpec))
+                } else if (toIndex < fromIndex) {
+                    (slideInHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
+                        fadeIn(effectsSpec)) togetherWith
+                        (slideOutHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
+                            fadeOut(fastEffectsSpec))
+                } else {
+                    fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
+                }
+            } else {
+                (slideInHorizontally(spatialSpec) { -it / 3 } +
+                    fadeIn(effectsSpec, initialAlpha = 0.5f)) togetherWith
+                    (slideOutHorizontally(spatialSpec) { it } +
+                        fadeOut(fastEffectsSpec, targetAlpha = 0.85f))
+            }
+        }
 
         NavDisplay(
             entries = navigationState.toDecoratedEntries(entryProvider),
             onBack = {
-                val currentStack = navigationState.backStacks[navigationState.topLevelRoute]
-                val currentRoute = currentStack?.lastOrNull()
-                if (currentRoute == navigationState.startRoute) {
-                    activity?.finish()
-                } else {
-                    navigator.goBack()
-                }
+                navigator.goBack()
             },
-
-            transitionSpec = {
-                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
-                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
-                } else {
-                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { it } togetherWith
-                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { -it }
-                }
-            },
-            popTransitionSpec = {
-                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
-                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
-                } else {
-                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
-                }
-            },
-            predictivePopTransitionSpec = {
-                if (initialState.key is TopLevelRoute && targetState.key is TopLevelRoute) {
-                    fadeIn(motionScheme.defaultSpatialSpec()) togetherWith fadeOut(motionScheme.defaultSpatialSpec())
-                } else {
-                    slideInHorizontally(motionScheme.defaultSpatialSpec()) { -it } togetherWith
-                        slideOutHorizontally(motionScheme.defaultSpatialSpec()) { it }
-                }
-            },
+            transitionSpec = forwardTransition,
+            popTransitionSpec = popTransition,
+            predictivePopTransitionSpec = popTransition,
             modifier = Modifier.fillMaxSize()
         )
 
         AnimatedVisibility(
             visible = !isOnOverlayScreen,
-            enter = fadeIn(motionScheme.defaultSpatialSpec()),
-            exit = fadeOut(motionScheme.defaultSpatialSpec()),
+            enter = fadeIn(effectsSpec) +
+                slideInVertically(spatialSpec) { it },
+            exit = fadeOut(fastEffectsSpec) +
+                slideOutVertically(fastSpatialSpec) { it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
             NavigationBar {
                 topLevelRoutes.forEach { route ->
+                    val isSelected = route == navigationState.topLevelRoute
                     NavigationBarItem(
-                        selected = route == navigationState.topLevelRoute,
-                        onClick = { navigator.navigate(route) },
+                        selected = isSelected,
+                        onClick = {
+                            if (isSelected) {
+                                navigator.onReselect(route)
+                            } else {
+                                navigator.navigate(route)
+                            }
+                        },
                         icon = {
                             Icon(
                                 imageVector = route.icon,
