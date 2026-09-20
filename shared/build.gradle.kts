@@ -39,7 +39,7 @@ kotlin {
             }
         }
 
-        androidUnitTest {
+        val androidHostTest by getting {
             dependencies {
             }
         }

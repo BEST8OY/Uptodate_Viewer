@@ -34,6 +34,6 @@ uv run python run.py                 # Run interactive CLI agent
 ## Known Quirks
 - **Koog Duplicate Classes**: `utils-android` must remain excluded in `app/build.gradle.kts` (line 130); `utils-jvm` is used instead.
 - **ProGuard**: Keep rules in `app/proguard-rules.pro` for Koog, Room3, Hilt, serialization, and Compose must not be trimmed.
-- **KMP AGP 9 Setup**: `:shared` uses `com.android.kotlin.multiplatform.library` plugin with `withHostTest { }` inside `kotlin { android { ... } }`. Source sets (`commonMain`, `commonTest`, `androidMain`, `androidUnitTest`) use explicit KMP DSL accessors.
+- **KMP AGP 9 Setup**: `:shared` uses `com.android.kotlin.multiplatform.library` plugin with `withHostTest { }` inside `kotlin { android { ... } }`. Source sets (`commonMain`, `commonTest`, `androidMain`, `androidHostTest`) use explicit KMP DSL accessors.
 - **Navigation 3 Top-Level Peer Roots**: Bottom navigation top-level routes MUST be independent roots in `toDecoratedEntries` (`getTopLevelRoutesInUse() = listOf(topLevelRoute)`). NEVER stack `listOf(startRoute, topLevelRoute)` to implement "Exit through Home" — this corrupts `NavDisplay`'s internal scene state, z-index calculation, and predictive back targeting across multi-tab transitions. Instead, handle "Exit through Home" via an explicit top-level `BackHandler` (`enabled = !isOnOverlayScreen && topLevelRoute != startRoute`).
 
