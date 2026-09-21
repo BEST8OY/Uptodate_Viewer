@@ -38,6 +38,7 @@ class TopicRef(BaseModel):
 class GraphicRef(BaseModel):
     graphic_id: str
     label: str
+    topic_id: Optional[str] = None
 
 
 class TurnContext(BaseModel):
@@ -47,6 +48,7 @@ class TurnContext(BaseModel):
     fetched_sections: list[FetchedSection] = []
     graphic_ids: set[str] = set()
     graphic_titles: dict[str, str] = {}
+    graphic_to_topic: dict[str, str] = {}  # graphic_id -> topic_id
     user_question: str = ""
     topic_titles: dict[str, str] = {}
     outline_sections: dict[str, dict[str, str]] = {}  # topic_id -> {section_id: section_title}

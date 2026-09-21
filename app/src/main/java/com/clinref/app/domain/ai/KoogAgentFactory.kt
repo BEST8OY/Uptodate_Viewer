@@ -76,7 +76,10 @@ class KoogAgentFactory @Inject constructor(
             tools(medicalDatabaseTools.asToolList())
         }
 
-        val accumulator = existingAccumulator ?: TurnContextAccumulator()
+        val accumulator = existingAccumulator ?: TurnContextAccumulator(
+            topicTitleResolver = { tid -> medicalDatabaseTools.getTopicTitle(tid) },
+            sectionTitleResolver = { tid, sid -> medicalDatabaseTools.getSectionTitle(tid, sid) }
+        )
         if (userMessage.isNotBlank()) {
             accumulator.setUserQuestion(userMessage)
         }

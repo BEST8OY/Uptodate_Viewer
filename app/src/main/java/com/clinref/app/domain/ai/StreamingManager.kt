@@ -80,16 +80,13 @@ class StreamingManager {
     private var accumulatedUsage = TokenUsage()
     private val streamingBuffer = StringBuilder()
 
-    // Answer text extraction state from tool call args streaming
-    private val toolCallStreamBuffer = StringBuilder()
-    private var isStreamingAnswerText = false
-    private var answerKeyFound = false
-    private var answerExtractIndex = 0
-    private var isEscapeSequence = false
-
     fun onToolCallStarting(toolName: String, args: String) {
         stepCounter++
         activeToolCalls++
+
+        // Pre-tool thought hygiene: reset streaming text so intermediate thoughts don't contaminate response
+        streamingBuffer.clear()
+        _streamingText.value = ""
 
         val stepId = "step_$stepCounter"
         val (title, detail) = getStepInfo(toolName, args)
@@ -113,7 +110,6 @@ class StreamingManager {
             "getRelatedTopics" -> "Finding related clinical topics…"
             "getTopicSectionsText" -> "Retrieving evidence sections…"
             "getGraphicContent" -> "Loading clinical reference table…"
-            "submitClinicalAnswer" -> "Synthesizing clinical response…"
             else -> "Executing $toolName…"
         }
         _currentStatusText.value = description
@@ -135,10 +131,8 @@ class StreamingManager {
             } else step
         }
 
-        if (toolName != "submitClinicalAnswer") {
-            _currentStatusText.value = "Evaluating clinical evidence…"
-            _toolProgress.value = ToolProgress(toolName, "Evaluating clinical evidence…")
-        }
+        _currentStatusText.value = "Evaluating clinical evidence…"
+        _toolProgress.value = ToolProgress(toolName, "Evaluating clinical evidence…")
     }
 
     fun onWaitingForLlm() {
@@ -157,75 +151,7 @@ class StreamingManager {
     }
 
     fun onStreamingToolCallDelta(callId: String, content: String, toolName: String? = null) {
-        if (content.isEmpty()) return
-        toolCallStreamBuffer.append(content)
-
-        // Extract streaming answer text if this is submitClinicalAnswer or contains answerText
-        extractStreamingAnswerText()
-    }
-
-    private fun extractStreamingAnswerText() {
-        val raw = toolCallStreamBuffer.toString()
-        if (!answerKeyFound) {
-            val keyPattern = Regex(""""(?:answerText|answer)"\s*:\s*"""")
-            val match = keyPattern.find(raw)
-            if (match != null) {
-                answerKeyFound = true
-                isStreamingAnswerText = true
-                answerExtractIndex = match.range.last + 1
-            }
-        }
-
-        if (isStreamingAnswerText && answerExtractIndex < raw.length) {
-            val sb = StringBuilder()
-            var i = answerExtractIndex
-
-            while (i < raw.length) {
-                val c = raw[i]
-                if (isEscapeSequence) {
-                    when (c) {
-                        'n' -> sb.append('\n')
-                        'r' -> sb.append('\r')
-                        't' -> sb.append('\t')
-                        'b' -> sb.append('\b')
-                        'f' -> sb.append('\u000c')
-                        '"' -> sb.append('"')
-                        '\\' -> sb.append('\\')
-                        '/' -> sb.append('/')
-                        'u' -> {
-                            if (i + 4 < raw.length) {
-                                val hex = raw.substring(i + 1, i + 5)
-                                hex.toIntOrNull(16)?.let { sb.append(it.toChar()) }
-                                i += 4
-                            } else {
-                                // Incomplete hex sequence across chunk boundary, resume on next delta
-                                break
-                            }
-                        }
-                        else -> sb.append(c)
-                    }
-                    isEscapeSequence = false
-                    i++
-                } else if (c == '\\') {
-                    isEscapeSequence = true
-                    i++
-                } else if (c == '"') {
-                    // Reached unescaped ending quote of answer string
-                    isStreamingAnswerText = false
-                    answerExtractIndex = i + 1
-                    break
-                } else {
-                    sb.append(c)
-                    i++
-                }
-            }
-
-            if (sb.isNotEmpty()) {
-                answerExtractIndex = i
-                streamingBuffer.append(sb.toString())
-                _streamingText.value = streamingBuffer.toString()
-            }
-        }
+        // Direct markdown streaming renders via onStreamingTextDelta
     }
 
     fun onStreamingEnd() {
@@ -248,11 +174,6 @@ class StreamingManager {
             if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.COMPLETED) else it
         }
         streamingBuffer.clear()
-        toolCallStreamBuffer.clear()
-        isStreamingAnswerText = false
-        answerKeyFound = false
-        answerExtractIndex = 0
-        isEscapeSequence = false
         _streamingText.value = ""
         _agentState.value = AgentState.Completed(result, validation, accumulatedUsage)
     }
@@ -265,11 +186,6 @@ class StreamingManager {
             if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.FAILED) else it
         }
         streamingBuffer.clear()
-        toolCallStreamBuffer.clear()
-        isStreamingAnswerText = false
-        answerKeyFound = false
-        answerExtractIndex = 0
-        isEscapeSequence = false
         _streamingText.value = ""
         val type = classifyError(error)
         _agentState.value = AgentState.Error(error, type)
@@ -280,11 +196,6 @@ class StreamingManager {
         activeToolCalls = 0
         accumulatedUsage = TokenUsage()
         streamingBuffer.clear()
-        toolCallStreamBuffer.clear()
-        isStreamingAnswerText = false
-        answerKeyFound = false
-        answerExtractIndex = 0
-        isEscapeSequence = false
         _streamingText.value = ""
         _toolProgress.value = null
         _orchestrationSteps.value = emptyList()
@@ -295,8 +206,9 @@ class StreamingManager {
 
     private fun getStepInfo(toolName: String, args: String): Pair<String, String?> {
         return try {
-            val element = json.parseToJsonElement(args) as? JsonObject
-            when (toolName) {
+            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
+            val element = AiJsonUtils.parseAsJsonObject(args)
+            when (canonicalName) {
                 "searchTopics" -> {
                     val query = element?.get("query")?.jsonPrimitive?.content ?: ""
                     "Search Knowledge Base" to if (query.isNotBlank()) "Query: \"$query\"" else null
@@ -317,9 +229,6 @@ class StreamingManager {
                         ?: element?.get("graphic_id")?.jsonPrimitive?.content ?: ""
                     "Load Reference Table" to if (graphicId.isNotBlank()) "Table ID: $graphicId" else null
                 }
-                "submitClinicalAnswer" -> {
-                    "Synthesize Clinical Guidance" to "Formatting evidence-based response"
-                }
                 else -> toolName to null
             }
         } catch (_: Exception) {
@@ -330,26 +239,32 @@ class StreamingManager {
     private fun getCompletionDetail(toolName: String, resultText: String): String? {
         if (resultText.isBlank()) return null
         return try {
-            val element = json.parseToJsonElement(resultText) as? JsonObject ?: return null
-            when (toolName) {
+            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
+            val element = AiJsonUtils.parseAsJsonObject(resultText)
+            when (canonicalName) {
                 "searchTopics" -> {
-                    val results = element["results"] as? kotlinx.serialization.json.JsonArray
+                    val results = element?.get("results") as? kotlinx.serialization.json.JsonArray
                     val count = results?.size ?: 0
                     if (count > 0) "$count candidate topics identified" else "No topics found"
                 }
                 "getTopicOutline" -> {
-                    val title = element["title"]?.jsonPrimitive?.content
-                    if (!title.isNullOrBlank() && !title.all { it.isDigit() }) "Outline: $title" else "Outline loaded"
+                    val title = element?.get("title")?.jsonPrimitive?.content
+                    if (!title.isNullOrBlank() && !AiJsonUtils.isNumericOnly(title)) "Outline: $title" else "Outline loaded"
                 }
                 "getTopicSectionsText" -> {
-                    val topicTitle = element["topicTitle"]?.jsonPrimitive?.content
-                    val sectionTitles = element["sectionTitles"] as? JsonObject
+                    val topicTitle = element?.get("topicTitle")?.jsonPrimitive?.content
+                    val sectionTitles = element?.get("sectionTitles") as? JsonObject
                     val count = sectionTitles?.size ?: 0
-                    if (!topicTitle.isNullOrBlank() && !topicTitle.all { it.isDigit() }) {
+                    if (!topicTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(topicTitle)) {
                         "$count sections from \"$topicTitle\""
                     } else if (count > 0) {
                         "$count sections retrieved"
                     } else null
+                }
+                "getGraphicContent" -> {
+                    val unquoted = AiJsonUtils.extractJsonString(resultText)
+                    val match = AiJsonUtils.GRAPHIC_TABLE_REGEX.find(unquoted)
+                    if (match != null) "Table: ${match.groupValues[1].trim()}" else "Table retrieved"
                 }
                 else -> null
             }
@@ -361,13 +276,15 @@ class StreamingManager {
     private fun parseDiscoveredSources(toolName: String, resultText: String) {
         if (resultText.isBlank()) return
         try {
-            val element = json.parseToJsonElement(resultText) as? JsonObject ?: return
-            when (toolName) {
+            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
+            val element = AiJsonUtils.parseAsJsonObject(resultText)
+            when (canonicalName) {
                 "getTopicOutline" -> {
+                    if (element == null) return
                     val topicId = element["topicId"]?.jsonPrimitive?.content
                         ?: element["topic_id"]?.jsonPrimitive?.content ?: ""
                     val title = element["title"]?.jsonPrimitive?.content ?: ""
-                    if (topicId.isNotBlank() && title.isNotBlank() && !title.all { it.isDigit() }) {
+                    if (topicId.isNotBlank() && title.isNotBlank() && !AiJsonUtils.isNumericOnly(title)) {
                         val current = _liveDiscoveredSources.value.toMutableList()
                         val existingIndex = current.indexOfFirst { it.topicId == topicId }
                         if (existingIndex >= 0) {
@@ -379,17 +296,21 @@ class StreamingManager {
                     }
                 }
                 "getTopicSectionsText" -> {
+                    if (element == null) return
+                    val topicId = element["topicId"]?.jsonPrimitive?.content
+                        ?: element["topic_id"]?.jsonPrimitive?.content ?: ""
                     val topicTitle = element["topicTitle"]?.jsonPrimitive?.content ?: ""
                     val sectionTitles = element["sectionTitles"] as? JsonObject
                     if (sectionTitles != null && topicTitle.isNotBlank()) {
                         val current = _liveDiscoveredSources.value.toMutableList()
                         for ((secId, secTitleObj) in sectionTitles) {
-                            val secTitle = secTitleObj.jsonPrimitive.content.trimStart('-', '–', '—').trim()
-                            if (secTitle.isNotBlank() && current.none { it.sectionId == secId }) {
+                            val secTitle = AiJsonUtils.cleanSectionTitle(secTitleObj.jsonPrimitive.content)
+                            val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
+                            if (secTitle.isNotBlank() && current.none { it.sectionId == cleanSecId && it.topicTitle == topicTitle }) {
                                 current.add(
                                     SafetyValidator.TopicRef(
-                                        topicId = "",
-                                        sectionId = secId,
+                                        topicId = topicId,
+                                        sectionId = cleanSecId,
                                         label = secTitle,
                                         topicTitle = topicTitle
                                     )
@@ -397,6 +318,25 @@ class StreamingManager {
                             }
                         }
                         _liveDiscoveredSources.value = current
+                    }
+                }
+                "getGraphicContent" -> {
+                    val unquoted = AiJsonUtils.extractJsonString(resultText)
+                    val match = AiJsonUtils.GRAPHIC_TABLE_REGEX.find(unquoted)
+                    if (match != null) {
+                        val title = match.groupValues[1].trim()
+                        val current = _liveDiscoveredSources.value.toMutableList()
+                        if (current.none { it.label == title }) {
+                            current.add(
+                                SafetyValidator.TopicRef(
+                                    topicId = "",
+                                    sectionId = "",
+                                    label = title,
+                                    topicTitle = title
+                                )
+                            )
+                            _liveDiscoveredSources.value = current
+                        }
                     }
                 }
             }

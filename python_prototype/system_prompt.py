@@ -40,9 +40,9 @@ EVIDENCE RETRIEVED IN THIS TURN:
 REMEDIAL INSTRUCTIONS:
 1. Re-evaluate your answer using ONLY the retrieved evidence above.
 2. Ensure all quoted dosages and figures are verified against the retrieved sections.
-3. Include full citations in format: Topic: <Title>, Section: <Title> (ID: <SectionID>)
+3. Keep your answer purely clinical; citations and references are extracted automatically from tool evidence.
 4. Do NOT invent clinical quantities not present in the evidence.
-5. MUST call submit_clinical_answer as your final tool call."""
+5. Provide a direct, complete clinical response based strictly on the retrieved evidence."""
 
 
 def _persona_block() -> str:
@@ -104,8 +104,9 @@ def _candidate_pool() -> str:
 
 def _final_answer_rules() -> str:
     return """FINAL ANSWER:
-- ALWAYS call submit_clinical_answer as your final tool call
-- Do NOT end with plain text — the terminal tool is required"""
+- Synthesize your final response directly from the retrieved sections and tables.
+- Citations, section chips, and graphic references are automatically tracked and displayed from your tool evidence.
+- Provide your final clinical response directly as clear, structured markdown text."""
 
 
 def _full_workflow() -> str:
@@ -115,7 +116,7 @@ def _full_workflow() -> str:
 3. For complex/multi-condition cases: call get_related_topics to discover specialized sub-topics and calculators
 4. get_topic_sections_text (batch): Fetch chosen sections in ONE call
 5. get_graphic_content: Read relevant tables from outlines
-6. MUST call submit_clinical_answer with your final response
+6. Provide your final clinical response directly as clear, structured markdown
 
 {_search_rules()}
 
@@ -135,7 +136,7 @@ def _ollama_workflow() -> str:
 3. For complex queries: call get_related_topics to expand candidate pool with sub-topics
 4. get_topic_sections_text (batch): Fetch sections in ONE call
 5. get_graphic_content: Read relevant tables
-6. MUST call submit_clinical_answer with final response
+6. Provide your final clinical response directly as clear, structured markdown
 
 {_search_rules()}
 

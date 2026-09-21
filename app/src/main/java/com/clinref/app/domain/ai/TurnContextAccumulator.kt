@@ -10,7 +10,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CopyOnWriteArraySet
 
-class TurnContextAccumulator {
+class TurnContextAccumulator(
+    private val topicTitleResolver: ((String) -> String?)? = null,
+    private val sectionTitleResolver: ((topicId: String, sectionId: String) -> String?)? = null
+) {
 
     private companion object {
         private const val TAG = "TurnCtxAccum"
@@ -23,12 +26,12 @@ class TurnContextAccumulator {
     private val graphicTitles = ConcurrentHashMap<String, String>()
     private val topicTitles = ConcurrentHashMap<String, String>()
     private val outlineSections = ConcurrentHashMap<String, Map<String, String>>() // topicId -> {sectionId: title}
+    private val graphicToTopic = ConcurrentHashMap<String, String>() // graphicId -> topicId
     private var userQuestion: String = ""
 
     private val pendingToolArgs = ConcurrentHashMap<String, String>()
     private val executedToolCalls = CopyOnWriteArrayList<Pair<String, String>>() // toolName, argsJson
-    private val cachedResults = ConcurrentHashMap<String, String>() // argsJson -> result
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = AiJsonUtils.json
     private var lastTopicId: String = ""
 
     fun reset() {
@@ -39,14 +42,19 @@ class TurnContextAccumulator {
         graphicTitles.clear()
         topicTitles.clear()
         outlineSections.clear()
+        graphicToTopic.clear()
         pendingToolArgs.clear()
         executedToolCalls.clear()
-        cachedResults.clear()
         userQuestion = ""
-        submittedAnswerText = ""
-        structuredTopicRefs = emptyList()
-        structuredGraphicRefs = emptyList()
         lastTopicId = ""
+    }
+
+    /**
+     * Prepares this accumulator for a self-healing remediation turn by preserving
+     * all accumulated evidence (sections, graphics, titles).
+     */
+    fun prepareForCorrection() {
+        // Evidence is preserved; next turn's answer text will be validated directly
     }
 
     fun setUserQuestion(question: String) {
@@ -54,8 +62,6 @@ class TurnContextAccumulator {
     }
 
     fun getToolCalls(): List<SafetyValidator.ToolCallRecord> = toolCalls.toList()
-
-    fun getSubmittedAnswer(): String = submittedAnswerText
 
     fun onToolCallStarting(toolCallId: String, args: String) {
         if (toolCallId.isNotBlank()) {
@@ -71,6 +77,7 @@ class TurnContextAccumulator {
         success: Boolean,
         toolArgs: String? = null
     ) {
+        val canonicalName = AiJsonUtils.normalizeToolName(toolName)
         val args = if (!toolArgs.isNullOrBlank() && toolArgs != "{}") {
             toolArgs
         } else {
@@ -80,20 +87,19 @@ class TurnContextAccumulator {
         // Deduplication: if same tool+args already executed, skip
         val argsKey = args.trim()
         val alreadyExecuted = executedToolCalls.any { (name, cachedArgs) ->
-            name == toolName && cachedArgs == argsKey
+            name == canonicalName && cachedArgs == argsKey
         }
         if (alreadyExecuted) return
 
-        executedToolCalls.add(toolName to argsKey)
-        cachedResults[argsKey] = result
+        executedToolCalls.add(canonicalName to argsKey)
 
-        val parsedArgs = parseArguments(args)
+        val parsedArgs = AiJsonUtils.normalizeArgs(parseArguments(args))
 
         val logicalSuccess = success && !isLogicalFailure(result)
 
         toolCalls.add(
             SafetyValidator.ToolCallRecord(
-                toolName = toolName,
+                toolName = canonicalName,
                 arguments = parsedArgs,
                 result = result,
                 success = logicalSuccess
@@ -102,54 +108,81 @@ class TurnContextAccumulator {
         toolResults.add(result)
 
         if (logicalSuccess) {
-            when (toolName) {
+            when (canonicalName) {
                 "searchTopics" -> parseSearchResults(result)
                 "getRelatedTopics" -> parseRelatedTopicsResult(result)
                 "getTopicOutline" -> parseOutlineResult(parsedArgs, result)
                 "getTopicSectionsText" -> parseBatchSectionResult(parsedArgs, result)
                 "getGraphicContent" -> parseGraphicResult(parsedArgs, result)
-                "submitClinicalAnswer" -> {
-                    parseSubmittedAnswer(result)
-                    parseStructuredRefs(result)
-                }
             }
         }
     }
 
     fun buildTurnContext(answer: String): SafetyValidator.TurnContext {
-        val rawAnswer = if (submittedAnswerText.isNotBlank()) submittedAnswerText else answer
+        val rawAnswer = answer
 
-        // Populate topicTitle on fetched sections from accumulated topicTitles
+        // Populate topicTitle and sectionTitle on fetched sections from accumulated state or resolvers
         val sectionsWithTitle = fetchedSections.map { sec ->
-            val resolvedTitle = topicTitles[sec.topicId]?.takeIf { !it.all { c -> c.isDigit() } }
-                ?: sec.topicTitle.takeIf { !it.all { c -> c.isDigit() } }
+            val resolvedTitle = topicTitles[sec.topicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                ?: sec.topicTitle.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
                 ?: sec.topicId
-            sec.copy(topicTitle = resolvedTitle)
+            val resolvedSectionTitle = sec.sectionTitle.takeIf { it.isNotBlank() }
+                ?: outlineSections[sec.topicId]?.get(sec.sectionId)
+                ?: sectionTitleResolver?.invoke(sec.topicId, sec.sectionId)
+                ?: ""
+            sec.copy(topicTitle = resolvedTitle, sectionTitle = resolvedSectionTitle)
         }
 
         // Auto-populate refs from fetched sections and graphic IDs
-        val autoTopicRefs = if (structuredTopicRefs.isNotEmpty()) structuredTopicRefs else {
-            val validSections = sectionsWithTitle.filter { it.sectionTitle.isNotEmpty() }
-            val candidateSections = if (validSections.isNotEmpty()) validSections else sectionsWithTitle
-            candidateSections
-                .distinctBy { it.topicId to it.sectionId }
-                .map { sec ->
-                    val topicTitle = topicTitles[sec.topicId]?.takeIf { !it.all { c -> c.isDigit() } }
-                        ?: sec.topicTitle.takeIf { !it.all { c -> c.isDigit() } }
-                        ?: sec.topicId
-                    val label = sec.sectionTitle.ifBlank { topicTitle }
+        val validSections = sectionsWithTitle.filter { it.sectionTitle.isNotEmpty() }
+        val candidateSections = if (validSections.isNotEmpty()) validSections else sectionsWithTitle
+        val autoTopicRefs = candidateSections
+            .distinctBy { it.topicId to it.sectionId }
+            .map { sec ->
+                val topicTitle = topicTitles[sec.topicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                    ?: sec.topicTitle.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                    ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                    ?: sec.topicId
+                val secTitle = sec.sectionTitle.takeIf { it.isNotBlank() }
+                    ?: outlineSections[sec.topicId]?.get(sec.sectionId)
+                    ?: sectionTitleResolver?.invoke(sec.topicId, sec.sectionId)
+                    ?: ""
+                val label = secTitle.ifBlank { topicTitle }
+                val cleanSectionId = if (sec.sectionId.equals("FULL", ignoreCase = true)) "" else sec.sectionId
+                SafetyValidator.TopicRef(
+                    topicId = sec.topicId,
+                    sectionId = cleanSectionId,
+                    label = label,
+                    topicTitle = topicTitle
+                )
+            }.toMutableList()
+
+        // Ensure parent topics for graphic tables are attributed in finalTopicRefs
+        val finalTopicRefs = autoTopicRefs.toMutableList()
+        for (gid in graphicIds) {
+            val cleanGid = AiJsonUtils.cleanGraphicId(gid)
+            val parentTopicId = graphicToTopic[gid] ?: graphicToTopic[cleanGid]
+            if (!parentTopicId.isNullOrBlank() && finalTopicRefs.none { it.topicId == parentTopicId }) {
+                val resolvedTitle = topicTitles[parentTopicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                    ?: topicTitleResolver?.invoke(parentTopicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                    ?: parentTopicId
+                finalTopicRefs.add(
                     SafetyValidator.TopicRef(
-                        topicId = sec.topicId,
-                        sectionId = sec.sectionId,
-                        label = label,
-                        topicTitle = topicTitle
+                        topicId = parentTopicId,
+                        sectionId = "",
+                        label = resolvedTitle,
+                        topicTitle = resolvedTitle
                     )
-                }
-        }
-        val autoGraphicRefs = if (structuredGraphicRefs.isNotEmpty()) structuredGraphicRefs else {
-            graphicIds.map {
-                SafetyValidator.GraphicRef(it, graphicTitles[it] ?: "Graphic $it")
+                )
             }
+        }
+
+        val autoGraphicRefs = graphicIds.map { gid ->
+            val cleanGid = AiJsonUtils.cleanGraphicId(gid)
+            val title = graphicTitles[gid] ?: graphicTitles[cleanGid] ?: "Graphic $gid"
+            val parentTopicId = graphicToTopic[gid] ?: graphicToTopic[cleanGid]
+            SafetyValidator.GraphicRef(gid, title, parentTopicId)
         }
 
         return SafetyValidator.TurnContext(
@@ -159,7 +192,7 @@ class TurnContextAccumulator {
             fetchedSections = sectionsWithTitle,
             graphicIds = graphicIds.toSet(),
             userQuestion = userQuestion,
-            topicRefs = autoTopicRefs,
+            topicRefs = finalTopicRefs,
             graphicRefs = autoGraphicRefs
         )
     }
@@ -170,13 +203,14 @@ class TurnContextAccumulator {
      * so the correction turn doesn't accumulate duplicate tool calls.
      */
     fun snapshotForCorrection(): TurnContextAccumulator {
-        val snapshot = TurnContextAccumulator()
+        val snapshot = TurnContextAccumulator(topicTitleResolver, sectionTitleResolver)
         snapshot.userQuestion = this.userQuestion
         snapshot.fetchedSections.addAll(this.fetchedSections)
         snapshot.graphicIds.addAll(this.graphicIds)
         snapshot.graphicTitles.putAll(this.graphicTitles)
         snapshot.topicTitles.putAll(this.topicTitles)
         snapshot.outlineSections.putAll(this.outlineSections)
+        snapshot.graphicToTopic.putAll(this.graphicToTopic)
         snapshot.lastTopicId = this.lastTopicId
         // Copy tool calls and results as evidence (read-only, won't re-execute)
         snapshot.toolCalls.addAll(this.toolCalls)
@@ -184,65 +218,20 @@ class TurnContextAccumulator {
         return snapshot
     }
 
-
-
-    private fun parseSubmittedAnswer(result: String) {
-        try {
-            val element = json.parseToJsonElement(result)
-            val obj = element as? JsonObject ?: return
-            submittedAnswerText = obj["answer"]?.jsonPrimitive?.content ?: ""
-        } catch (e: Exception) { Log.w(TAG, "parseSubmittedAnswer: ${e.message}") }
-    }
-
-    private fun parseStructuredRefs(result: String) {
-        try {
-            val element = json.parseToJsonElement(result)
-            val obj = element as? JsonObject ?: return
-
-            val topicRefsArray = obj["topicRefs"] as? kotlinx.serialization.json.JsonArray
-            if (topicRefsArray != null) {
-                structuredTopicRefs = topicRefsArray.mapNotNull { item ->
-                    val refObj = item as? JsonObject ?: return@mapNotNull null
-                    SafetyValidator.TopicRef(
-                        topicId = refObj["topicId"]?.jsonPrimitive?.content ?: "",
-                        sectionId = refObj["sectionId"]?.jsonPrimitive?.content ?: "",
-                        label = refObj["label"]?.jsonPrimitive?.content ?: "",
-                        topicTitle = refObj["topicTitle"]?.jsonPrimitive?.content ?: ""
-                    )
-                }
-            }
-
-            val graphicRefsArray = obj["graphicRefs"] as? kotlinx.serialization.json.JsonArray
-            if (graphicRefsArray != null) {
-                structuredGraphicRefs = graphicRefsArray.mapNotNull { item ->
-                    val refObj = item as? JsonObject ?: return@mapNotNull null
-                    SafetyValidator.GraphicRef(
-                        graphicId = refObj["graphicId"]?.jsonPrimitive?.content ?: "",
-                        label = refObj["label"]?.jsonPrimitive?.content ?: ""
-                    )
-                }
-            }
-        } catch (e: Exception) { Log.w(TAG, "parseStructuredRefs: ${e.message}") }
-    }
-
     private fun isLogicalFailure(result: String): Boolean {
-        val trimmed = result.trim()
+        val trimmed = AiJsonUtils.extractJsonString(result).trim()
         if (trimmed.startsWith("Topic not found", ignoreCase = true)) return true
         if (trimmed.equals("Section not found.", ignoreCase = true)) return true
 
         // JSON envelopes: {"error": "..."} from failed fetches, or batch section
         // responses where every requested ID was invalid (empty markdown).
-        if (trimmed.startsWith("{")) {
-            return try {
-                val obj = json.parseToJsonElement(trimmed) as? JsonObject ?: return false
-                val error = obj["error"]?.jsonPrimitive?.contentOrNull
-                if (!error.isNullOrBlank()) return true
-                val markdown = obj["markdown"]?.jsonPrimitive?.contentOrNull
-                val invalid = obj["invalidSections"] as? kotlinx.serialization.json.JsonArray
-                return markdown != null && markdown.isEmpty() && invalid != null && invalid.isNotEmpty()
-            } catch (_: Exception) {
-                false
-            }
+        val obj = AiJsonUtils.parseAsJsonObject(trimmed)
+        if (obj != null) {
+            val error = obj["error"]?.jsonPrimitive?.contentOrNull
+            if (!error.isNullOrBlank()) return true
+            val markdown = obj["markdown"]?.jsonPrimitive?.contentOrNull
+            val invalid = obj["invalidSections"] as? kotlinx.serialization.json.JsonArray
+            return markdown != null && markdown.isEmpty() && invalid != null && invalid.isNotEmpty()
         }
         return false
     }
@@ -250,8 +239,7 @@ class TurnContextAccumulator {
     private fun parseArguments(argsStr: String): Map<String, String> {
         if (argsStr.isBlank() || argsStr == "{}") return emptyMap()
         return try {
-            val element = json.parseToJsonElement(argsStr)
-            val obj = element as? JsonObject ?: return emptyMap()
+            val obj = AiJsonUtils.parseAsJsonObject(argsStr) ?: return emptyMap()
             obj.entries.associate { (key, value) ->
                 key to when (value) {
                     is kotlinx.serialization.json.JsonPrimitive -> value.content
@@ -266,14 +254,13 @@ class TurnContextAccumulator {
 
     private fun parseSearchResults(result: String) {
         try {
-            val element = json.parseToJsonElement(result)
-            val obj = element as? JsonObject ?: return
+            val obj = AiJsonUtils.parseAsJsonObject(result) ?: return
             val results = obj["results"] as? kotlinx.serialization.json.JsonArray ?: return
             for (item in results) {
                 val itemObj = item as? JsonObject ?: continue
                 val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
                 val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
-                if (title.isNotBlank() && !title.all { it.isDigit() }) {
+                if (!AiJsonUtils.isNumericOnly(title)) {
                     topicTitles[id] = title
                 }
             }
@@ -284,14 +271,13 @@ class TurnContextAccumulator {
 
     private fun parseRelatedTopicsResult(result: String) {
         try {
-            val element = json.parseToJsonElement(result)
-            val obj = element as? JsonObject ?: return
+            val obj = AiJsonUtils.parseAsJsonObject(result) ?: return
             val related = obj["relatedTopics"] as? kotlinx.serialization.json.JsonArray ?: return
             for (item in related) {
                 val itemObj = item as? JsonObject ?: continue
                 val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
                 val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
-                if (title.isNotBlank() && !title.all { it.isDigit() }) {
+                if (!AiJsonUtils.isNumericOnly(title)) {
                     topicTitles[id] = title
                 }
             }
@@ -302,26 +288,43 @@ class TurnContextAccumulator {
 
     private fun parseOutlineResult(args: Map<String, String>, result: String) {
         try {
-            val element = json.parseToJsonElement(result)
-            val obj = element as? JsonObject ?: return
+            val obj = AiJsonUtils.parseAsJsonObject(result) ?: return
             val topicId = obj["topicId"]?.jsonPrimitive?.content
                 ?: args["topicId"] ?: args["topic_id"] ?: return
             lastTopicId = topicId
             val title = obj["title"]?.jsonPrimitive?.content ?: ""
-            if (title.isNotEmpty() && !title.all { it.isDigit() }) {
+            if (!AiJsonUtils.isNumericOnly(title)) {
                 topicTitles[topicId] = title
             }
             // Store full section ID → title map
-            val sections = obj["sections"] as? kotlinx.serialization.json.JsonArray ?: return
-            val sectionMap = mutableMapOf<String, String>()
-            for (item in sections) {
-                val sectionObj = item as? JsonObject ?: continue
-                val id = sectionObj["id"]?.jsonPrimitive?.content ?: continue
-                val sectionTitle = sectionObj["title"]?.jsonPrimitive?.content ?: ""
-                sectionMap[id] = sectionTitle.trimStart('-', '–', '—')
+            val sections = obj["sections"] as? kotlinx.serialization.json.JsonArray
+            if (sections != null) {
+                val sectionMap = mutableMapOf<String, String>()
+                for (item in sections) {
+                    val sectionObj = item as? JsonObject ?: continue
+                    val id = sectionObj["id"]?.jsonPrimitive?.content ?: continue
+                    val sectionTitle = sectionObj["title"]?.jsonPrimitive?.content ?: ""
+                    sectionMap[id] = AiJsonUtils.cleanSectionTitle(sectionTitle)
+                }
+                if (sectionMap.isNotEmpty()) {
+                    outlineSections[topicId] = sectionMap
+                }
             }
-            if (sectionMap.isNotEmpty()) {
-                outlineSections[topicId] = sectionMap
+            // Map graphics to topic
+            val graphics = obj["graphics"] as? kotlinx.serialization.json.JsonArray
+            if (graphics != null) {
+                for (item in graphics) {
+                    val graphicObj = item as? JsonObject ?: continue
+                    val gid = graphicObj["id"]?.jsonPrimitive?.content ?: continue
+                    val cleanGid = AiJsonUtils.cleanGraphicId(gid)
+                    graphicToTopic[gid] = topicId
+                    graphicToTopic[cleanGid] = topicId
+                    val gTitle = graphicObj["title"]?.jsonPrimitive?.content ?: ""
+                    if (gTitle.isNotBlank()) {
+                        graphicTitles[gid] = gTitle
+                        graphicTitles[cleanGid] = gTitle
+                    }
+                }
             }
         } catch (e: Exception) { Log.w(TAG, "parseOutlineResult: ${e.message}") }
     }
@@ -354,11 +357,15 @@ class TurnContextAccumulator {
         var sectionMap = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
         var respTopicTitle = ""
         try {
-            val element = json.parseToJsonElement(result)
-            val obj = element as? JsonObject
+            val obj = AiJsonUtils.parseAsJsonObject(result)
             if (obj != null) {
+                val respTopicId = obj["topicId"]?.jsonPrimitive?.content ?: ""
+                if (respTopicId.isNotBlank()) {
+                    topicId = respTopicId
+                    lastTopicId = respTopicId
+                }
                 respTopicTitle = obj["topicTitle"]?.jsonPrimitive?.content ?: ""
-                if (respTopicTitle.isNotEmpty() && !respTopicTitle.all { it.isDigit() }) {
+                if (!AiJsonUtils.isNumericOnly(respTopicTitle)) {
                     if (topicId.isEmpty()) {
                         topicId = topicTitles.entries.firstOrNull { it.value == respTopicTitle }?.key ?: lastTopicId
                     }
@@ -370,7 +377,7 @@ class TurnContextAccumulator {
                 val sectionTitles = obj["sectionTitles"] as? JsonObject
                 if (sectionTitles != null) {
                     for ((k, v) in sectionTitles) {
-                        val titleStr = v.jsonPrimitive.content.trimStart('-', '–', '—')
+                        val titleStr = AiJsonUtils.cleanSectionTitle(v.jsonPrimitive.content)
                         if (titleStr.isNotBlank()) {
                             sectionMap[k] = titleStr
                         }
@@ -386,22 +393,33 @@ class TurnContextAccumulator {
         if (sectionIds.isEmpty() && sectionMap.isNotEmpty()) {
             sectionIds.addAll(sectionMap.keys)
         }
-        if (sectionIds.isEmpty() && (result.contains("=== Section: FULL ===") || result.contains("=== Calculator:"))) {
+        val unquotedResult = AiJsonUtils.extractJsonString(result)
+        if (sectionIds.isEmpty() && (unquotedResult.contains("=== Section: FULL ===") || unquotedResult.contains("=== Calculator:"))) {
             sectionIds.add("FULL")
         }
 
-        val finalTopicTitle = topicTitles[topicId] ?: respTopicTitle
+        val finalTopicTitle = topicTitles[topicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+            ?: respTopicTitle.takeIf { !AiJsonUtils.isNumericOnly(it) }
+            ?: topicTitleResolver?.invoke(topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+            ?: topicId
 
         for (sectionId in sectionIds) {
             if (sectionId.isNotEmpty()) {
-                val resolvedTitle = (sectionMap[sectionId] ?: args["sectionTitle"] ?: args["section_title"] ?: "").trimStart('-', '–', '—')
+                val resolvedTitle = AiJsonUtils.cleanSectionTitle(
+                    sectionMap[sectionId]
+                        ?: outlineSections[topicId]?.get(sectionId)
+                        ?: sectionTitleResolver?.invoke(topicId, sectionId)
+                        ?: args["sectionTitle"]
+                        ?: args["section_title"]
+                        ?: ""
+                )
                 fetchedSections.add(
                     SafetyValidator.FetchedSection(
                         topicId = topicId,
                         topicTitle = finalTopicTitle,
                         sectionId = sectionId,
                         sectionTitle = resolvedTitle,
-                        contentSnippet = result.take(2000)
+                        contentSnippet = unquotedResult.take(2000)
                     )
                 )
             }
@@ -411,18 +429,17 @@ class TurnContextAccumulator {
     private fun parseGraphicResult(args: Map<String, String>, result: String) {
         val graphicId = args["graphicId"] ?: args["graphic_id"] ?: ""
         if (graphicId.isNotEmpty()) {
-            graphicIds.add(graphicId)
+            val cleanId = AiJsonUtils.cleanGraphicId(graphicId)
+            graphicIds.add(cleanId)
             // Extract title from result: "### Graphic Table: {title}\n\n{markdown}"
-            val match = Regex("""### Graphic Table:\s*(.+)""").find(result)
+            val unquoted = AiJsonUtils.extractJsonString(result)
+            val match = AiJsonUtils.GRAPHIC_TABLE_REGEX.find(unquoted)
             if (match != null) {
-                graphicTitles[graphicId] = match.groupValues[1].trim()
+                val title = match.groupValues[1].trim()
+                graphicTitles[graphicId] = title
+                graphicTitles[cleanId] = title
             }
         }
     }
-
-    private var submittedAnswerText: String = ""
-    private var structuredTopicRefs: List<SafetyValidator.TopicRef> = emptyList()
-    private var structuredGraphicRefs: List<SafetyValidator.GraphicRef> = emptyList()
-
-
 }
+

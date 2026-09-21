@@ -97,20 +97,11 @@ def create_clinical_agent(
         return "validate_safety"
 
     def after_tools(state: AgentState) -> str:
-        """Route after tool execution: terminal tool -> validate, else compact & LLM.
-
-        If submit_clinical_answer was called, skip the next LLM call and go
-        straight to validation to prevent double-submission. Also stop the
-        loop gracefully when the tool-round budget is exhausted (mirrors
-        Kotlin maxAgentIterations) instead of relying on LangGraph's
-        recursion limit.
-        """
-        tc = TurnContext(**state["turn_context"])
-        if tc.tool_calls and tc.tool_calls[-1].tool_name == "submit_clinical_answer":
-            return "validate_safety"
-
+        """Route after tool execution: check retry budget, compact history, return to LLM."""
         if state.get("tool_rounds", 0) >= max_tool_retries:
             return "validate_safety"
+
+        tc = TurnContext(**state["turn_context"])
 
         # Context Hygiene: Truncate older search_topics result messages in history if sections were fetched
         if len(tc.fetched_sections) > 0 and len(state["messages"]) > 4:
@@ -229,6 +220,18 @@ def create_clinical_agent(
                         tc.outline_sections[topic_id] = {
                             s["id"]: s["title"].lstrip("-–— ") for s in sections if s.get("id")
                         }
+                    # Store graphics mapping to this topic
+                    graphics = outline_data.get("graphics", [])
+                    for g in graphics:
+                        gid = str(g.get("id", "")).strip()
+                        if gid:
+                            tc.graphic_to_topic[gid] = topic_id
+                            clean_gid = re.sub(r"(?i)^graphic-", "", gid)
+                            tc.graphic_to_topic[clean_gid] = topic_id
+                            g_title = g.get("title", "")
+                            if g_title:
+                                tc.graphic_titles[gid] = g_title
+                                tc.graphic_titles[clean_gid] = g_title
                 except (json.JSONDecodeError, AttributeError):
                     pass
 
@@ -238,6 +241,9 @@ def create_clinical_agent(
                 # Parse structured JSON result from batch tool
                 try:
                     batch_data = json.loads(result_content)
+                    resp_tid = str(batch_data.get("topicId", "")).strip()
+                    if resp_tid:
+                        topic_id = resp_tid
                     topic_title = batch_data.get("topicTitle", "")
                     raw_section_titles = batch_data.get("sectionTitles", {})
                     section_titles = (
@@ -280,15 +286,14 @@ def create_clinical_agent(
             if name == "get_graphic_content":
                 graphic_id = str(args.get("graphic_id", args.get("graphicId", ""))).strip()
                 if graphic_id:
-                    tc.graphic_ids.add(graphic_id)
+                    clean_gid = re.sub(r"(?i)^graphic-", "", graphic_id)
+                    tc.graphic_ids.add(clean_gid)
                     # Extract title from result: "### Graphic Table: {title}\n\n{markdown}"
                     m = re.match(r"### Graphic Table:\s*(.+)", result_content)
                     if m:
-                        tc.graphic_titles[graphic_id] = m.group(1).strip()
-
-            # Auto-populate refs from TurnContext
-            if name == "submit_clinical_answer":
-                _auto_populate_refs(tc, result_content)
+                        title = m.group(1).strip()
+                        tc.graphic_titles[graphic_id] = title
+                        tc.graphic_titles[clean_gid] = title
 
             new_messages.append(
                 ToolMessage(content=result_content, tool_call_id=tool_call_id)
@@ -302,20 +307,7 @@ def create_clinical_agent(
         }
 
     def _extract_final_answer(state: AgentState, tc: TurnContext) -> str:
-        """Resolve the turn's final answer from the submitted terminal tool
-        record, falling back to the last plain-text AI message."""
-        submit_rec = next(
-            (r for r in reversed(tc.tool_calls) if r.tool_name == "submit_clinical_answer"),
-            None,
-        )
-        if submit_rec is not None:
-            try:
-                data = json.loads(submit_rec.result)
-                if data.get("status") == "SUBMITTED" and "answer" in data:
-                    return data["answer"]
-            except (json.JSONDecodeError, TypeError):
-                pass
-
+        """Resolve the turn's final answer from the last plain-text AI message."""
         for msg in reversed(state["messages"]):
             if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
                 return msg.content
@@ -328,6 +320,9 @@ def create_clinical_agent(
 
         tc.answer = answer
         tc.user_question = state.get("user_question", "")
+
+        # Auto-populate refs from retrieved evidence
+        _auto_populate_refs(tc)
 
         validator = SafetyValidator()
         validation = validator.validate(tc)
@@ -345,6 +340,11 @@ def create_clinical_agent(
                         f"Section [{sec.section_id}] ({sec.section_title}) from topic {sec.topic_id}"
                     )
             evidence_summary = "\n---\n".join(evidence_lines) if evidence_lines else "No section text was successfully fetched in the prior turn."
+
+            # Reset answer state for correction turn (mirrors Kotlin prepareForCorrection)
+            tc.answer = ""
+            tc.structured_topic_refs = []
+            tc.structured_graphic_refs = []
 
             correction_msg = HumanMessage(
                 content=build_correction_prompt(validation.blocked_reason or "", evidence_summary)
@@ -405,7 +405,7 @@ def create_clinical_agent(
     return workflow.compile()
 
 
-def _auto_populate_refs(tc: TurnContext, result: str) -> None:
+def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
     """Auto-populate topicRefs and graphicRefs from fetched sections and graphic IDs.
 
     Rebuilds both lists from scratch so repeated submissions stay idempotent
@@ -419,7 +419,8 @@ def _auto_populate_refs(tc: TurnContext, result: str) -> None:
         if key in seen_topics:
             continue
         seen_topics.add(key)
-        if not sec.section_title:
+        sec_title = sec.section_title or tc.outline_sections.get(sec.topic_id, {}).get(sec.section_id, "")
+        if not sec_title:
             continue
         raw_title = tc.topic_titles.get(sec.topic_id) or sec.topic_title or ""
         if not raw_title or str(raw_title).isdigit():
@@ -432,14 +433,42 @@ def _auto_populate_refs(tc: TurnContext, result: str) -> None:
             except Exception:
                 pass
         topic_title = raw_title if raw_title and not str(raw_title).isdigit() else sec.topic_id
+        label = sec_title.lstrip("-–— ")
+        clean_sec_id = "" if sec.section_id.upper() == "FULL" else sec.section_id
         topic_refs.append(
             TopicRef(
                 topic_id=sec.topic_id,
-                section_id=sec.section_id,
-                label=sec.section_title.lstrip("-–— "),
+                section_id=clean_sec_id,
+                label=label,
                 topic_title=topic_title,
             )
         )
+
+    # Ensure parent topics for graphic tables are attributed
+    for gid in tc.graphic_ids:
+        clean_gid = re.sub(r"(?i)^graphic-", "", gid)
+        parent_topic_id = tc.graphic_to_topic.get(gid) or tc.graphic_to_topic.get(clean_gid)
+        if parent_topic_id and not any(r.topic_id == parent_topic_id for r in topic_refs):
+            raw_title = tc.topic_titles.get(parent_topic_id) or ""
+            if not raw_title or str(raw_title).isdigit():
+                try:
+                    from tools import _db
+                    if _db is not None:
+                        db_title = _db.get_topic_title(parent_topic_id)
+                        if db_title and not str(db_title).isdigit():
+                            raw_title = db_title
+                except Exception:
+                    pass
+            topic_title = raw_title if raw_title and not str(raw_title).isdigit() else parent_topic_id
+            topic_refs.append(
+                TopicRef(
+                    topic_id=parent_topic_id,
+                    section_id="",
+                    label=topic_title,
+                    topic_title=topic_title,
+                )
+            )
+
     tc.structured_topic_refs = topic_refs
 
     # Build graphic refs from fetched graphic IDs
@@ -447,6 +476,7 @@ def _auto_populate_refs(tc: TurnContext, result: str) -> None:
         GraphicRef(
             graphic_id=gid,
             label=tc.graphic_titles.get(gid, f"Graphic {gid}"),
+            topic_id=tc.graphic_to_topic.get(gid) or tc.graphic_to_topic.get(re.sub(r"(?i)^graphic-", "", gid)),
         )
         for gid in tc.graphic_ids
     ]

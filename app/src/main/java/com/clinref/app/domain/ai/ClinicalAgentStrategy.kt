@@ -54,6 +54,7 @@ object ClinicalAgentStrategy {
             } else if (retryCount < maxSafetyRetries) {
                 retryCount++
                 val snapshot = accumulator.snapshotForCorrection()
+                accumulator.prepareForCorrection()
                 val evidenceSummary = snapshot.buildTurnContext("").fetchedSections
                     .joinToString("\n---\n") { sec ->
                         if (sec.contentSnippet.isNotBlank()) {

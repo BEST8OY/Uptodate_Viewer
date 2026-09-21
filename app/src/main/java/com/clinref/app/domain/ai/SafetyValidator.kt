@@ -41,7 +41,8 @@ class SafetyValidator {
     @Serializable
     data class GraphicRef(
         val graphicId: String,
-        val label: String
+        val label: String,
+        val topicId: String? = null
     )
 
     data class TurnContext(
@@ -132,10 +133,16 @@ class SafetyValidator {
         return expanded.ifEmpty { listOf(metric) }
     }
 
+    private companion object {
+        private val WHITESPACE_REGEX = Regex("""\s+""")
+    }
+
     private fun isQuantityInText(metric: String, text: String): Boolean {
         val variants = normalizeQuantity(metric)
         val textUncomma = text.replace(",", "")
-        val textUnspace = text.replace(Regex("\\s+"), "")
+        val textUnspace = text.replace(WHITESPACE_REGEX, "")
+        val compactMetric = metric.replace(WHITESPACE_REGEX, "")
+        val hasSpace = compactMetric != metric
 
         for (variant in variants) {
             val escaped = Regex.escape(variant)
@@ -149,8 +156,7 @@ class SafetyValidator {
             }
 
             // Also try without space before unit (e.g., "10mg" in text when metric is "10 mg")
-            val compact = metric.replace(Regex("\\s+"), "")
-            if (compact != metric && boundaryRegex.containsMatchIn(textUnspace)) return true
+            if (hasSpace && boundaryRegex.containsMatchIn(textUnspace)) return true
         }
         return false
     }

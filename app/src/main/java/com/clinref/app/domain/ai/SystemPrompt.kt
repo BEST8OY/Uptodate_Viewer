@@ -31,9 +31,9 @@ object SystemPrompt {
         REMEDIAL INSTRUCTIONS:
         1. Re-evaluate your answer using ONLY the retrieved evidence above.
         2. Ensure all quoted dosages and figures are verified against the retrieved sections.
-        3. Include full citations in format: Topic: <Title>, Section: <Title> (ID: <SectionID>)
+        3. Keep your answer purely clinical; citations and references are extracted automatically from tool evidence.
         4. Do NOT invent clinical quantities not present in the evidence.
-        5. MUST call submitClinicalAnswer as your final tool call.
+        5. Provide a direct, complete clinical response based strictly on the retrieved evidence.
     """.trimIndent()
 
     private fun personaBlock(): String = """You are ClinRef AI, a clinical reference assistant. You retrieve medical information from a clinical database and present it to clinicians.
@@ -85,8 +85,9 @@ GRAPHICS:
 - Compare candidate titles across the unified pool and select the most specific target topic before fetching outlines or sections."""
 
     private fun finalAnswerRules(): String = """FINAL ANSWER:
-- ALWAYS call submitClinicalAnswer as your final tool call
-- Do NOT end with plain text — the terminal tool is required"""
+- Synthesize your final response directly from the retrieved sections and tables.
+- Citations, section chips, and graphic references are automatically tracked and displayed from your tool evidence.
+- Provide your final clinical response directly as clear, structured markdown text."""
 
     private fun fullWorkflow(): String = """WORKFLOW:
 1. searchTopics to explore candidate topics
@@ -94,7 +95,7 @@ GRAPHICS:
 3. For complex/multi-condition cases: call getRelatedTopics to discover specialized sub-topics and calculators
 4. getTopicSectionsText (batch): Fetch chosen sections in ONE call
 5. getGraphicContent: Read relevant tables from outlines
-6. MUST call submitClinicalAnswer with your final response
+6. Provide your final clinical response directly as clear, structured markdown
 
 ${searchRules()}
 
@@ -112,7 +113,7 @@ ${finalAnswerRules()}"""
 3. For complex queries: call getRelatedTopics to expand candidate pool with sub-topics
 4. getTopicSectionsText (batch): Fetch sections in ONE call
 5. getGraphicContent: Read relevant tables
-6. MUST call submitClinicalAnswer with final response
+6. Provide your final clinical response directly as clear, structured markdown
 
 ${searchRules()}
 
