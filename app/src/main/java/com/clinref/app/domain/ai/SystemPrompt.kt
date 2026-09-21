@@ -58,7 +58,7 @@ CORE PRINCIPLES:
 - Call searchTopics(query) to find candidate topics and titles
 - Formulate search queries using the primary medical condition plus the target clinical domain keyword
 - Evaluate candidate topic titles and call getTopicOutline(topicId) for your selected topic(s)
-- Use getRelatedTopics to discover specialized sub-topics or linked decision tools
+- Inspect "relatedTopics" directly inside the outline to discover specialized sub-topics or linked decision tools
 - NEVER invent your own search queries — only use terms from "refine_with" suggestions or core medical terms
 - If search returns no results: pick the most relevant term from "refine_with" suggestions and search again
 - NEVER retry the exact same query — if it returned empty, it will return empty again
@@ -80,9 +80,8 @@ GRAPHICS:
 
     private fun candidatePool(): String = """CANDIDATE POOL (2-stage expansion):
 - For direct/simple queries: evaluate searchTopics results directly.
-- For complex, multi-condition, or differential questions: call getRelatedTopics on initial search hits to discover specialized sub-topics and linked decision tools/calculators.
-- Merge initial search hits + getRelatedTopics hits into a single Unified Candidate Pool.
-- Compare candidate titles across the unified pool and select the most specific target topic before fetching outlines or sections."""
+- For complex, multi-condition, or differential questions: inspect "relatedTopics" returned in the getTopicOutline response to discover specialized sub-topics and linked decision tools/calculators.
+- Compare candidate titles and select the most specific target topic before fetching sections."""
 
     private fun finalAnswerRules(): String = """FINAL ANSWER:
 - Synthesize your final response directly from the retrieved sections and tables.
@@ -92,7 +91,7 @@ GRAPHICS:
     private fun fullWorkflow(): String = """WORKFLOW:
 1. searchTopics to explore candidate topics
 2. Evaluate candidate titles and call getTopicOutline on the most relevant topic(s)
-3. For complex/multi-condition cases: call getRelatedTopics to discover specialized sub-topics and calculators
+3. Inspect outline sections, table graphics, and relatedTopics (returned directly in the outline)
 4. getTopicSectionsText (batch): Fetch chosen sections in ONE call
 5. getGraphicContent: Read relevant tables from outlines
 6. Provide your final clinical response directly as clear, structured markdown
@@ -110,7 +109,7 @@ ${finalAnswerRules()}"""
     private fun ollamaWorkflow(): String = """WORKFLOW:
 1. searchTopics to find candidate topics
 2. Call getTopicOutline for relevant topic(s)
-3. For complex queries: call getRelatedTopics to expand candidate pool with sub-topics
+3. Inspect outline sections, tables, and relatedTopics directly from the outline
 4. getTopicSectionsText (batch): Fetch sections in ONE call
 5. getGraphicContent: Read relevant tables
 6. Provide your final clinical response directly as clear, structured markdown

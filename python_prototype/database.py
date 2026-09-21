@@ -63,29 +63,94 @@ class ClinRefDatabase:
 
     # ── Search ──────────────────────────────────────────────────────────
 
-    def search_topics(self, query: str, limit: int = 10) -> list[dict]:
-        """Search topics using unidex only (no FTS fallback).
+    def _get_stopwords(self) -> set[str]:
+        if not hasattr(self, "_stopwords_cache"):
+            try:
+                rows = self.unidex.execute("SELECT inword FROM replac WHERE rtype = 'S'").fetchall()
+                self._stopwords_cache = {r["inword"].strip().lower() for r in rows if r["inword"]}
+            except Exception:
+                self._stopwords_cache = set()
+        return self._stopwords_cache
 
-        FTS fallback returns low-quality results. Unidex has curated mappings.
-        """
-        # 1. Try unidex (exact query → topic hits)
-        unidex_results = self._search_unidex(query)
+    def _rank_tokens_by_weight(self, tokens: list[str]) -> list[tuple[str, int]]:
+        weighted = []
+        for t in tokens:
+            try:
+                row = self.unidex.execute("SELECT max(weight) FROM query WHERE disp = ?", (t,)).fetchone()
+                w = row[0] if row and row[0] is not None else 0
+            except Exception:
+                w = 0
+            weighted.append((t, w))
+        return sorted(weighted, key=lambda x: x[1], reverse=True)
+
+    def _find_queries_by_tokens(self, anchor: str, modifier: str) -> list[str]:
+        try:
+            rows = self.unidex.execute(
+                "SELECT disp FROM query WHERE (disp LIKE ? OR disp LIKE ?) AND hide IS NULL ORDER BY weight DESC LIMIT 5",
+                (f"{anchor} {modifier}%", f"{modifier} {anchor}%"),
+            ).fetchall()
+            return [r["disp"] for r in rows if r["disp"]]
+        except Exception:
+            return []
+
+    def _find_queries_by_anchor(self, anchor: str) -> list[str]:
+        try:
+            rows = self.unidex.execute(
+                "SELECT disp FROM query WHERE disp LIKE ? AND hide IS NULL ORDER BY weight DESC LIMIT 5",
+                (f"{anchor}%",),
+            ).fetchall()
+            return [r["disp"] for r in rows if r["disp"]]
+        except Exception:
+            return []
+
+    def search_topics(self, query: str, limit: int = 10) -> list[dict]:
+        """Search topics using unidex with stopword sanitization and clinical weight anchoring."""
+        clean = query.strip().lower()
+        if not clean:
+            return []
+
+        # 1. Direct exact match
+        unidex_results = self._search_unidex(clean)
         if unidex_results:
             valid = [r for r in unidex_results if r.get("title") and self.has_topic_asset(r["id"])]
             if valid:
                 return valid[:limit]
 
-        # 2. If query has special chars, strip them and retry unidex
-        cleaned = re.sub(r'[^a-zA-Z0-9 ]', '', query).lower().strip()
-        if cleaned and cleaned != query:
-            cleaned_results = self._search_unidex(cleaned)
-            if cleaned_results:
-                valid = [r for r in cleaned_results if r.get("title") and self.has_topic_asset(r["id"])]
+        # 2. Stopword-sanitized exact match
+        stopwords = self._get_stopwords()
+        tokens = [w for w in clean.replace("-", " ").split() if w and w not in stopwords]
+        sanitized = " ".join(tokens)
+        if sanitized and sanitized != clean:
+            sanitized_results = self._search_unidex(sanitized)
+            if sanitized_results:
+                valid = [r for r in sanitized_results if r.get("title") and self.has_topic_asset(r["id"])]
                 if valid:
                     return valid[:limit]
 
+        # 3. Clinical weight-ranked token anchoring
+        if tokens:
+            weighted = self._rank_tokens_by_weight(tokens)
+            if weighted and weighted[0][1] > 0:
+                anchor = weighted[0][0]
+                other_tokens = [t for t, _ in weighted[1:] if len(t) > 2]
 
-        # 3. No FTS fallback — return empty, LLM will use suggestions
+                for other in other_tokens:
+                    candidate_queries = self._find_queries_by_tokens(anchor, other)
+                    for cq in candidate_queries:
+                        results = self._search_unidex(cq)
+                        if results:
+                            valid = [r for r in results if r.get("title") and self.has_topic_asset(r["id"])]
+                            if valid:
+                                return valid[:limit]
+
+                anchor_queries = self._find_queries_by_anchor(anchor)
+                for cq in anchor_queries:
+                    results = self._search_unidex(cq)
+                    if results:
+                        valid = [r for r in results if r.get("title") and self.has_topic_asset(r["id"])]
+                        if valid:
+                            return valid[:limit]
+
         return []
 
     def _search_unidex(self, query: str) -> list[dict]:
@@ -152,31 +217,29 @@ class ClinRefDatabase:
         return self._get_conn("_unidex_conn", "unidex.en.sqlite")
 
     def get_suggestions(self, query: str, limit: int = 30) -> list[str]:
-        """Get search query suggestions from unidex (primary) or qf (fallback).
-
-        Returns popular queries that start with or match the given prefix.
-        For long queries, tries progressively shorter word prefixes.
-        """
-        query = query.strip()
-        if not query:
+        """Get search query suggestions from unidex (primary) or qf (fallback)."""
+        clean = query.strip().lower()
+        if not clean:
             return []
 
-        # Try the full query first
-        results = self._query_suggestions(query, limit)
+        # 1. Try the full query first
+        results = self._query_suggestions(clean, limit)
         if results:
             return results
 
-        words = query.split()
+        # 2. Stopword sanitization & clinical weight ranking
+        stopwords = self._get_stopwords()
+        tokens = [w for w in clean.replace("-", " ").split() if w and w not in stopwords]
+        if tokens:
+            weighted = self._rank_tokens_by_weight(tokens)
+            for token, weight in weighted:
+                if weight > 0:
+                    results = self._query_suggestions(token, limit)
+                    if results:
+                        return results
 
-        # Try individual words (longest first) — finds core medical terms
-        # e.g., "how to treat diabetes" -> try "diabetes", "treat", "how"
-        for word in sorted(words, key=len, reverse=True):
-            if len(word) > 3:  # Skip short words like "how", "for", "the"
-                results = self._query_suggestions(word, limit)
-                if results:
-                    return results
-
-        # Try progressively shorter word prefixes
+        # 3. Try progressively shorter word prefixes
+        words = clean.split()
         for i in range(len(words) - 1, 0, -1):
             prefix = " ".join(words[:i])
             results = self._query_suggestions(prefix, limit)
