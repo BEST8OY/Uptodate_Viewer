@@ -20,7 +20,9 @@
 *.tar.gz
 *.rar
 *.sqlite
+*.sqlite-*
 *.db
+*.db-*
 
 # Gradle
 .gradle/
