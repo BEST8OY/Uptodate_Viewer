@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
 package com.clinref.app.data.tools
 
 import ai.koog.agents.core.tools.SimpleTool
@@ -25,7 +27,7 @@ class SearchTopicsTool(
         "Avoid searching full patient sentences or lab measurements."
 ) {
     @Serializable
-    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
+    data class Args(
         @property:LLMDescription("Single medical term or core clinical concept (e.g., 'asthma', 'metformin').")
         @JsonNames("search_query", "q", "query_text")
         val query: String
@@ -43,7 +45,7 @@ class GetTopicOutlineTool(
         "ALWAYS call this after searchTopics to obtain sectionId values for getTopicSectionsText."
 ) {
     @Serializable
-    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
+    data class Args(
         @property:LLMDescription("The topic ID returned by searchTopics (e.g., '12345')")
         @JsonNames("topic_id")
         val topicId: String
@@ -60,7 +62,7 @@ class GetRelatedTopicsTool(
     description = "Get related topic IDs and titles for a topic. Use this to build a candidate pool before fetching sections."
 ) {
     @Serializable
-    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
+    data class Args(
         @property:LLMDescription("The topic ID from searchTopics")
         @JsonNames("topic_id")
         val topicId: String
@@ -77,7 +79,7 @@ class GetTopicSectionsTextTool(
     description = "Retrieve multiple sections from the same topic in a single call."
 ) {
     @Serializable
-    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
+    data class Args(
         @property:LLMDescription("The topic ID")
         @JsonNames("topic_id")
         val topicId: String,
@@ -98,7 +100,7 @@ class GetGraphicContentTool(
         "Do NOT call for non-table graphics (figures, images, algorithms) as visual details cannot be analyzed."
 ) {
     @Serializable
-    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
+    data class Args(
         @property:LLMDescription("The graphic ID from getTopicOutline (e.g., 'Graphic-12345' or '12345')")
         @JsonNames("graphic_id")
         val graphicId: String

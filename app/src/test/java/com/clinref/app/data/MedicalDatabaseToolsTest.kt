@@ -214,10 +214,10 @@ class MedicalDatabaseToolsTest {
         assertEquals(1, searchObj["results"]!!.jsonArray.size)
 
         every { assetRepository.getGraphic("999") } returns GraphicData(
+            id = "999",
             title = "Sample Image",
             imageHtml = "<div>img</div>",
-            subtype = "graphic_image",
-            isTable = false
+            subtype = "graphic_image"
         )
         val graphicResult = tools.getGraphicContentTool.execute(GetGraphicContentTool.Args("999"))
         assertTrue(graphicResult.contains("not a table"))
