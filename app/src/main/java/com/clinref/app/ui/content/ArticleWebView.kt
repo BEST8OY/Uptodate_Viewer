@@ -5,7 +5,11 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
@@ -76,11 +80,11 @@ internal fun HtmlContentWebView(
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
-    var targetSectionId by androidx.compose.runtime.remember {
-        androidx.compose.runtime.mutableStateOf(initialSectionId)
+    var targetSectionId by remember {
+        mutableStateOf(initialSectionId)
     }
 
-    androidx.compose.runtime.LaunchedEffect(initialSectionId) {
+    LaunchedEffect(initialSectionId) {
         if (!initialSectionId.isNullOrBlank()) {
             targetSectionId = initialSectionId
             controller.scrollToSection(initialSectionId)
