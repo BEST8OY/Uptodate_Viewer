@@ -135,10 +135,10 @@ fun GeminiMessageItem(
                         )
                     }
 
-                    if (message.topicRefs.isNotEmpty() || message.graphicRefs.isNotEmpty()) {
+                    if (message.articles.isNotEmpty() || message.tables.isNotEmpty()) {
                         ClinicalReferencesSection(
-                            topicRefs = message.topicRefs,
-                            graphicRefs = message.graphicRefs,
+                            articles = message.articles,
+                            tables = message.tables,
                             onNavigateToContent = onNavigateToContent,
                             onGraphicSelected = onGraphicSelected
                         )

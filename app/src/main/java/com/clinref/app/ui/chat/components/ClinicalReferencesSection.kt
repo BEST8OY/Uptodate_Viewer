@@ -45,10 +45,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.clinref.app.domain.ai.AiJsonUtils
+import com.clinref.app.domain.ai.ClinicalSource
 import com.clinref.app.ui.chat.ResolvedGraphicRef
 import com.clinref.app.ui.chat.ResolvedTopicRef
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ClinicalReferencesSection(
     topicRefs: List<ResolvedTopicRef>,
@@ -57,20 +58,31 @@ fun ClinicalReferencesSection(
     onGraphicSelected: (graphicId: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (topicRefs.isEmpty() && graphicRefs.isEmpty()) return
-
-    // Group topic references by topic article
-    val groupedTopics = remember(topicRefs) {
-        val map = linkedMapOf<String, MutableList<ResolvedTopicRef>>()
-        for (ref in topicRefs) {
-            val key = ref.topicId.ifEmpty { ref.topicTitle.ifEmpty { "general" } }
-            map.getOrPut(key) { mutableListOf() }.add(ref)
-        }
-        map
+    val (articles, tables) = remember(topicRefs, graphicRefs) {
+        ClinicalSource.fromResolved(topicRefs, graphicRefs)
     }
+    ClinicalReferencesSection(
+        articles = articles,
+        tables = tables,
+        onNavigateToContent = onNavigateToContent,
+        onGraphicSelected = onGraphicSelected,
+        modifier = modifier
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ClinicalReferencesSection(
+    articles: List<ClinicalSource.Article>,
+    tables: List<ClinicalSource.Table>,
+    onNavigateToContent: (topicId: String, sectionId: String?) -> Unit,
+    onGraphicSelected: (graphicId: String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (articles.isEmpty() && tables.isEmpty()) return
 
     var isExpanded by remember { mutableStateOf(true) }
-    val totalCount = groupedTopics.size + graphicRefs.size
+    val totalCount = articles.size + tables.size
 
     Column(
         modifier = modifier
@@ -158,16 +170,12 @@ fun ClinicalReferencesSection(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Topic References
-                groupedTopics.forEach { (topicKey, refs) ->
-                    val primaryRef = refs.first()
-                    val rawTitle = primaryRef.topicTitle.ifEmpty { primaryRef.title }
-                    val topicTitle = if (rawTitle.isBlank() || rawTitle.all { it.isDigit() }) {
-                        val numeric = primaryRef.topicId.ifEmpty { topicKey }
-                        if (numeric.isNotBlank()) "Clinical Topic #$numeric" else "Clinical Topic"
+                articles.forEach { article ->
+                    val topicTitle = if (article.topicTitle.isBlank() || AiJsonUtils.isNumericOnly(article.topicTitle)) {
+                        "Clinical Topic #${article.topicId}"
                     } else {
-                        rawTitle
+                        article.topicTitle
                     }
-                    val validTopicId = primaryRef.topicId.ifEmpty { topicKey }
 
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -179,7 +187,7 @@ fun ClinicalReferencesSection(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable(role = Role.Button) {
-                                onNavigateToContent(validTopicId, primaryRef.sectionId)
+                                onNavigateToContent(article.topicId, null)
                             }
                     ) {
                         Row(
@@ -218,42 +226,39 @@ fun ClinicalReferencesSection(
                                 )
 
                                 // Section chips
-                                val sectionsWithLabels = refs.filter {
-                                    it.title.isNotBlank() &&
-                                    !it.title.equals(topicTitle, ignoreCase = true) &&
-                                    !it.title.all { c -> c.isDigit() } &&
-                                    it.sectionId != "FULL"
-                                }
-                                if (sectionsWithLabels.isNotEmpty()) {
+                                if (article.sections.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(6.dp))
                                     FlowRow(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        sectionsWithLabels.distinctBy { it.sectionId ?: it.title }.forEach { sec ->
-                                            Surface(
-                                                shape = RoundedCornerShape(6.dp),
-                                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
-                                                border = BorderStroke(
-                                                    0.5.dp,
-                                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                ),
-                                                modifier = Modifier.clickable {
-                                                    onNavigateToContent(validTopicId, sec.sectionId)
-                                                }
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        article.sections.forEach { sec ->
+                                            val cleanTitle = AiJsonUtils.cleanSectionTitle(sec.sectionTitle)
+                                            if (cleanTitle.isNotBlank()) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                                                    border = BorderStroke(
+                                                        0.5.dp,
+                                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                                    ),
+                                                    modifier = Modifier.clickable {
+                                                        onNavigateToContent(article.topicId, sec.sectionId)
+                                                    }
                                                 ) {
-                                                    Text(
-                                                        text = sec.title,
-                                                        style = MaterialTheme.typography.labelSmall.copy(
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Medium
-                                                        ),
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = cleanTitle,
+                                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Medium
+                                                            ),
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -274,7 +279,7 @@ fun ClinicalReferencesSection(
                 }
 
                 // Graphic References (Tables / Figures)
-                graphicRefs.forEach { graphic ->
+                tables.forEach { table ->
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -285,7 +290,7 @@ fun ClinicalReferencesSection(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable(role = Role.Button) {
-                                onGraphicSelected(graphic.graphicId)
+                                onGraphicSelected(table.graphicId)
                             }
                     ) {
                         Row(
@@ -313,7 +318,7 @@ fun ClinicalReferencesSection(
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = graphic.title,
+                                    text = table.tableTitle,
                                     style = MaterialTheme.typography.titleSmall.copy(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp
@@ -324,9 +329,15 @@ fun ClinicalReferencesSection(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "Interactive Table \u00b7 ID: ${graphic.graphicId}",
+                                    text = if (!table.parentTopicTitle.isNullOrBlank()) {
+                                        "Interactive Table \u00b7 From: ${table.parentTopicTitle}"
+                                    } else {
+                                        "Interactive Table \u00b7 ID: ${table.graphicId}"
+                                    },
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                    color = MaterialTheme.colorScheme.tertiary
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 

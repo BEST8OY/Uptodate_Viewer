@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
+import com.clinref.app.domain.ai.ClinicalSource
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.domain.ai.ReliabilityManager
@@ -41,7 +42,12 @@ data class ResolvedTopicRef(
     val sectionId: String? = null,
     val topicTitle: String = ""
 )
-data class ResolvedGraphicRef(val graphicId: String, val title: String)
+data class ResolvedGraphicRef(
+    val graphicId: String,
+    val title: String,
+    val topicId: String? = null,
+    val topicTitle: String? = null
+)
 
 sealed interface ChatListItem {
     data class Message(val uiModel: MessageUiModel) : ChatListItem
@@ -56,7 +62,9 @@ data class MessageUiModel(
     val isError: Boolean = false,
     val showTimestamp: Boolean = false,
     val topicRefs: List<ResolvedTopicRef> = emptyList(),
-    val graphicRefs: List<ResolvedGraphicRef> = emptyList()
+    val graphicRefs: List<ResolvedGraphicRef> = emptyList(),
+    val articles: List<ClinicalSource.Article> = emptyList(),
+    val tables: List<ClinicalSource.Table> = emptyList()
 )
 
 @HiltViewModel
@@ -405,20 +413,35 @@ class ChatViewModel @Inject constructor(
         val topicRefs = if (!topicRefsJson.isNullOrBlank()) {
             try {
                 json.decodeFromString<List<SafetyValidator.TopicRef>>(topicRefsJson).map {
+                    val topicTitle = it.topicTitle.ifBlank { it.label }
+                    val displayTitle = it.label.ifBlank { topicTitle }
                     ResolvedTopicRef(
                         topicId = it.topicId,
-                        title = it.label,
+                        title = displayTitle,
                         sectionId = it.sectionId.ifEmpty { null },
-                        topicTitle = it.topicTitle.ifEmpty { it.label }
+                        topicTitle = topicTitle
                     )
                 }
             } catch (_: Exception) { emptyList() }
         } else emptyList()
+
         val graphicRefs = if (!graphicRefsJson.isNullOrBlank()) {
-            try { json.decodeFromString<List<SafetyValidator.GraphicRef>>(graphicRefsJson).map {
-                ResolvedGraphicRef(it.graphicId, it.label)
-            } } catch (_: Exception) { emptyList() }
+            try {
+                json.decodeFromString<List<SafetyValidator.GraphicRef>>(graphicRefsJson).map { ref ->
+                    val parentTopicTitle = ref.topicId?.let { tid ->
+                        topicRefs.find { t -> t.topicId == tid }?.topicTitle
+                    }
+                    ResolvedGraphicRef(
+                        graphicId = ref.graphicId,
+                        title = ref.label,
+                        topicId = ref.topicId,
+                        topicTitle = parentTopicTitle
+                    )
+                }
+            } catch (_: Exception) { emptyList() }
         } else emptyList()
+
+        val (articles, tables) = ClinicalSource.fromResolved(topicRefs, graphicRefs)
 
         return MessageUiModel(
             id = id,
@@ -428,7 +451,9 @@ class ChatViewModel @Inject constructor(
             warnings = parsedWarnings,
             isError = isError || this.isError || role == "cancelled",
             topicRefs = topicRefs,
-            graphicRefs = graphicRefs
+            graphicRefs = graphicRefs,
+            articles = articles,
+            tables = tables
         )
     }
 }
