@@ -125,16 +125,16 @@ class ContentViewModel @Inject constructor(
         """.trimIndent()
     }
 
-    private val _scrollToSectionId = MutableStateFlow<String?>(null)
-    val scrollToSectionId: StateFlow<String?> = _scrollToSectionId.asStateFlow()
-
     fun scrollToSection(sectionId: String) {
-        _scrollToSectionId.value = sectionId
+        val clean = sectionId.trim()
+        if (clean.isNotBlank() && !clean.equals("FULL", ignoreCase = true)) {
+            _scrollToSection.value = clean
+        }
     }
 
     fun loadTopic(topicId: String, addToHistory: Boolean = true, sectionId: String? = null) {
         currentLoadJob?.cancel()
-        _scrollToSectionId.value = sectionId
+        _scrollToSection.value = null
         currentLoadJob = viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
@@ -204,6 +204,11 @@ class ContentViewModel @Inject constructor(
             _isFavorite.value = favoriteRepository.isFavorite(topicId)
             _isLoading.value = false
             updateNavigationState()
+
+            val cleanSec = sectionId?.trim()
+            if (!cleanSec.isNullOrBlank() && !cleanSec.equals("FULL", ignoreCase = true)) {
+                _scrollToSection.value = cleanSec
+            }
         }
     }
 

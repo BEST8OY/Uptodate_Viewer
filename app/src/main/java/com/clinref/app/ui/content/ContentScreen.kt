@@ -86,7 +86,6 @@ fun ContentScreen(
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
     val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
-    val scrollToSectionId by viewModel.scrollToSectionId.collectAsStateWithLifecycle()
     val scrollToSection by viewModel.scrollToSection.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
@@ -264,7 +263,7 @@ fun ContentScreen(
                     HtmlContentWebView(
                         processedHtml = processedHtml,
                         controller = webView,
-                        initialSectionId = scrollToSectionId,
+                        initialSectionId = scrollToSection,
                         modifier = Modifier.fillMaxSize()
                     )
 

@@ -10,8 +10,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 
-fun scrollToSectionJs(sectionId: String): String =
-    "document.getElementById('$sectionId')?.scrollIntoView({behavior:'smooth', block:'start'})"
+fun scrollToSectionJs(sectionId: String): String {
+    val escaped = sectionId.replace("'", "\\'")
+    return """
+        (function() {
+            var cleanId = '$escaped';
+            if (!cleanId || cleanId.toUpperCase() === 'FULL') return;
+            function tryScroll(attempts) {
+                var el = document.getElementById(cleanId) ||
+                         document.querySelector('[id="' + cleanId + '"]') ||
+                         document.querySelector('a[name="' + cleanId + '"]');
+                if (el) {
+                    el.scrollIntoView({behavior: 'smooth', block: 'start'});
+                } else if (attempts > 0) {
+                    setTimeout(function() { tryScroll(attempts - 1); }, 100);
+                }
+            }
+            tryScroll(10);
+        })();
+    """.trimIndent()
+}
 
 class ArticleWebViewController {
 
@@ -58,6 +76,16 @@ internal fun HtmlContentWebView(
     modifier: Modifier = Modifier
 ) {
     val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
+    var targetSectionId by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(initialSectionId)
+    }
+
+    androidx.compose.runtime.LaunchedEffect(initialSectionId) {
+        if (!initialSectionId.isNullOrBlank()) {
+            targetSectionId = initialSectionId
+            controller.scrollToSection(initialSectionId)
+        }
+    }
 
     AndroidView(
         factory = { context ->
@@ -92,8 +120,9 @@ internal fun HtmlContentWebView(
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
-                        if (initialSectionId != null) {
-                            view?.evaluateJavascript(scrollToSectionJs(initialSectionId), null)
+                        val secId = targetSectionId ?: initialSectionId
+                        if (!secId.isNullOrBlank()) {
+                            view?.evaluateJavascript(scrollToSectionJs(secId), null)
                         }
                     }
                 }
