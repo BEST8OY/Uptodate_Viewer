@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -124,8 +125,16 @@ class ContentViewModel @Inject constructor(
         """.trimIndent()
     }
 
-    fun loadTopic(topicId: String, addToHistory: Boolean = true) {
+    fun scrollToSection(sectionId: String) {
+        val clean = sectionId.trim()
+        if (clean.isNotBlank() && !clean.equals("FULL", ignoreCase = true)) {
+            _scrollToSection.value = clean
+        }
+    }
+
+    fun loadTopic(topicId: String, addToHistory: Boolean = true, sectionId: String? = null) {
         currentLoadJob?.cancel()
+        _scrollToSection.value = null
         currentLoadJob = viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
@@ -195,6 +204,11 @@ class ContentViewModel @Inject constructor(
             _isFavorite.value = favoriteRepository.isFavorite(topicId)
             _isLoading.value = false
             updateNavigationState()
+
+            val cleanSec = sectionId?.trim()
+            if (!cleanSec.isNullOrBlank() && !cleanSec.equals("FULL", ignoreCase = true)) {
+                _scrollToSection.value = cleanSec
+            }
         }
     }
 

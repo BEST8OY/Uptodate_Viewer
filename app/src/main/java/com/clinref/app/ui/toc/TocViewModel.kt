@@ -8,7 +8,10 @@ import com.clinref.app.repository.TocRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -32,10 +35,10 @@ class TocViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    private val _expandedIds = MutableStateFlow<Set<String>>(
-        savedStateHandle.get<List<String>>(KEY_EXPANDED_IDS)?.toSet() ?: emptySet()
-    )
-    val expandedIds: StateFlow<Set<String>> = _expandedIds
+    private val expandedListFlow = savedStateHandle.getMutableStateFlow(KEY_EXPANDED_IDS, emptyList<String>())
+    val expandedIds: StateFlow<Set<String>> = expandedListFlow
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, expandedListFlow.value.toSet())
 
     init {
         loadTocItems()
@@ -49,7 +52,7 @@ class TocViewModel @Inject constructor(
                 val roots = withContext(Dispatchers.IO) { tocRepository.getTocItems() }
                 _tocItems.value = roots
                 for (root in roots) {
-                    if (root.id in _expandedIds.value) {
+                    if (root.id in expandedIds.value) {
                         loadChildren(root.id)
                     }
                 }
@@ -71,7 +74,7 @@ class TocViewModel @Inject constructor(
                 val children = withContext(Dispatchers.IO) { tocRepository.getTocItems(parentId) }
                 _tocItems.value = updateTree(_tocItems.value, parentId, children)
                 for (child in children) {
-                    if (child.id in _expandedIds.value) {
+                    if (child.id in expandedIds.value) {
                         loadChildren(child.id)
                     }
                 }
@@ -82,10 +85,9 @@ class TocViewModel @Inject constructor(
     }
 
     fun toggleExpanded(id: String) {
-        val current = _expandedIds.value
+        val current = expandedIds.value
         val newSet = if (id in current) current - id else current + id
-        _expandedIds.value = newSet
-        savedStateHandle[KEY_EXPANDED_IDS] = newSet.toList()
+        expandedListFlow.value = newSet.toList()
     }
 
     fun resolveTopicId(tocId: String): String? {

@@ -1,0 +1,60 @@
+package com.clinref.app.data.ai
+
+import ai.koog.agents.chatMemory.feature.ChatHistoryProvider
+import ai.koog.prompt.message.Message
+import ai.koog.prompt.message.RequestMetaInfo
+import ai.koog.prompt.message.ResponseMetaInfo
+import com.clinref.app.data.local.dao.MessageDao
+import com.clinref.app.data.local.entity.MessageEntity
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlin.time.Duration.Companion.milliseconds
+
+@Singleton
+class RoomChatHistoryProvider @Inject constructor(
+    private val messageDao: MessageDao
+) : ChatHistoryProvider {
+
+    override suspend fun store(conversationId: String, messages: List<Message>) {
+        // No-op: ChatViewModel handles all message persistence with richer metadata
+        // (warnings, isError). ChatMemory store() would create duplicates.
+    }
+
+    override suspend fun load(conversationId: String): List<Message> {
+        val messages = messageDao.getMessagesList(conversationId)
+            .filter { (it.role == "user" || it.role == "assistant") && !it.isError }
+
+        // If ChatViewModel already persisted the current turn's user message into Room,
+        // drop the trailing user message to prevent agent.run(content, conversationId) from
+        // injecting duplicate user turns into the prompt context.
+        val history = if (messages.isNotEmpty() && messages.last().role == "user") {
+            messages.dropLast(1)
+        } else {
+            messages
+        }
+
+        return history.map { entity ->
+            val elapsedMs = (System.currentTimeMillis() - entity.timestamp).coerceAtLeast(0)
+            val timestamp = ai.koog.utils.time.KoogClock.System.now()
+                .minus(elapsedMs.milliseconds)
+            when (entity.role) {
+                "user" -> Message.User(
+                    content = entity.content,
+                    metaInfo = RequestMetaInfo(timestamp),
+                    id = entity.id
+                )
+                "assistant" -> Message.Assistant(
+                    content = entity.content,
+                    metaInfo = ResponseMetaInfo(timestamp),
+                    id = entity.id
+                )
+                else -> Message.User(
+                    content = entity.content,
+                    metaInfo = RequestMetaInfo(timestamp),
+                    id = entity.id
+                )
+            }
+        }
+    }
+}

@@ -3,7 +3,12 @@ package com.clinref.app.data
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
+import android.os.Environment
+import android.provider.DocumentsContract
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,6 +20,9 @@ class DatabaseManager @Inject constructor(
     private val connections = mutableMapOf<String, SQLiteDatabase>()
     private var dbDirectory: File? = null
 
+    private val _isConfigured = MutableStateFlow(false)
+    val isConfiguredFlow: StateFlow<Boolean> = _isConfigured.asStateFlow()
+
     companion object {
         private const val PREFS_NAME = "db_prefs"
         private const val KEY_DB_PATH = "db_path"
@@ -22,7 +30,6 @@ class DatabaseManager @Inject constructor(
             "unidex.en.sqlite",
             "utdtoc.db",
             "fsearch.db",
-            "fcontentsearch.db",
             "utdasset.sqlite",
             "utdqf.sqlite"
         )
@@ -33,18 +40,24 @@ class DatabaseManager @Inject constructor(
         val savedPath = prefs.getString(KEY_DB_PATH, null)
         if (savedPath != null) {
             val dir = File(savedPath)
-            if (dir.exists() && dir.isDirectory) {
+            if (validateDirectory(dir)) {
                 dbDirectory = dir
+                _isConfigured.value = true
             }
         }
     }
 
+    fun validateDirectory(dir: File?): Boolean {
+        if (dir == null || !dir.exists() || !dir.isDirectory) return false
+        return DB_FILES.all { File(dir, it).exists() }
+    }
+
     fun setDatabaseDirectory(path: String): Boolean {
         val dir = File(path)
-        if (!dir.exists() || !dir.isDirectory) return false
-
-        val missingFiles = DB_FILES.filter { !File(dir, it).exists() }
-        if (missingFiles.isNotEmpty()) return false
+        if (!validateDirectory(dir)) {
+            _isConfigured.value = false
+            return false
+        }
 
         closeAll()
         dbDirectory = dir
@@ -54,25 +67,41 @@ class DatabaseManager @Inject constructor(
             .putString(KEY_DB_PATH, path)
             .apply()
 
+        _isConfigured.value = true
         return true
     }
 
     fun setDatabaseDirectory(uri: Uri): Boolean {
-        val docFile = File(uri.path ?: return false)
-        val dir = if (docFile.exists() && docFile.isDirectory) {
-            docFile
-        } else {
-            // Try to get parent directory
-            val parentDir = docFile.parentFile ?: return false
-            if (parentDir.exists() && parentDir.isDirectory) parentDir else return false
+        uri.path?.let { path ->
+            if (setDatabaseDirectory(path)) return true
         }
 
-        return setDatabaseDirectory(dir.absolutePath)
+        val docId = try {
+            DocumentsContract.getTreeDocumentId(uri)
+        } catch (_: Exception) {
+            uri.lastPathSegment
+        }
+
+        if (docId != null && docId.contains(":")) {
+            val split = docId.split(":")
+            val type = split[0]
+            val relativePath = if (split.size > 1) split[1] else ""
+            if (type.equals("primary", ignoreCase = true)) {
+                val externalStorage = Environment.getExternalStorageDirectory().absolutePath
+                val resolvedPath = if (relativePath.isNotEmpty()) "$externalStorage/$relativePath" else externalStorage
+                if (setDatabaseDirectory(resolvedPath)) return true
+            } else {
+                val resolvedPath = "/storage/$type/$relativePath"
+                if (setDatabaseDirectory(resolvedPath)) return true
+            }
+        }
+
+        return false
     }
 
     fun getDatabaseDirectory(): File? = dbDirectory
 
-    fun isConfigured(): Boolean = dbDirectory != null && dbDirectory!!.exists()
+    fun isConfigured(): Boolean = validateDirectory(dbDirectory)
 
     fun getAvailableDatabases(): List<String> {
         val dir = dbDirectory ?: return emptyList()
@@ -102,7 +131,6 @@ class DatabaseManager @Inject constructor(
     fun getUnidexDb(): SQLiteDatabase = getConnection("unidex.en.sqlite")
     fun getTocDb(): SQLiteDatabase = getConnection("utdtoc.db")
     fun getFsearchDb(): SQLiteDatabase = getConnection("fsearch.db")
-    fun getFcontentsearchDb(): SQLiteDatabase = getConnection("fcontentsearch.db")
     fun getAssetsDb(): SQLiteDatabase = getConnection("utdasset.sqlite")
     fun getQfDb(): SQLiteDatabase = getConnection("utdqf.sqlite")
 
@@ -113,3 +141,4 @@ class DatabaseManager @Inject constructor(
         connections.clear()
     }
 }
+

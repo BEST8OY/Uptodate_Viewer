@@ -8,20 +8,108 @@ class SearchDao @Inject constructor(
     private val dbManager: DatabaseManager
 ) {
     fun getTopicTitle(topicId: String): String? {
-        val db = dbManager.getUnidexDb()
-        val numericId = topicId.removePrefix("topic-")
+        val clean = topicId.trim()
+        val numericId = Regex("""\d+""").find(clean)?.value ?: clean.removePrefix("topic-").removePrefix("Topic-")
 
-        val cursor = db.rawQuery(
-            "SELECT title FROM topic WHERE topic_id = ? LIMIT 1",
-            arrayOf(numericId)
-        )
+        // Try unidex.en.sqlite topic table (indexed primary-key B-tree lookup)
+        try {
+            val db = dbManager.getUnidexDb()
+            val cursor = db.rawQuery(
+                "SELECT title FROM topic WHERE topic_id = ? LIMIT 1",
+                arrayOf(numericId)
+            )
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val title = it.getString(0)?.trim()
+                    if (!title.isNullOrBlank()) return title
+                }
+            }
+        } catch (_: Exception) { }
 
-        return cursor.use {
-            if (it.moveToFirst()) it.getString(0) else null
+        return null
+    }
+
+    private var cachedStopwords: Set<String>? = null
+
+    private fun getStopwords(): Set<String> {
+        cachedStopwords?.let { return it }
+        return try {
+            val db = dbManager.getUnidexDb()
+            val cursor = db.rawQuery("SELECT inword FROM replac WHERE rtype = 'S'", null)
+            val set = mutableSetOf<String>()
+            cursor.use {
+                while (it.moveToNext()) {
+                    it.getString(0)?.let { word -> set.add(word.lowercase().trim()) }
+                }
+            }
+            cachedStopwords = set
+            set
+        } catch (_: Exception) {
+            emptySet()
         }
     }
 
+    private fun getTokensByClinicalWeight(tokens: List<String>): List<Pair<String, Int>> {
+        return try {
+            val db = dbManager.getUnidexDb()
+            tokens.map { token ->
+                val weight = try {
+                    val cursor = db.rawQuery("SELECT max(weight) FROM query WHERE disp = ?", arrayOf(token))
+                    cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+                } catch (_: Exception) { 0 }
+                token to weight
+            }.sortedByDescending { it.second }
+        } catch (_: Exception) {
+            tokens.map { it to 0 }
+        }
+    }
+
+    private fun findQueriesByTokens(anchor: String, modifier: String): List<String> {
+        val db = dbManager.getUnidexDb()
+        return try {
+            val cursor = db.rawQuery(
+                """
+                SELECT disp FROM query 
+                WHERE (disp LIKE ? OR disp LIKE ?) AND hide IS NULL 
+                ORDER BY weight DESC LIMIT 5
+                """,
+                arrayOf("$anchor $modifier%", "$modifier $anchor%")
+            )
+            cursor.use {
+                val list = mutableListOf<String>()
+                while (it.moveToNext()) {
+                    it.getString(0)?.let { q -> list.add(q) }
+                }
+                list
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    private fun findQueriesByAnchor(anchor: String): List<String> {
+        val db = dbManager.getUnidexDb()
+        return try {
+            val cursor = db.rawQuery(
+                """
+                SELECT disp FROM query 
+                WHERE disp LIKE ? AND hide IS NULL 
+                ORDER BY weight DESC LIMIT 5
+                """,
+                arrayOf("$anchor%")
+            )
+            cursor.use {
+                val list = mutableListOf<String>()
+                while (it.moveToNext()) {
+                    it.getString(0)?.let { q -> list.add(q) }
+                }
+                list
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
     fun getSuggestions(query: String): List<String> {
+        val trimmed = query.trim().lowercase()
+        if (trimmed.isEmpty()) return emptyList()
+
         val unidexAvailable = try {
             dbManager.getUnidexDb()
             true
@@ -29,10 +117,40 @@ class SearchDao @Inject constructor(
             false
         }
 
-        if (unidexAvailable) {
-            return getUnidexSuggestions(query)
+        // Try full query first
+        val fullResults = if (unidexAvailable) {
+            getUnidexSuggestions(trimmed)
+        } else {
+            getQfSuggestions(trimmed)
         }
-        return getQfSuggestions(query)
+        if (fullResults.isNotEmpty()) return fullResults
+
+        // Stopword sanitization & clinical weight ranking
+        val stopwords = getStopwords()
+        val tokens = trimmed.replace("-", " ").split("\\s+".toRegex()).filter { it.isNotBlank() && it !in stopwords }
+        if (tokens.isNotEmpty() && unidexAvailable) {
+            val weightedTokens = getTokensByClinicalWeight(tokens)
+            for ((token, weight) in weightedTokens) {
+                if (weight > 0) {
+                    val wordResults = getUnidexSuggestions(token)
+                    if (wordResults.isNotEmpty()) return wordResults
+                }
+            }
+        }
+
+        // Try progressively shorter word prefixes
+        val words = trimmed.split("\\s+".toRegex())
+        for (i in words.size - 1 downTo 1) {
+            val prefix = words.subList(0, i).joinToString(" ")
+            val prefixResults = if (unidexAvailable) {
+                getUnidexSuggestions(prefix)
+            } else {
+                getQfSuggestions(prefix)
+            }
+            if (prefixResults.isNotEmpty()) return prefixResults
+        }
+
+        return emptyList()
     }
 
     private fun getUnidexSuggestions(query: String): List<String> {
@@ -95,13 +213,60 @@ class SearchDao @Inject constructor(
     }
 
     fun searchTopics(query: String, preference: String = "X"): List<Map<String, String>> {
-        val primaryResults = searchUnidex(query, preference)
-        if (primaryResults.isNotEmpty()) return primaryResults
+        val clean = query.trim().lowercase()
+        if (clean.isEmpty()) return emptyList()
 
-        val fcontentResults = searchFts(dbManager.getFcontentsearchDb(), query)
-        if (fcontentResults.isNotEmpty()) return fcontentResults
+        // 1. Direct exact match
+        val primaryResults = searchUnidex(clean, preference)
+        if (primaryResults.isNotEmpty()) {
+            val filtered = primaryResults.filter { hasTopicAsset(it["topic_id"] ?: "") }
+            if (filtered.isNotEmpty()) return filtered
+        }
 
-        return searchFts(dbManager.getFsearchDb(), query)
+        // 2. Stopword-sanitized exact match
+        val stopwords = getStopwords()
+        val tokens = clean.replace("-", " ").split("\\s+".toRegex()).filter { it.isNotBlank() && it !in stopwords }
+        val sanitized = tokens.joinToString(" ")
+        if (sanitized.isNotEmpty() && sanitized != clean) {
+            val sanitizedResults = searchUnidex(sanitized, preference)
+            if (sanitizedResults.isNotEmpty()) {
+                val filtered = sanitizedResults.filter { hasTopicAsset(it["topic_id"] ?: "") }
+                if (filtered.isNotEmpty()) return filtered
+            }
+        }
+
+        // 3. Clinical weight-ranked token anchoring
+        if (tokens.isNotEmpty()) {
+            val weightedTokens = getTokensByClinicalWeight(tokens)
+            if (weightedTokens.isNotEmpty() && weightedTokens[0].second > 0) {
+                val anchor = weightedTokens[0].first
+                val otherTokens = weightedTokens.drop(1).filter { it.first.length > 2 }.map { it.first }
+
+                // Try anchor + modifier pair in query table
+                for (other in otherTokens) {
+                    val candidateQueries = findQueriesByTokens(anchor, other)
+                    for (candidateQuery in candidateQueries) {
+                        val results = searchUnidex(candidateQuery, preference)
+                        if (results.isNotEmpty()) {
+                            val filtered = results.filter { hasTopicAsset(it["topic_id"] ?: "") }
+                            if (filtered.isNotEmpty()) return filtered
+                        }
+                    }
+                }
+
+                // Fallback to anchor prefix
+                val anchorQueries = findQueriesByAnchor(anchor)
+                for (candidateQuery in anchorQueries) {
+                    val results = searchUnidex(candidateQuery, preference)
+                    if (results.isNotEmpty()) {
+                        val filtered = results.filter { hasTopicAsset(it["topic_id"] ?: "") }
+                        if (filtered.isNotEmpty()) return filtered
+                    }
+                }
+            }
+        }
+
+        return emptyList()
     }
 
     private fun searchUnidex(query: String, preference: String): List<Map<String, String>> {
@@ -175,55 +340,20 @@ class SearchDao @Inject constructor(
         }
     }
 
-    private fun searchFts(db: android.database.sqlite.SQLiteDatabase, query: String): List<Map<String, String>> {
-        val ftsQuery = "$query AND URL:topic"
+
+    private fun hasTopicAsset(topicId: String): Boolean {
+        if (topicId.isEmpty()) return false
+        val numericId = Regex("""\d+""").find(topicId.trim())?.value ?: topicId.trim().removePrefix("topic-").removePrefix("Topic-")
         return try {
+            val db = dbManager.getAssetsDb()
             val cursor = db.rawQuery(
-                """
-                SELECT Text as title, URL as topic_id
-                FROM search
-                WHERE search MATCH ?
-                ORDER BY rank(matchinfo(search)) DESC
-                LIMIT 20
-                """,
-                arrayOf(ftsQuery)
+                "SELECT 1 FROM topic_asset WHERE id = ? LIMIT 1",
+                arrayOf(numericId)
             )
-
-            cursor.use {
-                val results = mutableListOf<Map<String, String>>()
-                while (it.moveToNext()) {
-                    results.add(mapOf(
-                        "topic_id" to it.getString(1),
-                        "title" to it.getString(0)
-                    ))
-                }
-                results
-            }
+            cursor.use { it.moveToFirst() }
         } catch (_: Exception) {
-            try {
-                val cursor = db.rawQuery(
-                    """
-                    SELECT Text as title, URL as topic_id
-                    FROM search
-                    WHERE search MATCH ?
-                    LIMIT 20
-                    """,
-                    arrayOf(ftsQuery)
-                )
-
-                cursor.use {
-                    val results = mutableListOf<Map<String, String>>()
-                    while (it.moveToNext()) {
-                        results.add(mapOf(
-                            "topic_id" to it.getString(1),
-                            "title" to it.getString(0)
-                        ))
-                    }
-                    results
-                }
-            } catch (_: Exception) {
-                emptyList()
-            }
+            false
         }
     }
 }
+

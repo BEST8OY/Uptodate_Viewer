@@ -19,6 +19,10 @@
 *.zip
 *.tar.gz
 *.rar
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
 
 # Gradle
 .gradle/
@@ -31,3 +35,4 @@ replay_pid*
 
 # Kotlin Gradle plugin data, see https://kotlinlang.org/docs/whatsnew20.html#new-directory-for-kotlin-data-in-gradle-projects
 .kotlin/
+.agents/

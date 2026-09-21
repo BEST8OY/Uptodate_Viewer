@@ -1,6 +1,6 @@
 package com.clinref.app.data
 
-import com.clinref.app.util.GzipUtil
+import com.clinref.app.util.ZstdUtil
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -19,18 +19,49 @@ class ContentDao @Inject constructor(
         val bodyHtml: String,
         val outlineHtml: String = "",
         val relatedGraphics: List<Map<String, Any?>> = emptyList(),
-        val contributors: List<ContributorGroup>? = null
+        val contributors: List<ContributorGroup>? = null,
+        val title: String = ""
     )
 
     fun getTopicContent(topicId: String): TopicContent? {
         return loadFromAssets(topicId)
-            ?: loadFromFcontentsearch(topicId)
             ?: TopicContent(bodyHtml = "<h1>Content not found</h1><p>Could not retrieve content for this topic.</p>")
+    }
+
+    fun getTopicTitle(topicId: String): String? {
+        val numericId = extractNumericId(topicId) ?: return null
+        return try {
+            val db = dbManager.getAssetsDb()
+            db.rawQuery("SELECT payload FROM topic_asset WHERE id = ? LIMIT 1", arrayOf(numericId.toString())).use { cursor ->
+                if (!cursor.moveToFirst()) return null
+                val payloadStr = ZstdUtil.decodePayload(cursor.getBlob(0))
+                val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
+                extractTitleFromJson(jsonObj)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun extractTitleFromJson(jsonObj: JsonObject): String? {
+        val topicInfo = jsonObj["topicInfo"]?.let {
+            try { it.jsonObject } catch (_: Exception) { null }
+        }
+        var title = topicInfo?.get("title")?.jsonPrimitive?.content
+            ?: jsonObj["title"]?.jsonPrimitive?.content
+        if (title.isNullOrBlank()) {
+            val translated = topicInfo?.get("translatedTopicInfos") as? kotlinx.serialization.json.JsonArray
+            val enInfo = translated?.firstOrNull { item ->
+                (item as? kotlinx.serialization.json.JsonObject)?.get("languageCode")?.jsonPrimitive?.content == "en-US"
+            } as? kotlinx.serialization.json.JsonObject
+            title = enInfo?.get("title")?.jsonPrimitive?.content
+        }
+        return title?.removeSurrounding("\"")?.trim()?.takeIf { it.isNotBlank() }
     }
 
     private fun extractNumericId(topicId: String): Int? {
         return Regex("""^(?:topic-)?(\d+)$""", RegexOption.IGNORE_CASE)
-            .find(topicId)
+            .find(topicId.trim())
             ?.groupValues
             ?.get(1)
             ?.toIntOrNull()
@@ -43,30 +74,15 @@ class ContentDao @Inject constructor(
         return db.rawQuery("SELECT payload FROM topic_asset WHERE id = ?", arrayOf(numericId.toString())).use { cursor ->
             if (!cursor.moveToFirst()) return null
 
-            val payloadStr = GzipUtil.decodePayload(cursor.getBlob(0))
+            val payloadStr = ZstdUtil.decodePayload(cursor.getBlob(0))
             val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
 
             TopicContent(
                 bodyHtml = jsonObj.string("bodyHtml"),
                 outlineHtml = jsonObj.string("outlineHtml"),
-                contributors = jsonObj.contributors("contributors")
+                contributors = jsonObj.contributors("contributors"),
+                title = extractTitleFromJson(jsonObj) ?: ""
             )
-        }
-    }
-
-    private fun loadFromFcontentsearch(topicId: String): TopicContent? {
-        val db = dbManager.getFcontentsearchDb()
-
-        val result = queryFcontentsearch(db, "topic-$topicId")
-            ?: queryFcontentsearch(db, topicId)
-            ?: return null
-
-        return TopicContent(bodyHtml = result)
-    }
-
-    private fun queryFcontentsearch(db: android.database.sqlite.SQLiteDatabase, url: String): String? {
-        return db.rawQuery("SELECT Text FROM search WHERE URL = ?", arrayOf(url)).use { cursor ->
-            if (cursor.moveToFirst()) cursor.getString(0) else null
         }
     }
 
