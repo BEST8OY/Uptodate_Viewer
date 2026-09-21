@@ -10,27 +10,47 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 object AiJsonUtils {
 
-    val json = Json { ignoreUnknownKeys = true }
+    val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+    }
 
     val GRAPHIC_PREFIX_REGEX = Regex("(?i)^graphic-")
     val GRAPHIC_TABLE_REGEX = Regex("""### Graphic Table:\s*(.+)""")
     val WHITESPACE_REGEX = Regex("""\s+""")
     private val DASH_PREFIX_CHARS = charArrayOf('-', '–', '—', ' ')
+    private val JSON_WRAPPER_REGEX = Regex("""^JSON(?:Literal|Primitive)\s*\((?:value|content)\s*=\s*(.*)\)$""", RegexOption.DOT_MATCHES_ALL)
 
     /**
      * Unwraps a string if it was serialized as an escaped JSON string primitive
-     * (e.g., "\"{\\\"key\\\":...}\"" from Koog string tool results).
+     * (e.g., "\"{\\\"key\\\":...}\"" from Koog string tool results) or wrapped in a class representation.
      */
     fun extractJsonString(raw: String): String {
-        val trimmed = raw.trim()
+        var trimmed = raw.trim()
         if (trimmed.isEmpty()) return ""
-        if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length >= 2) {
+
+        val wrapperMatch = JSON_WRAPPER_REGEX.find(trimmed)
+        if (wrapperMatch != null) {
+            trimmed = wrapperMatch.groupValues[1].trim()
+        }
+
+        while (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length >= 2) {
             try {
                 val parsed = json.parseToJsonElement(trimmed)
                 if (parsed is JsonPrimitive && parsed.isString) {
-                    return parsed.content
-                }
-            } catch (_: Exception) {}
+                    trimmed = parsed.content.trim()
+                } else break
+            } catch (_: Exception) {
+                trimmed = trimmed.substring(1, trimmed.length - 1)
+                    .replace("\\\"", "\"")
+                    .replace("\\n", "\n")
+                    .replace("\\r", "\r")
+                    .replace("\\t", "\t")
+                    .replace("\\\\", "\\")
+                    .trim()
+                break
+            }
         }
         return trimmed
     }
@@ -51,7 +71,16 @@ object AiJsonUtils {
             }
             element as? JsonObject
         } catch (_: Exception) {
-            null
+            try {
+                val start = cleaned.indexOf('{')
+                val end = cleaned.lastIndexOf('}')
+                if (start >= 0 && end > start) {
+                    val substring = cleaned.substring(start, end + 1)
+                    json.parseToJsonElement(substring) as? JsonObject
+                } else null
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
@@ -69,6 +98,11 @@ object AiJsonUtils {
      * Checks if a string consists entirely of digits (e.g., bare topic ID used as title).
      */
     fun isNumericOnly(text: String): Boolean = text.isNotBlank() && text.all { it.isDigit() }
+
+    /**
+     * Checks if a string is a non-blank, non-numeric valid topic title.
+     */
+    fun isValidTopicTitle(title: String?): Boolean = !title.isNullOrBlank() && !isNumericOnly(title)
 
     /**
      * Converts tool names in any naming convention (snake_case or camelCase)

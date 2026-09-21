@@ -145,7 +145,12 @@ class KoogAgentFactory @Inject constructor(
 
                 onToolCallCompleted { eventContext ->
                     val callId = eventContext.toolCallId ?: ""
-                    val resultText = eventContext.toolResult?.toString() ?: ""
+                    val resultText = when (val res = eventContext.toolResult) {
+                        is ai.koog.serialization.JSONPrimitive -> res.content
+                        is kotlinx.serialization.json.JsonPrimitive -> res.content
+                        is String -> res
+                        else -> res?.toString() ?: ""
+                    }
                     val success = eventContext.toolResult != null
                     val toolArgsStr = eventContext.toolArgs.toString()
                     Log.d(TAG, "Tool completed: ${eventContext.toolName} success=$success result=${resultText.take(200)}")

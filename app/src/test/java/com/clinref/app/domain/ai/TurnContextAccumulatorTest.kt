@@ -719,4 +719,21 @@ class TurnContextAccumulatorTest {
         val graphicArgs = json.decodeFromString<com.clinref.app.data.tools.GetGraphicContentTool.Args>("""{"graphic_id":"456"}""")
         assertEquals("456", graphicArgs.graphicId)
     }
+
+    @Test
+    fun `AiJsonUtils parseAsJsonObject unwraps JSONPrimitive class wrappers and escaped quotes`() {
+        val wrapped = """JSONPrimitive(content="{\"query\":\"TSH\",\"results\":[{\"id\":\"7891\",\"title\":\"Laboratory assessment\"}]}")"""
+        val parsed = AiJsonUtils.parseAsJsonObject(wrapped)
+        assertNotNull(parsed)
+        val results = parsed?.get("results") as? kotlinx.serialization.json.JsonArray
+        assertNotNull(results)
+        assertEquals(1, results?.size)
+
+        val doubleEscaped = """"{\"query\":\"TSH\",\"results\":[{\"id\":\"7891\",\"title\":\"Laboratory assessment\"}]}""""
+        val parsedDouble = AiJsonUtils.parseAsJsonObject(doubleEscaped)
+        assertNotNull(parsedDouble)
+        val resultsDouble = parsedDouble?.get("results") as? kotlinx.serialization.json.JsonArray
+        assertEquals(1, resultsDouble?.size)
+    }
 }
+

@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 class StreamingManager {
@@ -243,9 +244,19 @@ class StreamingManager {
             val element = AiJsonUtils.parseAsJsonObject(resultText)
             when (canonicalName) {
                 "searchTopics" -> {
-                    val results = element?.get("results") as? kotlinx.serialization.json.JsonArray
+                    if (element == null) return null
+                    val results = element["results"] as? kotlinx.serialization.json.JsonArray
                     val count = results?.size ?: 0
-                    if (count > 0) "$count candidate topics identified" else "No topics found"
+                    if (count > 0) {
+                        "$count candidate topics identified"
+                    } else {
+                        val message = element["message"]?.jsonPrimitive?.contentOrNull
+                        if (!message.isNullOrBlank() && message.startsWith("Auto-refined", ignoreCase = true)) {
+                            message
+                        } else {
+                            "No topics found"
+                        }
+                    }
                 }
                 "getTopicOutline" -> {
                     val title = element?.get("title")?.jsonPrimitive?.content

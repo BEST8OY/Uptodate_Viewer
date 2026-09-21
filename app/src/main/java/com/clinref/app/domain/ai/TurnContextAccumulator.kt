@@ -123,9 +123,9 @@ class TurnContextAccumulator(
 
         // Populate topicTitle and sectionTitle on fetched sections from accumulated state or resolvers
         val sectionsWithTitle = fetchedSections.map { sec ->
-            val resolvedTitle = topicTitles[sec.topicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
-                ?: sec.topicTitle.takeIf { !AiJsonUtils.isNumericOnly(it) }
-                ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+            val resolvedTitle = topicTitles[sec.topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                ?: sec.topicTitle.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
                 ?: sec.topicId
             val resolvedSectionTitle = sec.sectionTitle.takeIf { it.isNotBlank() }
                 ?: outlineSections[sec.topicId]?.get(sec.sectionId)
@@ -140,9 +140,9 @@ class TurnContextAccumulator(
         val autoTopicRefs = candidateSections
             .distinctBy { it.topicId to it.sectionId }
             .map { sec ->
-                val topicTitle = topicTitles[sec.topicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
-                    ?: sec.topicTitle.takeIf { !AiJsonUtils.isNumericOnly(it) }
-                    ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                val topicTitle = topicTitles[sec.topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                    ?: sec.topicTitle.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                    ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
                     ?: sec.topicId
                 val secTitle = sec.sectionTitle.takeIf { it.isNotBlank() }
                     ?: outlineSections[sec.topicId]?.get(sec.sectionId)
@@ -164,8 +164,8 @@ class TurnContextAccumulator(
             val cleanGid = AiJsonUtils.cleanGraphicId(gid)
             val parentTopicId = graphicToTopic[gid] ?: graphicToTopic[cleanGid]
             if (!parentTopicId.isNullOrBlank() && finalTopicRefs.none { it.topicId == parentTopicId }) {
-                val resolvedTitle = topicTitles[parentTopicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
-                    ?: topicTitleResolver?.invoke(parentTopicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                val resolvedTitle = topicTitles[parentTopicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                    ?: topicTitleResolver?.invoke(parentTopicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
                     ?: parentTopicId
                 finalTopicRefs.add(
                     SafetyValidator.TopicRef(
@@ -260,7 +260,7 @@ class TurnContextAccumulator(
                 val itemObj = item as? JsonObject ?: continue
                 val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
                 val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
-                if (!AiJsonUtils.isNumericOnly(title)) {
+                if (AiJsonUtils.isValidTopicTitle(title)) {
                     topicTitles[id] = title
                 }
             }
@@ -277,7 +277,7 @@ class TurnContextAccumulator(
                 val itemObj = item as? JsonObject ?: continue
                 val id = itemObj["id"]?.jsonPrimitive?.content ?: continue
                 val title = itemObj["title"]?.jsonPrimitive?.content ?: continue
-                if (!AiJsonUtils.isNumericOnly(title)) {
+                if (AiJsonUtils.isValidTopicTitle(title)) {
                     topicTitles[id] = title
                 }
             }
@@ -293,7 +293,7 @@ class TurnContextAccumulator(
                 ?: args["topicId"] ?: args["topic_id"] ?: return
             lastTopicId = topicId
             val title = obj["title"]?.jsonPrimitive?.content ?: ""
-            if (!AiJsonUtils.isNumericOnly(title)) {
+            if (AiJsonUtils.isValidTopicTitle(title)) {
                 topicTitles[topicId] = title
             }
             // Store full section ID → title map
@@ -365,7 +365,7 @@ class TurnContextAccumulator(
                     lastTopicId = respTopicId
                 }
                 respTopicTitle = obj["topicTitle"]?.jsonPrimitive?.content ?: ""
-                if (!AiJsonUtils.isNumericOnly(respTopicTitle)) {
+                if (AiJsonUtils.isValidTopicTitle(respTopicTitle)) {
                     if (topicId.isEmpty()) {
                         topicId = topicTitles.entries.firstOrNull { it.value == respTopicTitle }?.key ?: lastTopicId
                     }
@@ -374,8 +374,8 @@ class TurnContextAccumulator(
                         lastTopicId = topicId
                     }
                 }
-                if (topicId.isNotEmpty() && (topicTitles[topicId].isNullOrBlank() || AiJsonUtils.isNumericOnly(topicTitles[topicId]!!))) {
-                    val resolved = topicTitleResolver?.invoke(topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                if (topicId.isNotEmpty() && !AiJsonUtils.isValidTopicTitle(topicTitles[topicId])) {
+                    val resolved = topicTitleResolver?.invoke(topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
                     if (resolved != null) {
                         topicTitles[topicId] = resolved
                         lastTopicId = topicId
@@ -405,9 +405,9 @@ class TurnContextAccumulator(
             sectionIds.add("FULL")
         }
 
-        val finalTopicTitle = topicTitles[topicId]?.takeIf { !AiJsonUtils.isNumericOnly(it) }
-            ?: respTopicTitle.takeIf { !AiJsonUtils.isNumericOnly(it) }
-            ?: topicTitleResolver?.invoke(topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+        val finalTopicTitle = topicTitles[topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+            ?: respTopicTitle.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+            ?: topicTitleResolver?.invoke(topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
             ?: topicId
 
         for (sectionId in sectionIds) {
