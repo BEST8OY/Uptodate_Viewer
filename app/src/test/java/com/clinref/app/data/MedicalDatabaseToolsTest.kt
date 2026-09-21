@@ -13,7 +13,6 @@ import com.clinref.app.data.tools.GetRelatedTopicsTool
 import com.clinref.app.data.tools.GetTopicOutlineTool
 import com.clinref.app.data.tools.GetTopicSectionsTextTool
 import com.clinref.app.data.tools.SearchTopicsTool
-import com.clinref.app.data.tools.SubmitClinicalAnswerTool
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -131,11 +130,11 @@ class MedicalDatabaseToolsTest {
 
         val resJson = tools.getTopicSectionsText("148929", listOf("FULL"))
         val obj = json.parseToJsonElement(resJson).jsonObject
+        assertEquals("148929", obj["topicId"]!!.jsonPrimitive.content)
         val md = obj["markdown"]!!.jsonPrimitive.content
 
         assertTrue(md.contains("=== Calculator: AHA PREVENT Calculator ==="))
         assertTrue(md.contains("Age input and risk options"))
-
     }
 
     @Test
@@ -152,6 +151,7 @@ class MedicalDatabaseToolsTest {
 
         val resJson = tools.getTopicSectionsText("100", listOf("H1"))
         val obj = json.parseToJsonElement(resJson).jsonObject
+        assertEquals("100", obj["topicId"]!!.jsonPrimitive.content)
         val md = obj["markdown"]!!.jsonPrimitive.content
 
         assertTrue(md.contains("[related topic](Topic-999)"))
@@ -192,16 +192,16 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `asToolList returns 6 class-based tools with expected names`() {
+    fun `asToolList returns 5 class-based tools with expected names`() {
         val toolList = tools.asToolList()
-        assertEquals(6, toolList.size)
+        assertEquals(5, toolList.size)
         val names = toolList.map { it.name }.toSet()
         assertTrue(names.contains("searchTopics"))
         assertTrue(names.contains("getTopicOutline"))
         assertTrue(names.contains("getRelatedTopics"))
         assertTrue(names.contains("getTopicSectionsText"))
         assertTrue(names.contains("getGraphicContent"))
-        assertTrue(names.contains("submitClinicalAnswer"))
+        assertFalse(names.contains("submitClinicalAnswer"))
     }
 
     @Test
@@ -213,11 +213,13 @@ class MedicalDatabaseToolsTest {
         val searchObj = json.parseToJsonElement(searchToolResult).jsonObject
         assertEquals(1, searchObj["results"]!!.jsonArray.size)
 
-        val submitResult = tools.submitClinicalAnswerTool.execute(
-            SubmitClinicalAnswerTool.Args("Follow up with metformin 500mg daily", false)
+        every { assetRepository.getGraphic("999") } returns GraphicData(
+            title = "Sample Image",
+            imageHtml = "<div>img</div>",
+            subtype = "graphic_image",
+            isTable = false
         )
-        val submitObj = json.parseToJsonElement(submitResult).jsonObject
-        assertEquals("SUBMITTED", submitObj["status"]!!.jsonPrimitive.content)
-        assertEquals("Follow up with metformin 500mg daily", submitObj["answer"]!!.jsonPrimitive.content)
+        val graphicResult = tools.getGraphicContentTool.execute(GetGraphicContentTool.Args("999"))
+        assertTrue(graphicResult.contains("not a table"))
     }
 }

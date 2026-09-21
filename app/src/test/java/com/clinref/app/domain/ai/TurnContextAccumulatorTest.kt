@@ -1,5 +1,7 @@
 package com.clinref.app.domain.ai
 
+import com.clinref.app.ui.chat.ResolvedGraphicRef
+import com.clinref.app.ui.chat.ResolvedTopicRef
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -469,5 +471,252 @@ class TurnContextAccumulatorTest {
         val ctx = accumulator.buildTurnContext("answer")
         assertEquals(1, ctx.topicRefs.size)
         assertEquals("Approach to the patient with abnormal liver tests", ctx.topicRefs[0].topicTitle)
+    }
+
+    @Test
+    fun `handles escaped quoted JSON string from Koog serialization`() {
+        // Double-encoded JSON string primitive as produced by Koog when serializing string tool returns
+        val escapedOutlineResult = "\"{\\\"topicId\\\":\\\"7891\\\",\\\"title\\\":\\\"Laboratory assessment of thyroid function\\\",\\\"sections\\\":[{\\\"id\\\":\\\"sec_1\\\",\\\"title\\\":\\\"Serum TSH Tests\\\"}],\\\"graphics\\\":[{\\\"id\\\":\\\"67935\\\",\\\"title\\\":\\\"Assessment of thyroid function\\\"}]}\""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"7891"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOutline", escapedOutlineResult, true)
+
+        // Then model retrieves graphic table 67935
+        val escapedGraphicResult = "\"### Graphic Table: Assessment of thyroid function\\n\\n| Test | Normal Range |\""
+        accumulator.onToolCallStarting("call-2", """{"graphicId":"67935"}""")
+        accumulator.onToolCallCompleted("call-2", "getGraphicContent", escapedGraphicResult, true)
+
+        val ctx = accumulator.buildTurnContext("Normal TSH is 0.4 to 4.0 mIU/L.")
+
+        // 1. Graphic ref should be populated with clean label
+        assertEquals(1, ctx.graphicRefs.size)
+        assertEquals("67935", ctx.graphicRefs[0].graphicId)
+        assertEquals("Assessment of thyroid function", ctx.graphicRefs[0].label)
+
+        // 2. Parent topic 7891 should be attributed with real title
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("7891", ctx.topicRefs[0].topicId)
+        assertEquals("Laboratory assessment of thyroid function", ctx.topicRefs[0].topicTitle)
+    }
+
+    @Test
+    fun `falls back to topicTitleResolver when tool outputs lack title`() {
+        val resolverAccumulator = TurnContextAccumulator(
+            topicTitleResolver = { tid ->
+                if (tid == "7891") "Laboratory assessment of thyroid function" else null
+            }
+        )
+        // Fetch section with only topicId, no outline and no topicTitle in result
+        resolverAccumulator.onToolCallStarting("call-1", """{"topicId":"7891","sectionIds":["sec_1"]}""")
+        resolverAccumulator.onToolCallCompleted(
+            "call-1", "getTopicSectionsText",
+            """{"topicTitle":"","sectionTitles":{"sec_1":"TSH measurement"},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = resolverAccumulator.buildTurnContext("TSH is 2.5 mIU/L.")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("Laboratory assessment of thyroid function", ctx.topicRefs[0].topicTitle)
+        assertEquals("TSH measurement", ctx.topicRefs[0].label)
+    }
+
+    @Test
+    fun `falls back to sectionTitleResolver when section title is missing`() {
+        val resolverAccumulator = TurnContextAccumulator(
+            topicTitleResolver = { tid -> "Asthma Management" },
+            sectionTitleResolver = { tid, sid ->
+                if (tid == "1234" && sid == "sec_inhalers") "Inhaled Corticosteroids" else null
+            }
+        )
+        // Outline doesn't have sec_inhalers title, tool result doesn't have it
+        resolverAccumulator.onToolCallStarting("call-1", """{"topicId":"1234","sectionIds":["sec_inhalers"]}""")
+        resolverAccumulator.onToolCallCompleted(
+            "call-1", "getTopicSectionsText",
+            """{"topicTitle":"Asthma Management","sectionTitles":{},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = resolverAccumulator.buildTurnContext("Use ICS daily.")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("Inhaled Corticosteroids", ctx.topicRefs[0].label)
+        assertEquals("Asthma Management", ctx.topicRefs[0].topicTitle)
+    }
+
+    @Test
+    fun `prepareForCorrection preserves evidence across remediation turn`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1","sectionIds":["s1"]}""")
+        accumulator.onToolCallCompleted(
+            "call-1", "getTopicSectionsText",
+            """{"topicTitle":"Topic 1","sectionTitles":{"s1":"Dosing"},"markdown":"Dose is 10 mg"}""",
+            true
+        )
+        val initialCtx = accumulator.buildTurnContext("Old bad answer with 999 mg")
+        assertEquals("Old bad answer with 999 mg", initialCtx.answer)
+        assertEquals(1, initialCtx.topicRefs.size)
+
+        // Prepare for correction
+        accumulator.prepareForCorrection()
+
+        // Turn 2 text answer with preserved evidence
+        val correctedCtx = accumulator.buildTurnContext("Corrected answer with 10 mg")
+        assertEquals("Corrected answer with 10 mg", correctedCtx.answer)
+        assertEquals(1, correctedCtx.topicRefs.size)
+    }
+
+    @Test
+    fun `supports snake_case tool name dispatching`() {
+        accumulator.onToolCallStarting("call-1", """{"query":"gout"}""")
+        accumulator.onToolCallCompleted(
+            "call-1", "search_topics",
+            """{"results":[{"id":"5678","title":"Treatment of acute gout"}]}""",
+            true
+        )
+
+        accumulator.onToolCallStarting("call-2", """{"topic_id":"5678"}""")
+        accumulator.onToolCallCompleted(
+            "call-2", "get_topic_outline",
+            """{"topicId":"5678","title":"Treatment of acute gout","sections":[{"id":"sec_colchicine","title":"Colchicine dosing"}]}""",
+            true
+        )
+
+        accumulator.onToolCallStarting("call-3", """{"topic_id":"5678","section_ids":["sec_colchicine"]}""")
+        accumulator.onToolCallCompleted(
+            "call-3", "get_topic_sections_text",
+            """{"topicTitle":"Treatment of acute gout","sectionTitles":{"sec_colchicine":"Colchicine dosing"},"markdown":"Colchicine dose is 1.2 mg."}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("Colchicine dose is 1.2 mg.")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("Treatment of acute gout", ctx.topicRefs[0].topicTitle)
+        assertEquals("Colchicine dosing", ctx.topicRefs[0].label)
+    }
+
+    @Test
+    fun `AiJsonUtils normalizes tool names and arguments to canonical forms`() {
+        assertEquals("searchTopics", AiJsonUtils.normalizeToolName("search_topics"))
+        assertEquals("getTopicOutline", AiJsonUtils.normalizeToolName("get_topic_outline"))
+        assertEquals("getRelatedTopics", AiJsonUtils.normalizeToolName("get_related_topics"))
+        assertEquals("getTopicSectionsText", AiJsonUtils.normalizeToolName("get_topic_sections_text"))
+        assertEquals("getGraphicContent", AiJsonUtils.normalizeToolName("get_graphic_content"))
+        assertEquals("customTool", AiJsonUtils.normalizeToolName("customTool"))
+
+        val rawArgs = mapOf(
+            "topic_id" to "123",
+            "section_ids" to "[\"s1\"]",
+            "graphic_id" to "g1",
+            "answer_text" to "text",
+            "no_data_found" to "false"
+        )
+        val normalized = AiJsonUtils.normalizeArgs(rawArgs)
+        assertEquals("123", normalized["topicId"])
+        assertEquals("[\"s1\"]", normalized["sectionIds"])
+        assertEquals("g1", normalized["graphicId"])
+        assertEquals("text", normalized["answerText"])
+        assertEquals("false", normalized["noDataFound"])
+    }
+
+    @Test
+    fun `ClinicalSource converts to and from SafetyValidator refs and Resolved refs`() {
+        val topicRefs = listOf(
+            SafetyValidator.TopicRef("100", "secA", "Section A", "Topic 100 Title"),
+            SafetyValidator.TopicRef("100", "secB", "Section B", "Topic 100 Title"),
+            SafetyValidator.TopicRef("200", "secC", "Section C", "Topic 200 Title")
+        )
+        val articles = ClinicalSource.fromTopicRefs(topicRefs)
+        assertEquals(2, articles.size)
+        assertEquals("100", articles[0].topicId)
+        assertEquals("Topic 100 Title", articles[0].topicTitle)
+        assertEquals(2, articles[0].sections.size)
+        assertEquals("secA", articles[0].sections[0].sectionId)
+        assertEquals("Section A", articles[0].sections[0].sectionTitle)
+
+        val backToTopicRefs = articles[0].toTopicRefs()
+        assertEquals(2, backToTopicRefs.size)
+        assertEquals("100", backToTopicRefs[0].topicId)
+        assertEquals("secA", backToTopicRefs[0].sectionId)
+
+        val resolvedTopicRefs = articles[0].toResolvedTopicRefs()
+        assertEquals(2, resolvedTopicRefs.size)
+        assertEquals("Section A", resolvedTopicRefs[0].title)
+        assertEquals("secA", resolvedTopicRefs[0].sectionId)
+        assertEquals("Topic 100 Title", resolvedTopicRefs[0].topicTitle)
+
+        val graphicRefs = listOf(
+            SafetyValidator.GraphicRef("g123", "Table 1 Dosing", "100")
+        )
+        val tables = ClinicalSource.fromGraphicRefs(graphicRefs, mapOf("100" to "Topic 100 Title"))
+        assertEquals(1, tables.size)
+        assertEquals("g123", tables[0].graphicId)
+        assertEquals("Table 1 Dosing", tables[0].tableTitle)
+        assertEquals("100", tables[0].parentTopicId)
+        assertEquals("Topic 100 Title", tables[0].parentTopicTitle)
+
+        val backToGraphicRef = tables[0].toGraphicRef()
+        assertEquals("g123", backToGraphicRef.graphicId)
+        assertEquals("Table 1 Dosing", backToGraphicRef.label)
+
+        val (fromResolvedArticles, fromResolvedTables) = ClinicalSource.fromResolved(
+            topicRefs = resolvedTopicRefs,
+            graphicRefs = listOf(ResolvedGraphicRef("g123", "Table 1 Dosing", "100", "Topic 100 Title"))
+        )
+        assertEquals(1, fromResolvedArticles.size)
+        assertEquals(1, fromResolvedTables.size)
+        assertEquals("Topic 100 Title", fromResolvedTables[0].parentTopicTitle)
+    }
+
+    @Test
+    fun `reads topicId directly from getTopicSectionsText response`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":""}""")
+        accumulator.onToolCallCompleted(
+            "call-1", "getTopicSectionsText",
+            """{"topicId":"9876","topicTitle":"Cardiac Arrest","sectionTitles":{"H1":"Epinephrine"},"markdown":"content"}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("Give epinephrine 1 mg.")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("9876", ctx.topicRefs[0].topicId)
+        assertEquals("Cardiac Arrest", ctx.topicRefs[0].topicTitle)
+    }
+
+    @Test
+    fun `normalizes FULL sectionId to empty string in auto topic refs and ClinicalSource`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"148929","sectionIds":["FULL"]}""")
+        accumulator.onToolCallCompleted(
+            "call-1", "getTopicSectionsText",
+            """{"topicId":"148929","topicTitle":"AHA PREVENT Calculator","sectionTitles":{"FULL":"AHA PREVENT Calculator"},"markdown":"=== Calculator: AHA PREVENT Calculator ==="}""",
+            true
+        )
+
+        val ctx = accumulator.buildTurnContext("Calculate 10-year risk.")
+        assertEquals(1, ctx.topicRefs.size)
+        assertEquals("148929", ctx.topicRefs[0].topicId)
+        assertEquals("", ctx.topicRefs[0].sectionId)
+
+        val articles = ClinicalSource.fromTopicRefs(ctx.topicRefs)
+        assertEquals(1, articles.size)
+        assertEquals("148929", articles[0].topicId)
+        assertTrue(articles[0].sections.isEmpty())
+    }
+
+    @Test
+    fun `tool Args classes deserialize snake_case keys via JsonNames`() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+        val searchArgs = json.decodeFromString<com.clinref.app.data.tools.SearchTopicsTool.Args>("""{"search_query":"asthma"}""")
+        assertEquals("asthma", searchArgs.query)
+
+        val outlineArgs = json.decodeFromString<com.clinref.app.data.tools.GetTopicOutlineTool.Args>("""{"topic_id":"123"}""")
+        assertEquals("123", outlineArgs.topicId)
+
+        val relatedArgs = json.decodeFromString<com.clinref.app.data.tools.GetRelatedTopicsTool.Args>("""{"topic_id":"123"}""")
+        assertEquals("123", relatedArgs.topicId)
+
+        val sectionsArgs = json.decodeFromString<com.clinref.app.data.tools.GetTopicSectionsTextTool.Args>("""{"topic_id":"123","section_ids":["H1","H2"]}""")
+        assertEquals("123", sectionsArgs.topicId)
+        assertEquals(listOf("H1", "H2"), sectionsArgs.sectionIds)
+
+        val graphicArgs = json.decodeFromString<com.clinref.app.data.tools.GetGraphicContentTool.Args>("""{"graphic_id":"456"}""")
+        assertEquals("456", graphicArgs.graphicId)
     }
 }

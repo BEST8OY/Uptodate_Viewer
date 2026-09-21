@@ -622,20 +622,22 @@ class TestToolsInit:
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         assert isinstance(tool_list, list)
-        assert len(tool_list) == 6
+        assert len(tool_list) == 5
 
     def test_init_tools_includes_expected_names(self):
         import tools
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         names = [t.name for t in tool_list]
-        assert "search_topics" in names
-        assert "get_topic_outline" in names
-        assert "get_related_topics" in names
-        assert "get_topic_sections_text" in names
-        assert "get_graphic_content" in names
-        assert "submit_clinical_answer" in names
-        # get_graphic_info should NOT be in the list
+        assert len(names) == 5
+        assert set(names) == {
+            "search_topics",
+            "get_topic_outline",
+            "get_related_topics",
+            "get_topic_sections_text",
+            "get_graphic_content",
+        }
+        assert "submit_clinical_answer" not in names
         assert "get_graphic_info" not in names
 
     def test_init_tools_sets_global_db(self):
@@ -758,6 +760,8 @@ class TestGetTopicSectionText:
             {"topic_id": "123", "section_ids": ["H1"]}
         )
         assert "5 mg" in result
+        data = json.loads(result)
+        assert data.get("topicId") == "123"
 
 
 class TestGetGraphicContent:
@@ -1008,6 +1012,63 @@ class TestAutoPopulateRefs:
         assert ctx.structured_topic_refs[0].label == "Antiplatelet Agents"
         assert ctx.structured_topic_refs[1].label == "Special Considerations"
 
+    def test_resolves_section_title_from_outline_sections(self):
+        """If fetched_section.section_title is empty, fallback to outline_sections."""
+        from agent import _auto_populate_refs
+        from safety_validator import TurnContext, FetchedSection
+
+        ctx = TurnContext(
+            fetched_sections=[
+                FetchedSection(
+                    topic_id="7891",
+                    topic_title="Laboratory assessment of thyroid function",
+                    section_id="sec_1",
+                    section_title="",
+                ),
+            ],
+            outline_sections={"7891": {"sec_1": "Serum TSH Tests"}},
+        )
+        _auto_populate_refs(ctx, "{}")
+        assert len(ctx.structured_topic_refs) == 1
+        assert ctx.structured_topic_refs[0].label == "Serum TSH Tests"
+        assert ctx.structured_topic_refs[0].topic_title == "Laboratory assessment of thyroid function"
+
+    def test_attributes_parent_topic_when_graphic_table_fetched(self):
+        """When a graphic table is fetched, its parent topic from outline is attributed."""
+        from agent import _auto_populate_refs
+        from safety_validator import TurnContext
+
+        ctx = TurnContext(
+            graphic_ids={"67935"},
+            graphic_titles={"67935": "Assessment of thyroid function"},
+            graphic_to_topic={"67935": "7891"},
+            topic_titles={"7891": "Laboratory assessment of thyroid function"},
+        )
+        _auto_populate_refs(ctx, "{}")
+        assert len(ctx.structured_topic_refs) == 1
+        assert ctx.structured_topic_refs[0].topic_id == "7891"
+        assert ctx.structured_topic_refs[0].topic_title == "Laboratory assessment of thyroid function"
+        assert ctx.structured_topic_refs[0].label == "Laboratory assessment of thyroid function"
+        assert len(ctx.structured_graphic_refs) == 1
+        assert ctx.structured_graphic_refs[0].graphic_id == "67935"
+        assert ctx.structured_graphic_refs[0].label == "Assessment of thyroid function"
+
+    def test_graphic_id_prefix_does_not_create_duplicate_refs(self):
+        """Clean graphic ID prevents duplicate refs when graphic_id has 'graphic-' prefix."""
+        from agent import _auto_populate_refs
+        from safety_validator import TurnContext
+
+        ctx = TurnContext(
+            graphic_ids={"67935"},
+            graphic_titles={"67935": "Assessment of thyroid function", "graphic-67935": "Assessment of thyroid function"},
+            graphic_to_topic={"67935": "7891", "graphic-67935": "7891"},
+            topic_titles={"7891": "Laboratory assessment of thyroid function"},
+        )
+        _auto_populate_refs(ctx, "{}")
+        assert len(ctx.structured_graphic_refs) == 1
+        assert ctx.structured_graphic_refs[0].graphic_id == "67935"
+        assert ctx.structured_graphic_refs[0].topic_id == "7891"
+
 
 class TestSchemaParityAndSafetyBlock:
     """Verify schema parity with Kotlin responses and in-graph safety blocking."""
@@ -1079,4 +1140,89 @@ class TestSchemaParityAndSafetyBlock:
         last_msg = final_state["messages"][-1]
         assert isinstance(last_msg, AIMessage)
         assert last_msg.content.startswith("Clinical Response Verification Blocked:")
+
+    def test_clinical_source_hierarchy_and_conversions(self):
+        from clinical_source import (
+            SectionRef,
+            ClinicalArticle,
+            ClinicalTable,
+            group_topic_refs_to_articles,
+            graphic_refs_to_tables,
+        )
+        from safety_validator import TopicRef, GraphicRef
+
+        topic_refs = [
+            TopicRef(topic_id="100", section_id="secA", label="Section A", topic_title="Topic 100 Title"),
+            TopicRef(topic_id="100", section_id="secB", label="Section B", topic_title="Topic 100 Title"),
+            TopicRef(topic_id="200", section_id="secC", label="Section C", topic_title="Topic 200 Title"),
+        ]
+
+        articles = group_topic_refs_to_articles(topic_refs)
+        assert len(articles) == 2
+        assert articles[0].topic_id == "100"
+        assert articles[0].display_title == "Topic 100 Title"
+        assert len(articles[0].sections) == 2
+        assert articles[0].sections[0].section_id == "secA"
+        assert articles[0].sections[0].section_title == "Section A"
+
+        graphic_refs = [
+            GraphicRef(graphic_id="g123", label="Table 1 Dosing", topic_id="100"),
+        ]
+        tables = graphic_refs_to_tables(graphic_refs, {"100": "Topic 100 Title"})
+        assert len(tables) == 1
+        assert tables[0].graphic_id == "g123"
+        assert tables[0].display_title == "Table 1 Dosing"
+        assert tables[0].parent_topic_id == "100"
+        assert tables[0].parent_topic_title == "Topic 100 Title"
+
+        # Verify FULL section ID is filtered out from section list
+        calc_refs = [
+            TopicRef(topic_id="148929", section_id="FULL", label="AHA Calculator", topic_title="AHA Calculator")
+        ]
+        calc_articles = group_topic_refs_to_articles(calc_refs)
+        assert len(calc_articles) == 1
+        assert calc_articles[0].topic_id == "148929"
+        assert len(calc_articles[0].sections) == 0
+
+    def test_direct_text_answer_auto_populates_refs(self):
+        from agent import create_clinical_agent
+        from safety_validator import TurnContext, FetchedSection
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        class DirectTextLLM:
+            def bind_tools(self, tools):
+                return self
+            def invoke(self, messages, config=None):
+                return AIMessage(content="According to the database, normal saline is indicated.")
+
+        llm = DirectTextLLM()
+        agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test")
+        tc = TurnContext()
+        tc.fetched_sections.append(
+            FetchedSection(
+                topic_id="123",
+                section_id="sec1",
+                section_title="Indications",
+                topic_title="Fluids",
+                content_snippet="Normal saline is indicated.",
+            )
+        )
+        tc.topic_titles["123"] = "Fluids"
+        tc.outline_sections["123"] = {"sec1": "Indications"}
+
+        state = {
+            "messages": [HumanMessage(content="What fluid?")],
+            "system_prompt": "Test",
+            "turn_context": tc.model_dump(),
+            "user_question": "What fluid?",
+            "retry_count": 0,
+            "validation_result": None,
+            "tool_rounds": 0,
+        }
+        res = agent.invoke(state)
+        final_tc = TurnContext(**res["turn_context"])
+        assert len(final_tc.structured_topic_refs) == 1
+        assert final_tc.structured_topic_refs[0].topic_id == "123"
+        assert final_tc.structured_topic_refs[0].label == "Indications"
+        assert res["validation_result"]["passed"] is True
 
