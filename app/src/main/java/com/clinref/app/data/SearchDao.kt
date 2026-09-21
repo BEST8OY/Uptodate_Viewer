@@ -29,17 +29,6 @@ class SearchDao @Inject constructor(
         return null
     }
 
-    fun getSuggestions(query: String): List<String> {
-        val trimmed = query.trim()
-        if (trimmed.isEmpty()) return emptyList()
-
-        val unidexAvailable = try {
-            dbManager.getUnidexDb()
-            true
-        } catch (_: Exception) {
-            false
-        }
-
     private var cachedStopwords: Set<String>? = null
 
     private fun getStopwords(): Set<String> {

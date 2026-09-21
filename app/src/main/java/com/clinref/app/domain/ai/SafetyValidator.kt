@@ -106,57 +106,131 @@ class SafetyValidator {
     }
 
     private val clinicalQuantityRegex = Regex(
-        """\b\d+(?:[\.,]\d+)?\s*(?:(?:mg|mcg|g|kg|mL|L|mmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2)\b(?:/(?:kg|g|mg|mcg|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*|[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*|%)""",
+        """\b\d+(?:[\.,]\d+)?(?:\s*(?:[-–—]|to)\s*\d+(?:[\.,]\d+)?)?\s*(?:(?:mg|mcg|[μµ]g|g|kg|mL|L|dL|mcL|uL|[μµ]L|mmol|[uμµ]mol|nmol|pmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2|mOsm(?:ol)?|mU|[uμµ]U|[uμµ]IU)\b(?:/(?:kg|g|mg|mcg|[μµ]g|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*|(?!(?:and/or|w/o|s/p|r/o|c/o)\b)[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*|%|percent|percentage\b)""",
         RegexOption.IGNORE_CASE
     )
 
+    private val rangeDashOrToRegex = Regex("""(\d+[\.,]?\d*)\s*(?:[-–—]|to)\s*(\d+[\.,]?\d*)""", RegexOption.IGNORE_CASE)
     private val numericPartRegex = Regex("""^\d+[\.,]?\d*""")
-    private val rangeDashRegex = Regex("""(\d+[\.,]?\d*)\s*[-–—]\s*(\d+[\.,]?\d*)""")
+
+    private companion object {
+        private val THOUSAND_COMMA_REGEX = Regex("""\d+,\d{3}(?:\b|\D)""")
+        private val DECIMAL_COMMA_REGEX = Regex("""\d+,\d{1,2}(?:\b|\D)""")
+        private val HAS_LETTER_REGEX = Regex("""[a-zA-Z]""")
+
+        private val ONES_WORDS = arrayOf(
+            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"
+        )
+        private val TENS_WORDS = arrayOf(
+            "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"
+        )
+    }
+
+    private fun intToWords(n: Int): List<String> {
+        if (n in 0..19) return listOf(ONES_WORDS[n])
+        if (n in 20..99) {
+            val ten = n / 10
+            val rem = n % 10
+            val tWord = TENS_WORDS[ten]
+            return if (rem == 0) listOf(tWord) else listOf("$tWord-${ONES_WORDS[rem]}", "$tWord ${ONES_WORDS[rem]}")
+        }
+        if (n == 100) return listOf("one hundred", "hundred")
+        return emptyList()
+    }
+
+    private fun getNumberVariants(numStr: String): List<String> {
+        val variants = mutableListOf(numStr)
+        val cleanCandidates = mutableListOf<String>()
+
+        if (THOUSAND_COMMA_REGEX.containsMatchIn(numStr)) {
+            val uncomma = numStr.replace(",", "")
+            variants.add(uncomma)
+            cleanCandidates.add(uncomma)
+        } else if (DECIMAL_COMMA_REGEX.containsMatchIn(numStr)) {
+            val dotDecimal = numStr.replace(",", ".")
+            variants.add(dotDecimal)
+            cleanCandidates.add(dotDecimal)
+        } else {
+            cleanCandidates.add(numStr)
+        }
+
+        for (cand in cleanCandidates) {
+            try {
+                val dVal = cand.toDouble()
+                if (dVal % 1.0 == 0.0) {
+                    val intVal = dVal.toInt()
+                    val intStr = intVal.toString()
+                    if (intStr !in variants) {
+                        variants.add(intStr)
+                    }
+                    if (intVal in 0..100) {
+                        for (w in intToWords(intVal)) {
+                            if (w !in variants) variants.add(w)
+                        }
+                    }
+                } else if (dVal == 0.5) {
+                    for (f in listOf("half", "one-half", "one half")) {
+                        if (f !in variants) variants.add(f)
+                    }
+                } else if (dVal == 0.25) {
+                    for (f in listOf("quarter", "one-quarter", "one quarter")) {
+                        if (f !in variants) variants.add(f)
+                    }
+                }
+            } catch (_: NumberFormatException) {
+            }
+        }
+        return variants
+    }
+
+    private fun isSingleNumberInText(numStr: String, text: String): Boolean {
+        val variants = getNumberVariants(numStr)
+        val textUncomma = text.replace(",", "")
+        for (variant in variants) {
+            if (HAS_LETTER_REGEX.containsMatchIn(variant)) {
+                val wordRegex = Regex("""(?i)\b${Regex.escape(variant)}\b""")
+                if (wordRegex.containsMatchIn(text)) return true
+            } else {
+                val escaped = Regex.escape(variant)
+                val boundaryRegex = Regex("""(?i)(?<![\d.])$escaped(?!\.\d)(?!\d)""")
+                if (boundaryRegex.containsMatchIn(text)) return true
+
+                val uncomma = variant.replace(",", "")
+                if (uncomma.isNotEmpty()) {
+                    val uncommaRegex = Regex("""(?i)(?<![\d.])${Regex.escape(uncomma)}(?!\.\d)(?!\d)""")
+                    if (uncommaRegex.containsMatchIn(textUncomma)) return true
+                }
+            }
+        }
+        return false
+    }
 
     private fun normalizeQuantity(metric: String): List<String> {
         val expanded = mutableListOf<String>()
-        // Expand ranges: "5-10 mg" → ["5", "10"]
-        val rangeMatch = rangeDashRegex.find(metric)
+        val rangeMatch = rangeDashOrToRegex.find(metric)
         if (rangeMatch != null) {
-            expanded.add(rangeMatch.groupValues[1])
-            expanded.add(rangeMatch.groupValues[2])
+            expanded.addAll(getNumberVariants(rangeMatch.groupValues[1]))
+            expanded.addAll(getNumberVariants(rangeMatch.groupValues[2]))
+            return expanded
         }
-        // Also extract the numeric part for direct match
-        val numPart = numericPartRegex.find(metric)?.value
-        if (numPart != null) {
-            expanded.add(numPart)
-            val uncomma = numPart.replace(",", "")
-            if (uncomma != numPart) {
-                expanded.add(uncomma)
-            }
+        val numMatch = numericPartRegex.find(metric)
+        if (numMatch != null) {
+            expanded.addAll(getNumberVariants(numMatch.value))
         }
         return expanded.ifEmpty { listOf(metric) }
     }
 
-    private companion object {
-        private val WHITESPACE_REGEX = Regex("""\s+""")
-    }
-
     private fun isQuantityInText(metric: String, text: String): Boolean {
-        val variants = normalizeQuantity(metric)
-        val textUncomma = text.replace(",", "")
-        val textUnspace = text.replace(WHITESPACE_REGEX, "")
-        val compactMetric = metric.replace(WHITESPACE_REGEX, "")
-        val hasSpace = compactMetric != metric
-
-        for (variant in variants) {
-            val escaped = Regex.escape(variant)
-            val boundaryRegex = Regex("""(?<!\d)$escaped(?!\d)""")
-            if (boundaryRegex.containsMatchIn(text)) return true
-
-            val uncomma = variant.replace(",", "")
-            if (uncomma.isNotEmpty()) {
-                val uncommaRegex = Regex("""(?<!\d)${Regex.escape(uncomma)}(?!\d)""")
-                if (uncommaRegex.containsMatchIn(textUncomma)) return true
-            }
-
-            // Also try without space before unit (e.g., "10mg" in text when metric is "10 mg")
-            if (hasSpace && boundaryRegex.containsMatchIn(textUnspace)) return true
+        val rangeMatch = rangeDashOrToRegex.find(metric)
+        if (rangeMatch != null) {
+            val b1 = rangeMatch.groupValues[1]
+            val b2 = rangeMatch.groupValues[2]
+            return isSingleNumberInText(b1, text) && isSingleNumberInText(b2, text)
+        }
+        val numMatch = numericPartRegex.find(metric)
+        if (numMatch != null) {
+            return isSingleNumberInText(numMatch.value, text)
         }
         return false
     }
@@ -176,7 +250,10 @@ class SafetyValidator {
         val unverifiedMetrics = mutableListOf<String>()
 
         for (metric in answerMetrics) {
-            if (userQuestionText.contains(metric, ignoreCase = true)) continue
+            if (userQuestionText.isNotBlank()) {
+                if (userQuestionText.contains(metric, ignoreCase = true)) continue
+                if (isQuantityInText(metric, userQuestionText)) continue
+            }
             if (isQuantityInText(metric, allToolText)) continue
             unverifiedMetrics.add(metric)
         }

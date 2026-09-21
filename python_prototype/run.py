@@ -321,11 +321,11 @@ def run_tests(db_path: str):
 
     # Test 1: Search
     print("Test 1: Search for 'atrial fibrillation'")
-    results = db.search_topics("atrial fibrillation")
-    print(f"  Found {len(results)} results")
-    for r in results[:3]:
+    search_results = db.search_topics("atrial fibrillation")
+    print(f"  Found {len(search_results)} results")
+    for r in search_results[:3]:
         print(f"  - [{r['id']}] {r['title']}")
-    assert len(results) > 0, "Search returned no results"
+    assert len(search_results) > 0, "Search returned no results"
     print("  PASS\n")
 
     # Test 2: Suggestions
@@ -338,8 +338,8 @@ def run_tests(db_path: str):
     print("  PASS\n")
 
     # Test 3: Topic asset
-    if results:
-        topic_id = results[0]["id"]
+    if search_results:
+        topic_id = search_results[0]["id"]
         print(f"Test 3: Load topic asset for {topic_id}")
         asset = db.get_topic_asset(topic_id)
         if asset:
@@ -384,7 +384,7 @@ def run_tests(db_path: str):
     )
     result = validator.validate(ctx)
     assert not result.passed
-    assert "section content" in result.blocked_reason.lower()
+    assert "section or table content" in result.blocked_reason.lower()
     print("  No-section block: PASS")
 
     print("\nAll tests passed!")

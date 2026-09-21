@@ -205,6 +205,108 @@ class SafetyValidatorTest {
         }
     }
 
+    @Test
+    fun `rule 2 matches spelled out number words`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Approximately 70% of patients were normal.",
+            toolResults = listOf("Seventy percent of the older group with a TSH greater than 4.5 mU/L were normal."),
+            fetchedSections = listOf(section()),
+        ))
+        if (!result.passed) {
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
+        }
+    }
+
+    @Test
+    fun `rule 2 matches spelled out single digit words`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Start with 5 mg daily.",
+            toolResults = listOf("Five mg daily is the recommended initial dose."),
+            fetchedSections = listOf(section()),
+        ))
+        if (!result.passed) {
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
+        }
+    }
+
+    @Test
+    fun `rule 2 requires both bounds for ranges`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Give 5-10 mg daily.",
+            toolResults = listOf("Dose range: 5 to 10 mg daily."),
+            fetchedSections = listOf(section()),
+        ))
+        if (!result.passed) {
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
+        }
+    }
+
+    @Test
+    fun `rule 2 blocks range when lower bound is invented`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Give 500-10 mg daily.",
+            toolResults = listOf("Dose range: 5 to 10 mg daily."),
+            fetchedSections = listOf(section()),
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("500-10 mg"))
+    }
+
+    @Test
+    fun `rule 2 decimal boundary prevents subdecimal matches`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "The dose is 2 mg.",
+            toolResults = listOf("The dose is 0.2 mg daily."),
+            fetchedSections = listOf(section()),
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("2 mg"))
+    }
+
+    @Test
+    fun `rule 2 normalizes trailing decimal zero to integer`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Target TSH is 2.0 mU/L.",
+            toolResults = listOf("Target TSH is 2 mU/L in this group."),
+            fetchedSections = listOf(section()),
+        ))
+        if (!result.passed) {
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
+        }
+    }
+
+    @Test
+    fun `rule 2 ignores english slashes like and or`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Follow step 1 and/or step 2.",
+            toolResults = listOf("Guidelines outline specific clinical protocols."),
+            fetchedSections = listOf(section()),
+        ))
+        if (!result.passed) {
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
+        }
+    }
+
+    @Test
+    fun `rule 2 supports greek microgram symbol`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Dose is 50 μg.",
+            toolResults = listOf("Recommended dose is 50 μg daily."),
+            fetchedSections = listOf(section()),
+        ))
+        if (!result.passed) {
+            assertFalse(result.blockedReason!!.contains("Unverified clinical quantities"))
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // Rule 3: No graphic interpretation
     // ══════════════════════════════════════════════════════════════════

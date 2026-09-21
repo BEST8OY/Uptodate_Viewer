@@ -71,17 +71,44 @@ CONVERSATIONAL_USER_REGEX = re.compile(
 )
 
 
+# ── Number-to-word helpers for clinical quantities ──────────────────
+
+ONES_WORDS = {
+    0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+    6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten",
+    11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen",
+    16: "sixteen", 17: "seventeen", 18: "eighteen", 19: "nineteen",
+}
+TENS_WORDS = {
+    2: "twenty", 3: "thirty", 4: "forty", 5: "fifty",
+    6: "sixty", 7: "seventy", 8: "eighty", 9: "ninety",
+}
+
+
+def int_to_words(n: int) -> list[str]:
+    """Convert integer 0-100 to English word forms."""
+    if n in ONES_WORDS:
+        return [ONES_WORDS[n]]
+    if 20 <= n < 100:
+        ten, rem = divmod(n, 10)
+        t = TENS_WORDS[ten]
+        return [t] if rem == 0 else [f"{t}-{ONES_WORDS[rem]}", f"{t} {ONES_WORDS[rem]}"]
+    if n == 100:
+        return ["one hundred", "hundred"]
+    return []
+
+
 # ── Regex constants (matching Kotlin) ────────────────────────────────
 
 CLINICAL_QUANTITY_REGEX = re.compile(
-    r"\b\d+(?:[\.,]\d+)?\s*"
+    r"\b\d+(?:[\.,]\d+)?(?:\s*(?:[-–—]|to)\s*\d+(?:[\.,]\d+)?)?\s*"
     r"(?:"
-    r"(?:mg|mcg|g|kg|mL|L|mmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2)\b"
-    r"(?:/(?:kg|g|mg|mcg|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*"
+    r"(?:mg|mcg|[μµ]g|g|kg|mL|L|dL|mcL|uL|[μµ]L|mmol|[uμµ]mol|nmol|pmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2|mOsm(?:ol)?|mU|[uμµ]U|[uμµ]IU)\b"
+    r"(?:/(?:kg|g|mg|mcg|[μµ]g|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*"
     r"|"
-    r"[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*"
+    r"(?!(?:and/or|w/o|s/p|r/o|c/o)\b)[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*"
     r"|"
-    r"%"
+    r"%|percent|percentage\b"
     r")",
     re.IGNORECASE,
 )
@@ -193,9 +220,12 @@ class SafetyValidator:
         unverified = []
         for metric in answer_metrics:
             # Quantities stated by the user are patient-specific values —
-            # substring containment mirrors Kotlin's contains(metric, ignoreCase).
-            if user_question_text and metric.lower() in user_question_text.lower():
-                continue
+            # Check direct substring or numeric presence in user question
+            if user_question_text:
+                if metric.lower() in user_question_text.lower():
+                    continue
+                if self._is_quantity_in_text(metric, user_question_text):
+                    continue
             if self._is_quantity_in_text(metric, all_tool_text):
                 continue
             unverified.append(metric)
@@ -212,53 +242,93 @@ class SafetyValidator:
         return None
 
     @staticmethod
-    def _normalize_quantity(metric: str) -> list[str]:
-        """Expand a clinical quantity into its numeric components.
+    def _get_number_variants(num_str: str) -> list[str]:
+        variants = [num_str]
+        clean_candidates = []
+        # Thousand separator: comma followed by 3 digits (e.g. 1,200)
+        if re.search(r"\d+,\d{3}(?:\b|\D)", num_str):
+            uncomma = num_str.replace(",", "")
+            variants.append(uncomma)
+            clean_candidates.append(uncomma)
+        # Decimal comma: comma followed by 1 or 2 digits (e.g. 2,5)
+        elif re.search(r"\d+,\d{1,2}(?:\b|\D)", num_str):
+            dot_decimal = num_str.replace(",", ".")
+            variants.append(dot_decimal)
+            clean_candidates.append(dot_decimal)
+        else:
+            clean_candidates.append(num_str)
 
-        Handles ranges ('5-10 mg' -> ['5', '10']), thousand commas ('1,200 mg' -> ['1,200', '1200']),
-        and direct numeric parts.
-        """
+        for cand in clean_candidates:
+            try:
+                val = float(cand)
+                if val.is_integer():
+                    int_val = int(val)
+                    int_str = str(int_val)
+                    if int_str not in variants:
+                        variants.append(int_str)
+                    if 0 <= int_val <= 100:
+                        for w in int_to_words(int_val):
+                            if w not in variants:
+                                variants.append(w)
+                elif val == 0.5:
+                    for f in ("half", "one-half", "one half"):
+                        if f not in variants:
+                            variants.append(f)
+                elif val == 0.25:
+                    for f in ("quarter", "one-quarter", "one quarter"):
+                        if f not in variants:
+                            variants.append(f)
+            except ValueError:
+                pass
+        return variants
+
+    @staticmethod
+    def _is_single_number_in_text(num_str: str, text: str) -> bool:
+        variants = SafetyValidator._get_number_variants(num_str)
+        text_uncomma = text.replace(",", "")
+        for variant in variants:
+            escaped = re.escape(variant)
+            if re.search(r"[a-zA-Z]", variant):
+                if re.search(rf"\b{escaped}\b", text, re.IGNORECASE):
+                    return True
+            else:
+                boundary_pat = rf"(?<![\d.]){escaped}(?!\.\d)(?!\d)"
+                if re.search(boundary_pat, text, re.IGNORECASE):
+                    return True
+                uncomma = variant.replace(",", "")
+                if uncomma and re.search(rf"(?<![\d.]){re.escape(uncomma)}(?!\.\d)(?!\d)", text_uncomma, re.IGNORECASE):
+                    return True
+        return False
+
+    @staticmethod
+    def _normalize_quantity(metric: str) -> list[str]:
+        """Expand a clinical quantity into all its numeric/word components."""
         expanded = []
-        # Expand ranges: "5-10 mg" -> ["5", "10"]
-        range_match = re.search(r"(\d[\d.,]*)\s*[-–—]\s*(\d[\d.,]*)", metric)
+        range_match = re.search(r"(\d[\d.,]*)\s*(?:[-–—]|to)\s*(\d[\d.,]*)", metric, re.IGNORECASE)
         if range_match:
-            expanded.append(range_match.group(1))
-            expanded.append(range_match.group(2))
-        # Also extract the numeric part for direct match
+            expanded.extend(SafetyValidator._get_number_variants(range_match.group(1)))
+            expanded.extend(SafetyValidator._get_number_variants(range_match.group(2)))
+            return expanded
         num_match = re.search(r"(\d[\d.,]*)", metric)
         if num_match:
-            raw_num = num_match.group(1)
-            expanded.append(raw_num)
-            uncomma = raw_num.replace(",", "")
-            if uncomma != raw_num:
-                expanded.append(uncomma)
+            expanded.extend(SafetyValidator._get_number_variants(num_match.group(1)))
         return expanded if expanded else [metric]
 
     @staticmethod
     def _is_quantity_in_text(metric: str, text: str) -> bool:
         """Check if a clinical quantity (or its normalized forms) appears in text.
 
-        Handles ranges, missing spaces ('10mg' vs '10 mg'), thousand commas ('1,200' vs '1200'),
-        and boundary matching.
+        Handles ranges (requiring both bounds), word forms, trailing decimal zeros,
+        and decimal-safe boundary matching.
         """
-        variants = SafetyValidator._normalize_quantity(metric)
-        text_uncomma = text.replace(",", "")
-        text_unspace = re.sub(r"\s+", "", text)
+        range_match = re.search(r"(\d[\d.,]*)\s*(?:[-–—]|to)\s*(\d[\d.,]*)", metric, re.IGNORECASE)
+        if range_match:
+            b1, b2 = range_match.group(1), range_match.group(2)
+            return SafetyValidator._is_single_number_in_text(b1, text) and SafetyValidator._is_single_number_in_text(b2, text)
 
-        for variant in variants:
-            escaped = re.escape(variant)
-            if re.search(rf"(?<!\d){escaped}(?!\d)", text, re.IGNORECASE):
-                return True
-            # Check in text stripped of thousand separator commas
-            uncomma = variant.replace(",", "")
-            if uncomma:
-                uncomma_escaped = re.escape(uncomma)
-                if re.search(rf"(?<!\d){uncomma_escaped}(?!\d)", text_uncomma, re.IGNORECASE):
-                    return True
-            # Also try without space before unit (e.g., "10mg" in text when metric is "10 mg")
-            compact = re.sub(r"\s+", "", metric)
-            if compact != metric and re.search(rf"(?<!\d){escaped}(?!\d)", text_unspace, re.IGNORECASE):
-                return True
+        num_match = re.search(r"(\d[\d.,]*)", metric)
+        if num_match:
+            return SafetyValidator._is_single_number_in_text(num_match.group(1), text)
         return False
 
     def _validate_no_graphic_interpretation(self, ctx: TurnContext) -> Optional[ValidationResult]:

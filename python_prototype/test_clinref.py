@@ -192,6 +192,79 @@ class TestInventedNumbers:
         result = SafetyValidator()._validate_no_invented_numbers(ctx)
         assert result is None
 
+    def test_spelled_out_number_words_pass(self):
+        """'70%' should pass when tool text contains 'Seventy percent'."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Approximately 70% of patients achieved euthyroid state.",
+            tool_results=["Seventy percent of the older group with a TSH greater than 4.5 mU/L were normal."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+    def test_spelled_out_single_digit_words_pass(self):
+        """'5 mg' should pass when tool text contains 'Five mg' or 'five'."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Start with 5 mg daily.",
+            tool_results=["Five mg daily is the recommended initial dose."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+    def test_range_bounds_both_verified(self):
+        """'5-10 mg' should pass when text contains both bounds ('5 to 10 mg')."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Give 5-10 mg daily.",
+            tool_results=["Dose range: 5 to 10 mg daily."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+    def test_range_with_invented_bound_blocked(self):
+        """'500-10 mg' should block when 500 is not in tool text."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Give 500-10 mg daily.",
+            tool_results=["Dose range: 5 to 10 mg daily."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is not None
+        assert not result.passed
+
+    def test_decimal_boundary_does_not_match_subdecimal(self):
+        """'2 mg' should NOT match as part of '0.2 mg' or '2.5 mg'."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="The dose is 2 mg.",
+            tool_results=["The dose is 0.2 mg daily."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is not None
+        assert not result.passed
+
+    def test_trailing_decimal_zero_matches_integer(self):
+        """'2.0 mU/L' in answer should pass when tool text says '2 mU/L'."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Target TSH is 2.0 mU/L.",
+            tool_results=["Target TSH is 2 mU/L in this group."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+    def test_english_slashes_not_flagged_as_clinical_quantities(self):
+        """'step 1 and/or step 2' should not be flagged as an invented unit."""
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Follow step 1 and/or step 2.",
+            tool_results=["Guidelines outline specific clinical protocols."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+
 
 class TestGraphicInterpretation:
     """Rule 3: No graphic interpretation."""
@@ -312,6 +385,22 @@ class TestClinicalQuantityRegex:
     def test_comma_decimal(self):
         matches = CLINICAL_QUANTITY_REGEX.findall("Dose: 2,5 mg")
         assert len(matches) >= 1
+
+    def test_range_extraction(self):
+        matches = CLINICAL_QUANTITY_REGEX.findall("Give 5-10 mg or 0.4 to 4.5 mU/L.")
+        assert "5-10 mg" in matches
+        assert "0.4 to 4.5 mU/L" in matches
+
+    def test_greek_microgram_and_percent(self):
+        matches = CLINICAL_QUANTITY_REGEX.findall("Dose 50 μg, 25 µg, and 70 percent.")
+        assert "50 μg" in matches
+        assert "25 µg" in matches
+        assert "70 percent" in matches
+
+    def test_slash_exclusion_for_english_words(self):
+        matches = CLINICAL_QUANTITY_REGEX.findall("Review step 1 and/or step 2, patient is 2 w/o pain.")
+        assert len(matches) == 0
+
 
 
 # ═══════════════════════════════════════════════════════════════════════
