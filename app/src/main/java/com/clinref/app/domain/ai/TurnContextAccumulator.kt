@@ -123,14 +123,8 @@ class TurnContextAccumulator(
 
         // Populate topicTitle and sectionTitle on fetched sections from accumulated state or resolvers
         val sectionsWithTitle = fetchedSections.map { sec ->
-            val resolvedTitle = topicTitles[sec.topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                ?: sec.topicTitle.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                ?: sec.topicId
-            val resolvedSectionTitle = sec.sectionTitle.takeIf { it.isNotBlank() }
-                ?: outlineSections[sec.topicId]?.get(sec.sectionId)
-                ?: sectionTitleResolver?.invoke(sec.topicId, sec.sectionId)
-                ?: ""
+            val resolvedTitle = resolveTopicTitle(sec.topicId, sec.topicTitle)
+            val resolvedSectionTitle = resolveSectionTitle(sec.topicId, sec.sectionId, sec.sectionTitle)
             sec.copy(topicTitle = resolvedTitle, sectionTitle = resolvedSectionTitle)
         }
 
@@ -140,21 +134,13 @@ class TurnContextAccumulator(
         val autoTopicRefs = candidateSections
             .distinctBy { it.topicId to it.sectionId }
             .map { sec ->
-                val topicTitle = topicTitles[sec.topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                    ?: sec.topicTitle.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                    ?: topicTitleResolver?.invoke(sec.topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                    ?: sec.topicId
-                val secTitle = sec.sectionTitle.takeIf { it.isNotBlank() }
-                    ?: outlineSections[sec.topicId]?.get(sec.sectionId)
-                    ?: sectionTitleResolver?.invoke(sec.topicId, sec.sectionId)
-                    ?: ""
-                val label = secTitle.ifBlank { topicTitle }
+                val label = sec.sectionTitle.ifBlank { sec.topicTitle }
                 val cleanSectionId = if (sec.sectionId.equals("FULL", ignoreCase = true)) "" else sec.sectionId
                 SafetyValidator.TopicRef(
                     topicId = sec.topicId,
                     sectionId = cleanSectionId,
                     label = label,
-                    topicTitle = topicTitle
+                    topicTitle = sec.topicTitle
                 )
             }.toMutableList()
 
@@ -164,9 +150,7 @@ class TurnContextAccumulator(
             val cleanGid = AiJsonUtils.cleanGraphicId(gid)
             val parentTopicId = graphicToTopic[gid] ?: graphicToTopic[cleanGid]
             if (!parentTopicId.isNullOrBlank() && finalTopicRefs.none { it.topicId == parentTopicId }) {
-                val resolvedTitle = topicTitles[parentTopicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                    ?: topicTitleResolver?.invoke(parentTopicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-                    ?: parentTopicId
+                val resolvedTitle = resolveTopicTitle(parentTopicId)
                 finalTopicRefs.add(
                     SafetyValidator.TopicRef(
                         topicId = parentTopicId,
@@ -216,6 +200,20 @@ class TurnContextAccumulator(
         snapshot.toolCalls.addAll(this.toolCalls)
         snapshot.toolResults.addAll(this.toolResults)
         return snapshot
+    }
+
+    private fun resolveTopicTitle(topicId: String, candidateTitle: String? = null): String {
+        return topicTitles[topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+            ?: candidateTitle?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+            ?: topicTitleResolver?.invoke(topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+            ?: topicId
+    }
+
+    private fun resolveSectionTitle(topicId: String, sectionId: String, candidateTitle: String? = null): String {
+        return candidateTitle?.takeIf { it.isNotBlank() }
+            ?: outlineSections[topicId]?.get(sectionId)
+            ?: sectionTitleResolver?.invoke(topicId, sectionId)
+            ?: ""
     }
 
     private fun isLogicalFailure(result: String): Boolean {
@@ -405,10 +403,7 @@ class TurnContextAccumulator(
             sectionIds.add("FULL")
         }
 
-        val finalTopicTitle = topicTitles[topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-            ?: respTopicTitle.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-            ?: topicTitleResolver?.invoke(topicId)?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
-            ?: topicId
+        val finalTopicTitle = resolveTopicTitle(topicId, respTopicTitle)
 
         for (sectionId in sectionIds) {
             if (sectionId.isNotEmpty()) {
