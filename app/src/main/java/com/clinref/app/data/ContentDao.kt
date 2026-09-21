@@ -38,8 +38,15 @@ class ContentDao @Inject constructor(
                 val topicInfo = jsonObj["topicInfo"]?.let {
                     try { it.jsonObject } catch (_: Exception) { null }
                 }
-                val title = topicInfo?.get("title")?.jsonPrimitive?.content
+                var title = topicInfo?.get("title")?.jsonPrimitive?.content
                     ?: jsonObj["title"]?.jsonPrimitive?.content
+                if (title.isNullOrBlank()) {
+                    val translated = topicInfo?.get("translatedTopicInfos") as? kotlinx.serialization.json.JsonArray
+                    val enInfo = translated?.firstOrNull { item ->
+                        (item as? kotlinx.serialization.json.JsonObject)?.get("languageCode")?.jsonPrimitive?.content == "en-US"
+                    } as? kotlinx.serialization.json.JsonObject
+                    title = enInfo?.get("title")?.jsonPrimitive?.content
+                }
                 title?.removeSurrounding("\"")?.trim()?.takeIf { it.isNotBlank() }
             }
         } catch (_: Exception) {

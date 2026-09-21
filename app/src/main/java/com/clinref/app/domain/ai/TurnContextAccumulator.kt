@@ -374,6 +374,13 @@ class TurnContextAccumulator(
                         lastTopicId = topicId
                     }
                 }
+                if (topicId.isNotEmpty() && (topicTitles[topicId].isNullOrBlank() || AiJsonUtils.isNumericOnly(topicTitles[topicId]!!))) {
+                    val resolved = topicTitleResolver?.invoke(topicId)?.takeIf { !AiJsonUtils.isNumericOnly(it) }
+                    if (resolved != null) {
+                        topicTitles[topicId] = resolved
+                        lastTopicId = topicId
+                    }
+                }
                 val sectionTitles = obj["sectionTitles"] as? JsonObject
                 if (sectionTitles != null) {
                     for ((k, v) in sectionTitles) {

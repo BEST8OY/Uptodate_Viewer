@@ -20,6 +20,8 @@ import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.domain.ai.SystemPrompt
 import com.clinref.app.domain.ai.TurnContextAccumulator
 import com.clinref.app.data.secure.SecurePreferences
+import com.clinref.app.domain.ai.AiJsonUtils
+import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -70,6 +72,7 @@ data class MessageUiModel(
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val conversationRepository: ConversationRepository,
+    private val contentRepository: ContentRepository,
     private val koogAgentFactory: KoogAgentFactory,
     private val streamingManager: StreamingManager,
     private val reliabilityManager: ReliabilityManager,
@@ -413,13 +416,18 @@ class ChatViewModel @Inject constructor(
         val topicRefs = if (!topicRefsJson.isNullOrBlank()) {
             try {
                 json.decodeFromString<List<SafetyValidator.TopicRef>>(topicRefsJson).map {
-                    val topicTitle = it.topicTitle.ifBlank { it.label }
-                    val displayTitle = it.label.ifBlank { topicTitle }
+                    val resolvedTopicTitle = contentRepository.getTopicTitle(it.topicId)?.takeIf { title ->
+                        !AiJsonUtils.isNumericOnly(title)
+                    } ?: it.topicTitle.takeIf { title ->
+                        title.isNotBlank() && !AiJsonUtils.isNumericOnly(title)
+                    } ?: "Clinical Topic #${it.topicId}"
+
+                    val displayTitle = it.label.ifBlank { resolvedTopicTitle }
                     ResolvedTopicRef(
                         topicId = it.topicId,
                         title = displayTitle,
                         sectionId = it.sectionId.ifEmpty { null },
-                        topicTitle = topicTitle
+                        topicTitle = resolvedTopicTitle
                     )
                 }
             } catch (_: Exception) { emptyList() }
@@ -429,7 +437,8 @@ class ChatViewModel @Inject constructor(
             try {
                 json.decodeFromString<List<SafetyValidator.GraphicRef>>(graphicRefsJson).map { ref ->
                     val parentTopicTitle = ref.topicId?.let { tid ->
-                        topicRefs.find { t -> t.topicId == tid }?.topicTitle
+                        contentRepository.getTopicTitle(tid)?.takeIf { title -> !AiJsonUtils.isNumericOnly(title) }
+                            ?: topicRefs.find { t -> t.topicId == tid }?.topicTitle
                     }
                     ResolvedGraphicRef(
                         graphicId = ref.graphicId,
