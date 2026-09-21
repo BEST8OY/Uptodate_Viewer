@@ -11,26 +11,11 @@ class SearchDao @Inject constructor(
         val clean = topicId.trim()
         val numericId = Regex("""\d+""").find(clean)?.value ?: clean.removePrefix("topic-").removePrefix("Topic-")
 
-        // 1. Try unidex.en.sqlite topic table
+        // Try unidex.en.sqlite topic table (indexed primary-key B-tree lookup)
         try {
             val db = dbManager.getUnidexDb()
             val cursor = db.rawQuery(
                 "SELECT title FROM topic WHERE topic_id = ? LIMIT 1",
-                arrayOf(numericId)
-            )
-            cursor.use {
-                if (it.moveToFirst()) {
-                    val title = it.getString(0)?.trim()
-                    if (!title.isNullOrBlank()) return title
-                }
-            }
-        } catch (_: Exception) { }
-
-        // 2. Fallback: try utdtoc.db (TOCMap + TOC)
-        try {
-            val tocDb = dbManager.getTocDb()
-            val cursor = tocDb.rawQuery(
-                "SELECT t.title FROM TOCMap m JOIN TOC t ON m.tocId = t.id WHERE m.topicId = ? LIMIT 1",
                 arrayOf(numericId)
             )
             cursor.use {
@@ -243,57 +228,6 @@ class SearchDao @Inject constructor(
         }
     }
 
-    private fun searchFts(db: android.database.sqlite.SQLiteDatabase, query: String): List<Map<String, String>> {
-        val ftsQuery = "$query AND URL:topic"
-        return try {
-            val cursor = db.rawQuery(
-                """
-                SELECT Text as title, URL as topic_id
-                FROM search
-                WHERE search MATCH ?
-                ORDER BY rank(matchinfo(search)) DESC
-                LIMIT 20
-                """,
-                arrayOf(ftsQuery)
-            )
-
-            cursor.use {
-                val results = mutableListOf<Map<String, String>>()
-                while (it.moveToNext()) {
-                    results.add(mapOf(
-                        "topic_id" to it.getString(1),
-                        "title" to it.getString(0)
-                    ))
-                }
-                results
-            }
-        } catch (_: Exception) {
-            try {
-                val cursor = db.rawQuery(
-                    """
-                    SELECT Text as title, URL as topic_id
-                    FROM search
-                    WHERE search MATCH ?
-                    LIMIT 20
-                    """,
-                    arrayOf(ftsQuery)
-                )
-
-                cursor.use {
-                    val results = mutableListOf<Map<String, String>>()
-                    while (it.moveToNext()) {
-                        results.add(mapOf(
-                            "topic_id" to it.getString(1),
-                            "title" to it.getString(0)
-                        ))
-                    }
-                    results
-                }
-            } catch (_: Exception) {
-                emptyList()
-            }
-        }
-    }
 
     private fun hasTopicAsset(topicId: String): Boolean {
         if (topicId.isEmpty()) return false

@@ -19,7 +19,8 @@ class ContentDao @Inject constructor(
         val bodyHtml: String,
         val outlineHtml: String = "",
         val relatedGraphics: List<Map<String, Any?>> = emptyList(),
-        val contributors: List<ContributorGroup>? = null
+        val contributors: List<ContributorGroup>? = null,
+        val title: String = ""
     )
 
     fun getTopicContent(topicId: String): TopicContent? {
@@ -35,23 +36,27 @@ class ContentDao @Inject constructor(
                 if (!cursor.moveToFirst()) return null
                 val payloadStr = ZstdUtil.decodePayload(cursor.getBlob(0))
                 val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
-                val topicInfo = jsonObj["topicInfo"]?.let {
-                    try { it.jsonObject } catch (_: Exception) { null }
-                }
-                var title = topicInfo?.get("title")?.jsonPrimitive?.content
-                    ?: jsonObj["title"]?.jsonPrimitive?.content
-                if (title.isNullOrBlank()) {
-                    val translated = topicInfo?.get("translatedTopicInfos") as? kotlinx.serialization.json.JsonArray
-                    val enInfo = translated?.firstOrNull { item ->
-                        (item as? kotlinx.serialization.json.JsonObject)?.get("languageCode")?.jsonPrimitive?.content == "en-US"
-                    } as? kotlinx.serialization.json.JsonObject
-                    title = enInfo?.get("title")?.jsonPrimitive?.content
-                }
-                title?.removeSurrounding("\"")?.trim()?.takeIf { it.isNotBlank() }
+                extractTitleFromJson(jsonObj)
             }
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun extractTitleFromJson(jsonObj: JsonObject): String? {
+        val topicInfo = jsonObj["topicInfo"]?.let {
+            try { it.jsonObject } catch (_: Exception) { null }
+        }
+        var title = topicInfo?.get("title")?.jsonPrimitive?.content
+            ?: jsonObj["title"]?.jsonPrimitive?.content
+        if (title.isNullOrBlank()) {
+            val translated = topicInfo?.get("translatedTopicInfos") as? kotlinx.serialization.json.JsonArray
+            val enInfo = translated?.firstOrNull { item ->
+                (item as? kotlinx.serialization.json.JsonObject)?.get("languageCode")?.jsonPrimitive?.content == "en-US"
+            } as? kotlinx.serialization.json.JsonObject
+            title = enInfo?.get("title")?.jsonPrimitive?.content
+        }
+        return title?.removeSurrounding("\"")?.trim()?.takeIf { it.isNotBlank() }
     }
 
     private fun extractNumericId(topicId: String): Int? {
@@ -75,7 +80,8 @@ class ContentDao @Inject constructor(
             TopicContent(
                 bodyHtml = jsonObj.string("bodyHtml"),
                 outlineHtml = jsonObj.string("outlineHtml"),
-                contributors = jsonObj.contributors("contributors")
+                contributors = jsonObj.contributors("contributors"),
+                title = extractTitleFromJson(jsonObj) ?: ""
             )
         }
     }

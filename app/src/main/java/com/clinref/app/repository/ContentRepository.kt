@@ -17,7 +17,8 @@ class ContentRepository @Inject constructor(
         val bodyHtml: String,
         val outlineHtml: String = "",
         val relatedGraphics: List<Map<String, Any?>> = emptyList(),
-        val contributors: List<ContributorGroup>? = null
+        val contributors: List<ContributorGroup>? = null,
+        val title: String = ""
     )
 
     private val topicSectionTitlesCache = ConcurrentHashMap<String, Map<String, String>>()
@@ -25,11 +26,20 @@ class ContentRepository @Inject constructor(
 
     fun getTopicContent(topicId: String): TopicContent? {
         val content = contentDao.getTopicContent(topicId) ?: return null
+        if (content.title.isNotEmpty()) {
+            val clean = topicId.trim()
+            topicTitlesCache.putIfAbsent(clean, content.title)
+            val numId = Regex("""\d+""").find(clean)?.value
+            if (numId != null && numId != clean) {
+                topicTitlesCache.putIfAbsent(numId, content.title)
+            }
+        }
         return TopicContent(
             bodyHtml = content.bodyHtml,
             outlineHtml = content.outlineHtml,
             relatedGraphics = content.relatedGraphics,
-            contributors = content.contributors
+            contributors = content.contributors,
+            title = content.title
         )
     }
 

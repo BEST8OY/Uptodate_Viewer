@@ -118,43 +118,28 @@ class ClinRefDatabase:
             if not topic_ids:
                 return []
 
-            # Fetch titles for topic IDs
+            # Fetch titles for topic IDs using fast indexed batch lookup from unidex
             results = []
-            for tid in topic_ids[:20]:  # Limit to 20
-                title = self._get_topic_title_from_toc(tid) or ""
+            selected_ids = topic_ids[:20]
+            placeholders = ",".join("?" for _ in selected_ids)
+            title_map = {}
+            try:
+                rows = self.unidex.execute(
+                    f"SELECT topic_id, title FROM topic WHERE topic_id IN ({placeholders})",
+                    selected_ids,
+                ).fetchall()
+                title_map = {str(r["topic_id"]): r["title"] for r in rows if r["title"]}
+            except Exception:
+                pass
+
+            for tid in selected_ids:
+                title = title_map.get(tid) or self.get_topic_title(tid) or ""
                 results.append({"id": tid, "title": title, "url": f"Topic-{tid}"})
 
             return results
 
         except Exception:
             return []
-
-    def _get_topic_title_from_toc(self, topic_id: str) -> Optional[str]:
-        """Get topic title from TOC database."""
-        try:
-            # First try TOCMap to find the TOC entry
-            row = self.toc.execute(
-                "SELECT tocId FROM TOCMap WHERE topicId = ?", (topic_id,)
-            ).fetchone()
-            if row:
-                toc_row = self.toc.execute(
-                    "SELECT title FROM TOC WHERE id = ?", (row["tocId"],)
-                ).fetchone()
-                if toc_row:
-                    return toc_row["title"]
-
-            # Fallback: try asset database
-            asset = self.get_topic_asset(topic_id)
-            if asset:
-                info = asset.get("topicInfo", {})
-                for t in info.get("translatedTopicInfos", []):
-                    if t.get("languageCode") == "en-US":
-                        return t.get("title")
-                return info.get("title")
-
-        except Exception:
-            pass
-        return None
 
     # ── Suggestions ────────────────────────────────────────────────────
 
@@ -249,23 +234,7 @@ class ClinRefDatabase:
 
         return list(dict.fromkeys(r["u"] for r in rows if r["u"]))
 
-    # ── TOC ─────────────────────────────────────────────────────────────
 
-    def get_toc_for_topic(self, topic_id: str) -> list[dict]:
-        """Get table of contents entries mapped to a topic ID."""
-        row = self.toc.execute(
-            "SELECT tocId FROM TOCMap WHERE topicId = ?", (topic_id,)
-        ).fetchone()
-        if not row:
-            return []
-        toc_id = row["tocId"]
-        return [
-            dict(r)
-            for r in self.toc.execute(
-                "SELECT id, title, parentId, leaf, section FROM TOC WHERE id = ?",
-                (toc_id,),
-            ).fetchall()
-        ]
 
     # ── Topic Assets ────────────────────────────────────────────────────
 
@@ -324,10 +293,10 @@ class ClinRefDatabase:
             return None
 
     def get_topic_title(self, topic_id: str) -> Optional[str]:
-        """Get English title for a topic ID with 3-way multi-DB fallback."""
+        """Get English title for a topic ID: indexed unidex lookup -> utdasset ground truth."""
         num_id = self._extract_numeric_id(topic_id)
 
-        # 1. Try unidex.en.sqlite (fast indexed lookup)
+        # 1. Try unidex.en.sqlite (fast indexed primary-key lookup)
         try:
             row = self.unidex.execute(
                 "SELECT title FROM topic WHERE topic_id = ? LIMIT 1", (num_id,)
@@ -337,18 +306,7 @@ class ClinRefDatabase:
         except Exception:
             pass
 
-        # 2. Try utdtoc.db (fast indexed lookup)
-        try:
-            row = self.toc.execute(
-                "SELECT t.title FROM TOCMap m JOIN TOC t ON m.tocId = t.id WHERE m.topicId = ? LIMIT 1",
-                (num_id,)
-            ).fetchone()
-            if row and row["title"]:
-                return row["title"].strip()
-        except Exception:
-            pass
-
-        # 3. Fallback: try utdasset.sqlite (payload decompression)
+        # 2. Authoritative ground truth: try utdasset.sqlite (payload decompression)
         try:
             asset = self.get_topic_asset(num_id)
             if asset:
