@@ -44,8 +44,6 @@ import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.ui.chat.MessageUiModel
 import com.clinref.app.ui.chat.StreamingMarkdownBuffer
-import com.clinref.app.ui.chat.ResolvedTopicRef
-import com.clinref.app.ui.chat.ResolvedGraphicRef
 import com.halilibo.richtext.commonmark.Markdown
 import com.halilibo.richtext.ui.material3.RichText
 

@@ -47,28 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.app.domain.ai.ClinicalSource
-import com.clinref.app.ui.chat.ResolvedGraphicRef
-import com.clinref.app.ui.chat.ResolvedTopicRef
-
-@Composable
-fun ClinicalReferencesSection(
-    topicRefs: List<ResolvedTopicRef>,
-    graphicRefs: List<ResolvedGraphicRef>,
-    onNavigateToContent: (topicId: String, sectionId: String?) -> Unit,
-    onGraphicSelected: (graphicId: String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val (articles, tables) = remember(topicRefs, graphicRefs) {
-        ClinicalSource.fromResolved(topicRefs, graphicRefs)
-    }
-    ClinicalReferencesSection(
-        articles = articles,
-        tables = tables,
-        onNavigateToContent = onNavigateToContent,
-        onGraphicSelected = onGraphicSelected,
-        modifier = modifier
-    )
-}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
