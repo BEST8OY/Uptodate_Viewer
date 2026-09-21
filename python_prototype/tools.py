@@ -1,12 +1,11 @@
 """LangChain tools for medical database access.
 
-Mirrors Kotlin MedicalDatabaseTools — 6 tools:
+Mirrors Kotlin MedicalDatabaseTools — 5 tools:
 1. search_topics — unidex curated topic search
 2. get_topic_outline — Section list for a topic
 3. get_related_topics — Related topic IDs + titles for candidate pool
 4. get_topic_sections_text — Batch section retrieval
 5. get_graphic_content — Table data as markdown (or error for non-table)
-6. submit_clinical_answer — Terminal tool for structured citations
 """
 
 import json
@@ -30,26 +29,17 @@ from html_parser import (
 _db: Optional[ClinRefDatabase] = None
 
 
-class TopicRefPayload(BaseModel):
-    """Structured topic reference for submit_clinical_answer."""
-    topic_id: str
-    section_id: str = ""
-    label: str
-
-
-class GraphicRefPayload(BaseModel):
-    """Structured graphic reference for submit_clinical_answer."""
-    graphic_id: str
-    label: str
-
-
 def init_tools(db: ClinRefDatabase) -> list:
     """Initialize tools with a database instance. Returns tool list."""
     global _db
     _db = db
-    return [search_topics, get_topic_outline, get_related_topics,
-            get_topic_sections_text, get_graphic_content,
-            submit_clinical_answer]
+    return [
+        search_topics,
+        get_topic_outline,
+        get_related_topics,
+        get_topic_sections_text,
+        get_graphic_content,
+    ]
 
 
 @tool
@@ -222,6 +212,7 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
         markdown = html_to_markdown(body_html)
         header = f"=== Calculator: {topic_title} ===" if t_type == "calc" else "=== Section: FULL ==="
         return json.dumps({
+            "topicId": clean_topic_id,
             "topicTitle": topic_title,
             "topic_type": t_type,
             "sectionTitles": {"FULL": topic_title},
@@ -244,6 +235,7 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
 
     if not valid_ids and invalid_ids:
         return json.dumps({
+            "topicId": clean_topic_id,
             "topicTitle": topic_title,
             "sectionTitles": {},
             "markdown": "",
@@ -263,6 +255,7 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
             sections_md.append(f"=== Section: {section_id} ===\nSection not found.")
 
     result = {
+        "topicId": clean_topic_id,
         "topicTitle": topic_title,
         "sectionTitles": section_titles,
         "markdown": "\n\n".join(sections_md),
@@ -305,23 +298,3 @@ def get_graphic_content(graphic_id: str) -> str:
     markdown = table_to_markdown(table_html)
     return f"### Graphic Table: {title}\n\n{markdown}"
 
-
-@tool
-def submit_clinical_answer(
-    answer_text: str,
-    no_data_found: bool = False,
-) -> str:
-    """MUST be called to present your final clinical answer to the user.
-
-    Provide the final text response and indicate if data was unavailable.
-    References are automatically extracted from your tool calls.
-
-    Args:
-        answer_text: The formatted markdown response text for the clinician.
-        no_data_found: Set to true ONLY if the database search yielded no relevant clinical information.
-    """
-    return json.dumps({
-        "status": "SUBMITTED",
-        "answer": answer_text,
-        "noDataFound": no_data_found,
-    })

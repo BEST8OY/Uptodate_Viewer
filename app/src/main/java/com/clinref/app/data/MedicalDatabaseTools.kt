@@ -23,16 +23,17 @@ class MedicalDatabaseTools @Inject constructor(
     val getRelatedTopicsTool by lazy { com.clinref.app.data.tools.GetRelatedTopicsTool(this) }
     val getTopicSectionsTextTool by lazy { com.clinref.app.data.tools.GetTopicSectionsTextTool(this) }
     val getGraphicContentTool by lazy { com.clinref.app.data.tools.GetGraphicContentTool(this) }
-    val submitClinicalAnswerTool by lazy { com.clinref.app.data.tools.SubmitClinicalAnswerTool(this) }
 
     fun asToolList(): List<ai.koog.agents.core.tools.Tool<*, *>> = listOf(
         searchTopicsTool,
         getTopicOutlineTool,
         getRelatedTopicsTool,
         getTopicSectionsTextTool,
-        getGraphicContentTool,
-        submitClinicalAnswerTool
+        getGraphicContentTool
     )
+
+    fun getTopicTitle(topicId: String): String? = contentRepository.getTopicTitle(topicId)
+    fun getSectionTitle(topicId: String, sectionId: String): String? = contentRepository.getSectionTitle(topicId, sectionId)
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -209,6 +210,7 @@ class MedicalDatabaseTools @Inject constructor(
             val header = if (isCalc) "=== Calculator: $topicTitle ===" else "=== Section: FULL ==="
             return json.encodeToString(
                 TopicSectionsResponse(
+                    topicId = cleanTopicId,
                     topicTitle = topicTitle,
                     sectionTitles = mapOf("FULL" to topicTitle),
                     markdown = "$header\n$markdown"
@@ -246,20 +248,11 @@ class MedicalDatabaseTools @Inject constructor(
 
         return json.encodeToString(
             TopicSectionsResponse(
+                topicId = cleanTopicId,
                 topicTitle = topicTitle,
                 sectionTitles = sectionTitles,
                 markdown = sectionsMd.joinToString("\n\n"),
                 invalidSections = invalidIds.ifEmpty { null }
-            )
-        )
-    }
-
-    fun submitClinicalAnswer(answerText: String, noDataFound: Boolean = false): String {
-        return json.encodeToString(
-            ClinicalAnswerSubmission(
-                status = "SUBMITTED",
-                answer = answerText,
-                noDataFound = noDataFound
             )
         )
     }

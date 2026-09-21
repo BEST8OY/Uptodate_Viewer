@@ -53,17 +53,11 @@ data class RelatedTopicsResponse(
 
 @Serializable
 data class TopicSectionsResponse(
+    val topicId: String = "",
     val topicTitle: String,
     val sectionTitles: Map<String, String> = emptyMap(),
     val markdown: String,
     val invalidSections: List<String>? = null
-)
-
-@Serializable
-data class ClinicalAnswerSubmission(
-    val status: String = "SUBMITTED",
-    val answer: String,
-    val noDataFound: Boolean = false
 )
 
 @Serializable

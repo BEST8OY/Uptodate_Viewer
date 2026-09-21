@@ -4,11 +4,14 @@ import ai.koog.agents.core.tools.SimpleTool
 import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.serialization.typeToken
 import com.clinref.app.data.MedicalDatabaseTools
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 
 /**
  * Native class-based Koog tools for clinical database access.
  * Zero reflection at runtime; full compile-time type safety for arguments and schemas.
+ * Field names support both camelCase and snake_case aliases via @JsonNames.
  */
 
 class SearchTopicsTool(
@@ -22,8 +25,9 @@ class SearchTopicsTool(
         "Avoid searching full patient sentences or lab measurements."
 ) {
     @Serializable
-    data class Args(
+    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
         @property:LLMDescription("Single medical term or core clinical concept (e.g., 'asthma', 'metformin').")
+        @JsonNames("search_query", "q", "query_text")
         val query: String
     )
 
@@ -39,8 +43,9 @@ class GetTopicOutlineTool(
         "ALWAYS call this after searchTopics to obtain sectionId values for getTopicSectionsText."
 ) {
     @Serializable
-    data class Args(
+    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
         @property:LLMDescription("The topic ID returned by searchTopics (e.g., '12345')")
+        @JsonNames("topic_id")
         val topicId: String
     )
 
@@ -55,8 +60,9 @@ class GetRelatedTopicsTool(
     description = "Get related topic IDs and titles for a topic. Use this to build a candidate pool before fetching sections."
 ) {
     @Serializable
-    data class Args(
+    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
         @property:LLMDescription("The topic ID from searchTopics")
+        @JsonNames("topic_id")
         val topicId: String
     )
 
@@ -71,10 +77,12 @@ class GetTopicSectionsTextTool(
     description = "Retrieve multiple sections from the same topic in a single call."
 ) {
     @Serializable
-    data class Args(
+    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
         @property:LLMDescription("The topic ID")
+        @JsonNames("topic_id")
         val topicId: String,
         @property:LLMDescription("List of section IDs to retrieve from getTopicOutline")
+        @JsonNames("section_ids")
         val sectionIds: List<String>
     )
 
@@ -90,30 +98,12 @@ class GetGraphicContentTool(
         "Do NOT call for non-table graphics (figures, images, algorithms) as visual details cannot be analyzed."
 ) {
     @Serializable
-    data class Args(
+    data class Args @OptIn(ExperimentalSerializationApi::class) constructor(
         @property:LLMDescription("The graphic ID from getTopicOutline (e.g., 'Graphic-12345' or '12345')")
+        @JsonNames("graphic_id")
         val graphicId: String
     )
 
     override suspend fun execute(args: Args): String = databaseTools.getGraphicContent(args.graphicId)
 }
 
-class SubmitClinicalAnswerTool(
-    private val databaseTools: MedicalDatabaseTools
-) : SimpleTool<SubmitClinicalAnswerTool.Args>(
-    argsType = typeToken<Args>(),
-    name = "submitClinicalAnswer",
-    description = "MUST be called to present your final clinical answer to the user. " +
-        "Provide the formatted markdown response text and indicate if data was unavailable. " +
-        "References are automatically extracted from your tool calls."
-) {
-    @Serializable
-    data class Args(
-        @property:LLMDescription("The formatted markdown response text for the clinician.")
-        val answerText: String,
-        @property:LLMDescription("Set to true ONLY if the database search yielded no relevant clinical information.")
-        val noDataFound: Boolean = false
-    )
-
-    override suspend fun execute(args: Args): String = databaseTools.submitClinicalAnswer(args.answerText, args.noDataFound)
-}
