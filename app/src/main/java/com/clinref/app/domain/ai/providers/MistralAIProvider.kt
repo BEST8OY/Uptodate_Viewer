@@ -87,6 +87,7 @@ class MistralAIProvider(
     override fun getAvailableModels(): List<String> {
         return listOf(
             "open-mistral-nemo",
+            "ministral-14b-latest",
             "ministral-8b-latest",
             "codestral-latest",
             "ministral-3b-latest",
