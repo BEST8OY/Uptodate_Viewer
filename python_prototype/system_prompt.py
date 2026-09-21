@@ -104,7 +104,8 @@ def _candidate_pool() -> str:
 def _final_answer_rules() -> str:
     return """FINAL ANSWER:
 - Synthesize your final response directly from the retrieved sections and tables.
-- Citations, section chips, and graphic references are automatically tracked and displayed from your tool evidence.
+- Focus strictly on clinical substance: recommendations, dosages, criteria, and rationale.
+- Never output a "References" or "Sources" heading or list. Citations and source cards are automatically tracked and displayed in the application UI.
 - Provide your final clinical response directly as clear, structured markdown text."""
 
 
@@ -147,8 +148,11 @@ def _ollama_workflow() -> str:
 
 
 def _citation_rules() -> str:
-    return """ANSWER FORMAT:
-The answer_text must be PURE CLINICAL CONTENT with no references or links. References are auto-extracted from your tool calls."""
+    return """ANSWER FORMAT & CITATIONS:
+- Provide pure clinical content directly addressing the question.
+- DO NOT generate a "References", "Sources", "Citations", or bibliography section or list at the end of your response.
+- DO NOT output internal markdown topic or graphic links (e.g., [Title](Topic-...) or [Title](Graphic-...)). Write plain text names instead.
+- All clinical references, topic cards, section chips, and interactive tables are automatically extracted from your tool calls and displayed by the application UI below your response."""
 
 
 def _response_style() -> str:
