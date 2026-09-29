@@ -1,6 +1,6 @@
 # AI Domain Layer — Architectural Modernization & Breaking Improvements
 
-This document tracks the prioritized execution of architectural improvements across the ClinRef AI pipeline (Kotlin `:app` and `python_prototype/`), eliminating legacy workarounds, boundary duality, repetitive regex parsing, and fragile terminal tool requirements.
+This document tracks the prioritized execution of architectural improvements across the ClinRef AI pipeline (Kotlin `:androidApp` and `python_prototype/`), eliminating legacy workarounds, boundary duality, repetitive regex parsing, and fragile terminal tool requirements.
 
 ---
 
@@ -16,7 +16,7 @@ This document tracks the prioritized execution of architectural improvements acr
   - Single-pass outline parsing into in-memory maps eliminates redundant regex scraping and DB queries on repeat section lookups.
 
 - [x] **Task 3: Complete Elimination of `submitClinicalAnswer` & Natural LLM Generation (Eliminated Escaped JSON Fragility)**
-  - Completely eliminated `submitClinicalAnswer` and `submit_clinical_answer` across both Kotlin (`:app`) and Python prototype (`python_prototype/`).
+  - Completely eliminated `submitClinicalAnswer` and `submit_clinical_answer` across both Kotlin (`:androidApp`) and Python prototype (`python_prototype/`).
   - Streamlined tool suite to 5 pure database retrieval tools (`searchTopics`, `getTopicOutline`, `getRelatedTopics`, `getTopicSectionsText`, `getGraphicContent`).
   - LLMs now respond directly in pure, natural Markdown. Citations and reference cards are automatically populated from accumulated tool evidence.
   - Eliminated escaped JSON parsing bugs, double-encoding issues in Koog, and unnecessary prompt token overhead.

@@ -1,7 +1,7 @@
 # ClinRef — Agent Instructions
 
 ## Critical Execution Rules
-- **No Android SDK on this machine**: NEVER run Android-specific Gradle tasks (e.g., `./gradlew assembleDebug`, `./gradlew :app:...`, Android instrumented tests, or Android emulator/device tasks).
+- **No Android SDK on this machine**: NEVER run Android-specific Gradle tasks (e.g., `./gradlew assembleDebug`, `./gradlew :androidApp:...`, Android instrumented tests, or Android emulator/device tasks).
 - **Desktop/JVM Gradle Tasks ARE Permitted**: You MAY run Desktop JVM tasks for `:shared` (e.g., `./gradlew :shared:compileKotlinDesktop`, `./gradlew :shared:desktopTest`) since they compile and run on standard JVM 17 without requiring the Android SDK.
 - **Do NOT commit `python_prototype/.env`**: Contains local API keys.
 - **Only run `pytest` when modifying real Python code in `python_prototype/`**: Do NOT run `pytest` unconditionally. Specifically, NEVER run `pytest` for Kotlin-only changes, UI/Compose changes, XML resources, Gradle configs, Room DAOs, documentation, or code audits.
@@ -11,7 +11,7 @@
   - `commonMain`: Compose M3 Expressive UI & adaptive layouts, Navigation 3 runtime & peer roots, ViewModels (MVI StateFlows), Koog AI ReAct state machine & 7 LLM providers, domain entities, Room 3 AppDatabase & DAOs, raw SQLite query engine via `BundledSQLiteDriver`, pure KMP `kzstd` decompression, and Koin DI modules (`commonModules`).
   - `desktopMain`: Desktop JVM runtime (`DesktopApp.kt`), AES-256 encrypted secure preferences (`DesktopSecurePreferences`), Swing/AWT `ArticleWebView.desktop.kt` (`SwingPanel` + `JEditorPane`), desktop platform logger, and desktop Koin DI (`desktopAppModules`).
   - `androidMain`: Android-specific implementations, hardware-accelerated Chrome `WebView` (`ArticleWebView.android.kt`, `NestedScrollWebView`, `JsBridge`), Android `BackHandler.android.kt`, and Android platform logger.
-- **Android App Launcher (`:app`)**: Package `com.clinref.app` using Compose M3, Koin DI (`androidPlatformModule`), Navigation 3, and Room 3.
+- **Android App Launcher (`:androidApp`)**: Package `com.clinref.app` using Compose M3, Koin DI (`androidPlatformModule`), Navigation 3, and Room 3.
 - **Desktop App Launcher (`:desktopApp`)**: Package `com.clinref.desktop` targeting Desktop JVM 17. Standalone diagnostic runner and Compose Desktop launcher depending on `:shared`.
 - **Python Prototype (`python_prototype/`)**: LangGraph/LangChain agent in Python 3.13 (`uv`). Mirrors Kotlin agent logic 1:1.
 - **SQLite DBs (Project Root)**: 6 SQLite databases (`utdasset.sqlite`, `unidex.en.sqlite`, `fsearch.db`, `utdqf.sqlite`, `utdtoc.db`, `thumbs.db`) read directly by both the Python prototype and the Kotlin SQLite engine.
@@ -83,7 +83,7 @@ See [`docs/testing.md`](docs/testing.md) for the complete testing strategy, test
 
 ## Known Quirks
 - **Koog Duplicate Classes**: `utils-android` must remain excluded in Gradle configurations; `utils-jvm` is used instead.
-- **ProGuard**: Keep rules in `app/proguard-rules.pro` for Koog, Room3, Koin, serialization, and Compose must not be trimmed.
+- **ProGuard**: Keep rules in `androidApp/proguard-rules.pro` for Koog, Room3, Koin, serialization, and Compose must not be trimmed.
 - **KMP AGP 9 Setup**: `:shared` uses `com.android.kotlin.multiplatform.library` plugin with `withHostTest { }` inside `kotlin { android { ... } }`. Source sets (`commonMain`, `commonTest`, `androidMain`, `androidHostTest`) use explicit KMP DSL accessors.
 - **Navigation 3 Top-Level Peer Roots**: Bottom navigation and navigation rail top-level routes MUST be independent roots in `toDecoratedEntries` (`getTopLevelRoutesInUse() = listOf(topLevelRoute)`). NEVER stack `listOf(startRoute, topLevelRoute)` to implement "Exit through Home" — this corrupts `NavDisplay`'s internal scene state, z-index calculation, and predictive back targeting across multi-tab transitions. Instead, handle "Exit through Home" via an explicit top-level `BackHandler` (`enabled = !isOnOverlayScreen && topLevelRoute != startRoute`).
 - **Koog Tool Result Double-Encoding**: In Koog, `eventContext.toolResult` for string-returning tools is a `JSONPrimitive`. Calling `.toString()` outputs double-encoded, escaped JSON strings (`"\"{\\\"key\\\":...}\""`). Deserializing tool results or args in Kotlin must unbox string primitives (e.g., via `extractJsonString` / `parseAsJsonObject`) before attempting `as? JsonObject` to avoid silent `null` deserialization failures.

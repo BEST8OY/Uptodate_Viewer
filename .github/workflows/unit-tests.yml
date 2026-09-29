@@ -4,19 +4,19 @@ on:
   push:
     branches: [ main, develop ]
     paths:
-      - 'app/src/**'
+      - 'androidApp/src/**'
       - 'shared/src/**'
       - 'gradle/**'
-      - 'app/build.gradle.kts'
+      - 'androidApp/build.gradle.kts'
       - 'shared/build.gradle.kts'
       - '.github/workflows/unit-tests.yml'
   pull_request:
     branches: [ main, develop ]
     paths:
-      - 'app/src/**'
+      - 'androidApp/src/**'
       - 'shared/src/**'
       - 'gradle/**'
-      - 'app/build.gradle.kts'
+      - 'androidApp/build.gradle.kts'
       - 'shared/build.gradle.kts'
   workflow_dispatch:
     inputs:
@@ -71,7 +71,7 @@ jobs:
         if: always()
         with:
           name: jvm-test-results-${{ github.sha }}
-          path: app/build/reports/tests/testDebugUnitTest/
+          path: androidApp/build/reports/tests/testDebugUnitTest/
           retention-days: 14
 
       - name: Show failed test details
@@ -79,7 +79,7 @@ jobs:
         run: |
           echo "### Failed JVM Test Details" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+          for f in androidApp/build/test-results/testDebugUnitTest/*.xml; do
             if [ -f "$f" ]; then
               echo "<details>" >> $GITHUB_STEP_SUMMARY
               echo "<summary>$(basename $f .xml)</summary>" >> $GITHUB_STEP_SUMMARY

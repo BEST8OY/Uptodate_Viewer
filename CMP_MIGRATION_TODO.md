@@ -35,7 +35,7 @@ This document serves as the authoritative, phased TODO checklist and execution b
              ▲                                ▲
              │                                │
   +--------------------+            +--------------------+
-  |       :app         |            |    :desktopApp     |
+  |    :androidApp     |            |    :desktopApp     |
   | (Android Launcher) |            |   (JVM Launcher)   |
   | MainActivity.kt    |            |     Main.kt        |
   +--------------------+            +--------------------+
@@ -162,10 +162,10 @@ This document serves as the authoritative, phased TODO checklist and execution b
     - ArticleWebViewController: JavaScript generation and action dispatcher validated
 - [x] **7.5. Full DI Unification & Official KMP Project Ergonomics**
   - [x] Enabled Gradle `enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")` in `settings.gradle.kts`.
-  - [x] Converted internal project dependencies to `projects.shared` across `:app` and `:desktopApp`.
-  - [x] Retired Dagger Hilt entirely from `:app` (removed plugin, compiler, and runtime dependencies).
+  - [x] Converted internal project dependencies to `projects.shared` across `:androidApp` and `:desktopApp`.
+  - [x] Retired Dagger Hilt entirely from `:androidApp` (removed plugin, compiler, and runtime dependencies).
   - [x] Migrated `MainActivity.kt` and `ClinRefApp.kt` to 100% Koin injection (`by inject()`).
-  - [x] Eliminated all duplicate `domain`, `repository`, `data` (DAOs), and `util` classes from `:app` in favor of `:shared`.
+  - [x] Eliminated all duplicate `domain`, `repository`, `data` (DAOs), and `util` classes from `:androidApp` in favor of `:shared`.
 
 ---
 
@@ -230,7 +230,7 @@ This document serves as the authoritative, phased TODO checklist and execution b
         }
     }
     ```
-  - [ ] Update `:app/src/main/java/com/clinref/app/MainActivity.kt` to become a minimal launcher:
+  - [ ] Update `:androidApp/src/main/java/com/clinref/app/MainActivity.kt` to become a minimal launcher:
     ```kotlin
     class MainActivity : ComponentActivity() {
         override fun onCreate(savedInstanceState: Bundle?) {
@@ -241,6 +241,6 @@ This document serves as the authoritative, phased TODO checklist and execution b
     }
     ```
 
-- [ ] **8.6. Final Symmetry Naming Convention (Optional)**
-  - [ ] Rename `:app` module directory to `:androidApp` in `settings.gradle.kts`, `build.gradle.kts`, and CI workflows, fully mirroring the official JetBrains Quickstart layout (`:androidApp`, `:desktopApp`, `:shared`).
+- [x] **8.6. Final Symmetry Naming Convention**
+  - [x] Renamed `:app` module directory to `:androidApp` in `settings.gradle.kts`, `androidApp/build.gradle.kts`, and CI workflows, fully mirroring the official JetBrains Quickstart layout (`:androidApp`, `:desktopApp`, `:shared`).
 

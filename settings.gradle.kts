@@ -18,6 +18,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ClinRef"
-include(":app")
+include(":androidApp")
 include(":shared")
 include(":desktopApp")

@@ -4,7 +4,7 @@
 
 | Category | Status & Implementation Details |
 |---|---|
-| **Architecture / Multiplatform Target** | **Compose Multiplatform (CMP)**: `:shared` (library targeting JVM 17 Desktop & Android SDK 35+), `:desktopApp` (standalone Desktop JVM runner), and `:app` (Android launcher). |
+| **Architecture / Multiplatform Target** | **Compose Multiplatform (CMP)**: `:shared` (library targeting JVM 17 Desktop & Android SDK 35+), `:desktopApp` (standalone Desktop JVM runner), and `:androidApp` (Android launcher). |
 | **Dependency Injection** | **Koin 4.2.2**: Multiplatform DI (`commonModules`, `desktopAppModules`, `androidPlatformModule`). All ViewModels, DAOs, and repositories run natively via Koin. |
 | **Unit Testing Framework** | **JUnit 4 (`junit:4.13.2`)**: Executed via `:shared:desktopTest` on standard OpenJDK 27 / JVM 17 without requiring Android SDK. |
 | **Coroutines & AI Testing** | `kotlinx-coroutines-test:1.10.1` (`StandardTestDispatcher`, `runTest`, `backgroundScope`), `ai.koog:agents-test:1.2.0`. |

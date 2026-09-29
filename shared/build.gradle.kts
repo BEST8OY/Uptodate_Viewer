@@ -8,6 +8,10 @@ plugins {
 }
 
 kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     android {
         namespace = "com.clinref.shared"
         compileSdk = 37
@@ -105,6 +109,7 @@ configurations.configureEach {
 }
 
 dependencies {
+    add("kspAndroid", libs.room3.compiler)
     add("kspDesktop", libs.room3.compiler)
 }
 
