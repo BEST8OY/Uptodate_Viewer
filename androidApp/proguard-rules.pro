@@ -46,4 +46,10 @@
 -dontwarn java.lang.management.**
 -dontwarn io.ktor.**
 
+# Compile-time static analysis annotations (referenced by Google Tink & OpenTelemetry)
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
+-dontwarn org.checkerframework.**
+
+
 

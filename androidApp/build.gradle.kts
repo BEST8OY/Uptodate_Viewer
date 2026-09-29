@@ -107,6 +107,7 @@ dependencies {
 
     // Security (encrypted key storage)
     implementation(libs.security.crypto)
+    compileOnly(libs.error.prone.annotations)
 
     // Markdown rendering in Compose
     implementation(libs.compose.richtext.commonmark)
