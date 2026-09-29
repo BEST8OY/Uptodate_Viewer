@@ -1,6 +1,6 @@
 package com.clinref.app.ui.conversations
 
-import androidx.activity.compose.BackHandler
+import com.clinref.app.ui.common.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
@@ -85,7 +85,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LifecycleStartEffect
 import com.clinref.app.repository.ConversationBackup
@@ -104,7 +104,7 @@ fun ConversationListScreen(
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
     reselectEvents: Flow<NavKey>? = null,
-    viewModel: ConversationListViewModel = hiltViewModel()
+    viewModel: ConversationListViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()

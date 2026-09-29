@@ -28,6 +28,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,11 +44,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.ui.chat.components.GeminiChatInput
@@ -62,7 +63,7 @@ fun ChatScreen(
     onNavigateToContent: (String, String?) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onBack: () -> Unit,
-    viewModel: ChatViewModel = hiltViewModel()
+    viewModel: ChatViewModel = koinViewModel()
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
@@ -76,7 +77,8 @@ fun ChatScreen(
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
     val config by viewModel.configuration.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -130,6 +132,7 @@ fun ChatScreen(
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             MediumFlexibleTopAppBar(
                 title = {
@@ -228,7 +231,10 @@ fun ChatScreen(
                             is ChatListItem.Message -> GeminiMessageItem(
                                 message = item.uiModel,
                                 onCopyMessage = { content ->
-                                    viewModel.copyMessageToClipboard(context, content)
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(content))
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Copied content to workspace clipboard")
+                                    }
                                 },
                                 onNavigateToContent = onNavigateToContent,
                                 onGraphicSelected = onGraphicSelected
@@ -257,7 +263,10 @@ fun ChatScreen(
                                     showTimestamp = false
                                 ),
                                 onCopyMessage = { content ->
-                                    viewModel.copyMessageToClipboard(context, content)
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(content))
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Copied content to workspace clipboard")
+                                    }
                                 },
                                 onNavigateToContent = onNavigateToContent,
                                 onGraphicSelected = onGraphicSelected

@@ -45,7 +45,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.R
 import com.clinref.app.domain.GraphicData
@@ -57,7 +57,7 @@ import org.jsoup.Jsoup
 fun GraphicSheet(
     graphicId: String,
     onDismiss: () -> Unit,
-    viewModel: GraphicViewModel = hiltViewModel(),
+    viewModel: GraphicViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 

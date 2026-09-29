@@ -12,9 +12,6 @@
 -keep class com.clinref.app.ui.navigation.** { *; }
 -keep class com.clinref.app.domain.** { *; }
 
-# Hilt
--keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
-
 # Compose
 -dontwarn androidx.compose.**
 

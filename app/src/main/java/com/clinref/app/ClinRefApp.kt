@@ -1,7 +1,17 @@
 package com.clinref.app
 
 import android.app.Application
-import dagger.hilt.android.HiltAndroidApp
+import com.clinref.app.di.androidPlatformModule
+import com.clinref.shared.di.commonModules
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.startKoin
 
-@HiltAndroidApp
-class ClinRefApp : Application()
+class ClinRefApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        startKoin {
+            androidContext(this@ClinRefApp)
+            modules(commonModules + androidPlatformModule)
+        }
+    }
+}

@@ -7,14 +7,11 @@ import androidx.activity.enableEdgeToEdge
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.navigation.NavGraph
 import com.clinref.app.ui.theme.ClinRefTheme
-import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import org.koin.android.ext.android.inject
 
-@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    @Inject
-    lateinit var databaseManager: DatabaseManager
+    private val databaseManager: DatabaseManager by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

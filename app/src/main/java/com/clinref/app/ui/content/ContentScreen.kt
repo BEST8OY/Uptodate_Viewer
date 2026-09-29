@@ -2,7 +2,7 @@ package com.clinref.app.ui.content
 
 import android.content.Context
 import android.view.accessibility.AccessibilityManager
-import androidx.activity.compose.BackHandler
+import com.clinref.app.ui.common.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -52,7 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 
@@ -64,7 +64,7 @@ fun ContentScreen(
     onBack: () -> Unit,
     onHome: () -> Unit,
     onGraphicSelected: (String) -> Unit,
-    viewModel: ContentViewModel = hiltViewModel(),
+    viewModel: ContentViewModel = koinViewModel(),
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(topicId, sectionId) {

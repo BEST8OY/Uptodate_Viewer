@@ -1,7 +1,6 @@
 package com.clinref.app.ui.navigation
 
-import android.app.Activity
-import androidx.activity.compose.BackHandler
+import com.clinref.app.ui.common.BackHandler
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
@@ -18,8 +17,13 @@ import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
@@ -31,6 +35,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -41,8 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
@@ -65,11 +70,6 @@ import com.clinref.app.ui.settings.AiSettingsScreen
 import com.clinref.app.ui.settings.SettingsViewModel
 import kotlinx.serialization.Serializable
 
-@Serializable
-sealed interface TopLevelRoute : NavKey {
-    val title: String
-}
-
 val TopLevelRoute.icon: ImageVector
     get() = when (this) {
         TocRoute -> Icons.Default.Home
@@ -82,46 +82,6 @@ private object RouteMetadataKey : NavMetadataKey<NavKey>
 
 private fun Scene<NavKey>.navKey(): NavKey? =
     metadata[RouteMetadataKey] ?: (key as? NavKey) ?: entries.lastOrNull()?.contentKey as? NavKey
-
-
-@Serializable
-data object TocRoute : TopLevelRoute {
-    override val title = "Contents"
-}
-
-@Serializable
-data object HistoryRoute : TopLevelRoute {
-    override val title = "History"
-}
-
-@Serializable
-data object FavoritesRoute : TopLevelRoute {
-    override val title = "Favorites"
-}
-
-@Serializable
-data class ContentRoute(val topicId: String, val sectionId: String? = null) : NavKey
-
-@Serializable
-data object AiRoute : TopLevelRoute {
-    override val title = "AI"
-}
-
-@Serializable
-data object AiSettingsRoute : NavKey
-
-@Serializable
-data object ConversationListRoute : NavKey
-
-@Serializable
-data class ChatRoute(val conversationId: String) : NavKey
-
-val topLevelRoutes: List<TopLevelRoute> = listOf(
-    TocRoute,
-    HistoryRoute,
-    FavoritesRoute,
-    AiRoute
-)
 
 @Composable
 fun NavGraph(
@@ -152,8 +112,6 @@ fun NavGraph(
     }
 
     var selectedGraphicId by remember { mutableStateOf<String?>(null) }
-
-    val activity = LocalContext.current as? Activity
 
     BackHandler(
         enabled = !isOnOverlayScreen && navigationState.topLevelRoute != navigationState.startRoute
@@ -254,7 +212,8 @@ fun NavGraph(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        val isWideScreen = maxWidth >= 600.dp
         val motionScheme = MaterialTheme.motionScheme
         val spatialSpec = motionScheme.defaultSpatialSpec<IntOffset>()
         val floatSpatialSpec = motionScheme.defaultSpatialSpec<Float>()
@@ -330,47 +289,83 @@ fun NavGraph(
             }
         }
 
-        NavDisplay(
-            entries = navigationState.toDecoratedEntries(entryProvider),
-            onBack = {
-                navigator.goBack()
-            },
-            transitionSpec = forwardTransition,
-            popTransitionSpec = popTransition,
-            predictivePopTransitionSpec = { popTransition() },
-            modifier = Modifier.fillMaxSize()
-        )
+        Row(modifier = Modifier.fillMaxSize()) {
+            AnimatedVisibility(
+                visible = !isOnOverlayScreen && isWideScreen,
+                enter = fadeIn(effectsSpec) +
+                    slideInHorizontally(spatialSpec) { -it },
+                exit = fadeOut(fastEffectsSpec) +
+                    slideOutHorizontally(fastSpatialSpec) { -it }
+            ) {
+                NavigationRail {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    topLevelRoutes.forEach { route ->
+                        val isSelected = route == navigationState.topLevelRoute
+                        NavigationRailItem(
+                            selected = isSelected,
+                            onClick = {
+                                if (isSelected) {
+                                    navigator.onReselect(route)
+                                } else {
+                                    navigator.navigate(route)
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = route.icon,
+                                    contentDescription = route.title
+                                )
+                            },
+                            label = { Text(route.title) }
+                        )
+                    }
+                }
+            }
 
-        AnimatedVisibility(
-            visible = !isOnOverlayScreen,
-            enter = fadeIn(effectsSpec) +
-                slideInVertically(spatialSpec) { it },
-            exit = fadeOut(fastEffectsSpec) +
-                slideOutVertically(fastSpatialSpec) { it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-        ) {
-            NavigationBar {
-                topLevelRoutes.forEach { route ->
-                    val isSelected = route == navigationState.topLevelRoute
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = {
-                            if (isSelected) {
-                                navigator.onReselect(route)
-                            } else {
-                                navigator.navigate(route)
-                            }
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = route.icon,
-                                contentDescription = route.title
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                NavDisplay(
+                    entries = navigationState.toDecoratedEntries(entryProvider),
+                    onBack = {
+                        navigator.goBack()
+                    },
+                    transitionSpec = forwardTransition,
+                    popTransitionSpec = popTransition,
+                    predictivePopTransitionSpec = { popTransition() },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                AnimatedVisibility(
+                    visible = !isOnOverlayScreen && !isWideScreen,
+                    enter = fadeIn(effectsSpec) +
+                        slideInVertically(spatialSpec) { it },
+                    exit = fadeOut(fastEffectsSpec) +
+                        slideOutVertically(fastSpatialSpec) { it },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                ) {
+                    NavigationBar {
+                        topLevelRoutes.forEach { route ->
+                            val isSelected = route == navigationState.topLevelRoute
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = {
+                                    if (isSelected) {
+                                        navigator.onReselect(route)
+                                    } else {
+                                        navigator.navigate(route)
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = route.icon,
+                                        contentDescription = route.title
+                                    )
+                                },
+                                label = { Text(route.title) }
                             )
-                        },
-                        label = { Text(route.title) }
-                    )
+                        }
+                    }
                 }
             }
         }

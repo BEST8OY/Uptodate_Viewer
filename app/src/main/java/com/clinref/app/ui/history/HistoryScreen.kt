@@ -1,6 +1,6 @@
 package com.clinref.app.ui.history
 
-import androidx.activity.compose.BackHandler
+import com.clinref.app.ui.common.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -52,7 +52,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
@@ -68,7 +68,7 @@ fun HistoryScreen(
     currentRoute: NavKey,
     modifier: Modifier = Modifier,
     reselectEvents: Flow<NavKey>? = null,
-    viewModel: HistoryViewModel = hiltViewModel()
+    viewModel: HistoryViewModel = koinViewModel()
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(reselectEvents) {

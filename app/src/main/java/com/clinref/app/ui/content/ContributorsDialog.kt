@@ -1,19 +1,24 @@
 package com.clinref.app.ui.content
 
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
 import com.clinref.app.data.ContributorGroup
 
@@ -25,70 +30,65 @@ fun ContributorsDialog(
 ) {
     if (contributors.isNullOrEmpty()) return
 
-    val colorScheme = MaterialTheme.colorScheme
-
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Contributors") },
+        title = {
+            Text(
+                text = "Contributors",
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+        },
         text = {
-            AndroidView(
-                factory = { context ->
-                    WebView(context).apply {
-                        webViewClient = WebViewClient()
-                    }
-                },
-                update = { webView ->
-                    val bgColor = colorScheme.surface.toHexString()
-                    val textColor = colorScheme.onSurface.toHexString()
-                    val headingColor = colorScheme.primary.toHexString()
-                    val nameColor = colorScheme.primary.toHexString()
-                    val assocColor = colorScheme.onSurfaceVariant.toHexString()
-                    val disclosureColor = colorScheme.outline.toHexString()
-                    val borderColor = colorScheme.outlineVariant.toHexString()
-
-                    val html = buildString {
-                        append("""
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                            <style>
-                                body { font-family: sans-serif; padding: 16px; color: $textColor; background: $bgColor; margin: 0; }
-                                h3 { color: $headingColor; border-bottom: 1px solid $borderColor; padding-bottom: 5px; margin-top: 20px; }
-                                .name { font-weight: bold; font-size: 1.1em; color: $nameColor; }
-                                .associations { color: $assocColor; margin-top: 4px; }
-                                .disclosure { font-style: italic; color: $disclosureColor; margin-top: 4px; font-size: 0.9em; }
-                                hr { border: 0; border-top: 1px solid $borderColor; margin: 15px 0; }
-                            </style>
-                        </head>
-                        <body>
-                        """.trimIndent())
-
-                        for (group in contributors) {
-                            val title = group.headingTitle.ifEmpty { "Contributor" }
-                            append("<h3>$title</h3>")
-
-                            for (person in group.contributorList) {
-                                append("""<div class="contributor"><div class="name">${person.name}</div>""")
-                                if (person.associations.isNotEmpty()) {
-                                    append("""<div class="associations">${person.associations.joinToString("<br>")}</div>""")
-                                }
-                                if (person.disclosure.isNotEmpty()) {
-                                    append("""<div class="disclosure">${person.disclosure}</div>""")
-                                }
-                                append("</div><hr>")
-                            }
-                        }
-
-                        append("</body></html>")
-                    }
-
-                    webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
-                },
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-            )
+                    .heightIn(max = 420.dp)
+            ) {
+                items(contributors) { group ->
+                    val title = group.headingTitle.ifEmpty { "Contributor" }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                    )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+
+                    for (person in group.contributorList) {
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            Text(
+                                text = person.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (person.associations.isNotEmpty()) {
+                                Text(
+                                    text = person.associations.joinToString(", "),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                            if (person.disclosure.isNotEmpty()) {
+                                Text(
+                                    text = person.disclosure,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontStyle = FontStyle.Italic,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
@@ -97,12 +97,7 @@ fun ContributorsDialog(
         },
         properties = DialogProperties(usePlatformDefaultWidth = false),
         modifier = Modifier
-            .fillMaxWidth(0.95f)
-            .heightIn(max = 500.dp)
+            .fillMaxWidth(0.92f)
+            .heightIn(max = 540.dp)
     )
-}
-
-private fun androidx.compose.ui.graphics.Color.toHexString(): String {
-    val argb = toArgb()
-    return String.format("#%06X", argb and 0xFFFFFF)
 }

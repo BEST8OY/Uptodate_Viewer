@@ -6,18 +6,15 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import javax.inject.Inject
-import javax.inject.Singleton
+import com.clinref.shared.secure.SecurePreferences as ISecurePreferences
 
-@Singleton
-class SecurePreferences @Inject constructor(
-    @ApplicationContext private val context: Context
-) {
+class SecurePreferences(
+    private val context: Context
+) : ISecurePreferences {
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -33,22 +30,22 @@ class SecurePreferences @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _configuration = MutableStateFlow(loadConfiguration())
-    val configuration: StateFlow<AiConfiguration> = _configuration
+    override val configuration: StateFlow<AiConfiguration> = _configuration
 
-    fun saveApiKey(provider: AiProvider, key: String) {
+    override fun saveApiKey(provider: AiProvider, key: String) {
         encryptedPrefs.edit().putString(KEY_PREFIX + provider.name, key).apply()
     }
 
-    fun getApiKey(provider: AiProvider): String {
+    override fun getApiKey(provider: AiProvider): String {
         return encryptedPrefs.getString(KEY_PREFIX + provider.name, "") ?: ""
     }
 
-    fun saveConfiguration(config: AiConfiguration) {
+    override fun saveConfiguration(config: AiConfiguration) {
         encryptedPrefs.edit().putString(KEY_CONFIGURATION, json.encodeToString(config)).apply()
         _configuration.value = config
     }
 
-    fun loadConfiguration(): AiConfiguration {
+    override fun loadConfiguration(): AiConfiguration {
         val raw = encryptedPrefs.getString(KEY_CONFIGURATION, null) ?: return AiConfiguration()
         return try {
             json.decodeFromString<AiConfiguration>(raw)

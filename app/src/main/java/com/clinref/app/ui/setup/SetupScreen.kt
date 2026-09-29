@@ -7,7 +7,7 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.BackHandler
+import com.clinref.app.ui.common.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -45,7 +45,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.File
 
@@ -53,7 +53,7 @@ import java.io.File
 @Composable
 fun SetupScreen(
     onSetupComplete: () -> Unit,
-    viewModel: SetupViewModel = hiltViewModel()
+    viewModel: SetupViewModel = koinViewModel()
 ) {
     val isConfigured by viewModel.isConfigured.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()

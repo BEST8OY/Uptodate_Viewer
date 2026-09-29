@@ -1,6 +1,6 @@
 package com.clinref.app.ui.toc
 
-import androidx.activity.compose.BackHandler
+import com.clinref.app.ui.common.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -50,7 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.TocItem
 import com.clinref.app.ui.search.SearchResultsContent
@@ -69,8 +69,8 @@ fun TocScreen(
     onGraphicSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
     reselectEvents: Flow<NavKey>? = null,
-    viewModel: TocViewModel = hiltViewModel(),
-    searchViewModel: SearchViewModel = hiltViewModel()
+    viewModel: TocViewModel = koinViewModel(),
+    searchViewModel: SearchViewModel = koinViewModel()
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(reselectEvents) {

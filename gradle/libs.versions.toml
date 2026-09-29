@@ -21,6 +21,8 @@ securityCrypto = "1.1.0-alpha06"
 composeRichtext = "1.0.0-alpha05"
 jsoup = "1.23.1"
 kzstd = "0.1.2"
+koin = "4.2.2"
+ksoup = "0.6.0"
 junit = "4.13.2"
 mockk = "1.13.13"
 coroutinesTest = "1.10.1"
@@ -34,6 +36,8 @@ compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
+lifecycle-viewmodel = { group = "androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "lifecycleRuntimeKtx" }
+lifecycle-viewmodel-savedstate = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-savedstate", version.ref = "lifecycleRuntimeKtx" }
 activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 navigation3-runtime = { group = "androidx.navigation3", name = "navigation3-runtime", version.ref = "navigation3" }
 navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3" }
@@ -63,7 +67,7 @@ koog-http-client-okhttp = { group = "ai.koog", name = "http-client-okhttp", vers
 koog-utils-jvm = { group = "ai.koog", name = "utils-jvm", version.ref = "koog" }
 
 # Room database (3.0)
-room3-runtime = { group = "androidx.room3", name = "room3-runtime-android", version.ref = "room" }
+room3-runtime = { group = "androidx.room3", name = "room3-runtime", version.ref = "room" }
 room3-compiler = { group = "androidx.room3", name = "room3-compiler", version.ref = "room" }
 sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "sqlite" }
 
@@ -76,6 +80,13 @@ compose-richtext-ui-material3 = { group = "com.halilibo.compose-richtext", name 
 
 # HTML parsing
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+ksoup = { group = "com.mohamedrejeb.ksoup", name = "ksoup-html", version.ref = "ksoup" }
+
+# Koin Dependency Injection (KMP)
+koin-core = { group = "io.insert-koin", name = "koin-core", version.ref = "koin" }
+koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
+koin-compose = { group = "io.insert-koin", name = "koin-compose", version.ref = "koin" }
+koin-compose-viewmodel = { group = "io.insert-koin", name = "koin-compose-viewmodel", version.ref = "koin" }
 
 # Zstandard decompression (pure-Kotlin multiplatform codec)
 kzstd = { group = "org.meshtastic", name = "kzstd", version.ref = "kzstd" }
@@ -84,11 +95,13 @@ kzstd = { group = "org.meshtastic", name = "kzstd", version.ref = "kzstd" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "coroutinesTest" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 androidMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
