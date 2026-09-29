@@ -282,8 +282,9 @@ fun ContentScreen(
                         activeSectionId = activeSectionId,
                         onSectionClick = { section ->
                             viewModel.setActiveSection(section.id)
-                            if (section.actionJson != null) {
-                                viewModel.handleOutlineAction(section.actionJson)
+                            val actionJson = section.actionJson
+                            if (actionJson != null) {
+                                viewModel.handleOutlineAction(actionJson)
                             } else {
                                 webView.scrollToSection(section.id)
                             }

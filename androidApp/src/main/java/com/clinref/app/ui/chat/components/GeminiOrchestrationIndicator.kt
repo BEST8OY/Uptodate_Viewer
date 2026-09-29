@@ -302,9 +302,10 @@ fun GeminiOrchestrationIndicator(
                                     ),
                                     color = if (step.status == StreamingManager.StepStatus.IN_PROGRESS) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                 )
-                                if (!step.detail.isNullOrBlank()) {
+                                val detail = step.detail
+                                if (!detail.isNullOrBlank()) {
                                     Text(
-                                        text = step.detail,
+                                        text = detail,
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                         maxLines = 1,

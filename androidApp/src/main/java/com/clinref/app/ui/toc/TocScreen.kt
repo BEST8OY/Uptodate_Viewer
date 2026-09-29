@@ -134,8 +134,9 @@ fun TocScreen(
                 for (item in items) {
                     val key = if (parentPath.isEmpty()) item.id else "${parentPath}/${item.id}"
                     list.add(Triple(item, level, key))
-                    if (item.id in expandedIds && item.childrenInfo != null) {
-                        list.addAll(flatten(item.childrenInfo, level + 1, key))
+                    val children = item.childrenInfo
+                    if (item.id in expandedIds && children != null) {
+                        list.addAll(flatten(children, level + 1, key))
                     }
                 }
                 return list

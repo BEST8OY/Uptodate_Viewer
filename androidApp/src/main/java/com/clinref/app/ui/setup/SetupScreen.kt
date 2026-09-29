@@ -80,7 +80,16 @@ fun SetupScreen(
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
-        uri?.let { viewModel.selectDirectoryUri(it) }
+        uri?.let {
+            val rawPath = it.path ?: return@let
+            val resolvedPath = if (rawPath.contains(":")) {
+                val rel = rawPath.substringAfter(":")
+                File(Environment.getExternalStorageDirectory(), rel).absolutePath
+            } else {
+                rawPath
+            }
+            viewModel.selectDirectory(resolvedPath)
+        }
     }
 
     LaunchedEffect(hasStoragePermission, isConfigured) {

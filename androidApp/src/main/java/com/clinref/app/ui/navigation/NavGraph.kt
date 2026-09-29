@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -290,37 +291,16 @@ fun NavGraph(
         }
 
         Row(modifier = Modifier.fillMaxSize()) {
-            AnimatedVisibility(
+            ClinRefNavRail(
                 visible = !isOnOverlayScreen && isWideScreen,
-                enter = fadeIn(effectsSpec) +
-                    slideInHorizontally(spatialSpec) { -it },
-                exit = fadeOut(fastEffectsSpec) +
-                    slideOutHorizontally(fastSpatialSpec) { -it }
-            ) {
-                NavigationRail {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    topLevelRoutes.forEach { route ->
-                        val isSelected = route == navigationState.topLevelRoute
-                        NavigationRailItem(
-                            selected = isSelected,
-                            onClick = {
-                                if (isSelected) {
-                                    navigator.onReselect(route)
-                                } else {
-                                    navigator.navigate(route)
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = route.icon,
-                                    contentDescription = route.title
-                                )
-                            },
-                            label = { Text(route.title) }
-                        )
-                    }
-                }
-            }
+                currentRoute = navigationState.topLevelRoute,
+                onNavigate = { navigator.navigate(it) },
+                onReselect = { navigator.onReselect(it) },
+                effectsSpec = effectsSpec,
+                fastEffectsSpec = fastEffectsSpec,
+                spatialSpec = spatialSpec,
+                fastSpatialSpec = fastSpatialSpec
+            )
 
             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 NavDisplay(
@@ -334,39 +314,16 @@ fun NavGraph(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                AnimatedVisibility(
+                ClinRefBottomBar(
                     visible = !isOnOverlayScreen && !isWideScreen,
-                    enter = fadeIn(effectsSpec) +
-                        slideInVertically(spatialSpec) { it },
-                    exit = fadeOut(fastEffectsSpec) +
-                        slideOutVertically(fastSpatialSpec) { it },
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                ) {
-                    NavigationBar {
-                        topLevelRoutes.forEach { route ->
-                            val isSelected = route == navigationState.topLevelRoute
-                            NavigationBarItem(
-                                selected = isSelected,
-                                onClick = {
-                                    if (isSelected) {
-                                        navigator.onReselect(route)
-                                    } else {
-                                        navigator.navigate(route)
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = route.icon,
-                                        contentDescription = route.title
-                                    )
-                                },
-                                label = { Text(route.title) }
-                            )
-                        }
-                    }
-                }
+                    currentRoute = navigationState.topLevelRoute,
+                    onNavigate = { navigator.navigate(it) },
+                    onReselect = { navigator.onReselect(it) },
+                    effectsSpec = effectsSpec,
+                    fastEffectsSpec = fastEffectsSpec,
+                    spatialSpec = spatialSpec,
+                    fastSpatialSpec = fastSpatialSpec
+                )
             }
         }
 
@@ -379,3 +336,95 @@ fun NavGraph(
     }
 }
 
+@Composable
+private fun ClinRefNavRail(
+    visible: Boolean,
+    currentRoute: NavKey,
+    onNavigate: (TopLevelRoute) -> Unit,
+    onReselect: (TopLevelRoute) -> Unit,
+    effectsSpec: FiniteAnimationSpec<Float>,
+    fastEffectsSpec: FiniteAnimationSpec<Float>,
+    spatialSpec: FiniteAnimationSpec<IntOffset>,
+    fastSpatialSpec: FiniteAnimationSpec<IntOffset>,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(effectsSpec) +
+            slideInHorizontally(spatialSpec) { -it },
+        exit = fadeOut(fastEffectsSpec) +
+            slideOutHorizontally(fastSpatialSpec) { -it },
+        modifier = modifier
+    ) {
+        NavigationRail {
+            Spacer(modifier = Modifier.height(16.dp))
+            topLevelRoutes.forEach { route ->
+                val isSelected = route == currentRoute
+                NavigationRailItem(
+                    selected = isSelected,
+                    onClick = {
+                        if (isSelected) {
+                            onReselect(route)
+                        } else {
+                            onNavigate(route)
+                        }
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = route.icon,
+                            contentDescription = route.title
+                        )
+                    },
+                    label = { Text(route.title) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.ClinRefBottomBar(
+    visible: Boolean,
+    currentRoute: NavKey,
+    onNavigate: (TopLevelRoute) -> Unit,
+    onReselect: (TopLevelRoute) -> Unit,
+    effectsSpec: FiniteAnimationSpec<Float>,
+    fastEffectsSpec: FiniteAnimationSpec<Float>,
+    spatialSpec: FiniteAnimationSpec<IntOffset>,
+    fastSpatialSpec: FiniteAnimationSpec<IntOffset>,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(effectsSpec) +
+            slideInVertically(spatialSpec) { it },
+        exit = fadeOut(fastEffectsSpec) +
+            slideOutVertically(fastSpatialSpec) { it },
+        modifier = modifier
+            .align(Alignment.BottomCenter)
+            .windowInsetsPadding(WindowInsets.navigationBars)
+    ) {
+        NavigationBar {
+            topLevelRoutes.forEach { route ->
+                val isSelected = route == currentRoute
+                NavigationBarItem(
+                    selected = isSelected,
+                    onClick = {
+                        if (isSelected) {
+                            onReselect(route)
+                        } else {
+                            onNavigate(route)
+                        }
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = route.icon,
+                            contentDescription = route.title
+                        )
+                    },
+                    label = { Text(route.title) }
+                )
+            }
+        }
+    }
+}
