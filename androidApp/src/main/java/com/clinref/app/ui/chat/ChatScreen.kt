@@ -49,6 +49,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.content.ClipData
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.toClipEntry
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
@@ -78,7 +81,7 @@ fun ChatScreen(
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
     val config by viewModel.configuration.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -231,8 +234,9 @@ fun ChatScreen(
                             is ChatListItem.Message -> GeminiMessageItem(
                                 message = item.uiModel,
                                 onCopyMessage = { content ->
-                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(content))
                                     coroutineScope.launch {
+                                        val clipData = ClipData.newPlainText("chat_message", content)
+                                        clipboard.setClipEntry(clipData.toClipEntry())
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
@@ -263,8 +267,9 @@ fun ChatScreen(
                                     showTimestamp = false
                                 ),
                                 onCopyMessage = { content ->
-                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(content))
                                     coroutineScope.launch {
+                                        val clipData = ClipData.newPlainText("chat_message", content)
+                                        clipboard.setClipEntry(clipData.toClipEntry())
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
