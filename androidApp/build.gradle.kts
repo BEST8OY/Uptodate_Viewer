@@ -54,7 +54,7 @@ android {
 }
 
 dependencies {
-    implementation(projects.shared)
+    implementation(project(":shared"))
     implementation(libs.koin.android)
     implementation(libs.koin.compose)
     implementation(libs.koin.compose.viewmodel)

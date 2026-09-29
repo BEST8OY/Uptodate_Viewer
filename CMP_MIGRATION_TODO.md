@@ -160,9 +160,8 @@ This document serves as the authoritative, phased TODO checklist and execution b
     - TOC: 31 root items
     - ViewModels: 10/10 resolved successfully via Koin DI
     - ArticleWebViewController: JavaScript generation and action dispatcher validated
-- [x] **7.5. Full DI Unification & Official KMP Project Ergonomics**
-  - [x] Enabled Gradle `enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")` in `settings.gradle.kts`.
-  - [x] Converted internal project dependencies to `projects.shared` across `:androidApp` and `:desktopApp`.
+- [x] **7.5. Full DI Unification & Stable Module Dependencies**
+  - [x] Maintained standard, rock-solid Gradle `project(":shared")` dependencies across `:androidApp` and `:desktopApp` (zero incubating warnings).
   - [x] Retired Dagger Hilt entirely from `:androidApp` (removed plugin, compiler, and runtime dependencies).
   - [x] Migrated `MainActivity.kt` and `ClinRefApp.kt` to 100% Koin injection (`by inject()`).
   - [x] Eliminated all duplicate `domain`, `repository`, `data` (DAOs), and `util` classes from `:androidApp` in favor of `:shared`.

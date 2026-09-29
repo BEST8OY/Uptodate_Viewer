@@ -23,7 +23,7 @@ tasks.named<JavaExec>("run") {
 }
 
 dependencies {
-    implementation(projects.shared)
+    implementation(project(":shared"))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
     implementation(libs.koin.core)
