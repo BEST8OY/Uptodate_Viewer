@@ -4,40 +4,35 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
-# Kotlin Serialization
+# Kotlin Serialization (library consumer rules handle KSerializer implementations)
 -keepattributes *Annotation*
 -keepattributes InnerClasses,EnclosingMethod
 
--keep class kotlinx.serialization.** { *; }
--keepclassmembers class * implements kotlinx.serialization.KSerializer { *; }
+# Keep app-specific serializable models, serializers, and navigation routes
 -keep,includedescriptorclasses class com.clinref.app.**$$serializer { *; }
 -keepclassmembers class com.clinref.app.** { *** Companion; }
 -keepclasseswithmembers class com.clinref.app.** { kotlinx.serialization.KSerializer serializer(...); }
--keep class com.clinref.app.ui.navigation.** { *; }
--keep class com.clinref.app.domain.** { *; }
+-keepclassmembers class com.clinref.app.domain.** {
+    <fields>;
+    <init>(...);
+}
+-keepclassmembers class com.clinref.app.ui.navigation.** {
+    <fields>;
+    <init>(...);
+}
 
 # Compose
 -dontwarn androidx.compose.**
 
-# WebView JavaScript Interface
--keepclassmembers class com.clinref.app.ui.content.JsBridge {
-    @android.webkit.JavascriptInterface <methods>;
-}
-
-# Koog AI agents — broad keep for now; narrow once reflection surface is known
--keep class ai.koog.** { *; }
+# Koog AI agents — allow shrinking and obfuscation of unused framework internals
+-keep,allowshrinking,allowobfuscation class ai.koog.** { *; }
 -dontwarn ai.koog.utils.io.**
 
 # Koog native class-based tools (zero reflection required)
 -keep class com.clinref.app.data.tools.** { *; }
 
-# Room database (3.0)
--keep class * extends androidx.room3.RoomDatabase { <init>(); }
--keep @androidx.room3.Entity class *
--keep @androidx.room3.Database class *
-
-# OpenTelemetry (Koog transitive)
--keep class io.opentelemetry.** { *; }
+# OpenTelemetry (Koog transitive) — allow shrinking and obfuscation of unused metrics/SDK
+-keep,allowshrinking,allowobfuscation class io.opentelemetry.** { *; }
 -dontwarn com.google.auto.value.AutoValue**
 -dontwarn io.opentelemetry.api.incubator.**
 -dontwarn io.opentelemetry.sdk.metrics.internal.descriptor.**
@@ -45,8 +40,9 @@
 -dontwarn io.opentelemetry.api.internal.**
 -dontwarn org.osgi.**
 
-# Ktor (Koog transitive)
--keep class io.ktor.** { *; }
+# Ktor (Koog transitive) — keep engine container, allow shrinking and obfuscation
+-keep class io.ktor.client.engine.** implements io.ktor.client.HttpClientEngineContainer { *; }
+-keep,allowshrinking,allowobfuscation class io.ktor.** { *; }
 -dontwarn java.lang.management.**
 -dontwarn io.ktor.**
 
@@ -54,6 +50,7 @@
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
 -dontwarn org.checkerframework.**
+
 
 
 
