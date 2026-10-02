@@ -32,6 +32,11 @@ env:
   JAVA_VERSION: '21'
   JAVA_DISTRIBUTION: 'temurin'
   PYTHON_VERSION: '3.12'
+  GRADLE_OPTS: '-Xmx6g'
+
+concurrency:
+  group: r8-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   r8-analyze:
@@ -63,6 +68,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           validate-wrappers: true
+          cache-read-only: false
           add-job-summary: on-failure
           cache-cleanup: on-success
 
@@ -73,35 +79,23 @@ jobs:
       - name: Create Analysis Directory
         run: mkdir -p tmp/r8analysis tmp/keepradius
 
-      - name: Run R8 Standalone Configuration Analyzer (Path A)
-        id: standalone-analyzer
-        continue-on-error: true
-        run: ./gradlew :androidApp:analyzeReleaseR8Config --stacktrace
-
-      - name: Run R8 Build with Blast Radius Dump (Path B)
+      - name: Run R8 Configuration Analysis
         run: |
-          ./gradlew assembleRelease \
-            -Dcom.android.tools.r8.dumpkeepradiustodirectory=$PWD/tmp/r8analysis \
-            --stacktrace
+          echo "Running standalone R8 configuration analysis task..."
+          if ! ./gradlew :androidApp:analyzeReleaseR8Config --stacktrace; then
+            echo "Standalone task not available, falling back to assembleRelease with dump property..."
+            ./gradlew :androidApp:assembleRelease \
+              -Dcom.android.tools.r8.dumpkeepradiustodirectory="$PWD/tmp/r8analysis" \
+              --stacktrace
+          fi
 
       - name: Convert Protobuf Report to JSON
-        id: convert-pb
-        continue-on-error: true
         run: |
-          if [ -f "tools/r8/convert_pb_to_json.py" ]; then
-            python3 tools/r8/convert_pb_to_json.py
-          else
-            python3 .agents/skills/r8-analyzer/scripts/convert_pb_to_json.py
-          fi
+          python3 tools/r8/convert_pb_to_json.py
 
       - name: Analyze R8 Keep Rules and Scores
-        id: analyze-r8
         run: |
-          if [ -f "tools/r8/analyze.py" ]; then
-            python3 tools/r8/analyze.py
-          else
-            python3 .agents/skills/r8-analyzer/scripts/analyze.py
-          fi
+          python3 tools/r8/analyze.py tmp/keepradius/keepruleradius.json tmp/keepradius/analysis_result.txt
 
       - name: Evaluate Release APK and R8 Mapping Stats
         if: always()

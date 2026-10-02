@@ -144,9 +144,17 @@ def analyze(json_path, output_report_path="tmp/keepradius/analysis_result.txt", 
 
 
 if __name__ == "__main__":
-    search_json = (
-        sys.argv[1]
-        if len(sys.argv) > 1
-        else ("tmp/r8analysis/keepruleradius.json" if os.path.exists("tmp/r8analysis/keepruleradius.json") else "tmp/keepradius/keepruleradius.json")
-    )
-    analyze(search_json, markdown_summary_path=os.environ.get("GITHUB_STEP_SUMMARY"))
+    search_json = sys.argv[1] if len(sys.argv) > 1 else None
+    if not search_json or not os.path.exists(search_json):
+        candidates = (
+            glob.glob("tmp/keepradius/*.json")
+            + glob.glob("tmp/r8analysis/*.json")
+            + glob.glob("**/build/reports/r8/*.json", recursive=True)
+        )
+        if candidates:
+            search_json = sorted(candidates)[-1]
+        else:
+            search_json = "tmp/keepradius/keepruleradius.json"
+
+    output_txt = sys.argv[2] if len(sys.argv) > 2 else "tmp/keepradius/analysis_result.txt"
+    analyze(search_json, output_report_path=output_txt, markdown_summary_path=os.environ.get("GITHUB_STEP_SUMMARY"))

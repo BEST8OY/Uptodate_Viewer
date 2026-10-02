@@ -58,15 +58,27 @@ if __name__ == "__main__":
     input_pb = sys.argv[1] if len(sys.argv) > 1 else None
     if not input_pb:
         candidates = (
-            glob.glob("tmp/r8analysis/*.pb")
-            + glob.glob("**/build/reports/r8/*.pb", recursive=True)
+            glob.glob("androidApp/build/reports/r8/*.pb")
+            + glob.glob("app/build/reports/r8/*.pb")
+            + glob.glob("tmp/r8analysis/*.pb")
             + glob.glob("tmp/keepradius/*.pb")
+            + glob.glob("**/build/reports/r8/*.pb", recursive=True)
         )
         if not candidates:
             print("Error: No .pb file found in search paths", file=sys.stderr)
             sys.exit(1)
         input_pb = sorted(candidates)[-1]
+        print(f"Found input protobuf: {input_pb}")
 
-    output_json = sys.argv[2] if len(sys.argv) > 2 else "tmp/r8analysis/keepruleradius.json"
+    output_json = sys.argv[2] if len(sys.argv) > 2 else "tmp/keepradius/keepruleradius.json"
     if not convert_pb_to_json(input_pb, output_json):
         sys.exit(1)
+
+    # Also mirror to tmp/r8analysis/keepruleradius.json
+    alt_json = "tmp/r8analysis/keepruleradius.json" if output_json != "tmp/r8analysis/keepruleradius.json" else "tmp/keepradius/keepruleradius.json"
+    try:
+        import shutil
+        os.makedirs(os.path.dirname(os.path.abspath(alt_json)), exist_ok=True)
+        shutil.copy2(output_json, alt_json)
+    except Exception as e:
+        pass

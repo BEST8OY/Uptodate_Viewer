@@ -17,6 +17,11 @@ permissions:
 env:
   JAVA_VERSION: '21'
   JAVA_DISTRIBUTION: 'temurin'
+  GRADLE_OPTS: '-Xmx6g'
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-android:
@@ -39,6 +44,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           validate-wrappers: true
+          cache-read-only: false
           add-job-summary: on-failure
           cache-cleanup: on-success
 
