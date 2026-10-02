@@ -17,8 +17,7 @@
 # Compose
 -dontwarn androidx.compose.**
 
-# Koog AI agents — allow full shrinking & obfuscation of unused framework internals
--keep,allowshrinking,allowobfuscation class ai.koog.** { *; }
+# Koog AI agents (zero reflection with native SimpleTool)
 -dontwarn ai.koog.utils.io.**
 
 # Koog tool parameter descriptions for LLM JSON schema generation
