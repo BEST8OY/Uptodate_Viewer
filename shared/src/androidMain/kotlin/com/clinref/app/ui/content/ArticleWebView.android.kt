@@ -1,0 +1,115 @@
+package com.clinref.app.ui.content
+
+import android.annotation.SuppressLint
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.viewinterop.AndroidView
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+actual fun HtmlContentWebView(
+    processedHtml: String?,
+    controller: ArticleWebViewController,
+    initialSectionId: String?,
+    modifier: Modifier
+) {
+    val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
+    var targetSectionId by remember {
+        mutableStateOf(initialSectionId)
+    }
+
+    LaunchedEffect(initialSectionId) {
+        if (!initialSectionId.isNullOrBlank()) {
+            targetSectionId = initialSectionId
+            controller.scrollToSection(initialSectionId)
+        }
+    }
+
+    AndroidView(
+        factory = { context ->
+            NestedScrollWebView(context).apply {
+                setBackgroundColor(backgroundColor)
+                setOnApplyWindowInsetsListener { _, insets ->
+                    insets
+                }
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: android.webkit.WebResourceRequest?
+                    ): Boolean {
+                        val url = request?.url?.toString() ?: return false
+                        if (url.startsWith("appaction://")) {
+                            val actionId = url.removePrefix("appaction://")
+                            controller.onAction?.invoke(actionId)
+                            return true
+                        }
+                        if (url.startsWith("http://") || url.startsWith("https://")) {
+                            val intent = android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                request.url
+                            )
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: Exception) { }
+                            return true
+                        }
+                        return false
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        val secId = targetSectionId ?: initialSectionId
+                        if (!secId.isNullOrBlank()) {
+                            view?.evaluateJavascript(scrollToSectionJs(secId), null)
+                        }
+                    }
+                }
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.setSupportZoom(true)
+                settings.builtInZoomControls = true
+                settings.displayZoomControls = false
+                setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+                    controller.onFindResult?.invoke(numberOfMatches, activeMatchOrdinal)
+                }
+                addJavascriptInterface(
+                    JsBridge { jsonStr ->
+                        controller.onAction?.invoke("manual_$jsonStr")
+                    },
+                    "Android"
+                )
+                controller.bindPlatform(
+                    scrollToSection = { sec -> evaluateJavascript(scrollToSectionJs(sec), null) },
+                    findAll = { q -> findAllAsync(q) },
+                    clearFindMatches = { clearMatches() },
+                    findNext = { fwd -> findNext(fwd) }
+                )
+            }
+        },
+        update = { wv ->
+            val html = processedHtml
+            if (html != null) {
+                val htmlHash = html.hashCode().toString()
+                if (wv.tag != htmlHash) {
+                    wv.tag = htmlHash
+                    wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+                }
+            }
+        },
+        onRelease = { wv ->
+            wv.stopLoading()
+            wv.destroy()
+            controller.unbindPlatform()
+        },
+        modifier = modifier
+    )
+}

@@ -1,0 +1,409 @@
+"""Database layer for ClinRef Python prototype.
+
+Connects to the same SQLite databases used by the Android app:
+- utdtoc.db: Table of contents + TOCMap
+- fsearch.db: FTS4 topic & video search
+- utdasset.sqlite: Compressed topic/graphic assets (bodyHtml, outlineHtml)
+"""
+
+import json
+import re
+import sqlite3
+from pathlib import Path
+from typing import Optional
+
+import zstandard
+
+# Default paths — override via environment or constructor
+_DB_DIR = Path(__file__).parent.parent
+
+_ZSTD_DECOMPRESSOR = zstandard.ZstdDecompressor()
+
+
+class ClinRefDatabase:
+    """Unified access to all ClinRef SQLite databases."""
+
+    def __init__(self, db_dir: Optional[Path] = None):
+        self.db_dir = db_dir or _DB_DIR
+        self._toc_conn: Optional[sqlite3.Connection] = None
+        self._search_conn: Optional[sqlite3.Connection] = None
+        self._asset_conn: Optional[sqlite3.Connection] = None
+        self._qf_conn: Optional[sqlite3.Connection] = None
+        self._unidex_conn: Optional[sqlite3.Connection] = None
+
+    def _get_conn(self, attr: str, filename: str) -> sqlite3.Connection:
+        conn = getattr(self, attr)
+        if conn is None:
+            path = self.db_dir / filename
+            if not path.exists():
+                raise FileNotFoundError(f"Database not found: {path}")
+            conn = sqlite3.connect(str(path))
+            conn.row_factory = sqlite3.Row
+            setattr(self, attr, conn)
+        return conn
+
+    @property
+    def toc(self) -> sqlite3.Connection:
+        return self._get_conn("_toc_conn", "utdtoc.db")
+
+    @property
+    def search(self) -> sqlite3.Connection:
+        return self._get_conn("_search_conn", "fsearch.db")
+
+    @property
+    def asset(self) -> sqlite3.Connection:
+        return self._get_conn("_asset_conn", "utdasset.sqlite")
+
+    def close(self):
+        for attr in ("_toc_conn", "_search_conn", "_asset_conn", "_qf_conn", "_unidex_conn"):
+            conn = getattr(self, attr)
+            if conn:
+                conn.close()
+                setattr(self, attr, None)
+
+    # ── Search ──────────────────────────────────────────────────────────
+
+    def _get_stopwords(self) -> set[str]:
+        if not hasattr(self, "_stopwords_cache"):
+            try:
+                rows = self.unidex.execute("SELECT inword FROM replac WHERE rtype = 'S'").fetchall()
+                self._stopwords_cache = {r["inword"].strip().lower() for r in rows if r["inword"]}
+            except Exception:
+                self._stopwords_cache = set()
+        return self._stopwords_cache
+
+    def _rank_tokens_by_weight(self, tokens: list[str]) -> list[tuple[str, int]]:
+        weighted = []
+        for t in tokens:
+            try:
+                row = self.unidex.execute("SELECT max(weight) FROM query WHERE disp = ?", (t,)).fetchone()
+                w = row[0] if row and row[0] is not None else 0
+            except Exception:
+                w = 0
+            weighted.append((t, w))
+        return sorted(weighted, key=lambda x: x[1], reverse=True)
+
+    def _find_queries_by_tokens(self, anchor: str, modifier: str) -> list[str]:
+        try:
+            rows = self.unidex.execute(
+                "SELECT disp FROM query WHERE (disp LIKE ? OR disp LIKE ?) AND hide IS NULL ORDER BY weight DESC LIMIT 5",
+                (f"{anchor} {modifier}%", f"{modifier} {anchor}%"),
+            ).fetchall()
+            return [r["disp"] for r in rows if r["disp"]]
+        except Exception:
+            return []
+
+    def _find_queries_by_anchor(self, anchor: str) -> list[str]:
+        try:
+            rows = self.unidex.execute(
+                "SELECT disp FROM query WHERE disp LIKE ? AND hide IS NULL ORDER BY weight DESC LIMIT 5",
+                (f"{anchor}%",),
+            ).fetchall()
+            return [r["disp"] for r in rows if r["disp"]]
+        except Exception:
+            return []
+
+    def search_topics(self, query: str, limit: int = 10) -> list[dict]:
+        """Search topics using unidex with stopword sanitization and clinical weight anchoring."""
+        clean = query.strip().lower()
+        if not clean:
+            return []
+
+        # 1. Direct exact match
+        unidex_results = self._search_unidex(clean)
+        if unidex_results:
+            valid = [r for r in unidex_results if r.get("title") and self.has_topic_asset(r["id"])]
+            if valid:
+                return valid[:limit]
+
+        # 2. Stopword-sanitized exact match
+        stopwords = self._get_stopwords()
+        tokens = [w for w in clean.replace("-", " ").split() if w and w not in stopwords]
+        sanitized = " ".join(tokens)
+        if sanitized and sanitized != clean:
+            sanitized_results = self._search_unidex(sanitized)
+            if sanitized_results:
+                valid = [r for r in sanitized_results if r.get("title") and self.has_topic_asset(r["id"])]
+                if valid:
+                    return valid[:limit]
+
+        # 3. Clinical weight-ranked token anchoring
+        if tokens:
+            weighted = self._rank_tokens_by_weight(tokens)
+            if weighted and weighted[0][1] > 0:
+                anchor = weighted[0][0]
+                other_tokens = [t for t, _ in weighted[1:] if len(t) > 2]
+
+                for other in other_tokens:
+                    candidate_queries = self._find_queries_by_tokens(anchor, other)
+                    for cq in candidate_queries:
+                        results = self._search_unidex(cq)
+                        if results:
+                            valid = [r for r in results if r.get("title") and self.has_topic_asset(r["id"])]
+                            if valid:
+                                return valid[:limit]
+
+                anchor_queries = self._find_queries_by_anchor(anchor)
+                for cq in anchor_queries:
+                    results = self._search_unidex(cq)
+                    if results:
+                        valid = [r for r in results if r.get("title") and self.has_topic_asset(r["id"])]
+                        if valid:
+                            return valid[:limit]
+
+        return []
+
+    def _search_unidex(self, query: str) -> list[dict]:
+        """Search unidex.en.sqlite for exact query → topic hits."""
+        try:
+            row = self.unidex.execute(
+                "SELECT x.topic_hits FROM query q, query_topic x "
+                "WHERE q.disp = ? AND x.nqid = q.nqid AND x.pref = 'X'",
+                (query,),
+            ).fetchone()
+
+            if not row or not row["topic_hits"]:
+                return []
+
+            # Parse binary blob (matches Kotlin parseHitsBlob)
+            hits_blob = row["topic_hits"]
+            hex_string = hits_blob.hex()
+            topic_ids = []
+
+            i = 4  # Skip first 4 bytes (header)
+            while i < len(hex_string):
+                chunk = hex_string[i : i + 8]
+                if len(chunk) < 8:
+                    break
+                topic_id = int(chunk, 16)
+                if topic_id > 0:
+                    topic_ids.append(str(topic_id))
+                i += 8
+
+            if not topic_ids:
+                return []
+
+            # Fetch titles for topic IDs using fast indexed batch lookup from unidex
+            results = []
+            selected_ids = topic_ids[:20]
+            placeholders = ",".join("?" for _ in selected_ids)
+            title_map = {}
+            try:
+                rows = self.unidex.execute(
+                    f"SELECT topic_id, title FROM topic WHERE topic_id IN ({placeholders})",
+                    selected_ids,
+                ).fetchall()
+                title_map = {str(r["topic_id"]): r["title"] for r in rows if r["title"]}
+            except Exception:
+                pass
+
+            for tid in selected_ids:
+                title = title_map.get(tid) or self.get_topic_title(tid) or ""
+                results.append({"id": tid, "title": title, "url": f"Topic-{tid}"})
+
+            return results
+
+        except Exception:
+            return []
+
+    # ── Suggestions ────────────────────────────────────────────────────
+
+    @property
+    def qf(self) -> sqlite3.Connection:
+        return self._get_conn("_qf_conn", "utdqf.sqlite")
+
+    @property
+    def unidex(self) -> sqlite3.Connection:
+        return self._get_conn("_unidex_conn", "unidex.en.sqlite")
+
+    def get_suggestions(self, query: str, limit: int = 30) -> list[str]:
+        """Get search query suggestions from unidex (primary) or qf (fallback)."""
+        clean = query.strip().lower()
+        if not clean:
+            return []
+
+        # 1. Try the full query first
+        results = self._query_suggestions(clean, limit)
+        if results:
+            return results
+
+        # 2. Stopword sanitization & clinical weight ranking
+        stopwords = self._get_stopwords()
+        tokens = [w for w in clean.replace("-", " ").split() if w and w not in stopwords]
+        if tokens:
+            weighted = self._rank_tokens_by_weight(tokens)
+            for token, weight in weighted:
+                if weight > 0:
+                    results = self._query_suggestions(token, limit)
+                    if results:
+                        return results
+
+        # 3. Try progressively shorter word prefixes
+        words = clean.split()
+        for i in range(len(words) - 1, 0, -1):
+            prefix = " ".join(words[:i])
+            results = self._query_suggestions(prefix, limit)
+            if results:
+                return results
+
+        return []
+
+    def _query_suggestions(self, prefix: str, limit: int) -> list[str]:
+        """Query unidex (primary) or qf (fallback) for suggestions matching a prefix."""
+        p_len = len(prefix)
+        if p_len == 0:
+            return []
+
+        # Try unidex first (matches app behavior)
+        try:
+            if p_len == 1:
+                rows = self.unidex.execute(
+                    "SELECT disp, weight FROM query WHERE d1 = ? AND hide IS NULL ORDER BY weight DESC, disp ASC LIMIT ?",
+                    (prefix, limit),
+                ).fetchall()
+            elif p_len == 2:
+                rows = self.unidex.execute(
+                    "SELECT disp, weight FROM query WHERE d2 = ? AND hide IS NULL ORDER BY weight DESC, disp ASC LIMIT ?",
+                    (prefix, limit),
+                ).fetchall()
+            elif p_len == 3:
+                rows = self.unidex.execute(
+                    "SELECT disp, weight FROM query WHERE d3 = ? AND hide IS NULL ORDER BY weight DESC, disp ASC LIMIT ?",
+                    (prefix, limit),
+                ).fetchall()
+            else:
+                rows = self.unidex.execute(
+                    "SELECT disp, weight FROM query WHERE disp LIKE ? AND hide IS NULL ORDER BY weight DESC, disp ASC LIMIT ?",
+                    (f"{prefix}%", limit),
+                ).fetchall()
+
+            if rows:
+                return list(dict.fromkeys(r["disp"] for r in rows if r["disp"]))
+        except Exception:
+            pass  # Fall through to qf
+
+        # Fallback to qf
+        if p_len <= 3:
+            col = f"q{p_len}"
+            rows = self.qf.execute(
+                f"SELECT u, f FROM qf WHERE {col} = ? ORDER BY f DESC, q ASC LIMIT ?",
+                (prefix, limit),
+            ).fetchall()
+        else:
+            rows = self.qf.execute(
+                "SELECT u, f FROM qf WHERE q LIKE ? ORDER BY f DESC, q ASC LIMIT ?",
+                (f"{prefix}%", limit),
+            ).fetchall()
+
+        return list(dict.fromkeys(r["u"] for r in rows if r["u"]))
+
+
+
+    # ── Topic Assets ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_numeric_id(topic_id: str) -> str:
+        s = str(topic_id).strip()
+        m = re.search(r'\d+', s)
+        return m.group() if m else s
+
+    def has_topic_asset(self, topic_id: str) -> bool:
+        """Check if a topic exists in utdasset.sqlite."""
+        if not topic_id:
+            return False
+        num_id = self._extract_numeric_id(topic_id)
+        row = self.asset.execute(
+            "SELECT 1 FROM topic_asset WHERE id = ? LIMIT 1", (num_id,)
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def get_topic_type(asset: dict) -> str:
+        """Returns 'calc' for calculators, 'article' for narrative medical/drug topics."""
+        topic_info = asset.get("topicInfo", {})
+        if topic_info.get("type") == "calc" or not asset.get("outlineHtml"):
+            return "calc"
+        return "article"
+
+    def get_topic_asset(self, topic_id: str) -> Optional[dict]:
+        """Load and decompress a topic asset from utdasset.sqlite.
+
+        Returns dict with keys: topicInfo, bodyHtml, outlineHtml, etc.
+        """
+        num_id = self._extract_numeric_id(topic_id)
+        row = self.asset.execute(
+            "SELECT payload FROM topic_asset WHERE id = ?", (num_id,)
+        ).fetchone()
+        if not row or not row["payload"]:
+            return None
+        try:
+            decompressed = _ZSTD_DECOMPRESSOR.decompressobj().decompress(row["payload"])
+            return json.loads(decompressed)
+        except (zstandard.ZstdError, json.JSONDecodeError):
+            return None
+
+    def get_graphic_asset(self, graphic_id: str) -> Optional[dict]:
+        """Load and decompress a graphic asset."""
+        row = self.asset.execute(
+            "SELECT payload FROM graphic_asset WHERE id = ?", (graphic_id,)
+        ).fetchone()
+        if not row or not row["payload"]:
+            return None
+        try:
+            decompressed = _ZSTD_DECOMPRESSOR.decompressobj().decompress(row["payload"])
+            return json.loads(decompressed)
+        except (zstandard.ZstdError, json.JSONDecodeError):
+            return None
+
+    def get_topic_title(self, topic_id: str) -> Optional[str]:
+        """Get English title for a topic ID: indexed unidex lookup -> utdasset ground truth."""
+        num_id = self._extract_numeric_id(topic_id)
+
+        # 1. Try unidex.en.sqlite (fast indexed primary-key lookup)
+        try:
+            row = self.unidex.execute(
+                "SELECT title FROM topic WHERE topic_id = ? LIMIT 1", (num_id,)
+            ).fetchone()
+            if row and row["title"]:
+                return row["title"].strip()
+        except Exception:
+            pass
+
+        # 2. Authoritative ground truth: try utdasset.sqlite (payload decompression)
+        try:
+            asset = self.get_topic_asset(num_id)
+            if asset:
+                info = asset.get("topicInfo", {})
+                for t in info.get("translatedTopicInfos", []):
+                    if t.get("languageCode") == "en-US" and t.get("title"):
+                        return t.get("title").strip()
+                if info.get("title"):
+                    return info.get("title").strip()
+        except Exception:
+            pass
+
+        return None
+
+    def get_topic_outline(self, topic_id: str) -> Optional[str]:
+        """Get raw outlineHtml for a topic."""
+        asset = self.get_topic_asset(topic_id)
+        return asset.get("outlineHtml") if asset else None
+
+    def get_topic_body(self, topic_id: str) -> Optional[str]:
+        """Get raw bodyHtml for a topic."""
+        asset = self.get_topic_asset(topic_id)
+        return asset.get("bodyHtml") if asset else None
+
+    def get_topic_graphics(self, topic_id: str) -> list[dict]:
+        """Get related graphics metadata for a topic."""
+        asset = self.get_topic_asset(topic_id)
+        if not asset:
+            return []
+        return asset.get("relatedGraphics", [])
+
+    def get_topic_related_topics(self, topic_id: str) -> list[dict]:
+        """Get related topic IDs/titles for a topic."""
+        asset = self.get_topic_asset(topic_id)
+        if not asset:
+            return []
+        return asset.get("relatedTopics", [])
