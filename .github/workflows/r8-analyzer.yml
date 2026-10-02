@@ -1,0 +1,148 @@
+name: R8 Configuration Analyzer
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'androidApp/**'
+      - 'shared/**'
+      - 'gradle/**'
+      - '*.pro'
+      - '.github/workflows/r8-analyzer.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'androidApp/**'
+      - 'shared/**'
+      - 'gradle/**'
+      - '*.pro'
+      - '.github/workflows/r8-analyzer.yml'
+  workflow_dispatch:
+    inputs:
+      force_clean:
+        description: 'Run clean build before analysis'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '21'
+  JAVA_DISTRIBUTION: 'temurin'
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  r8-analyze:
+    name: R8 Analysis & Optimization Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v6
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python Protobuf
+        run: pip install protobuf
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: true
+          add-job-summary: on-failure
+          cache-cleanup: on-success
+
+      - name: Clean Build (Optional)
+        if: ${{ inputs.force_clean }}
+        run: ./gradlew clean
+
+      - name: Create Analysis Directory
+        run: mkdir -p tmp/r8analysis tmp/keepradius
+
+      - name: Run R8 Standalone Configuration Analyzer (Path A)
+        id: standalone-analyzer
+        continue-on-error: true
+        run: ./gradlew :androidApp:analyzeReleaseR8Config --stacktrace
+
+      - name: Run R8 Build with Blast Radius Dump (Path B)
+        run: |
+          ./gradlew assembleRelease \
+            -Dcom.android.tools.r8.dumpkeepradiustodirectory=$PWD/tmp/r8analysis \
+            --stacktrace
+
+      - name: Convert Protobuf Report to JSON
+        id: convert-pb
+        continue-on-error: true
+        run: |
+          if [ -f "tools/r8/convert_pb_to_json.py" ]; then
+            python3 tools/r8/convert_pb_to_json.py
+          else
+            python3 .agents/skills/r8-analyzer/scripts/convert_pb_to_json.py
+          fi
+
+      - name: Analyze R8 Keep Rules and Scores
+        id: analyze-r8
+        run: |
+          if [ -f "tools/r8/analyze.py" ]; then
+            python3 tools/r8/analyze.py
+          else
+            python3 .agents/skills/r8-analyzer/scripts/analyze.py
+          fi
+
+      - name: Evaluate Release APK and R8 Mapping Stats
+        if: always()
+        run: |
+          echo "### 📦 Release Outputs & File Mapping" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          MAPPING_DIR="androidApp/build/outputs/mapping/release"
+          APK_DIR="androidApp/build/outputs/apk/release"
+          
+          if [ -d "$APK_DIR" ]; then
+            echo "| File | Size |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            for apk in "$APK_DIR"/*.apk; do
+              if [ -f "$apk" ]; then
+                SIZE=$(du -h "$apk" | cut -f1)
+                NAME=$(basename "$apk")
+                echo "| \`$NAME\` | $SIZE |" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -d "$MAPPING_DIR" ]; then
+            echo "| Output | Lines | Purpose |" >> $GITHUB_STEP_SUMMARY
+            echo "| :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+            [ -f "$MAPPING_DIR/usage.txt" ] && echo "| \`usage.txt\` | $(wc -l < "$MAPPING_DIR/usage.txt") | Removed dead code |" >> $GITHUB_STEP_SUMMARY
+            [ -f "$MAPPING_DIR/seeds.txt" ] && echo "| \`seeds.txt\` | $(wc -l < "$MAPPING_DIR/seeds.txt") | Kept entry seeds |" >> $GITHUB_STEP_SUMMARY
+            [ -f "$MAPPING_DIR/mapping.txt" ] && echo "| \`mapping.txt\` | $(wc -l < "$MAPPING_DIR/mapping.txt") | Obfuscation symbol mappings |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload R8 Diagnostic Artifacts
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: r8-analysis-diagnostics-${{ github.sha }}
+          path: |
+            tmp/r8analysis/*
+            tmp/keepradius/*
+            androidApp/build/reports/r8/*
+            androidApp/build/outputs/mapping/release/*
+          if-no-files-found: ignore
+          retention-days: 30

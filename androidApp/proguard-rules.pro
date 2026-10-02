@@ -1,4 +1,8 @@
-# Add project specific ProGuard rules here.
+# Add project specific ProGuard/R8 rules here.
+
+# Retrace support: preserve source file and line numbers for stack traces
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
 # Kotlin Serialization
 -keepattributes *Annotation*
