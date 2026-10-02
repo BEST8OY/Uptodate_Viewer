@@ -26,8 +26,7 @@
 # Koog native class-based tools (zero reflection required)
 -keep class com.clinref.app.data.tools.** { *; }
 
-# Ktor HTTP client engine discovery via ServiceLoader SPI
--keep class io.ktor.client.engine.** implements io.ktor.client.HttpClientEngineContainer { *; }
+# Ktor (engine discovery handled by Ktor consumer rules)
 -dontwarn java.lang.management.**
 -dontwarn io.ktor.**
 
