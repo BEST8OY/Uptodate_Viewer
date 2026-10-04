@@ -109,8 +109,17 @@ Gradle Test Run :shared:desktopTest[desktop]
 │   └── reference auto-population [PASSED]
 ├── com.clinref.app.domain.GraphicDataTest (4 tests)
 │   └── graphic payload parsing and entity mapping [PASSED]
-└── com.clinref.app.util.HtmlNormalizerTest (3 tests)
-    └── link normalization and citation tag stripping [PASSED]
+├── com.clinref.app.util.HtmlNormalizerTest (3 tests)
+│   └── link normalization and citation tag stripping [PASSED]
+├── com.clinref.app.repository.ReadingPositionRepositoryTest (7 tests)
+│   ├── write-behind caching, Room persistence, and prefix normalization [PASSED]
+│   └── finished-article reset and timestamp-based pruning [PASSED]
+├── com.clinref.app.ui.content.ContentViewModelTest (9 tests)
+│   ├── idempotent open(), StartTarget.Resume vs StartTarget.Section resolution [PASSED]
+│   ├── theme change position preservation and ViewModel.resolveStart view recreation [PASSED]
+│   └── sectionJumps SharedFlow emission and position persistence [PASSED]
+└── com.clinref.app.ui.content.ArticleScrollJsTest (5 tests)
+    └── reading position parsing, null handling, and script injection [PASSED]
 ```
 
 ---
@@ -124,7 +133,7 @@ Unit tests in `shared/src/commonTest/`:
 3. [x] **`TocViewModelTest`**: Verified root item loading, child item tree expansion, and leaf navigation.
 4. [x] **`ConversationListViewModelTest`**: Verified filtering (All/Pinned/Unread), query searching, and multi-selection mode.
 5. [x] **`HistoryViewModelTest` & `FavoritesViewModelTest`**: Verified StateFlow observation with `WhileSubscribed(5000)` and repository operations.
-6. [ ] **`ChatViewModelTest`**: Test conversation loading, user message submission, and Koog AI streaming integration.
+6. [x] **`ChatViewModelTest`**: Test conversation loading, idempotency, chronological pagination ordering, user message submission, and scroll state caching.
 
 ### Step B: In-Memory Room 3 SQLite Test Suite (Completed)
 Tested Room 3 DAOs (`ConversationDao`, `MessageDao`, `HistoryDao`, `FavoriteDao`) using `Room.inMemoryDatabaseBuilder<AppDatabase>()` on Desktop JVM with `BundledSQLiteDriver`.
