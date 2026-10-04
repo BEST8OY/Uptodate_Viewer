@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -32,6 +33,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -40,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -57,7 +60,46 @@ import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
 import com.clinref.app.ui.common.ScrollToBottomFAB
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+
+/** Upper bound for waiting on the lazy list to lay out items that were just added. */
+private const val LIST_LAYOUT_TIMEOUT_MS = 1_000L
+
+/** Non-message keys used by the conversation LazyColumn. */
+private object ChatListKeys {
+    const val LOADING_OLDER = "loading_older_indicator"
+    const val ORCHESTRATION = "orchestration_card"
+    const val STREAMING = "streaming"
+    val NON_MESSAGE = setOf(LOADING_OLDER, ORCHESTRATION, STREAMING)
+}
+
+/** True when the last visible item is (nearly) the tail of the list. */
+private fun LazyListState.isNearBottom(): Boolean {
+    val info = layoutInfo
+    val lastVisible = info.visibleItemsInfo.lastOrNull() ?: return true
+    return lastVisible.index >= info.totalItemsCount - 2
+}
+
+/**
+ * Suspends until the list has laid out at least [minItems] items. Effects run before the measure
+ * pass, so [LazyListState.layoutInfo] is stale right after the backing data changes.
+ */
+private suspend fun LazyListState.awaitItemCount(minItems: Int) {
+    withTimeoutOrNull(LIST_LAYOUT_TIMEOUT_MS) {
+        snapshotFlow { layoutInfo.totalItemsCount }.first { it >= minItems }
+    }
+}
+
+/** Anchors on the first visible message by key, which is stable across prepends. */
+private fun LazyListState.captureScrollPosition() = ChatScrollPosition(
+    firstVisibleItemIndex = firstVisibleItemIndex,
+    firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
+    anchorMessageId = (layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String)
+        ?.takeIf { it !in ChatListKeys.NON_MESSAGE },
+    isAtBottom = isNearBottom()
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -91,6 +133,8 @@ fun ChatScreen(
         derivedStateOf { listState.canScrollForward }
     }
 
+    val isAtBottom by remember { derivedStateOf { listState.isNearBottom() } }
+
     val isGenerating = agentState is StreamingManager.AgentState.ToolCallInProgress ||
         agentState is StreamingManager.AgentState.WaitingForLlm
 
@@ -101,32 +145,84 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
+    var hasRestoredScrollPosition by remember(conversationId) { mutableStateOf(false) }
+
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            coroutineScope.launch {
-                listState.animateScrollToItem(chatItems.size - 1)
-            }
+    // Restore scroll position on initial conversation open or return from an article.
+    LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
+        if (chatItems.isEmpty() || hasRestoredScrollPosition) return@LaunchedEffect
+        val items = chatItems
+        listState.awaitItemCount(items.size)
+        val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+        val saved = viewModel.getSavedScrollPosition(conversationId)
+        if (saved == null || saved.isAtBottom) {
+            listState.scrollToItem(lastIndex)
+        } else {
+            val anchorIndex = saved.anchorMessageId
+                ?.let { id -> items.indexOfFirst { it is ChatListItem.Message && it.uiModel.id == id } }
+                ?.takeIf { it >= 0 }
+            val index = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, lastIndex)
+            listState.scrollToItem(index, saved.firstVisibleItemScrollOffset)
         }
+        hasRestoredScrollPosition = true
     }
 
-    LaunchedEffect(streamingText, orchestrationSteps.size) {
-        if (streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty()) {
-            coroutineScope.launch {
-                val count = listState.layoutInfo.totalItemsCount
-                if (count > 0) {
-                    listState.animateScrollToItem(count - 1)
+    // Scroll to bottom when the user sends a message.
+    LaunchedEffect(Unit) {
+        viewModel.scrollEvents.collect { event ->
+            when (event) {
+                is ChatScrollEvent.ScrollToBottom -> {
+                    // The event is emitted before chatItems and the list layout catch up.
+                    event.awaitMessageId?.let { id ->
+                        withTimeoutOrNull(LIST_LAYOUT_TIMEOUT_MS) {
+                            snapshotFlow {
+                                (chatItems.lastOrNull() as? ChatListItem.Message)?.uiModel?.id
+                            }.first { it == id }
+                        }
+                    }
+                    listState.awaitItemCount(chatItems.size)
+                    val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                    if (lastIndex >= 0) {
+                        if (event.animated) {
+                            listState.animateScrollToItem(lastIndex)
+                        } else {
+                            listState.scrollToItem(lastIndex)
+                        }
+                    }
                 }
             }
         }
     }
 
-    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages) {
-        if (listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
+    // Stream auto-scroll: follow stream ONLY if user is already at the bottom
+    LaunchedEffect(streamingText, orchestrationSteps.size) {
+        if (streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty()) {
+            if (isAtBottom) {
+                val count = listState.layoutInfo.totalItemsCount
+                if (count > 0) {
+                    listState.scrollToItem(count - 1)
+                }
+            }
+        }
+    }
+
+    // Prepend pagination: fetch older messages when scrolled near top
+    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages, hasRestoredScrollPosition) {
+        if (hasRestoredScrollPosition && listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
             viewModel.loadOlderMessages()
+        }
+    }
+
+    // Preserve scroll position when leaving composition (navigating to an article citation,
+    // switching tabs). A list that was never restored must not overwrite the saved position.
+    DisposableEffect(conversationId) {
+        onDispose {
+            if (hasRestoredScrollPosition) {
+                viewModel.saveScrollPosition(listState.captureScrollPosition())
+            }
         }
     }
 
@@ -206,7 +302,7 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (isLoadingOlder) {
-                        item {
+                        item(key = ChatListKeys.LOADING_OLDER) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -247,7 +343,7 @@ fun ChatScreen(
                     }
 
                     if (isGenerating) {
-                        item(key = "orchestration_card") {
+                        item(key = ChatListKeys.ORCHESTRATION) {
                             GeminiOrchestrationIndicator(
                                 steps = orchestrationSteps,
                                 currentStatusText = currentStatusText,
@@ -257,7 +353,7 @@ fun ChatScreen(
                     }
 
                     if (streamingText.isNotEmpty()) {
-                        item(key = "streaming") {
+                        item(key = ChatListKeys.STREAMING) {
                             GeminiMessageItem(
                                 message = MessageUiModel(
                                     id = "streaming",
@@ -291,8 +387,9 @@ fun ChatScreen(
                     visible = showScrollToBottom,
                     onClick = {
                         coroutineScope.launch {
-                            if (chatItems.isNotEmpty()) {
-                                listState.animateScrollToItem(chatItems.size - 1)
+                            val totalCount = listState.layoutInfo.totalItemsCount
+                            if (totalCount > 0) {
+                                listState.animateScrollToItem(totalCount - 1)
                                 scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
                             }
                         }

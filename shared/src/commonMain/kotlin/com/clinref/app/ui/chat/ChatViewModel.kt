@@ -19,8 +19,11 @@ import com.clinref.shared.secure.SecurePreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -28,6 +31,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
+
+sealed interface ChatScrollEvent {
+    /**
+     * Scroll to the end of the conversation. [awaitMessageId], when set, is the message that was just
+     * appended; the UI must wait until it is the list tail before scrolling.
+     */
+    data class ScrollToBottom(
+        val animated: Boolean = true,
+        val awaitMessageId: String? = null
+    ) : ChatScrollEvent
+}
 
 data class ResolvedTopicRef(
     val topicId: String,
@@ -68,13 +82,17 @@ class ChatViewModel(
     private val streamingManager: StreamingManager,
     private val reliabilityManager: ReliabilityManager,
     private val securePreferences: SecurePreferences,
-    private val secureLogger: SecureLogger
+    private val secureLogger: SecureLogger,
+    private val chatScrollStateCache: ChatScrollStateCache = ChatScrollStateCache()
 ) : ViewModel() {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _messages = MutableStateFlow<List<MessageUiModel>>(emptyList())
     val messages: StateFlow<List<MessageUiModel>> = _messages.asStateFlow()
+
+    private val _scrollEvents = MutableSharedFlow<ChatScrollEvent>(extraBufferCapacity = 1)
+    val scrollEvents: SharedFlow<ChatScrollEvent> = _scrollEvents.asSharedFlow()
 
     val chatItems: StateFlow<List<ChatListItem>> = _messages.map { list ->
         buildChatItems(list)
@@ -115,7 +133,10 @@ class ChatViewModel(
         private const val PAGE_SIZE = 50
     }
 
-    fun loadConversation(conversationId: String) {
+    fun loadConversation(conversationId: String, forceReload: Boolean = false) {
+        if (!forceReload && _currentConversationId.value == conversationId && _messages.value.isNotEmpty()) {
+            return
+        }
         generationJob?.cancel()
         generationJob = null
         _currentConversationId.value = conversationId
@@ -144,7 +165,7 @@ class ChatViewModel(
                 if (olderMessages.isNotEmpty()) {
                     messageOffset += olderMessages.size
                     _hasMoreMessages.value = olderMessages.size >= PAGE_SIZE
-                    val olderUiModels = olderMessages.map { it.toUiModel() }
+                    val olderUiModels = olderMessages.reversed().map { it.toUiModel() }
                     _messages.value = olderUiModels + _messages.value
                 } else {
                     _hasMoreMessages.value = false
@@ -153,6 +174,21 @@ class ChatViewModel(
                 _isLoadingOlder.value = false
             }
         }
+    }
+
+    fun saveScrollPosition(position: ChatScrollPosition) {
+        val convId = _currentConversationId.value ?: return
+        chatScrollStateCache.save(convId, position)
+    }
+
+    fun getSavedScrollPosition(conversationId: String? = null): ChatScrollPosition? {
+        val id = conversationId ?: _currentConversationId.value ?: return null
+        return chatScrollStateCache.get(id)
+    }
+
+    fun clearSavedScrollPosition(conversationId: String? = null) {
+        val id = conversationId ?: _currentConversationId.value ?: return
+        chatScrollStateCache.clear(id)
     }
 
     fun sendMessage(content: String) {
@@ -168,6 +204,7 @@ class ChatViewModel(
             )
             conversationRepository.addMessage(userMsg)
             _messages.value = _messages.value + userMsg.toUiModel()
+            _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = userMsg.id))
             conversationRepository.updateLastPreview(conversationId, content.take(100))
 
             if (conversationRepository.isOverTokenLimit(conversationId)) {

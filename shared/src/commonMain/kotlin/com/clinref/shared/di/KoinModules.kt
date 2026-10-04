@@ -86,6 +86,8 @@ val commonAiModule: Module = module {
 }
 
 val commonViewModelModule: Module = module {
+    // Session-scoped UI state shared across ChatViewModel instances (survives navigation).
+    single { com.clinref.app.ui.chat.ChatScrollStateCache() }
     factory { com.clinref.app.ui.search.SearchViewModel(get()) }
     factory { com.clinref.app.ui.toc.TocViewModel(get()) }
     factory { com.clinref.app.ui.history.HistoryViewModel(get()) }
@@ -95,7 +97,7 @@ val commonViewModelModule: Module = module {
     factory { com.clinref.app.ui.content.GraphicViewModel(get()) }
     factory { com.clinref.app.ui.content.ContentViewModel(get(), get(), get(), get()) }
     factory { com.clinref.app.ui.settings.SettingsViewModel(get(), get(), get()) }
-    factory { com.clinref.app.ui.chat.ChatViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    factory { com.clinref.app.ui.chat.ChatViewModel(get(), get(), get(), get(), get(), get(), get(), get()) }
 }
 
 val commonModules: List<Module> = listOf(
