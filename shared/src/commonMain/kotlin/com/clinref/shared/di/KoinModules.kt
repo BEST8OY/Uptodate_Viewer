@@ -20,8 +20,12 @@ import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import com.clinref.app.repository.FavoriteRepository
 import com.clinref.app.repository.HistoryRepository
+import com.clinref.app.repository.ReadingPositionRepository
 import com.clinref.app.repository.SearchRepository
 import com.clinref.app.repository.TocRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -37,6 +41,7 @@ val commonDatabaseModule: Module = module {
     single { get<AppDatabase>().messageDao() }
     single { get<AppDatabase>().historyDao() }
     single { get<AppDatabase>().favoriteDao() }
+    single { get<AppDatabase>().readingPositionDao() }
 
     single { RoomChatHistoryProvider(messageDao = get()) }
 }
@@ -49,6 +54,12 @@ val commonRepositoryModule: Module = module {
     single { ConversationRepository(conversationDao = get(), messageDao = get()) }
     single { HistoryRepository(historyDao = get()) }
     single { FavoriteRepository(favoriteDao = get()) }
+    single {
+        ReadingPositionRepository(
+            dao = get(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        )
+    }
 }
 
 val commonAiModule: Module = module {
@@ -82,7 +93,7 @@ val commonViewModelModule: Module = module {
     factory { com.clinref.app.ui.conversations.ConversationListViewModel(get()) }
     factory { com.clinref.app.ui.setup.SetupViewModel(get()) }
     factory { com.clinref.app.ui.content.GraphicViewModel(get()) }
-    factory { com.clinref.app.ui.content.ContentViewModel(get(), get(), get()) }
+    factory { com.clinref.app.ui.content.ContentViewModel(get(), get(), get(), get()) }
     factory { com.clinref.app.ui.settings.SettingsViewModel(get(), get(), get()) }
     factory { com.clinref.app.ui.chat.ChatViewModel(get(), get(), get(), get(), get(), get(), get()) }
 }

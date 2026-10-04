@@ -3,6 +3,7 @@ package com.clinref.app.ui.content
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.clinref.app.domain.ReadingPosition
 
 /**
  * Returns JavaScript snippet to scroll to a target section by ID or anchor name.
@@ -30,28 +31,40 @@ fun scrollToSectionJs(sectionId: String): String {
 
 /**
  * Platform-independent controller for clinical article HTML presentation.
- * Coordinates section jumping, in-page search, and action interception.
+ * Coordinates section jumping, in-page search, reading-position reporting and action interception.
  */
 class ArticleWebViewController {
 
     var onAction: ((String) -> Unit)? = null
     var onFindResult: ((count: Int, activeMatchOrdinal: Int) -> Unit)? = null
 
+    /** Reports the reader's position (already debounced by the renderer) for the shown document. */
+    var onPositionChanged: ((ReadingPosition) -> Unit)? = null
+
+    /**
+     * Supplies where a renderer should start when it (re)loads a document. Falls back to
+     * [ArticleDocument.start] when unset.
+     */
+    var startResolver: ((ArticleDocument) -> StartTarget)? = null
+
     private var platformScrollToSection: ((String) -> Unit)? = null
     private var platformFindAll: ((String) -> Unit)? = null
     private var platformClearFindMatches: (() -> Unit)? = null
     private var platformFindNext: ((Boolean) -> Unit)? = null
+    private var platformFlushPosition: (() -> Unit)? = null
 
     fun bindPlatform(
         scrollToSection: (String) -> Unit,
         findAll: (String) -> Unit,
         clearFindMatches: () -> Unit,
-        findNext: (Boolean) -> Unit
+        findNext: (Boolean) -> Unit,
+        flushPosition: () -> Unit = {}
     ) {
         this.platformScrollToSection = scrollToSection
         this.platformFindAll = findAll
         this.platformClearFindMatches = clearFindMatches
         this.platformFindNext = findNext
+        this.platformFlushPosition = flushPosition
     }
 
     fun unbindPlatform() {
@@ -59,6 +72,7 @@ class ArticleWebViewController {
         this.platformFindAll = null
         this.platformClearFindMatches = null
         this.platformFindNext = null
+        this.platformFlushPosition = null
     }
 
     fun findAll(query: String) {
@@ -76,6 +90,15 @@ class ArticleWebViewController {
     fun scrollToSection(sectionId: String) {
         platformScrollToSection?.invoke(sectionId)
     }
+
+    /** Forces the renderer to report its current position now (e.g. before the app is stopped). */
+    fun flushPosition() {
+        platformFlushPosition?.invoke()
+    }
+
+    /** Start target to apply when a renderer loads [document]; prefers the reader's live position. */
+    fun resolveStart(document: ArticleDocument): StartTarget =
+        startResolver?.invoke(document) ?: document.start
 }
 
 @Composable
@@ -84,13 +107,17 @@ fun rememberArticleWebViewController(): ArticleWebViewController =
 
 /**
  * Cross-platform HTML article renderer.
+ *
+ * Renders [document] and loads only when [ArticleDocument.revision] changes, starting at
+ * [ArticleDocument.start]. Reading-position changes are reported through
+ * [ArticleWebViewController.onPositionChanged].
+ *
  * On Android, uses hardware-accelerated Chrome WebView with nested scrolling and JS bridge.
  * On Desktop JVM, uses SwingPanel + JEditorPane with HTML3.2/4 rendering and action routing.
  */
 @Composable
 expect fun HtmlContentWebView(
-    processedHtml: String?,
+    document: ArticleDocument?,
     controller: ArticleWebViewController,
-    initialSectionId: String? = null,
     modifier: Modifier = Modifier
 )

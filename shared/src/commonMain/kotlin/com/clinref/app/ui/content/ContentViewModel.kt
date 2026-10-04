@@ -4,14 +4,21 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.ContributorGroup
+import com.clinref.app.domain.ReadingPosition
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.FavoriteRepository
 import com.clinref.app.repository.HistoryRepository
+import com.clinref.app.repository.ReadingPositionRepository
 import com.clinref.app.util.HtmlNormalizer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,7 +31,9 @@ class ContentViewModel(
     private val contentRepository: ContentRepository,
     private val favoriteRepository: FavoriteRepository,
     private val historyRepository: HistoryRepository,
-    private val savedStateHandle: SavedStateHandle = SavedStateHandle()
+    private val readingPositionRepository: ReadingPositionRepository,
+    private val savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     companion object {
@@ -35,7 +44,13 @@ class ContentViewModel(
 
     private var _themeColors: ThemeColors? = null
     private var _rawHtml: String? = null
+    private var _rawRev: String = ""
     private var currentLoadJob: Job? = null
+    private var opened = false
+    private var revisionCounter = 0L
+
+    /** Latest position reported by the renderer for the currently displayed document. */
+    private var latestPosition: ReadingPosition? = null
 
     private val _currentTopicId = MutableStateFlow<String?>(savedStateHandle.get<String>(KEY_CURRENT_TOPIC_ID))
     val currentTopicId: StateFlow<String?> = _currentTopicId
@@ -43,8 +58,9 @@ class ContentViewModel(
     private val _topicContent = MutableStateFlow<ContentRepository.TopicContent?>(null)
     val topicContent: StateFlow<ContentRepository.TopicContent?> = _topicContent
 
-    private val _processedHtml = MutableStateFlow<String?>(null)
-    val processedHtml: StateFlow<String?> = _processedHtml
+    /** Single source of truth for what the article renderer shows and where it starts. */
+    private val _document = MutableStateFlow<ArticleDocument?>(null)
+    val document: StateFlow<ArticleDocument?> = _document
 
     private val _isFavorite = MutableStateFlow(false)
     val isFavorite: StateFlow<Boolean> = _isFavorite
@@ -61,8 +77,12 @@ class ContentViewModel(
     private val _contributorsDialog = MutableStateFlow<List<ContributorGroup>?>(null)
     val contributorsDialog: StateFlow<List<ContributorGroup>?> = _contributorsDialog
 
-    private val _scrollToSection = MutableStateFlow<String?>(null)
-    val scrollToSection: StateFlow<String?> = _scrollToSection
+    /**
+     * One-shot, imperative "scroll to this section now" commands (outline taps, same-topic links).
+     * Distinct from [ArticleDocument.start], which only describes where a fresh load begins.
+     */
+    private val _sectionJumps = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    val sectionJumps: SharedFlow<String> = _sectionJumps.asSharedFlow()
 
     private val _activeSectionId = MutableStateFlow<String?>(null)
     val activeSectionId: StateFlow<String?> = _activeSectionId
@@ -102,15 +122,45 @@ class ContentViewModel(
     }
 
     fun setThemeColors(colors: ThemeColors) {
-        val changed = _themeColors?.isDark != colors.isDark
+        val previous = _themeColors ?: ThemeColors.light()
         _themeColors = colors
-        if (changed) regenerateHtml()
+        if (previous.isDark != colors.isDark) regenerateHtml()
     }
 
+    /**
+     * Re-themes the *current* document in place: same topic, same content revision, and the reader's
+     * live position as the start target, so a light/dark switch never jumps back to the top.
+     */
     private fun regenerateHtml() {
+        val doc = _document.value ?: return
+        emitDocument(doc.topicId, resolveStart(doc))
+    }
+
+    private fun emitDocument(topicId: String, start: StartTarget) {
         val html = _rawHtml ?: return
+        _document.value = ArticleDocument(
+            topicId = topicId,
+            html = buildHtml(html),
+            contentRev = _rawRev,
+            revision = ++revisionCounter,
+            start = start
+        )
+    }
+
+    /**
+     * Where a renderer should start for [document]: the reader's live position when it belongs to
+     * this exact content, otherwise the document's own [ArticleDocument.start]. Lets a recreated
+     * view (tab switch, rotation) resume where the reader actually is.
+     */
+    fun resolveStart(document: ArticleDocument): StartTarget =
+        latestPosition
+            ?.takeIf { it.contentRev == document.contentRev }
+            ?.let { StartTarget.Resume(it) }
+            ?: document.start
+
+    private fun buildHtml(html: String): String {
         val css = getCss()
-        _processedHtml.value = """
+        return """
         <!DOCTYPE html>
         <html>
         <head>
@@ -122,16 +172,52 @@ class ContentViewModel(
         """.trimIndent()
     }
 
+    /**
+     * Idempotent entry point for a route instance. The route is only an *initial hint*: once the
+     * ViewModel has a topic (restored, or in-article navigation moved it elsewhere) re-entering the
+     * screen (tab switch, return from another screen) must not reload or reset anything.
+     */
+    fun open(topicId: String, sectionId: String? = null) {
+        if (opened) return
+        opened = true
+        if (_currentTopicId.value != null) return
+        resetNavigationHistory()
+        loadTopic(topicId, sectionId = sectionId)
+    }
+
+    /** Called by the renderer whenever the reader's position changes (debounced by the renderer). */
+    fun onPositionChanged(position: ReadingPosition) {
+        val doc = _document.value ?: return
+        // A late report from a previously displayed document must not be attributed to this one.
+        if (position.contentRev != doc.contentRev) return
+        latestPosition = position
+        readingPositionRepository.save(doc.topicId, position)
+        position.sectionId?.let { _activeSectionId.value = it }
+    }
+
     fun scrollToSection(sectionId: String) {
-        val clean = sectionId.trim()
-        if (clean.isNotBlank() && !clean.equals("FULL", ignoreCase = true)) {
-            _scrollToSection.value = clean
+        val clean = normalizeSection(sectionId) ?: return
+        _sectionJumps.tryEmit(clean)
+    }
+
+    /** `"FULL"` is the internal whole-article sentinel and never a real DOM anchor. */
+    private fun normalizeSection(sectionId: String?): String? =
+        sectionId?.trim()?.takeIf { it.isNotBlank() && !it.equals("FULL", ignoreCase = true) }
+
+    private suspend fun initialStart(topicId: String, sectionId: String?): StartTarget {
+        normalizeSection(sectionId)?.let { return StartTarget.Section(it) }
+        val saved = try {
+            readingPositionRepository.get(topicId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
         }
+        return saved?.let { StartTarget.Resume(it) } ?: StartTarget.Top
     }
 
     fun loadTopic(topicId: String, addToHistory: Boolean = true, sectionId: String? = null) {
         currentLoadJob?.cancel()
-        _scrollToSection.value = null
         currentLoadJob = viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
@@ -139,7 +225,7 @@ class ContentViewModel(
             savedStateHandle[KEY_CURRENT_TOPIC_ID] = topicId
 
             val content = try {
-                withContext(Dispatchers.IO) {
+                withContext(ioDispatcher) {
                     contentRepository.getTopicContent(topicId)
                 }
             } catch (e: Exception) {
@@ -157,7 +243,7 @@ class ContentViewModel(
                 return@launch
             }
 
-            val title = withContext(Dispatchers.IO) { contentRepository.getTopicTitle(topicId) } ?: topicId
+            val title = withContext(ioDispatcher) { contentRepository.getTopicTitle(topicId) } ?: topicId
             _articleTitle.value = title
 
             var html = content.bodyHtml
@@ -173,8 +259,11 @@ class ContentViewModel(
                     """href="appaction://$actionId""""
                 }
 
+            val start = initialStart(topicId, sectionId)
             _rawHtml = html
-            regenerateHtml()
+            _rawRev = html.hashCode().toUInt().toString(16)
+            latestPosition = null
+            emitDocument(topicId, start)
 
             if (content.outlineHtml.isNotBlank()) {
                 val sections = withContext(Dispatchers.Default) {
@@ -201,11 +290,6 @@ class ContentViewModel(
             _isFavorite.value = favoriteRepository.isFavorite(topicId)
             _isLoading.value = false
             updateNavigationState()
-
-            val cleanSec = sectionId?.trim()
-            if (!cleanSec.isNullOrBlank() && !cleanSec.equals("FULL", ignoreCase = true)) {
-                _scrollToSection.value = cleanSec
-            }
         }
     }
 
@@ -252,7 +336,7 @@ class ContentViewModel(
                 val targetTopicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
                 if (targetTopicId != null) {
                     if (targetTopicId == _currentTopicId.value && section != null) {
-                        _scrollToSection.value = section
+                        scrollToSection(section)
                     } else {
                         loadTopic(targetTopicId)
                     }
@@ -284,10 +368,6 @@ class ContentViewModel(
 
     fun dismissContributorsDialog() {
         _contributorsDialog.value = null
-    }
-
-    fun clearScrollToSection() {
-        _scrollToSection.value = null
     }
 
     fun setActiveSection(sectionId: String?) {

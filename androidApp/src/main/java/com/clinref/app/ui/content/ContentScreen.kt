@@ -29,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +54,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import org.koin.compose.viewmodel.koinViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 
@@ -68,12 +72,7 @@ fun ContentScreen(
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(topicId, sectionId) {
-        if (viewModel.currentTopicId.value != topicId) {
-            viewModel.resetNavigationHistory()
-            viewModel.loadTopic(topicId, sectionId = sectionId)
-        } else if (sectionId != null) {
-            viewModel.scrollToSection(sectionId)
-        }
+        viewModel.open(topicId, sectionId = sectionId)
     }
 
     val colorScheme = MaterialTheme.colorScheme
@@ -81,12 +80,11 @@ fun ContentScreen(
         viewModel.setThemeColors(ThemeColors.fromColorScheme(colorScheme))
     }
 
-    val processedHtml by viewModel.processedHtml.collectAsStateWithLifecycle()
+    val document by viewModel.document.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
     val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
-    val scrollToSection by viewModel.scrollToSection.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
     val canGoForward by viewModel.canGoForward.collectAsStateWithLifecycle()
@@ -132,9 +130,24 @@ fun ContentScreen(
 
     SideEffect {
         webView.onAction = viewModel::handleAction
+        webView.onPositionChanged = viewModel::onPositionChanged
+        webView.startResolver = viewModel::resolveStart
         webView.onFindResult = { count, activeOrdinal ->
             searchResultCount = count
             searchResultIndex = activeOrdinal
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                webView.flushPosition()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -174,16 +187,15 @@ fun ContentScreen(
 
     // Reveal the toolbar whenever content changes or an overlay (search/outline) closes,
     // since upward-scroll reveal is unavailable while an overlay intercepts input.
-    LaunchedEffect(processedHtml, showSearch, showOutline) {
+    LaunchedEffect(document?.revision, showSearch, showOutline) {
         scrollState.reveal()
     }
 
-    LaunchedEffect(scrollToSection) {
-        scrollToSection?.let { section ->
+    LaunchedEffect(Unit) {
+        viewModel.sectionJumps.collect { section ->
             scrollState.suppressFor()
             scrollState.reveal()
             webView.scrollToSection(section)
-            viewModel.clearScrollToSection()
         }
     }
 
@@ -261,9 +273,8 @@ fun ContentScreen(
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f)) {
                     HtmlContentWebView(
-                        processedHtml = processedHtml,
+                        document = document,
                         controller = webView,
-                        initialSectionId = scrollToSection,
                         modifier = Modifier.fillMaxSize()
                     )
 
@@ -286,7 +297,7 @@ fun ContentScreen(
                             if (actionJson != null) {
                                 viewModel.handleOutlineAction(actionJson)
                             } else {
-                                webView.scrollToSection(section.id)
+                                viewModel.scrollToSection(section.id)
                             }
                             if (section.sectionType != SectionType.GRAPHIC) {
                                 viewModel.toggleOutline()
