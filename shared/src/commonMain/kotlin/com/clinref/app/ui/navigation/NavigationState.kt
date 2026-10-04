@@ -1,0 +1,162 @@
+package com.clinref.app.ui.navigation
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.NavEntryDecorator
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.rememberDecoratedNavEntries
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.savedstate.serialization.SavedStateConfiguration
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.polymorphic
+import kotlinx.serialization.modules.subclass
+
+val navSavedStateConfig = SavedStateConfiguration {
+    serializersModule = SerializersModule {
+        polymorphic(NavKey::class) {
+            subclass(TocRoute::class, TocRoute.serializer())
+            subclass(HistoryRoute::class, HistoryRoute.serializer())
+            subclass(FavoritesRoute::class, FavoritesRoute.serializer())
+            subclass(AiRoute::class, AiRoute.serializer())
+            subclass(ContentRoute::class, ContentRoute.serializer())
+            subclass(AiSettingsRoute::class, AiSettingsRoute.serializer())
+            subclass(ConversationListRoute::class, ConversationListRoute.serializer())
+            subclass(ChatRoute::class, ChatRoute.serializer())
+        }
+    }
+}
+
+@Composable
+fun rememberNavigationState(
+    startRoute: NavKey,
+    topLevelRoutes: Set<NavKey>
+): NavigationState {
+    val topLevelRoute = rememberSaveable(
+        startRoute, topLevelRoutes,
+        saver = Saver(
+            save = { state -> (state.value as? TopLevelRoute)?.title ?: state.value.toString() },
+            restore = { savedName ->
+                val restored = topLevelRoutes.firstOrNull { (it as? TopLevelRoute)?.title == savedName || it.toString() == savedName } ?: startRoute
+                mutableStateOf(restored)
+            }
+        )
+    ) {
+        mutableStateOf(startRoute)
+    }
+
+    val backStacks = topLevelRoutes.associateWith { routeKey ->
+        key(routeKey) {
+            rememberNavBackStack(navSavedStateConfig, routeKey)
+        }
+    }
+
+    val saveableDecorator = rememberSaveableStateHolderNavEntryDecorator<NavKey>()
+    val viewModelDecorator = rememberViewModelStoreNavEntryDecorator<NavKey>()
+    val entryDecorators = remember(saveableDecorator, viewModelDecorator) {
+        listOf(saveableDecorator, viewModelDecorator)
+    }
+
+    return remember(startRoute, topLevelRoutes, entryDecorators) {
+        NavigationState(
+            startRoute = startRoute,
+            topLevelRoute = topLevelRoute,
+            backStacks = backStacks,
+            entryDecorators = entryDecorators
+        )
+    }
+}
+
+class NavigationState(
+    val startRoute: NavKey,
+    topLevelRoute: MutableState<NavKey>,
+    val backStacks: Map<NavKey, NavBackStack<NavKey>>,
+    private val entryDecorators: List<NavEntryDecorator<NavKey>>
+) {
+    var topLevelRoute: NavKey by topLevelRoute
+
+    @Composable
+    fun toDecoratedEntries(
+        entryProvider: (NavKey) -> NavEntry<NavKey>
+    ): List<NavEntry<NavKey>> {
+        val decoratedEntries = backStacks.mapValues { (routeKey, stack) ->
+            key(routeKey) {
+                rememberDecoratedNavEntries(
+                    backStack = stack,
+                    entryDecorators = entryDecorators,
+                    entryProvider = entryProvider
+                )
+            }
+        }
+
+        return getTopLevelRoutesInUse()
+            .flatMap { decoratedEntries[it] ?: emptyList() }
+    }
+
+    private fun getTopLevelRoutesInUse(): List<NavKey> =
+        listOf(topLevelRoute)
+}
+
+class Navigator(val state: NavigationState) {
+    private val _reselectEvents = MutableSharedFlow<NavKey>(extraBufferCapacity = 1)
+    val reselectEvents: SharedFlow<NavKey> = _reselectEvents.asSharedFlow()
+
+    fun onReselect(route: NavKey) {
+        val stack = state.backStacks[route]
+        if (stack != null && stack.size > 1) {
+            // Re-selecting active top-level route while in sub-route pops sub-stack to root
+            while (stack.size > 1) {
+                stack.removeLastOrNull()
+            }
+        } else {
+            // Re-selecting when already at root emits reselect event (e.g. scroll to top)
+            _reselectEvents.tryEmit(route)
+        }
+    }
+
+    fun navigate(route: NavKey) {
+        if (route in state.backStacks.keys) {
+            if (route == state.topLevelRoute) {
+                onReselect(route)
+            } else {
+                // Switching top-level tab preserves sub-backstack state
+                state.topLevelRoute = route
+            }
+        } else {
+            val currentStack = state.backStacks[state.topLevelRoute] ?: return
+            if (currentStack.lastOrNull() != route) {
+                currentStack.add(route)
+            }
+        }
+    }
+
+    fun goBack() {
+        val currentStack = state.backStacks[state.topLevelRoute]
+            ?: error("Stack for ${state.topLevelRoute} not found")
+        val currentRoute = currentStack.lastOrNull() ?: return
+
+        if (currentRoute == state.topLevelRoute) {
+            if (state.topLevelRoute != state.startRoute) {
+                // At non-start top-level root — pop back to start route (Exit Through Home pattern)
+                state.topLevelRoute = state.startRoute
+            }
+        } else {
+            currentStack.removeLastOrNull()
+        }
+    }
+}
+
+
