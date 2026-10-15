@@ -84,4 +84,24 @@ class ClinicalAgentStrategyTest {
         val blocked = ClinicalAgentStrategy.SafetyEvaluation.Blocked("Invented numbers")
         assertEquals("Invented numbers", blocked.reason)
     }
+
+    @Test
+    fun `buildCorrectionPrompt with missing sections instructs immediate tool retrieval`() {
+        val prompt = SystemPrompt.buildCorrectionPrompt(
+            blockedReason = "Answer requires section or table content retrieval.",
+            evidenceSummary = "No section text was successfully fetched in the prior turn."
+        )
+        assertTrue(prompt.contains("REMEDIAL ACTION REQUIRED"))
+        assertTrue(prompt.contains("getTopicSectionsText"))
+    }
+
+    @Test
+    fun `buildCorrectionPrompt with unverified quantities instructs figure correction`() {
+        val prompt = SystemPrompt.buildCorrectionPrompt(
+            blockedReason = "Unverified clinical quantities found in response: 750 mg.",
+            evidenceSummary = "Section [H1] (Dosing):\nCeftriaxone 1,000 mg IV daily."
+        )
+        assertTrue(prompt.contains("REMEDIAL INSTRUCTIONS"))
+        assertTrue(prompt.contains("Correct or remove any unverified clinical quantities"))
+    }
 }
