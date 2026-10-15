@@ -44,7 +44,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -184,14 +183,12 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
-    var restoreTrigger by remember { mutableIntStateOf(0) }
-
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
     // Restore scroll position on initial conversation open or return from an article.
-    LaunchedEffect(conversationId, chatItems.isNotEmpty(), restoreTrigger) {
+    LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
         if (chatItems.isEmpty()) return@LaunchedEffect
         val items = chatItems
         val saved = viewModel.getSavedScrollPosition(conversationId) ?: ChatScrollPosition(
@@ -204,55 +201,26 @@ fun ChatScreen(
         // Wait until LazyColumn has laid out items
         listState.awaitItemCount(items.size)
 
-        val anchorId = saved.anchorMessageId
-        val totalCount = listState.layoutInfo.totalItemsCount
-        val maxIndex = (totalCount - 1).coerceAtLeast(0)
-        val anchorIndex = anchorId
-            ?.let { id ->
-                val exactIndex = items.indexOfFirst { it.key == id }
-                if (exactIndex >= 0) exactIndex
-                else {
-                    val cleanId = id.removePrefix("refs_")
-                    items.indexOfFirst { it.key == cleanId }
-                }
-            }
-            ?.takeIf { it >= 0 }
-            ?.let { if (isLoadingOlder) it + 1 else it }
-        val targetIndex = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
-
-        // Perform frame-stabilized scroll restoration to handle dynamic-height markdown and references
-        var lastBottom = -1
-        var lastSize = -1
-        var stableFrames = 0
-        var totalFrames = 0
-
-        while (stableFrames < 3 && totalFrames < 25 && !listState.isScrollInProgress) {
-            totalFrames++
-            val currentTotal = listState.layoutInfo.totalItemsCount
-            if (currentTotal > 0) {
-                if (saved.isAtBottom) {
-                    listState.scrollToItem(currentTotal - 1)
-                    scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
-                    val bottom = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.offset + it.size } ?: -1
-                    if (bottom == lastBottom && bottom > 0) {
-                        stableFrames++
-                    } else {
-                        stableFrames = 0
-                        lastBottom = bottom
-                    }
-                } else {
-                    listState.scrollToItem(targetIndex, saved.firstVisibleItemScrollOffset)
-                    val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
-                    val size = item?.size ?: -1
-                    if (size == lastSize && size >= saved.firstVisibleItemScrollOffset) {
-                        stableFrames++
-                    } else {
-                        stableFrames = 0
-                        lastSize = size
+        if (saved.isAtBottom) {
+            listState.scrollToBottom(animated = false)
+        } else {
+            val anchorId = saved.anchorMessageId
+            val totalCount = listState.layoutInfo.totalItemsCount
+            val maxIndex = (totalCount - 1).coerceAtLeast(0)
+            val anchorIndex = anchorId
+                ?.let { id ->
+                    val exactIndex = items.indexOfFirst { it.key == id }
+                    if (exactIndex >= 0) exactIndex
+                    else {
+                        val cleanId = id.removePrefix("refs_")
+                        items.indexOfFirst { it.key == cleanId }
                     }
                 }
-            }
-            withFrameNanos { }
+                ?.takeIf { it >= 0 }
+                ?.let { if (isLoadingOlder) it + 1 else it }
+
+            val targetIndex = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
+            listState.scrollToItem(targetIndex, saved.firstVisibleItemScrollOffset)
         }
     }
 
@@ -405,13 +373,11 @@ fun ChatScreen(
 
                     val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
                         viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
-                        restoreTrigger++
                         onNavigateToContent(topicId, sectionId)
                     }
 
                     val handleGraphicSelected: (String) -> Unit = { graphicId ->
                         viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
-                        restoreTrigger++
                         onGraphicSelected(graphicId)
                     }
 
@@ -496,7 +462,6 @@ fun ChatScreen(
                     onClick = {
                         coroutineScope.launch {
                             listState.scrollToBottom(animated = true)
-                            scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
                         }
                     },
                     modifier = Modifier.padding(bottom = 8.dp)
