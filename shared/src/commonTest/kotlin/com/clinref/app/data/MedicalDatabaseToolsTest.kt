@@ -222,4 +222,189 @@ class MedicalDatabaseToolsTest {
         val graphicResult = tools.getGraphicContentTool.execute(GetGraphicContentTool.Args("999"))
         assertTrue(graphicResult.contains("not a table"))
     }
+
+    @Test
+    fun `getTopicOutline extracts section levels and parentIds properly`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Hematoma</a>
+                    <ul>
+                        <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Clinical Manifestations</a></li>
+                        <li><a href="appAction({&quot;section&quot;:&quot;H3&quot;})">Treatment</a>
+                            <ul>
+                                <li><a href="appAction({&quot;section&quot;:&quot;H4&quot;})"><span class="legacyTopicViewHyphen">- </span>Drainage</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+            </ul>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("200") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
+        every { contentRepository.getTopicTitle("200") } returns "Topic 200"
+
+        val outlineJson = tools.getTopicOutline("200")
+        val obj = json.parseToJsonElement(outlineJson).jsonObject
+        val sections = obj["sections"]!!.jsonArray
+
+        assertEquals(4, sections.size)
+        // H1 is level 1, parent null
+        assertEquals("H1", sections[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(1, sections[0].jsonObject["level"]!!.jsonPrimitive.content.toInt())
+        assertTrue(sections[0].jsonObject["parentId"] == null || sections[0].jsonObject["parentId"] is kotlinx.serialization.json.JsonNull)
+
+        // H2 is level 2, parent H1
+        assertEquals("H2", sections[1].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(2, sections[1].jsonObject["level"]!!.jsonPrimitive.content.toInt())
+        assertEquals("H1", sections[1].jsonObject["parentId"]!!.jsonPrimitive.content)
+
+        // H3 is level 2, parent H1
+        assertEquals("H3", sections[2].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(2, sections[2].jsonObject["level"]!!.jsonPrimitive.content.toInt())
+        assertEquals("H1", sections[2].jsonObject["parentId"]!!.jsonPrimitive.content)
+
+        // H4 is level 3, parent H3, legacy hyphen stripped
+        assertEquals("H4", sections[3].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("Drainage", sections[3].jsonObject["title"]!!.jsonPrimitive.content)
+        assertEquals(3, sections[3].jsonObject["level"]!!.jsonPrimitive.content.toInt())
+        assertEquals("H3", sections[3].jsonObject["parentId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `getTopicOutline deduplicates repeated sections such as summary and recommendations`() {
+        val outlineHtml = """
+            <li class="sr-button"><a href="appAction({&quot;section&quot;:&quot;H_SR&quot;})">Summary &amp; Recommendations</a></li>
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Intro</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H_SR&quot;})">Summary &amp; Recommendations</a></li>
+            </ul>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("300") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
+        every { contentRepository.getTopicTitle("300") } returns "Topic 300"
+
+        val outlineJson = tools.getTopicOutline("300")
+        val obj = json.parseToJsonElement(outlineJson).jsonObject
+        val sections = obj["sections"]!!.jsonArray
+
+        assertEquals(2, sections.size)
+        val ids = sections.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+        assertEquals(listOf("H1", "H_SR"), ids)
+    }
+
+    @Test
+    fun `getTopicOutline returns error response for nonexistent topic`() {
+        every { contentRepository.getTopicContent("nonexistent") } returns null
+
+        val resultJson = tools.getTopicOutline("nonexistent")
+        val obj = json.parseToJsonElement(resultJson).jsonObject
+        assertTrue(obj.containsKey("error"))
+        assertTrue(obj["error"]!!.jsonPrimitive.content.contains("Topic not found"))
+    }
+
+    @Test
+    fun `getTopicSectionsText includes subsections when parent section is requested`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Treatment</a>
+                    <ul>
+                        <li><a href="appAction({&quot;section&quot;:&quot;H3&quot;})">Antibiotics</a></li>
+                    </ul>
+                </li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H4&quot;})">Prevention</a></li>
+            </ul>
+        """.trimIndent()
+
+        val bodyHtml = """
+            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>General overview text.</p>
+            <p class="headingAnchor" id="H2"><span class="h2">Treatment</span><span class="headingEndMark">—</span>Infected wounds must be drained.</p>
+            <p class="headingAnchor" id="H3"><span class="h3">Antibiotics</span><span class="headingEndMark">—</span>Give Vancomycin 15 to 20 mg/kg IV.</p>
+            <p class="headingAnchor" id="H4"><span class="h2">Prevention</span><span class="headingEndMark">—</span>Use sterile technique.</p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("400") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("400") } returns "Topic 400"
+
+        val resJson = tools.getTopicSectionsText("400", listOf("H2"))
+        val obj = json.parseToJsonElement(resJson).jsonObject
+        val md = obj["markdown"]!!.jsonPrimitive.content
+
+        // Treatment (H2) must include child H3 (Antibiotics with Vancomycin 15 to 20 mg/kg IV)
+        assertTrue(md.contains("Infected wounds must be drained."))
+        assertTrue(md.contains("Vancomycin 15 to 20 mg/kg IV"))
+        // But must NOT bleed into sibling H4 (Prevention)
+        assertFalse(md.contains("Use sterile technique."))
+    }
+
+    @Test
+    fun `getTopicSectionsText resolves section by title if title is passed instead of id`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H_TREAT&quot;})">Treatment and Management</a></li>
+            </ul>
+        """.trimIndent()
+        val bodyHtml = """<p class="headingAnchor" id="H_TREAT"><span class="h1">Treatment and Management</span><span class="headingEndMark">—</span>Clinical management details.</p>"""
+
+        every { contentRepository.getTopicContent("500") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("500") } returns "Topic 500"
+
+        val resJson = tools.getTopicSectionsText("500", listOf("Treatment and Management"))
+        val obj = json.parseToJsonElement(resJson).jsonObject
+        val sectionTitles = obj["sectionTitles"]!!.jsonObject
+
+        assertTrue(sectionTitles.containsKey("H_TREAT"))
+        val md = obj["markdown"]!!.jsonPrimitive.content
+        assertTrue(md.contains("=== Section: H_TREAT ==="))
+        assertTrue(md.contains("Clinical management details."))
+    }
+
+    @Test
+    fun `getTopicSectionsText strips calculator SDI lookup tables to prevent context blowup`() {
+        val bodyHtml = """
+            <div id="topicContentCalculator">
+                <h1>Creatinine Clearance Calculator</h1>
+                <p>Enter patient age and serum creatinine.</p>
+                <td id="sdi1">00501 00544 01005 01007 01008 90210 99950</td>
+                <p>Cockcroft-Gault formula calculates estimated CrCl.</p>
+            </div>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("600") } returns ContentRepository.TopicContent(outlineHtml = "", bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("600") } returns "CrCl Calculator"
+
+        val resJson = tools.getTopicSectionsText("600", listOf("FULL"))
+        val obj = json.parseToJsonElement(resJson).jsonObject
+        val md = obj["markdown"]!!.jsonPrimitive.content
+
+        assertTrue(md.contains("Cockcroft-Gault formula"))
+        assertFalse(md.contains("90210"))
+    }
+
+    @Test
+    fun `searchTopicSections finds matching sections and snippets`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Renal Impairment</a></li>
+            </ul>
+        """.trimIndent()
+        val bodyHtml = """
+            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>General disease overview.</p>
+            <p class="headingAnchor" id="H2"><span class="h1">Renal Impairment</span><span class="headingEndMark">—</span>Dose adjustment: For eGFR &lt; 30 mL/min, reduce dose by 50%.</p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
+
+        val searchJson = tools.searchTopicSections("700", "eGFR")
+        val obj = json.parseToJsonElement(searchJson).jsonObject
+        val matches = obj["matches"]!!.jsonArray
+
+        assertEquals(1, matches.size)
+        assertEquals("H2", matches[0].jsonObject["sectionId"]!!.jsonPrimitive.content)
+        assertEquals("Renal Impairment", matches[0].jsonObject["sectionTitle"]!!.jsonPrimitive.content)
+        assertTrue(matches[0].jsonObject["snippet"]!!.jsonPrimitive.content.contains("reduce dose by 50%"))
+    }
 }
+
