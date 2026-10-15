@@ -738,17 +738,18 @@ class TestToolsInit:
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         assert isinstance(tool_list, list)
-        assert len(tool_list) == 5
+        assert len(tool_list) == 6
 
     def test_init_tools_includes_expected_names(self):
         import tools
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         names = [t.name for t in tool_list]
-        assert len(names) == 5
+        assert len(names) == 6
         assert set(names) == {
             "search_topics",
             "get_topic_outline",
+            "search_topic_sections",
             "get_related_topics",
             "get_topic_sections_text",
             "get_graphic_content",

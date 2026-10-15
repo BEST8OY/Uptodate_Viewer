@@ -36,6 +36,7 @@ def init_tools(db: ClinRefDatabase) -> list:
     return [
         search_topics,
         get_topic_outline,
+        search_topic_sections,
         get_related_topics,
         get_topic_sections_text,
         get_graphic_content,
@@ -267,7 +268,95 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
     return json.dumps(result)
 
 
+@tool
+def search_topic_sections(topic_id: str, query: str) -> str:
+    """Search sections within a specific topic by keywords (e.g., 'dosing', 'pregnancy', 'renal').
 
+    Returns matching section IDs, titles, hierarchy level, and content snippets.
+    Use for long topics to pinpoint exact section IDs before fetching full text.
+    """
+    if _db is None:
+        return json.dumps({"error": "Database not initialized"})
+
+    clean_topic_id = topic_id.strip()
+    clean_query = query.strip()
+    if not clean_topic_id or not clean_query:
+        return json.dumps({
+            "topicId": clean_topic_id,
+            "query": clean_query,
+            "matches": [],
+            "message": "Topic ID and query must be non-empty."
+        })
+
+    asset = _db.get_topic_asset(clean_topic_id)
+    if not asset:
+        return json.dumps({
+            "topicId": clean_topic_id,
+            "query": clean_query,
+            "matches": [],
+            "message": f"Topic {clean_topic_id} not found."
+        })
+
+    body_html = asset.get("bodyHtml", "")
+    outline_html = asset.get("outlineHtml", "")
+    sections = extract_outline_sections(outline_html or "")
+    if not sections:
+        return json.dumps({
+            "topicId": clean_topic_id,
+            "query": clean_query,
+            "matches": [],
+            "message": "No sections found in topic outline."
+        })
+
+    keywords = [k.lower() for k in clean_query.split() if k]
+    matches = []
+
+    for s in sections:
+        sid = s["id"]
+        title = s["title"]
+        sec_html = extract_section_html(body_html, outline_html or "", sid) or ""
+        sec_text = re.sub(r"<[^>]+>", " ", sec_html)
+        sec_text = re.sub(r"\s+", " ", sec_text).strip()
+
+        text_lower = sec_text.lower()
+        title_lower = title.lower()
+
+        title_hits = sum(1 for kw in keywords if kw in title_lower)
+        text_hits = sum(1 for kw in keywords if kw in text_lower)
+
+        if title_hits > 0 or text_hits > 0:
+            first_idx = -1
+            matched_kw = ""
+            for kw in keywords:
+                idx = text_lower.find(kw)
+                if idx >= 0 and (first_idx < 0 or idx < first_idx):
+                    first_idx = idx
+                    matched_kw = kw
+
+            if first_idx >= 0:
+                start = max(0, first_idx - 60)
+                end = min(len(sec_text), first_idx + len(matched_kw) + 90)
+                snippet = ("..." if start > 0 else "") + sec_text[start:end].strip() + ("..." if end < len(sec_text) else "")
+            else:
+                snippet = sec_text[:150] + ("..." if len(sec_text) > 150 else "")
+
+            matches.append({
+                "sectionId": sid,
+                "sectionTitle": title,
+                "level": s.get("level", 1),
+                "snippet": snippet,
+                "score": title_hits * 3 + text_hits
+            })
+
+    matches.sort(key=lambda m: m["score"], reverse=True)
+    top_matches = [{k: v for k, v in m.items() if k != "score"} for m in matches[:8]]
+
+    return json.dumps({
+        "topicId": clean_topic_id,
+        "query": clean_query,
+        "matches": top_matches,
+        "message": f"Found {len(top_matches)} matching sections." if top_matches else f"No matching sections found for '{clean_query}'."
+    })
 
 
 @tool

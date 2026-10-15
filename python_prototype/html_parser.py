@@ -48,7 +48,9 @@ def extract_outline_sections(outline_html: str) -> list[dict]:
         if section_id and section_id not in seen_ids:
             seen_ids.add(section_id)
             title = re.sub(r"^[-–—]+\s*", "", title)
-            sections.append({"id": section_id, "title": title})
+            ul_parents = len(a_tag.find_parents("ul"))
+            level = max(1, ul_parents)
+            sections.append({"id": section_id, "title": title, "level": level})
 
     return sections
 
@@ -131,7 +133,7 @@ def extract_section_html(body_html: str, outline_html: str, section_id: str) -> 
 
     Mirrors the Kotlin extractSectionHtml() logic:
     1. Find the section's start tag by id attribute
-    2. Find the next section boundary from the outline sequence
+    2. Find the next section boundary from the outline sequence matching equal or higher level
     3. Slice the HTML between those boundaries
     """
     soup = BeautifulSoup(body_html, "html.parser")
@@ -141,11 +143,13 @@ def extract_section_html(body_html: str, outline_html: str, section_id: str) -> 
     if not start_elem:
         return None
 
-    # Get ordered section IDs from outline
-    section_ids = [s["id"] for s in extract_outline_sections(outline_html)]
+    # Get ordered sections from outline with levels
+    outline_secs = extract_outline_sections(outline_html)
+    section_ids = [s["id"] for s in outline_secs]
 
     try:
         current_idx = section_ids.index(section_id)
+        current_level = outline_secs[current_idx].get("level", 1)
     except ValueError:
         # Section ID not in outline — try to get content until next heading
         parts = []
@@ -155,19 +159,21 @@ def extract_section_html(body_html: str, outline_html: str, section_id: str) -> 
             parts.append(str(sib))
         return "\n".join(parts) if parts else str(start_elem)
 
-    # Find the next section boundary
-    next_section_id = section_ids[current_idx + 1] if current_idx + 1 < len(section_ids) else None
+    # Find the next section boundary that has level <= current_level
+    next_boundary_ids = set()
+    for s in outline_secs[current_idx + 1:]:
+        if s.get("level", 1) <= current_level:
+            next_boundary_ids.add(s["id"])
+            break
 
-    # Collect HTML from start to next section
+    # Collect HTML from start to next boundary
     parts = [str(start_elem)]
     for sib in start_elem.find_next_siblings():
-        if next_section_id and sib.get("id") == next_section_id:
+        sib_id = sib.get("id")
+        if sib_id and sib_id in next_boundary_ids:
             break
-        # Stop at references section (matches Kotlin's referenceHeaderRegex)
-        if sib.get("id") == "references":
-            break
-        # Also stop at next heading if no explicit next section
-        if not next_section_id and sib.name and re.match(r"h[1-6]", sib.name):
+        # Stop at references section
+        if sib_id == "references":
             break
         parts.append(str(sib))
 
