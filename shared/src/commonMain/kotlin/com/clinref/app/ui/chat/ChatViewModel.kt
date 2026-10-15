@@ -181,6 +181,10 @@ class ChatViewModel(
         chatScrollStateCache.save(convId, position)
     }
 
+    fun saveScrollPosition(conversationId: String, position: ChatScrollPosition) {
+        chatScrollStateCache.save(conversationId, position)
+    }
+
     fun getSavedScrollPosition(conversationId: String? = null): ChatScrollPosition? {
         val id = conversationId ?: _currentConversationId.value ?: return null
         return chatScrollStateCache.get(id)

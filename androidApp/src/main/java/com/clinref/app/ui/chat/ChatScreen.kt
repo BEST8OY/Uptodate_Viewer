@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -96,9 +97,10 @@ private suspend fun LazyListState.awaitItemCount(minItems: Int) {
 private fun LazyListState.captureScrollPosition() = ChatScrollPosition(
     firstVisibleItemIndex = firstVisibleItemIndex,
     firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
-    anchorMessageId = (layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String)
-        ?.takeIf { it !in ChatListKeys.NON_MESSAGE },
-    isAtBottom = isNearBottom()
+    anchorMessageId = layoutInfo.visibleItemsInfo
+        .mapNotNull { it.key as? String }
+        .firstOrNull { it !in ChatListKeys.NON_MESSAGE },
+    isAtBottom = !canScrollForward
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -145,7 +147,7 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
-    var hasRestoredScrollPosition by remember(conversationId) { mutableStateOf(false) }
+    var hasRestoredScrollPosition by rememberSaveable(conversationId) { mutableStateOf(false) }
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
@@ -158,14 +160,14 @@ fun ChatScreen(
         listState.awaitItemCount(items.size)
         val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
         val saved = viewModel.getSavedScrollPosition(conversationId)
-        if (saved == null || saved.isAtBottom) {
-            listState.scrollToItem(lastIndex)
-        } else {
+        if (saved != null) {
             val anchorIndex = saved.anchorMessageId
                 ?.let { id -> items.indexOfFirst { it is ChatListItem.Message && it.uiModel.id == id } }
                 ?.takeIf { it >= 0 }
             val index = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, lastIndex)
             listState.scrollToItem(index, saved.firstVisibleItemScrollOffset)
+        } else {
+            listState.scrollToItem(lastIndex)
         }
         hasRestoredScrollPosition = true
     }
@@ -221,7 +223,7 @@ fun ChatScreen(
     DisposableEffect(conversationId) {
         onDispose {
             if (hasRestoredScrollPosition) {
-                viewModel.saveScrollPosition(listState.captureScrollPosition())
+                viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
             }
         }
     }
@@ -318,6 +320,11 @@ fun ChatScreen(
                         }
                     }
 
+                    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
+                        viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
+                        onNavigateToContent(topicId, sectionId)
+                    }
+
                     items(
                         items = chatItems,
                         key = {
@@ -336,7 +343,7 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = onNavigateToContent,
+                                onNavigateToContent = handleNavigateToContent,
                                 onGraphicSelected = onGraphicSelected
                             )
                         }
@@ -369,7 +376,7 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = onNavigateToContent,
+                                onNavigateToContent = handleNavigateToContent,
                                 onGraphicSelected = onGraphicSelected
                             )
                         }

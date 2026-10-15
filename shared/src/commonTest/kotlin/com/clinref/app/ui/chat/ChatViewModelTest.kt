@@ -84,6 +84,25 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun testViewModelSaveAndRetrieveScrollPosition() {
+        val position = ChatScrollPosition(
+            firstVisibleItemIndex = 5,
+            firstVisibleItemScrollOffset = 120,
+            anchorMessageId = "msg-456",
+            isAtBottom = false
+        )
+        viewModel.saveScrollPosition("conv-99", position)
+        val retrieved = viewModel.getSavedScrollPosition("conv-99")
+        assertNotNull(retrieved)
+        assertEquals(5, retrieved?.firstVisibleItemIndex)
+        assertEquals(120, retrieved?.firstVisibleItemScrollOffset)
+        assertEquals("msg-456", retrieved?.anchorMessageId)
+
+        viewModel.clearSavedScrollPosition("conv-99")
+        assertNull(viewModel.getSavedScrollPosition("conv-99"))
+    }
+
+    @Test
     fun testLoadConversationLoadsChronologicalMessages() = runTest(testDispatcher) {
         // Repository returns messages ordered by timestamp DESC
         val m1 = MessageEntity("m1", "conv-1", "user", "Hello", 1000L)
