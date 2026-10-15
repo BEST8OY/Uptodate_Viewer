@@ -108,8 +108,8 @@ dependencies {
     compileOnly(libs.error.prone.annotations)
 
     // Markdown rendering in Compose
-    implementation(libs.compose.richtext.commonmark)
-    implementation(libs.compose.richtext.ui.material3)
+    implementation(libs.markdown.renderer)
+    implementation(libs.markdown.renderer.m3)
 
     // HTML parsing
     implementation(libs.jsoup)

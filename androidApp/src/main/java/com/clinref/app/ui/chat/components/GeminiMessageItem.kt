@@ -27,29 +27,30 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.ui.chat.MessageUiModel
-import com.clinref.app.ui.chat.StreamingMarkdownBuffer
-import com.halilibo.richtext.commonmark.Markdown
-import com.halilibo.richtext.ui.material3.RichText
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
 
 @Composable
 fun GeminiMessageItem(
     message: MessageUiModel,
+    isStreaming: Boolean = message.id == "streaming",
     onCopyMessage: (String) -> Unit = {},
     onNavigateToContent: (String, String?) -> Unit = { _, _ -> },
     onGraphicSelected: (String) -> Unit = {},
@@ -111,25 +112,37 @@ fun GeminiMessageItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    val buffer = remember { StreamingMarkdownBuffer() }
-                    val renderState by produceState(
-                        initialValue = StreamingMarkdownBuffer.RenderState(message.content, ""),
-                        key1 = message.content,
-                    ) {
-                        value = withContext(Dispatchers.Default) {
-                            buffer.process(message.content)
+                    val currentUriHandler = LocalUriHandler.current
+                    val customUriHandler = remember(currentUriHandler, onNavigateToContent, onGraphicSelected) {
+                        object : UriHandler {
+                            override fun openUri(uri: String) {
+                                when {
+                                    uri.startsWith("topic:") -> {
+                                        val topicId = uri.removePrefix("topic:")
+                                        onNavigateToContent(topicId, null)
+                                    }
+                                    uri.startsWith("graphic:") -> {
+                                        val graphicId = uri.removePrefix("graphic:")
+                                        onGraphicSelected(graphicId)
+                                    }
+                                    else -> {
+                                        try {
+                                            currentUriHandler.openUri(uri)
+                                        } catch (_: Exception) {
+                                            // Ignore malformed or unsupported URI schemas
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    RichText(modifier = Modifier.fillMaxWidth()) {
-                        Markdown(renderState.renderedMarkdown)
-                    }
-
-                    if (renderState.pendingPlainText.isNotEmpty()) {
-                        Text(
-                            text = renderState.pendingPlainText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                    CompositionLocalProvider(LocalUriHandler provides customUriHandler) {
+                        Markdown(
+                            content = message.content,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = markdownColor(),
+                            typography = markdownTypography()
                         )
                     }
 

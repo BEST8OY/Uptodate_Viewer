@@ -54,6 +54,8 @@ kotlin {
                 implementation(libs.compose.material3)
                 implementation(libs.compose.ui)
                 implementation(libs.compose.material.icons.extended)
+                implementation(libs.markdown.renderer)
+                implementation(libs.markdown.renderer.m3)
 
                 // Koog AI agents
                 implementation(libs.koog.agents)
