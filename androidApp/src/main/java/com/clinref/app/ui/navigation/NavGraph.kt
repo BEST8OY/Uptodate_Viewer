@@ -222,15 +222,17 @@ fun NavGraph(
         val effectsSpec = motionScheme.defaultEffectsSpec<Float>()
         val fastEffectsSpec = motionScheme.fastEffectsSpec<Float>()
         val fastSpatialSpec = motionScheme.fastSpatialSpec<IntOffset>()
+        val fastFloatSpatialSpec = motionScheme.fastSpatialSpec<Float>()
 
         val forwardTransition: AnimatedContentTransitionScope<Scene<NavKey>>.() -> ContentTransform = {
             val initialKey = initialState.navKey()
             val targetKey = targetState.navKey()
 
             if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
+                // Lateral Peer Navigation: Directional Shared Axis X (Neutral zIndex)
                 val fromIndex = topLevelRoutes.indexOf(initialKey)
                 val toIndex = topLevelRoutes.indexOf(targetKey)
-                if (toIndex > fromIndex) {
+                val transform = if (toIndex > fromIndex) {
                     (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
                         fadeIn(effectsSpec)) togetherWith
                         (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
@@ -243,17 +245,27 @@ fun NavGraph(
                 } else {
                     fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
                 }
+                transform.apply { targetContentZIndex = 0f }
             } else if (targetKey is AiSettingsRoute) {
-                (slideInVertically(spatialSpec) { (it * 0.15f).roundToInt() } +
-                    scaleIn(floatSpatialSpec, initialScale = 0.96f) +
+                // Auxiliary Modal Lift: Upward slide + scale expansion with background retreat
+                ((slideInVertically(spatialSpec) { (it * 0.12f).roundToInt() } +
+                    scaleIn(floatSpatialSpec, initialScale = 0.94f) +
                     fadeIn(effectsSpec)) togetherWith
                     (scaleOut(floatSpatialSpec, targetScale = 0.96f) +
-                        fadeOut(fastEffectsSpec))
+                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
+                    targetContentZIndex = 1f
+                }
             } else {
-                (slideInHorizontally(spatialSpec) { it } +
-                    fadeIn(effectsSpec, initialAlpha = 0.85f)) togetherWith
-                    (slideOutHorizontally(spatialSpec) { -it / 3 } +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0.5f))
+                // Hierarchical Drill-Down Forward Push: 100% Slide in with 1/4 Parallax Retreat
+                // Target child slides in from right above parent (targetContentZIndex = 1f)
+                // Retreating parent retreats into 1/4 parallax and fades cleanly to 0f
+                ((slideInHorizontally(spatialSpec) { it } +
+                    fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
+                    (slideOutHorizontally(spatialSpec) { -it / 4 } +
+                        scaleOut(floatSpatialSpec, targetScale = 0.96f) +
+                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
+                    targetContentZIndex = 1f
+                }
             }
         }
 
@@ -262,15 +274,19 @@ fun NavGraph(
             val targetKey = targetState.navKey()
 
             if (initialKey is AiSettingsRoute) {
-                (scaleIn(floatSpatialSpec, initialScale = 0.96f) +
+                // Auxiliary Modal Recede / Drop Down (Target parent underneath at zIndex 0f)
+                ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
                     fadeIn(effectsSpec)) togetherWith
-                    (slideOutVertically(spatialSpec) { (it * 0.15f).roundToInt() } +
-                        scaleOut(floatSpatialSpec, targetScale = 0.96f) +
-                        fadeOut(fastEffectsSpec))
+                    (slideOutVertically(fastSpatialSpec) { (it * 0.12f).roundToInt() } +
+                        scaleOut(fastFloatSpatialSpec, targetScale = 0.94f) +
+                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
+                    targetContentZIndex = 0f
+                }
             } else if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
+                // Lateral Peer Pop: Exit Through Home (Neutral zIndex)
                 val fromIndex = topLevelRoutes.indexOf(initialKey)
                 val toIndex = topLevelRoutes.indexOf(targetKey)
-                if (toIndex > fromIndex) {
+                val transform = if (toIndex > fromIndex) {
                     (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
                         fadeIn(effectsSpec)) togetherWith
                         (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
@@ -283,11 +299,63 @@ fun NavGraph(
                 } else {
                     fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
                 }
+                transform.apply { targetContentZIndex = 0f }
             } else {
-                (slideInHorizontally(spatialSpec) { -it / 3 } +
-                    fadeIn(effectsSpec, initialAlpha = 0.5f)) togetherWith
+                // Hierarchical Pop: 100% Slide Out to Right with 1/4 Parallax Return
+                // Exiting child slides out 100% on top (targetContentZIndex = 0f keeps child above)
+                // Revealing parent returns from 1/4 parallax and scales up to 1.0f
+                ((slideInHorizontally(spatialSpec) { -it / 4 } +
+                    scaleIn(floatSpatialSpec, initialScale = 0.96f) +
+                    fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
+                    (slideOutHorizontally(fastSpatialSpec) { it } +
+                        scaleOut(fastFloatSpatialSpec, targetScale = 0.96f) +
+                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
+                    targetContentZIndex = 0f
+                }
+            }
+        }
+
+        val predictivePopTransition: AnimatedContentTransitionScope<Scene<NavKey>>.(Int) -> ContentTransform = { _ ->
+            val initialKey = initialState.navKey()
+            val targetKey = targetState.navKey()
+
+            if (initialKey is AiSettingsRoute) {
+                ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
+                    fadeIn(effectsSpec)) togetherWith
+                    (slideOutVertically(fastSpatialSpec) { (it * 0.12f).roundToInt() } +
+                        scaleOut(fastFloatSpatialSpec, targetScale = 0.94f) +
+                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
+                    targetContentZIndex = 0f
+                }
+            } else if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
+                val fromIndex = topLevelRoutes.indexOf(initialKey)
+                val toIndex = topLevelRoutes.indexOf(targetKey)
+                val transform = if (toIndex > fromIndex) {
+                    (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
+                        fadeIn(effectsSpec)) togetherWith
+                        (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
+                            fadeOut(fastEffectsSpec))
+                } else if (toIndex < fromIndex) {
+                    (slideInHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
+                        fadeIn(effectsSpec)) togetherWith
+                        (slideOutHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
+                            fadeOut(fastEffectsSpec))
+                } else {
+                    fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
+                }
+                transform.apply { targetContentZIndex = 0f }
+            } else {
+                // Hierarchical Predictive Pop:
+                // Exiting child smoothly shrinks (scale 0.90f) and slides right, fading out to 0f
+                // Revealing parent expands from 0.94f and parallax -it / 4, fading in from 0f
+                ((slideInHorizontally(spatialSpec) { -it / 4 } +
+                    scaleIn(floatSpatialSpec, initialScale = 0.94f) +
+                    fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
                     (slideOutHorizontally(spatialSpec) { it } +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0.85f))
+                        scaleOut(floatSpatialSpec, targetScale = 0.90f) +
+                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
+                    targetContentZIndex = 0f
+                }
             }
         }
 
@@ -311,7 +379,7 @@ fun NavGraph(
                     },
                     transitionSpec = forwardTransition,
                     popTransitionSpec = popTransition,
-                    predictivePopTransitionSpec = { popTransition() },
+                    predictivePopTransitionSpec = predictivePopTransition,
                     modifier = Modifier.fillMaxSize()
                 )
 
