@@ -23,7 +23,6 @@ class ContentDao(
 
     fun getTopicContent(topicId: String): TopicContent? {
         return loadFromAssets(topicId)
-            ?: TopicContent(bodyHtml = "<h1>Content not found</h1><p>Could not retrieve content for this topic.</p>")
     }
 
     fun getTopicTitle(topicId: String): String? {
