@@ -5,7 +5,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class SearchResultTopicItem(
     val id: String,
-    val title: String
+    val title: String,
+    val type: String = "topic"
 )
 
 @Serializable
@@ -19,7 +20,9 @@ data class SearchTopicsResponse(
 @Serializable
 data class OutlineSectionItem(
     val id: String,
-    val title: String
+    val title: String,
+    val level: Int = 1,
+    val parentId: String? = null
 )
 
 @Serializable
@@ -63,4 +66,20 @@ data class TopicSectionsResponse(
 @Serializable
 data class ToolErrorResponse(
     val error: String
+)
+
+@Serializable
+data class SectionSearchResult(
+    val sectionId: String,
+    val sectionTitle: String,
+    val level: Int = 1,
+    val snippet: String
+)
+
+@Serializable
+data class SearchTopicSectionsResponse(
+    val topicId: String,
+    val query: String,
+    val matches: List<SectionSearchResult> = emptyList(),
+    val message: String = ""
 )
