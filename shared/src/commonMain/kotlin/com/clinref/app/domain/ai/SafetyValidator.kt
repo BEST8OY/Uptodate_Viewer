@@ -106,12 +106,13 @@ class SafetyValidator {
     }
 
     private val clinicalQuantityRegex = Regex(
-        """\b\d+(?:[\.,]\d+)?(?:\s*(?:[-–—]|to)\s*\d+(?:[\.,]\d+)?)?\s*(?:(?:mg|mcg|[μµ]g|g|kg|mL|L|dL|mcL|uL|[μµ]L|mmol|[uμµ]mol|nmol|pmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2|mOsm(?:ol)?|mU|[uμµ]U|[uμµ]IU)\b(?:/(?:kg|g|mg|mcg|[μµ]g|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*|(?!(?:and/or|w/o|s/p|r/o|c/o)\b)[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*|%|percent|percentage\b)""",
+        """\b\d+(?:[\.,]\d+)?(?:\s*(?:[-–—]|to)\s*\d+(?:[\.,]\d+)?)?\s*(?:(?:mg|mcg|[μµ]g|g|kg|mL|L|dL|mcL|uL|[μµ]L|mmol|[uμµ]mol|nmol|pmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2|mOsm(?:ol)?|mU|[uμµ]U|[uμµ]IU)\b(?:/(?:kg|g|mg|mcg|[μµ]g|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*|(?!(?:and/or|w/o|s/p|r/o|c/o|times?|doses?|tabs?|tablets?|caps?|capsules?|puffs?|drops?)\b)[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*|%|percent|percentage\b)""",
         RegexOption.IGNORE_CASE
     )
 
     private val rangeDashOrToRegex = Regex("""(\d+[\.,]?\d*)\s*(?:[-–—]|to)\s*(\d+[\.,]?\d*)""", RegexOption.IGNORE_CASE)
     private val numericPartRegex = Regex("""^\d+[\.,]?\d*""")
+    private val metricWithUnitRegex = Regex("""^(\d+(?:[\.,]\d+)?)\s*(mg|mcg|[μµ]g|g|kg|mL|L)\b""", RegexOption.IGNORE_CASE)
 
     private companion object {
         private val THOUSAND_COMMA_REGEX = Regex("""\d+,\d{3}(?:\b|\D)""")
@@ -125,6 +126,39 @@ class SafetyValidator {
         private val TENS_WORDS = arrayOf(
             "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"
         )
+    }
+
+    private fun getMetricEquivalents(metric: String): List<String> {
+        val match = metricWithUnitRegex.find(metric.trim()) ?: return emptyList()
+        val numStr = match.groupValues[1].replace(",", ".")
+        val unit = match.groupValues[2].lowercase()
+        val dVal = numStr.toDoubleOrNull() ?: return emptyList()
+
+        val equivalents = mutableListOf<String>()
+
+        fun formatDouble(d: Double): String {
+            return if (d % 1.0 == 0.0) d.toLong().toString() else d.toString()
+        }
+
+        when (unit) {
+            "g" -> {
+                equivalents.add(formatDouble(dVal * 1000.0))
+            }
+            "mg" -> {
+                equivalents.add(formatDouble(dVal / 1000.0))
+                equivalents.add(formatDouble(dVal * 1000.0))
+            }
+            "mcg", "μg", "µg" -> {
+                equivalents.add(formatDouble(dVal / 1000.0))
+            }
+            "l" -> {
+                equivalents.add(formatDouble(dVal * 1000.0))
+            }
+            "ml" -> {
+                equivalents.add(formatDouble(dVal / 1000.0))
+            }
+        }
+        return equivalents
     }
 
     private fun intToWords(n: Int): List<String> {
@@ -206,21 +240,6 @@ class SafetyValidator {
         return false
     }
 
-    private fun normalizeQuantity(metric: String): List<String> {
-        val expanded = mutableListOf<String>()
-        val rangeMatch = rangeDashOrToRegex.find(metric)
-        if (rangeMatch != null) {
-            expanded.addAll(getNumberVariants(rangeMatch.groupValues[1]))
-            expanded.addAll(getNumberVariants(rangeMatch.groupValues[2]))
-            return expanded
-        }
-        val numMatch = numericPartRegex.find(metric)
-        if (numMatch != null) {
-            expanded.addAll(getNumberVariants(numMatch.value))
-        }
-        return expanded.ifEmpty { listOf(metric) }
-    }
-
     private fun isQuantityInText(metric: String, text: String): Boolean {
         val rangeMatch = rangeDashOrToRegex.find(metric)
         if (rangeMatch != null) {
@@ -230,7 +249,10 @@ class SafetyValidator {
         }
         val numMatch = numericPartRegex.find(metric)
         if (numMatch != null) {
-            return isSingleNumberInText(numMatch.value, text)
+            if (isSingleNumberInText(numMatch.value, text)) return true
+            for (eqNum in getMetricEquivalents(metric)) {
+                if (isSingleNumberInText(eqNum, text)) return true
+            }
         }
         return false
     }

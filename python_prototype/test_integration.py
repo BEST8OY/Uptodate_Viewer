@@ -486,3 +486,20 @@ class TestCalculatorSupport:
         assert "topicTitle" in data
         assert "=== Calculator:" in data["markdown"]
         assert "Age" in data["markdown"] or "Inputs" in data["markdown"]
+
+    def test_search_fts_multiword_query(self, db):
+        """Verify that multi-word clinical queries find topics via FTS4 in fsearch.db."""
+        results = db.search_topics("asthma management", limit=5)
+        assert len(results) > 0
+        titles = [r["title"].lower() for r in results]
+        assert any("asthma" in t for t in titles)
+
+    def test_get_topic_sections_text_empty_section_ids_defaults(self, db):
+        """Calling get_topic_sections_text with empty section_ids returns default sections."""
+        import json
+        from tools import init_tools, get_topic_sections_text
+        init_tools(db)
+        res_str = get_topic_sections_text.invoke({"topic_id": "1", "section_ids": []})
+        data = json.loads(res_str)
+        assert len(data.get("markdown", "")) > 0
+        assert len(data.get("sectionTitles", {})) > 0

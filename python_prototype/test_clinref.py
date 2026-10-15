@@ -264,6 +264,33 @@ class TestInventedNumbers:
         result = SafetyValidator()._validate_no_invented_numbers(ctx)
         assert result is None
 
+    def test_metric_prefix_equivalence_grams_and_milligrams(self):
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Administer ceftriaxone 1 g IV daily.",
+            tool_results=["Ceftriaxone dosage is 1,000 mg intravenously once daily."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+    def test_metric_prefix_equivalence_micrograms_and_milligrams(self):
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Initial dose is 500 mcg daily.",
+            tool_results=["Recommended starting dose is 0.5 mg daily."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
+    def test_frequency_slashes_not_flagged(self):
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
+            answer="Take 1 tablet/day or 2 times/day.",
+            tool_results=["Take once or twice daily."],
+        )
+        result = SafetyValidator()._validate_no_invented_numbers(ctx)
+        assert result is None
+
 
 
 class TestGraphicInterpretation:

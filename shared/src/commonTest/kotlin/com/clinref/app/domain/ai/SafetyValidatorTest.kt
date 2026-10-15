@@ -373,4 +373,55 @@ class SafetyValidatorTest {
         assertFalse(result.passed)
         assertTrue(result.blockedReason!!.contains("Clinical recommendations require database verification"))
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Metric Equivalence & Frequency Normalization
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `rule 2 verifies metric prefix equivalence between grams and milligrams`() {
+        // Answer uses 1 g, tool evidence contains 1,000 mg
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Administer ceftriaxone 1 g IV daily.",
+            toolResults = listOf("Ceftriaxone dosage is 1,000 mg intravenously once daily."),
+            fetchedSections = listOf(section())
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 2 verifies microgram metric equivalence with fractional milligrams`() {
+        // Answer uses 500 mcg, tool evidence contains 0.5 mg
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Initial dose is 500 mcg daily.",
+            toolResults = listOf("Recommended starting dose is 0.5 mg daily."),
+            fetchedSections = listOf(section())
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 2 verifies volume metric equivalence between liters and milliliters`() {
+        // Answer uses 1 L, tool evidence contains 1000 mL
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Infuse 1 L of normal saline over 2 hours.",
+            toolResults = listOf("Normal saline 1000 mL bolus over 2 hours."),
+            fetchedSections = listOf(section())
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 2 does not flag natural administration frequencies with times or tablets per day`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Take 1 tablet/day or 2 times/day with water.",
+            toolResults = listOf("Take with water once or twice daily."),
+            fetchedSections = listOf(section())
+        ))
+        assertTrue(result.passed)
+    }
 }

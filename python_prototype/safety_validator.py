@@ -106,7 +106,7 @@ CLINICAL_QUANTITY_REGEX = re.compile(
     r"(?:mg|mcg|[μµ]g|g|kg|mL|L|dL|mcL|uL|[μµ]L|mmol|[uμµ]mol|nmol|pmol|mEq|IU|U|units?|bpm|mmHg|cm|mm|m2|mOsm(?:ol)?|mU|[uμµ]U|[uμµ]IU)\b"
     r"(?:/(?:kg|g|mg|mcg|[μµ]g|mL|L|dL|m2|min|hr|hour|day|24h|[a-zA-Z0-9]+))*"
     r"|"
-    r"(?!(?:and/or|w/o|s/p|r/o|c/o)\b)[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*"
+    r"(?!(?:and/or|w/o|s/p|r/o|c/o|times?|doses?|tabs?|tablets?|caps?|capsules?|puffs?|drops?)\b)[a-zA-Z]{1,6}/[a-zA-Z0-9]{1,10}(?:/[a-zA-Z0-9]{1,10})*"
     r"|"
     r"%|percent|percentage\b"
     r")",
@@ -315,6 +315,35 @@ class SafetyValidator:
         return expanded if expanded else [metric]
 
     @staticmethod
+    def _get_metric_equivalents(metric: str) -> list[str]:
+        m = re.search(r"^(\d+(?:[\.,]\d+)?)\s*(mg|mcg|[μµ]g|g|kg|mL|L)\b", metric.strip(), re.IGNORECASE)
+        if not m:
+            return []
+        num_str = m.group(1).replace(",", ".")
+        unit = m.group(2).lower()
+        try:
+            d_val = float(num_str)
+        except ValueError:
+            return []
+
+        def fmt(d: float) -> str:
+            return str(int(d)) if d.is_integer() else str(d)
+
+        eqs = []
+        if unit == "g":
+            eqs.append(fmt(d_val * 1000.0))
+        elif unit == "mg":
+            eqs.append(fmt(d_val / 1000.0))
+            eqs.append(fmt(d_val * 1000.0))
+        elif unit in ("mcg", "μg", "µg"):
+            eqs.append(fmt(d_val / 1000.0))
+        elif unit == "l":
+            eqs.append(fmt(d_val * 1000.0))
+        elif unit == "ml":
+            eqs.append(fmt(d_val / 1000.0))
+        return eqs
+
+    @staticmethod
     def _is_quantity_in_text(metric: str, text: str) -> bool:
         """Check if a clinical quantity (or its normalized forms) appears in text.
 
@@ -328,7 +357,11 @@ class SafetyValidator:
 
         num_match = re.search(r"(\d[\d.,]*)", metric)
         if num_match:
-            return SafetyValidator._is_single_number_in_text(num_match.group(1), text)
+            if SafetyValidator._is_single_number_in_text(num_match.group(1), text):
+                return True
+            for eq_num in SafetyValidator._get_metric_equivalents(metric):
+                if SafetyValidator._is_single_number_in_text(eq_num, text):
+                    return True
         return False
 
     def _validate_no_graphic_interpretation(self, ctx: TurnContext) -> Optional[ValidationResult]:
