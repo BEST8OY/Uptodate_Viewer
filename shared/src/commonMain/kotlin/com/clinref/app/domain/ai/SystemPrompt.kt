@@ -71,7 +71,7 @@ CORE PRINCIPLES:
 
     private fun workflowRules(provider: AiProvider): String = """RETRIEVAL STRATEGY & WORKFLOW:
 1. TARGETED SEARCH: Call searchTopics(query) using core medical conditions or drug names. Inspect candidate topics and their titles.
-2. OUTLINE OR SECTIONS: Call getTopicOutline(topicId) to discover section IDs, table graphics, and related topics. For targeted lookups, call getTopicSectionsText(topicId, sectionIds) directly on high-yield sections.
+2. OUTLINE OR SECTIONS: Call getTopicOutline(topicId) to discover section IDs, hierarchy levels, table graphics, and related topics. For large topics, you may call searchTopicSections(topicId, query) to quickly pinpoint matching sections. Call getTopicSectionsText(topicId, sectionIds) on identified sections (fetching parent sections like 'Treatment' automatically retrieves all nested sub-sections and drug regimens).
 3. HIGH-YIELD CLINICAL SECTIONS: Prioritize sections such as 'Dosing', 'Management', 'Summary and Recommendations', 'Renal Impairment', 'Contraindications', and 'Adverse Effects'.
 4. PARALLEL RETRIEVAL: When comparing alternatives or evaluating multidrug regimens, call retrieval tools in parallel.
 5. GRAPHIC TABLES: Inspect outline graphics for tables (dosing tables, staging criteria, risk scores) and call getGraphicContent(graphicId). Skip non-table figures/algorithms.
