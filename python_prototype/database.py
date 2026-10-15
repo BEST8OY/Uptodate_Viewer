@@ -127,14 +127,7 @@ class ClinRefDatabase:
                 if valid:
                     return valid[:limit]
 
-        # 3. FTS4 BM25 search via fsearch.db
-        fts_results = self._search_fts(clean, limit=limit)
-        if fts_results:
-            valid = [r for r in fts_results if r.get("title") and self.has_topic_asset(r["id"])]
-            if valid:
-                return valid[:limit]
-
-        # 4. Clinical weight-ranked token anchoring
+        # 3. Clinical weight-ranked token anchoring
         if tokens:
             weighted = self._rank_tokens_by_weight(tokens)
             if weighted and weighted[0][1] > 0:
@@ -159,22 +152,6 @@ class ClinRefDatabase:
                             return valid[:limit]
 
         return []
-
-    def _search_fts(self, query: str, limit: int = 15) -> list[dict]:
-        clean_terms = [t for t in re.sub(r"[^a-zA-Z0-9 ]", " ", query).split() if len(t) > 1]
-        if not clean_terms:
-            return []
-        fts_match_expr = " ".join(f"{t}*" for t in clean_terms)
-        try:
-            sql = "SELECT Text as title, URL as url FROM search WHERE search MATCH ? AND URL LIKE 'Topic-%' LIMIT ?"
-            rows = self.search.execute(sql, (fts_match_expr, limit)).fetchall()
-            results = []
-            for r in rows:
-                tid = re.sub(r"(?i)^topic-", "", r["url"]).strip()
-                results.append({"id": tid, "title": r["title"], "url": r["url"]})
-            return results
-        except Exception:
-            return []
 
     def _search_unidex(self, query: str) -> list[dict]:
         """Search unidex.en.sqlite for exact query → topic hits."""
