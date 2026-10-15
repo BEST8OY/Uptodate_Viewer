@@ -214,10 +214,16 @@ class MedicalDatabaseTools(
             )
         }
 
+        val targetIds = if (sectionIds.isEmpty()) {
+            idToTitle.keys.take(3).toList()
+        } else {
+            sectionIds
+        }
+
         // Validate: separate valid from invalid section IDs
         val validIds = mutableListOf<String>()
         val invalidIds = mutableListOf<String>()
-        for (sectionId in sectionIds) {
+        for (sectionId in targetIds) {
             val clean = sectionId.trim()
             if (clean in idToTitle) {
                 validIds.add(clean)

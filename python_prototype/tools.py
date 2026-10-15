@@ -224,9 +224,10 @@ def get_topic_sections_text(topic_id: str, section_ids: list[str]) -> str:
     id_to_title = {s["id"]: s["title"] for s in outline_sections}
 
     # Validate: filter out section IDs that don't exist in the outline
+    target_sids = section_ids if section_ids else list(id_to_title.keys())[:3]
     valid_ids = []
     invalid_ids = []
-    for sid in section_ids:
+    for sid in target_sids:
         clean_sid = sid.strip()
         if clean_sid in id_to_title:
             valid_ids.append(clean_sid)

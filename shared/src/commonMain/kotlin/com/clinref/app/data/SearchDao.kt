@@ -215,7 +215,14 @@ class SearchDao(
             }
         }
 
-        // 3. Clinical weight-ranked token anchoring
+        // 3. FTS4 BM25 search via fsearch.db
+        val ftsResults = searchFts(clean)
+        if (ftsResults.isNotEmpty()) {
+            val filtered = ftsResults.filter { hasTopicAsset(it["topic_id"] ?: "") }
+            if (filtered.isNotEmpty()) return filtered
+        }
+
+        // 4. Clinical weight-ranked token anchoring
         if (tokens.isNotEmpty()) {
             val weightedTokens = getTokensByClinicalWeight(tokens)
             if (weightedTokens.isNotEmpty() && weightedTokens[0].second > 0) {
@@ -247,6 +254,41 @@ class SearchDao(
         }
 
         return emptyList()
+    }
+
+    private fun searchFts(query: String, limit: Int = 15): List<Map<String, String>> {
+        val cleanTerms = query.replace(Regex("[^a-zA-Z0-9 ]"), " ")
+            .split("\\s+".toRegex())
+            .filter { it.isNotBlank() && it.length > 1 }
+        if (cleanTerms.isEmpty()) return emptyList()
+
+        val ftsMatchExpr = cleanTerms.joinToString(" ") { "$it*" }
+
+        return try {
+            val db = dbManager.getFsearchDb()
+            val sql = """
+                SELECT Text as title, URL as url
+                FROM search
+                WHERE search MATCH ? AND URL LIKE 'Topic-%'
+                LIMIT ?
+            """
+            db.useQuery(
+                sql,
+                bind = {
+                    it.bindText(1, ftsMatchExpr)
+                    it.bindLong(2, limit.toLong())
+                }
+            ) { stmt ->
+                val rawUrl = stmt.getText(1)
+                val topicId = rawUrl.removePrefix("Topic-").removePrefix("topic-").trim()
+                mapOf(
+                    "topic_id" to topicId,
+                    "title" to stmt.getText(0)
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun searchUnidex(query: String, preference: String): List<Map<String, String>> {
