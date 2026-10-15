@@ -58,6 +58,7 @@ import android.content.ClipData
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.toClipEntry
 import com.clinref.app.domain.ai.StreamingManager
+import com.clinref.app.ui.chat.components.ClinicalReferencesSection
 import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
@@ -196,7 +197,7 @@ fun ChatScreen(
         val saved = viewModel.getSavedScrollPosition(conversationId) ?: ChatScrollPosition(
             firstVisibleItemIndex = (items.size - 1).coerceAtLeast(0),
             firstVisibleItemScrollOffset = 0,
-            anchorMessageId = (items.lastOrNull() as? ChatListItem.Message)?.uiModel?.id,
+            anchorMessageId = items.lastOrNull()?.key,
             isAtBottom = true
         )
 
@@ -207,7 +208,14 @@ fun ChatScreen(
         val totalCount = listState.layoutInfo.totalItemsCount
         val maxIndex = (totalCount - 1).coerceAtLeast(0)
         val anchorIndex = anchorId
-            ?.let { id -> items.indexOfFirst { it is ChatListItem.Message && it.uiModel.id == id } }
+            ?.let { id ->
+                val exactIndex = items.indexOfFirst { it.key == id }
+                if (exactIndex >= 0) exactIndex
+                else {
+                    val cleanId = id.removePrefix("refs_")
+                    items.indexOfFirst { it.key == cleanId }
+                }
+            }
             ?.takeIf { it >= 0 }
             ?.let { if (isLoadingOlder) it + 1 else it }
         val targetIndex = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
@@ -257,8 +265,12 @@ fun ChatScreen(
                     event.awaitMessageId?.let { id ->
                         withTimeoutOrNull(LIST_LAYOUT_TIMEOUT_MS) {
                             snapshotFlow {
-                                (chatItems.lastOrNull() as? ChatListItem.Message)?.uiModel?.id
-                            }.first { it == id }
+                                when (val last = chatItems.lastOrNull()) {
+                                    is ChatListItem.Message -> last.uiModel.id == id
+                                    is ChatListItem.ClinicalReferences -> last.messageId == id
+                                    null -> false
+                                }
+                            }.first { it }
                         }
                     }
                     listState.awaitItemCount(chatItems.size)
@@ -405,11 +417,7 @@ fun ChatScreen(
 
                     items(
                         items = chatItems,
-                        key = {
-                            when (it) {
-                                is ChatListItem.Message -> it.uiModel.id
-                            }
-                        }
+                        key = { it.key }
                     ) { item ->
                         when (item) {
                             is ChatListItem.Message -> GeminiMessageItem(
@@ -423,6 +431,13 @@ fun ChatScreen(
                                 },
                                 onNavigateToContent = handleNavigateToContent,
                                 onGraphicSelected = handleGraphicSelected
+                            )
+                            is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
+                                articles = item.articles,
+                                tables = item.tables,
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected,
+                                modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
                     }

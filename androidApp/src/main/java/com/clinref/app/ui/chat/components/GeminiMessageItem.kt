@@ -149,15 +149,6 @@ fun GeminiMessageItem(
                             components = clinrefMarkdownComponents()
                         )
                     }
-
-                    if (message.articles.isNotEmpty() || message.tables.isNotEmpty()) {
-                        ClinicalReferencesSection(
-                            articles = message.articles,
-                            tables = message.tables,
-                            onNavigateToContent = onNavigateToContent,
-                            onGraphicSelected = onGraphicSelected
-                        )
-                    }
                 }
 
                 if (message.warnings.isNotEmpty()) {

@@ -58,7 +58,19 @@ data class ResolvedGraphicRef(
 )
 
 sealed interface ChatListItem {
-    data class Message(val uiModel: MessageUiModel) : ChatListItem
+    val key: String
+
+    data class Message(val uiModel: MessageUiModel) : ChatListItem {
+        override val key: String get() = uiModel.id
+    }
+
+    data class ClinicalReferences(
+        val messageId: String,
+        val articles: List<ClinicalSource.Article>,
+        val tables: List<ClinicalSource.Table>
+    ) : ChatListItem {
+        override val key: String get() = "refs_$messageId"
+    }
 }
 
 data class MessageUiModel(
@@ -430,9 +442,14 @@ class ChatViewModel(
 
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
         if (messages.isEmpty()) return emptyList()
-        return messages.map { message ->
-            ChatListItem.Message(message.copy(showTimestamp = true))
+        val result = ArrayList<ChatListItem>(messages.size * 2)
+        for (message in messages) {
+            result.add(ChatListItem.Message(message.copy(showTimestamp = true)))
+            if ((message.articles.isNotEmpty() || message.tables.isNotEmpty()) && !message.isError && message.role == "assistant") {
+                result.add(ChatListItem.ClinicalReferences(message.id, message.articles, message.tables))
+            }
         }
+        return result
     }
 
     private fun MessageEntity.toUiModel(

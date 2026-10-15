@@ -231,4 +231,72 @@ class ChatViewModelTest {
         viewModel.saveScrollPosition("conv-10", teardownPositionTrue)
         assertEquals(validPosition, viewModel.getSavedScrollPosition("conv-10"))
     }
+
+    @Test
+    fun testChatItemsDecomposesAssistantMessageWithReferences() = runTest(testDispatcher) {
+        val userMsg = MessageEntity(
+            id = "user-1",
+            conversationId = "conv-1",
+            role = "user",
+            content = "What are the first-line asthma treatments?",
+            timestamp = 1000L
+        )
+        val assistantMsgWithRefs = MessageEntity(
+            id = "asst-1",
+            conversationId = "conv-1",
+            role = "assistant",
+            content = "Inhaled corticosteroids are first line.",
+            timestamp = 2000L,
+            topicRefsJson = """[{"topicId":"1001","topicTitle":"Asthma Management","label":"Asthma Management"}]"""
+        )
+        coEvery { contentRepository.getTopicTitle("1001") } returns "Asthma Management"
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(assistantMsgWithRefs, userMsg)
+
+        viewModel.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        val items = viewModel.chatItems.value
+        // User message: 1 item (ChatListItem.Message)
+        // Assistant message: 2 items (ChatListItem.Message + ChatListItem.ClinicalReferences)
+        assertEquals(3, items.size)
+
+        val item0 = items[0]
+        assertTrue(item0 is ChatListItem.Message)
+        assertEquals("user-1", (item0 as ChatListItem.Message).uiModel.id)
+        assertEquals("user-1", item0.key)
+
+        val item1 = items[1]
+        assertTrue(item1 is ChatListItem.Message)
+        assertEquals("asst-1", (item1 as ChatListItem.Message).uiModel.id)
+        assertEquals("asst-1", item1.key)
+
+        val item2 = items[2]
+        assertTrue(item2 is ChatListItem.ClinicalReferences)
+        val refsItem = item2 as ChatListItem.ClinicalReferences
+        assertEquals("asst-1", refsItem.messageId)
+        assertEquals("refs_asst-1", refsItem.key)
+        assertEquals(1, refsItem.articles.size)
+        assertEquals("1001", refsItem.articles[0].topicId)
+    }
+
+    @Test
+    fun testChatItemsDoesNotDecomposeAssistantMessageWithoutReferences() = runTest(testDispatcher) {
+        val assistantMsg = MessageEntity(
+            id = "asst-plain",
+            conversationId = "conv-1",
+            role = "assistant",
+            content = "Hello doctor, how can I help you today?",
+            timestamp = 1000L
+        )
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(assistantMsg)
+
+        viewModel.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        val items = viewModel.chatItems.value
+        assertEquals(1, items.size)
+        assertTrue(items[0] is ChatListItem.Message)
+        assertEquals("asst-plain", items[0].key)
+    }
 }
+
