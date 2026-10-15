@@ -214,6 +214,10 @@ class StreamingManager {
                     val query = element?.get("query")?.jsonPrimitive?.content ?: ""
                     "Search Knowledge Base" to if (query.isNotBlank()) "Query: \"$query\"" else null
                 }
+                "searchTopicSections" -> {
+                    val query = element?.get("query")?.jsonPrimitive?.content ?: ""
+                    "Search In-Topic Sections" to if (query.isNotBlank()) "Query: \"$query\"" else null
+                }
                 "getTopicOutline" -> {
                     val topicId = element?.get("topicId")?.jsonPrimitive?.content
                         ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
@@ -262,6 +266,11 @@ class StreamingManager {
                     val title = element?.get("title")?.jsonPrimitive?.content
                     if (!title.isNullOrBlank() && !AiJsonUtils.isNumericOnly(title)) "Outline: $title" else "Outline loaded"
                 }
+                "searchTopicSections" -> {
+                    val matches = element?.get("matches") as? kotlinx.serialization.json.JsonArray
+                    val count = matches?.size ?: 0
+                    if (count > 0) "$count matching sections found" else "No matching sections found"
+                }
                 "getTopicSectionsText" -> {
                     val topicTitle = element?.get("topicTitle")?.jsonPrimitive?.content
                     val sectionTitles = element?.get("sectionTitles") as? JsonObject
@@ -302,6 +311,32 @@ class StreamingManager {
                             current[existingIndex] = current[existingIndex].copy(label = title, topicTitle = title)
                         } else {
                             current.add(SafetyValidator.TopicRef(topicId = topicId, label = title, topicTitle = title))
+                        }
+                        _liveDiscoveredSources.value = current
+                    }
+                }
+                "searchTopicSections" -> {
+                    if (element == null) return
+                    val topicId = element["topicId"]?.jsonPrimitive?.content
+                        ?: element["topic_id"]?.jsonPrimitive?.content ?: ""
+                    val matches = element["matches"] as? kotlinx.serialization.json.JsonArray
+                    if (matches != null && topicId.isNotBlank()) {
+                        val current = _liveDiscoveredSources.value.toMutableList()
+                        for (item in matches) {
+                            val itemObj = item as? JsonObject ?: continue
+                            val secId = itemObj["sectionId"]?.jsonPrimitive?.content ?: continue
+                            val secTitle = AiJsonUtils.cleanSectionTitle(itemObj["sectionTitle"]?.jsonPrimitive?.content ?: "")
+                            val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
+                            if (secTitle.isNotBlank() && current.none { it.topicId == topicId && it.sectionId == cleanSecId }) {
+                                current.add(
+                                    SafetyValidator.TopicRef(
+                                        topicId = topicId,
+                                        sectionId = cleanSecId,
+                                        label = secTitle,
+                                        topicTitle = ""
+                                    )
+                                )
+                            }
                         }
                         _liveDiscoveredSources.value = current
                     }

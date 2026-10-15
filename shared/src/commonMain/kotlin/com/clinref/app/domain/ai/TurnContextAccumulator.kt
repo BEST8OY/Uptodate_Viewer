@@ -112,6 +112,7 @@ class TurnContextAccumulator(
                 "searchTopics" -> parseSearchResults(result)
                 "getRelatedTopics" -> parseRelatedTopicsResult(result)
                 "getTopicOutline" -> parseOutlineResult(parsedArgs, result)
+                "searchTopicSections" -> parseSearchTopicSectionsResult(parsedArgs, result)
                 "getTopicSectionsText" -> parseBatchSectionResult(parsedArgs, result)
                 "getGraphicContent" -> parseGraphicResult(parsedArgs, result)
             }
@@ -325,6 +326,31 @@ class TurnContextAccumulator(
                 }
             }
         } catch (e: Exception) { Log.w(TAG, "parseOutlineResult: ${e.message}") }
+    }
+
+    private fun parseSearchTopicSectionsResult(args: Map<String, String>, result: String) {
+        try {
+            val obj = AiJsonUtils.parseAsJsonObject(result) ?: return
+            val topicId = obj["topicId"]?.jsonPrimitive?.content
+                ?: args["topicId"] ?: args["topic_id"] ?: return
+            lastTopicId = topicId
+            val matches = obj["matches"] as? kotlinx.serialization.json.JsonArray ?: return
+            val sectionMap = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
+            for (item in matches) {
+                val itemObj = item as? JsonObject ?: continue
+                val sid = itemObj["sectionId"]?.jsonPrimitive?.content ?: continue
+                val title = itemObj["sectionTitle"]?.jsonPrimitive?.content ?: ""
+                val cleanTitle = AiJsonUtils.cleanSectionTitle(title)
+                if (cleanTitle.isNotBlank()) {
+                    sectionMap[sid] = cleanTitle
+                }
+            }
+            if (sectionMap.isNotEmpty()) {
+                outlineSections[topicId] = sectionMap
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "parseSearchTopicSectionsResult: ${e.message}")
+        }
     }
 
     private fun parseBatchSectionResult(args: Map<String, String>, result: String) {
