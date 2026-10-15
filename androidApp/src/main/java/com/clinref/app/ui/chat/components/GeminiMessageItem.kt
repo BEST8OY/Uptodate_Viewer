@@ -141,8 +141,12 @@ fun GeminiMessageItem(
                         Markdown(
                             content = message.content,
                             modifier = Modifier.fillMaxWidth(),
-                            colors = markdownColor(),
-                            typography = markdownTypography()
+                            colors = markdownColor(
+                                tableBackground = Color.Transparent
+                            ),
+                            typography = markdownTypography(),
+                            dimens = clinrefMarkdownDimens(),
+                            components = clinrefMarkdownComponents()
                         )
                     }
 
