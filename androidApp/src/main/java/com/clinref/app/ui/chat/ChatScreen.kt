@@ -44,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -182,35 +183,69 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
-    var hasRestoredInSession by remember { mutableStateOf(false) }
+    var restoreTrigger by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
     // Restore scroll position on initial conversation open or return from an article.
-    LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
-        if (chatItems.isEmpty() || hasRestoredInSession) return@LaunchedEffect
+    LaunchedEffect(conversationId, chatItems.isNotEmpty(), restoreTrigger) {
+        if (chatItems.isEmpty()) return@LaunchedEffect
         val items = chatItems
+        val saved = viewModel.getSavedScrollPosition(conversationId) ?: ChatScrollPosition(
+            firstVisibleItemIndex = (items.size - 1).coerceAtLeast(0),
+            firstVisibleItemScrollOffset = 0,
+            anchorMessageId = (items.lastOrNull() as? ChatListItem.Message)?.uiModel?.id,
+            isAtBottom = true
+        )
+
+        // Wait until LazyColumn has laid out items
         listState.awaitItemCount(items.size)
-        val saved = viewModel.getSavedScrollPosition(conversationId)
-        if (saved != null) {
-            if (saved.isAtBottom) {
-                listState.scrollToBottom(animated = false)
-            } else {
-                val anchorIndex = saved.anchorMessageId
-                    ?.let { id -> items.indexOfFirst { it is ChatListItem.Message && it.uiModel.id == id } }
-                    ?.takeIf { it >= 0 }
-                    ?.let { if (isLoadingOlder) it + 1 else it }
-                val totalCount = listState.layoutInfo.totalItemsCount
-                val maxIndex = (totalCount - 1).coerceAtLeast(0)
-                val index = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
-                listState.scrollToItem(index, saved.firstVisibleItemScrollOffset)
+
+        val anchorId = saved.anchorMessageId
+        val totalCount = listState.layoutInfo.totalItemsCount
+        val maxIndex = (totalCount - 1).coerceAtLeast(0)
+        val anchorIndex = anchorId
+            ?.let { id -> items.indexOfFirst { it is ChatListItem.Message && it.uiModel.id == id } }
+            ?.takeIf { it >= 0 }
+            ?.let { if (isLoadingOlder) it + 1 else it }
+        val targetIndex = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
+
+        // Perform frame-stabilized scroll restoration to handle dynamic-height markdown and references
+        var lastBottom = -1
+        var lastSize = -1
+        var stableFrames = 0
+        var totalFrames = 0
+
+        while (stableFrames < 3 && totalFrames < 25 && !listState.isScrollInProgress) {
+            totalFrames++
+            val currentTotal = listState.layoutInfo.totalItemsCount
+            if (currentTotal > 0) {
+                if (saved.isAtBottom) {
+                    listState.scrollToItem(currentTotal - 1)
+                    scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
+                    val bottom = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.let { it.offset + it.size } ?: -1
+                    if (bottom == lastBottom && bottom > 0) {
+                        stableFrames++
+                    } else {
+                        stableFrames = 0
+                        lastBottom = bottom
+                    }
+                } else {
+                    listState.scrollToItem(targetIndex, saved.firstVisibleItemScrollOffset)
+                    val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                    val size = item?.size ?: -1
+                    if (size == lastSize && size >= saved.firstVisibleItemScrollOffset) {
+                        stableFrames++
+                    } else {
+                        stableFrames = 0
+                        lastSize = size
+                    }
+                }
             }
-        } else {
-            listState.scrollToBottom(animated = false)
+            withFrameNanos { }
         }
-        hasRestoredInSession = true
     }
 
     // Scroll to bottom when the user sends a message.
@@ -243,17 +278,17 @@ fun ChatScreen(
     }
 
     // Prepend pagination: fetch older messages when scrolled near top
-    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages, hasRestoredInSession) {
-        if (hasRestoredInSession && listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
+    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages) {
+        if (listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
             viewModel.loadOlderMessages()
         }
     }
 
     // Preserve scroll position when leaving composition (navigating to an article citation,
-    // switching tabs). A list that was never restored must not overwrite the saved position.
+    // switching tabs).
     DisposableEffect(conversationId) {
         onDispose {
-            if (hasRestoredInSession && listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+            if (listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
                 viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
             }
         }
@@ -358,13 +393,13 @@ fun ChatScreen(
 
                     val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
                         viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
-                        hasRestoredInSession = false
+                        restoreTrigger++
                         onNavigateToContent(topicId, sectionId)
                     }
 
                     val handleGraphicSelected: (String) -> Unit = { graphicId ->
                         viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
-                        hasRestoredInSession = false
+                        restoreTrigger++
                         onGraphicSelected(graphicId)
                     }
 
