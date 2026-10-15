@@ -199,4 +199,36 @@ class ChatViewModelTest {
         viewModel.clearSavedScrollPosition("conv-1")
         assertNull(viewModel.getSavedScrollPosition("conv-1"))
     }
+
+    @Test
+    fun testTeardownEmptyPositionDoesNotOverwriteValidSavedPosition() {
+        val validPosition = ChatScrollPosition(
+            firstVisibleItemIndex = 3,
+            firstVisibleItemScrollOffset = 500,
+            anchorMessageId = "msg-valid",
+            isAtBottom = true
+        )
+
+        viewModel.saveScrollPosition("conv-10", validPosition)
+        assertEquals(validPosition, viewModel.getSavedScrollPosition("conv-10"))
+
+        // Spurious teardown capture (all 0s, null anchor, isAtBottom = false or true)
+        val teardownPositionFalse = ChatScrollPosition(
+            firstVisibleItemIndex = 0,
+            firstVisibleItemScrollOffset = 0,
+            anchorMessageId = null,
+            isAtBottom = false
+        )
+        viewModel.saveScrollPosition("conv-10", teardownPositionFalse)
+        assertEquals(validPosition, viewModel.getSavedScrollPosition("conv-10"))
+
+        val teardownPositionTrue = ChatScrollPosition(
+            firstVisibleItemIndex = 0,
+            firstVisibleItemScrollOffset = 0,
+            anchorMessageId = null,
+            isAtBottom = true
+        )
+        viewModel.saveScrollPosition("conv-10", teardownPositionTrue)
+        assertEquals(validPosition, viewModel.getSavedScrollPosition("conv-10"))
+    }
 }

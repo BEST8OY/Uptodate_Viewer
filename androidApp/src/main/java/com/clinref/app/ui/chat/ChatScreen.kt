@@ -73,14 +73,41 @@ private object ChatListKeys {
     const val LOADING_OLDER = "loading_older_indicator"
     const val ORCHESTRATION = "orchestration_card"
     const val STREAMING = "streaming"
-    val NON_MESSAGE = setOf(LOADING_OLDER, ORCHESTRATION, STREAMING)
+    const val BOTTOM_ANCHOR = "bottom_anchor"
+    val NON_MESSAGE = setOf(LOADING_OLDER, ORCHESTRATION, STREAMING, BOTTOM_ANCHOR)
 }
 
-/** True when the last visible item is (nearly) the tail of the list. */
-private fun LazyListState.isNearBottom(): Boolean {
+/** True when the user is scrolled to (or within [thresholdPx] of) the bottom of the list. */
+private fun LazyListState.isNearBottom(thresholdPx: Int = 120): Boolean {
+    if (!canScrollForward) return true
     val info = layoutInfo
-    val lastVisible = info.visibleItemsInfo.lastOrNull() ?: return true
-    return lastVisible.index >= info.totalItemsCount - 2
+    val visible = info.visibleItemsInfo
+    val totalCount = info.totalItemsCount
+    if (totalCount <= 0 || visible.isEmpty()) return false
+    val lastVisible = visible.last()
+    // If neither the bottom anchor nor the last message item is visible, we are not near bottom
+    if (lastVisible.index < totalCount - 2) return false
+    val viewportEnd = info.viewportEndOffset - info.afterContentPadding
+    val itemBottom = lastVisible.offset + lastVisible.size
+    return (itemBottom - viewportEnd) <= thresholdPx
+}
+
+/**
+ * Scrolls to the absolute bottom of the list.
+ *
+ * Targets [ChatListKeys.BOTTOM_ANCHOR] at the tail of the LazyColumn. Since the anchor has
+ * no content below it, Compose scrolls forward until the bottom content padding is reached,
+ * cleanly positioning the entire message and its clinical references in view above the chat input.
+ */
+private suspend fun LazyListState.scrollToBottom(animated: Boolean = false) {
+    val totalCount = layoutInfo.totalItemsCount
+    if (totalCount <= 0) return
+    val lastIndex = totalCount - 1
+    if (animated) {
+        animateScrollToItem(lastIndex)
+    } else {
+        scrollToItem(lastIndex)
+    }
 }
 
 /**
@@ -94,14 +121,20 @@ private suspend fun LazyListState.awaitItemCount(minItems: Int) {
 }
 
 /** Anchors on the first visible message by key, which is stable across prepends. */
-private fun LazyListState.captureScrollPosition() = ChatScrollPosition(
-    firstVisibleItemIndex = firstVisibleItemIndex,
-    firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
-    anchorMessageId = layoutInfo.visibleItemsInfo
+private fun LazyListState.captureScrollPosition(): ChatScrollPosition {
+    val visible = layoutInfo.visibleItemsInfo
+    val atBottom = visible.isNotEmpty() && (!canScrollForward || isNearBottom())
+    val anchor = visible
         .mapNotNull { it.key as? String }
-        .firstOrNull { it !in ChatListKeys.NON_MESSAGE },
-    isAtBottom = !canScrollForward
-)
+        .firstOrNull { it !in ChatListKeys.NON_MESSAGE }
+
+    return ChatScrollPosition(
+        firstVisibleItemIndex = firstVisibleItemIndex,
+        firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
+        anchorMessageId = anchor,
+        isAtBottom = atBottom
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -135,7 +168,9 @@ fun ChatScreen(
         derivedStateOf { listState.canScrollForward }
     }
 
-    val isAtBottom by remember { derivedStateOf { listState.isNearBottom() } }
+    val isAtBottom by remember {
+        derivedStateOf { !listState.canScrollForward || listState.isNearBottom() }
+    }
 
     val isGenerating = agentState is StreamingManager.AgentState.ToolCallInProgress ||
         agentState is StreamingManager.AgentState.WaitingForLlm
@@ -147,7 +182,7 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
-    var hasRestoredScrollPosition by rememberSaveable(conversationId) { mutableStateOf(false) }
+    var hasRestoredInSession by remember { mutableStateOf(false) }
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
@@ -155,21 +190,27 @@ fun ChatScreen(
 
     // Restore scroll position on initial conversation open or return from an article.
     LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
-        if (chatItems.isEmpty() || hasRestoredScrollPosition) return@LaunchedEffect
+        if (chatItems.isEmpty() || hasRestoredInSession) return@LaunchedEffect
         val items = chatItems
         listState.awaitItemCount(items.size)
-        val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
         val saved = viewModel.getSavedScrollPosition(conversationId)
         if (saved != null) {
-            val anchorIndex = saved.anchorMessageId
-                ?.let { id -> items.indexOfFirst { it is ChatListItem.Message && it.uiModel.id == id } }
-                ?.takeIf { it >= 0 }
-            val index = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, lastIndex)
-            listState.scrollToItem(index, saved.firstVisibleItemScrollOffset)
+            if (saved.isAtBottom) {
+                listState.scrollToBottom(animated = false)
+            } else {
+                val anchorIndex = saved.anchorMessageId
+                    ?.let { id -> items.indexOfFirst { it is ChatListItem.Message && it.uiModel.id == id } }
+                    ?.takeIf { it >= 0 }
+                    ?.let { if (isLoadingOlder) it + 1 else it }
+                val totalCount = listState.layoutInfo.totalItemsCount
+                val maxIndex = (totalCount - 1).coerceAtLeast(0)
+                val index = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
+                listState.scrollToItem(index, saved.firstVisibleItemScrollOffset)
+            }
         } else {
-            listState.scrollToItem(lastIndex)
+            listState.scrollToBottom(animated = false)
         }
-        hasRestoredScrollPosition = true
+        hasRestoredInSession = true
     }
 
     // Scroll to bottom when the user sends a message.
@@ -186,14 +227,7 @@ fun ChatScreen(
                         }
                     }
                     listState.awaitItemCount(chatItems.size)
-                    val lastIndex = listState.layoutInfo.totalItemsCount - 1
-                    if (lastIndex >= 0) {
-                        if (event.animated) {
-                            listState.animateScrollToItem(lastIndex)
-                        } else {
-                            listState.scrollToItem(lastIndex)
-                        }
-                    }
+                    listState.scrollToBottom(animated = event.animated)
                 }
             }
         }
@@ -203,17 +237,14 @@ fun ChatScreen(
     LaunchedEffect(streamingText, orchestrationSteps.size) {
         if (streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty()) {
             if (isAtBottom) {
-                val count = listState.layoutInfo.totalItemsCount
-                if (count > 0) {
-                    listState.scrollToItem(count - 1)
-                }
+                listState.scrollToBottom(animated = false)
             }
         }
     }
 
     // Prepend pagination: fetch older messages when scrolled near top
-    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages, hasRestoredScrollPosition) {
-        if (hasRestoredScrollPosition && listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
+    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages, hasRestoredInSession) {
+        if (hasRestoredInSession && listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
             viewModel.loadOlderMessages()
         }
     }
@@ -222,7 +253,7 @@ fun ChatScreen(
     // switching tabs). A list that was never restored must not overwrite the saved position.
     DisposableEffect(conversationId) {
         onDispose {
-            if (hasRestoredScrollPosition) {
+            if (hasRestoredInSession && listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
                 viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
             }
         }
@@ -252,7 +283,12 @@ fun ChatScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = {
+                            viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
+                            onBack()
+                        }
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -322,7 +358,14 @@ fun ChatScreen(
 
                     val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
                         viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
+                        hasRestoredInSession = false
                         onNavigateToContent(topicId, sectionId)
+                    }
+
+                    val handleGraphicSelected: (String) -> Unit = { graphicId ->
+                        viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
+                        hasRestoredInSession = false
+                        onGraphicSelected(graphicId)
                     }
 
                     items(
@@ -344,7 +387,7 @@ fun ChatScreen(
                                     }
                                 },
                                 onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = onGraphicSelected
+                                onGraphicSelected = handleGraphicSelected
                             )
                         }
                     }
@@ -377,9 +420,17 @@ fun ChatScreen(
                                     }
                                 },
                                 onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = onGraphicSelected
+                                onGraphicSelected = handleGraphicSelected
                             )
                         }
+                    }
+
+                    item(key = ChatListKeys.BOTTOM_ANCHOR) {
+                        Spacer(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                        )
                     }
                 }
             }
@@ -394,11 +445,8 @@ fun ChatScreen(
                     visible = showScrollToBottom,
                     onClick = {
                         coroutineScope.launch {
-                            val totalCount = listState.layoutInfo.totalItemsCount
-                            if (totalCount > 0) {
-                                listState.animateScrollToItem(totalCount - 1)
-                                scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
-                            }
+                            listState.scrollToBottom(animated = true)
+                            scrollBehavior.state.heightOffset = scrollBehavior.state.heightOffsetLimit
                         }
                     },
                     modifier = Modifier.padding(bottom = 8.dp)

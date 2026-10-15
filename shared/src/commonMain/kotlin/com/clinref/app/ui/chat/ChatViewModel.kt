@@ -178,10 +178,15 @@ class ChatViewModel(
 
     fun saveScrollPosition(position: ChatScrollPosition) {
         val convId = _currentConversationId.value ?: return
-        chatScrollStateCache.save(convId, position)
+        saveScrollPosition(convId, position)
     }
 
     fun saveScrollPosition(conversationId: String, position: ChatScrollPosition) {
+        // Prevent spurious unmeasured or teardown captures from overwriting a valid cached position
+        if (position.anchorMessageId == null && position.firstVisibleItemIndex == 0 && position.firstVisibleItemScrollOffset == 0) {
+            val existing = chatScrollStateCache.get(conversationId)
+            if (existing != null) return
+        }
         chatScrollStateCache.save(conversationId, position)
     }
 

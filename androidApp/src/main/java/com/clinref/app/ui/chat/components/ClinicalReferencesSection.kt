@@ -45,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.app.domain.ai.ClinicalSource
 
@@ -59,7 +62,13 @@ fun ClinicalReferencesSection(
 ) {
     if (articles.isEmpty() && tables.isEmpty()) return
 
-    var isExpanded by remember { mutableStateOf(true) }
+    var isExpanded by rememberSaveable { mutableStateOf(true) }
+    val transitionState = remember {
+        MutableTransitionState(isExpanded).apply { targetState = isExpanded }
+    }
+    LaunchedEffect(isExpanded) {
+        transitionState.targetState = isExpanded
+    }
     val totalCount = articles.size + tables.size
 
     Column(
@@ -79,7 +88,11 @@ fun ClinicalReferencesSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(role = Role.Button) { isExpanded = !isExpanded }
+                .clickable(role = Role.Button) {
+                    val next = !isExpanded
+                    isExpanded = next
+                    transitionState.targetState = next
+                }
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
@@ -130,16 +143,16 @@ fun ClinicalReferencesSection(
             }
 
             Icon(
-                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = if (isExpanded) "Collapse references" else "Expand references",
+                imageVector = if (transitionState.targetState) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (transitionState.targetState) "Collapse references" else "Expand references",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )
         }
 
-        // Expandable Reference Cards
+        // Expandable Reference Cards (starts fully expanded on initial render without enter animation)
         AnimatedVisibility(
-            visible = isExpanded,
+            visibleState = transitionState,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
