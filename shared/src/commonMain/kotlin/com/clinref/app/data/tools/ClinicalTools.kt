@@ -109,3 +109,25 @@ class GetGraphicContentTool(
     override suspend fun execute(args: Args): String = databaseTools.getGraphicContent(args.graphicId)
 }
 
+class SearchTopicSectionsTool(
+    private val databaseTools: MedicalDatabaseTools
+) : SimpleTool<SearchTopicSectionsTool.Args>(
+    argsType = typeToken<Args>(),
+    name = "searchTopicSections",
+    description = "Search sections within a specific topic by keywords (e.g., 'dosing', 'pregnancy', 'renal'). " +
+        "Returns matching section IDs, titles, hierarchy level, and content snippets. " +
+        "Use this for long or complex topics to pinpoint the exact section IDs before fetching full text."
+) {
+    @Serializable
+    data class Args(
+        @property:LLMDescription("The topic ID from searchTopics (e.g., '12345')")
+        @JsonNames("topic_id")
+        val topicId: String,
+        @property:LLMDescription("Clinical keywords to search for within the topic (e.g., 'renal failure', 'dosing')")
+        @JsonNames("query", "search_query", "keyword")
+        val query: String
+    )
+
+    override suspend fun execute(args: Args): String = databaseTools.searchTopicSections(args.topicId, args.query)
+}
+

@@ -16,6 +16,7 @@ class MedicalDatabaseTools(
 
     val searchTopicsTool by lazy { com.clinref.app.data.tools.SearchTopicsTool(this) }
     val getTopicOutlineTool by lazy { com.clinref.app.data.tools.GetTopicOutlineTool(this) }
+    val searchTopicSectionsTool by lazy { com.clinref.app.data.tools.SearchTopicSectionsTool(this) }
     val getRelatedTopicsTool by lazy { com.clinref.app.data.tools.GetRelatedTopicsTool(this) }
     val getTopicSectionsTextTool by lazy { com.clinref.app.data.tools.GetTopicSectionsTextTool(this) }
     val getGraphicContentTool by lazy { com.clinref.app.data.tools.GetGraphicContentTool(this) }
@@ -23,6 +24,7 @@ class MedicalDatabaseTools(
     fun asToolList(): List<ai.koog.agents.core.tools.Tool<*, *>> = listOf(
         searchTopicsTool,
         getTopicOutlineTool,
+        searchTopicSectionsTool,
         getRelatedTopicsTool,
         getTopicSectionsTextTool,
         getGraphicContentTool

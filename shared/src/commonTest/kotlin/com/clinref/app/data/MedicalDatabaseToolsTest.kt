@@ -192,12 +192,13 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `asToolList returns 5 class-based tools with expected names`() {
+    fun `asToolList returns 6 class-based tools with expected names`() {
         val toolList = tools.asToolList()
-        assertEquals(5, toolList.size)
+        assertEquals(6, toolList.size)
         val names = toolList.map { it.name }.toSet()
         assertTrue(names.contains("searchTopics"))
         assertTrue(names.contains("getTopicOutline"))
+        assertTrue(names.contains("searchTopicSections"))
         assertTrue(names.contains("getRelatedTopics"))
         assertTrue(names.contains("getTopicSectionsText"))
         assertTrue(names.contains("getGraphicContent"))
