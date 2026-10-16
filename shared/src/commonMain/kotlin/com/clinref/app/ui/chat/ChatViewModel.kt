@@ -152,32 +152,26 @@ class ChatViewModel(
         _chatItems.value = buildChatItems(newMessages)
     }
 
-    data class ReadingPosition(
-        val index: Int = 0,
-        val offset: Int = 0,
-        val anchorMessageId: String? = null
+    data class ReadingContext(
+        val topicId: String,
+        val sectionId: String? = null
     )
 
-    var savedReadingPosition: ReadingPosition? = null
-        private set
+    private val _activeReadingContext = MutableStateFlow<ReadingContext?>(null)
+    val activeReadingContext: StateFlow<ReadingContext?> = _activeReadingContext.asStateFlow()
 
-    fun updateReadingPosition(index: Int, offset: Int, anchorMessageId: String? = null) {
-        // Prevent spurious unmeasured or teardown captures from overwriting a valid reading position
-        if (index == 0 && offset == 0 && anchorMessageId == null && savedReadingPosition != null) {
-            return
+    fun setActiveReadingContext(topicId: String?, sectionId: String? = null) {
+        _activeReadingContext.value = if (topicId != null) {
+            ReadingContext(topicId, sectionId)
+        } else {
+            null
         }
-        savedReadingPosition = ReadingPosition(index, offset, anchorMessageId)
-    }
-
-    fun clearSavedReadingPosition() {
-        savedReadingPosition = null
     }
 
     fun loadConversation(conversationId: String, forceReload: Boolean = false) {
         if (!forceReload && _currentConversationId.value == conversationId && _messages.value.isNotEmpty()) {
             return
         }
-        savedReadingPosition = null
         generationJob?.cancel()
         generationJob = null
         _activeAssistantMessageId.value = null
@@ -223,6 +217,14 @@ class ChatViewModel(
         val conversationId = _currentConversationId.value ?: return
         val trimmed = content.trim()
         if (trimmed.isBlank()) return
+
+        val activeContext = _activeReadingContext.value
+        val effectivePrompt = if (activeContext != null && !trimmed.startsWith("[Context:")) {
+            val sectionHint = if (!activeContext.sectionId.isNullOrBlank()) " (section: ${activeContext.sectionId})" else ""
+            "[Context: Clinician is viewing topic ${activeContext.topicId}$sectionHint]\n$trimmed"
+        } else {
+            trimmed
+        }
 
         viewModelScope.launch {
             val userMsg = MessageEntity(
@@ -289,7 +291,7 @@ class ChatViewModel(
                             userMessage = trimmed
                         ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
                         lastAccumulator = accumulator
-                        agent.run(trimmed, conversationId)
+                        agent.run(effectivePrompt, conversationId)
                     }
                     withContext(Dispatchers.Main) {
                         handleAgentResult(conversationId, pendingAssistantId, result, lastAccumulator)

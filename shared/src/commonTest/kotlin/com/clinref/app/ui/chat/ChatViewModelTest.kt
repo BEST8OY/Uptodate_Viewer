@@ -61,26 +61,6 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun testReadingPositionPreservation() {
-        assertNull(viewModel.savedReadingPosition)
-        viewModel.updateReadingPosition(12, 45, "msg-123")
-
-        val position = viewModel.savedReadingPosition
-        assertNotNull(position)
-        assertEquals(12, position?.index)
-        assertEquals(45, position?.offset)
-        assertEquals("msg-123", position?.anchorMessageId)
-
-        // Spurious teardown capture (0, 0, null) must NOT overwrite valid reading position
-        viewModel.updateReadingPosition(0, 0, null)
-        assertEquals(12, viewModel.savedReadingPosition?.index)
-        assertEquals("msg-123", viewModel.savedReadingPosition?.anchorMessageId)
-
-        viewModel.clearSavedReadingPosition()
-        assertNull(viewModel.savedReadingPosition)
-    }
-
-    @Test
     fun testLoadConversationLoadsChronologicalMessages() = runTest(testDispatcher) {
         // Repository returns messages ordered by timestamp DESC
         val m1 = MessageEntity("m1", "conv-1", "user", "Hello", 1000L)
@@ -156,12 +136,17 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun testFreshConversationLoadResetsReadingPosition() = runTest(testDispatcher) {
-        viewModel.updateReadingPosition(5, 100)
-        assertNotNull(viewModel.savedReadingPosition)
+    fun testActiveReadingContextManagement() {
+        assertNull(viewModel.activeReadingContext.value)
 
-        viewModel.loadConversation("conv-1")
-        assertNull(viewModel.savedReadingPosition)
+        viewModel.setActiveReadingContext("asthma-101", "sec-treatment")
+        val ctx = viewModel.activeReadingContext.value
+        assertNotNull(ctx)
+        assertEquals("asthma-101", ctx?.topicId)
+        assertEquals("sec-treatment", ctx?.sectionId)
+
+        viewModel.setActiveReadingContext(null)
+        assertNull(viewModel.activeReadingContext.value)
     }
 
     @Test

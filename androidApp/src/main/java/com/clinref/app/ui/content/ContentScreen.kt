@@ -71,8 +71,14 @@ fun ContentScreen(
     viewModel: ContentViewModel = koinViewModel(),
     modifier: Modifier = Modifier
 ) {
-    LaunchedEffect(topicId, sectionId) {
+    LaunchedEffect(topicId) {
         viewModel.open(topicId, sectionId = sectionId)
+    }
+
+    LaunchedEffect(sectionId) {
+        if (sectionId != null) {
+            viewModel.scrollToSection(sectionId)
+        }
     }
 
     val colorScheme = MaterialTheme.colorScheme
