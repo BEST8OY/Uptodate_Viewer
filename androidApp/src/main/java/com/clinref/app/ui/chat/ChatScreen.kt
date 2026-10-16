@@ -1,7 +1,6 @@
 package com.clinref.app.ui.chat
 
 import android.content.ClipData
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -50,7 +48,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -62,7 +59,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
@@ -89,30 +85,6 @@ private object ChatListKeys {
     const val ORCHESTRATION = "orchestration_card"
     const val STREAMING = "streaming"
     const val BOTTOM_ANCHOR = "bottom_anchor"
-}
-
-/**
- * Accurately captures the visual reading position in the LazyColumn.
- */
-private fun LazyListState.captureExactScrollPosition(): ChatScrollPosition {
-    val visible = layoutInfo.visibleItemsInfo
-    if (visible.isEmpty()) {
-        return ChatScrollPosition(
-            firstVisibleItemIndex = 0,
-            firstVisibleItemScrollOffset = 0,
-            anchorMessageId = null,
-            isAtBottom = true
-        )
-    }
-    val atBottom = !canScrollForward
-    val firstVisibleKey = visible.firstOrNull()?.key as? String
-
-    return ChatScrollPosition(
-        firstVisibleItemIndex = firstVisibleItemIndex,
-        firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
-        anchorMessageId = firstVisibleKey,
-        isAtBottom = atBottom
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -144,8 +116,7 @@ fun ChatScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
-    var isFollowingBottom by rememberSaveable(conversationId) { mutableStateOf(true) }
-    var hasRestoredScroll by rememberSaveable(conversationId) { mutableStateOf(false) }
+    var isFollowingBottom by remember { mutableStateOf(false) }
 
     val isGenerating = activeAssistantId != null ||
         agentState is StreamingManager.AgentState.ToolCallInProgress ||
@@ -158,65 +129,25 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
-    // Intercept back navigation (gesture or button) to reliably snapshot the scroll offset
-    BackHandler {
-        viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
-        onBack()
-    }
-
-    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
-        viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
-        onNavigateToContent(topicId, sectionId)
-    }
-
-    val handleGraphicSelected: (String) -> Unit = { graphicId ->
-        viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
-        onGraphicSelected(graphicId)
-    }
-
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
-    // Restore scroll position when conversation items are available
-    LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
-        if (chatItems.isEmpty() || hasRestoredScroll) return@LaunchedEffect
-        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
-
-        val saved = viewModel.getSavedScrollPosition(conversationId)
-        if (saved == null || saved.isAtBottom) {
-            val totalCount = listState.layoutInfo.totalItemsCount
-            if (totalCount > 0) {
-                listState.scrollToItem(totalCount - 1)
-            }
-            isFollowingBottom = true
-        } else {
-            val items = chatItems
-            val targetIndex = saved.anchorMessageId?.let { key ->
-                val idx = items.indexOfFirst { it.key == key }
-                if (idx >= 0) idx else null
-            } ?: saved.firstVisibleItemIndex.coerceIn(0, (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
-
-            listState.scrollToItem(targetIndex, saved.firstVisibleItemScrollOffset)
-            isFollowingBottom = false
-        }
-        hasRestoredScroll = true
-    }
-
-    // Track user drag vs programmatic scroll to prevent fighting user scrolling
+    // Pause auto-follow if the user manually drags up
     LaunchedEffect(isUserDragging) {
         if (isUserDragging && listState.canScrollForward) {
             isFollowingBottom = false
         }
     }
 
+    // Resume auto-follow when the user scrolls back to the bottom
     LaunchedEffect(listState.canScrollForward) {
         if (!listState.canScrollForward) {
             isFollowingBottom = true
         }
     }
 
-    // ViewModel scroll events (e.g. user sends a message or completed assistant response)
+    // Scroll events emitted by ViewModel (e.g. user sends a message)
     LaunchedEffect(Unit) {
         viewModel.scrollEvents.collect { event ->
             when (event) {
@@ -234,7 +165,7 @@ fun ChatScreen(
         }
     }
 
-    // Real-time stream auto-scroll: continuously tracks latest tokens without fighting manual drag
+    // Auto-scroll stream deltas when following the bottom
     LaunchedEffect(streamingText, orchestrationSteps.size, isGenerating) {
         if (isFollowingBottom && (isGenerating || streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty())) {
             val count = listState.layoutInfo.totalItemsCount
@@ -244,7 +175,7 @@ fun ChatScreen(
         }
     }
 
-    // Keyboard / IME adjustment: keep bottom message in view when soft keyboard opens
+    // Keep bottom turn visible when soft keyboard opens
     val imeBottom = WindowInsets.ime.getBottom(density)
     LaunchedEffect(imeBottom > 0) {
         if (imeBottom > 0 && isFollowingBottom) {
@@ -255,19 +186,10 @@ fun ChatScreen(
         }
     }
 
-    // Prepend pagination: load older messages when scrolled near the top
+    // Prepend pagination: load older messages when scrolled near top
     LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages) {
         if (listState.firstVisibleItemIndex <= 1 && hasMoreMessages && !isLoadingOlder) {
             viewModel.loadOlderMessages()
-        }
-    }
-
-    // Save scroll position when leaving composition (navigating to an article or conversation list)
-    DisposableEffect(conversationId) {
-        onDispose {
-            if (listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
-                viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
-            }
         }
     }
 
@@ -295,12 +217,7 @@ fun ChatScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
-                            onBack()
-                        }
-                    ) {
+                    IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -373,14 +290,14 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected
                             )
                             is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
                                 articles = item.articles,
                                 tables = item.tables,
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected,
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected,
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
@@ -414,8 +331,8 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected
                             )
                         }
                     }
@@ -478,8 +395,7 @@ private fun ChatEmptyState(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier
-            .padding(horizontal = 24.dp),
+        modifier = modifier.padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {

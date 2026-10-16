@@ -356,7 +356,6 @@ class ChatViewModel(
             conversationRepository.addMessage(cancelMsg)
             updateMessages(_messages.value + cancelMsg.toUiModel())
             streamingManager.reset()
-            _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = cancelMsg.id))
         }
     }
 
@@ -394,7 +393,6 @@ class ChatViewModel(
                     )
                     conversationRepository.addMessage(blockedMsg)
                     updateMessages(_messages.value + blockedMsg.toUiModel(isError = true))
-                    _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = blockedMsg.id))
                 }
             }
             is StreamingManager.AgentState.Error -> {
@@ -408,7 +406,6 @@ class ChatViewModel(
                 )
                 conversationRepository.addMessage(errorMsg)
                 updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
-                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
             }
             else -> {
                 secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: state ${state::class.simpleName}")
@@ -422,7 +419,6 @@ class ChatViewModel(
                 )
                 conversationRepository.addMessage(fallbackMsg)
                 updateMessages(_messages.value + fallbackMsg.toUiModel())
-                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = fallbackMsg.id))
             }
         }
     }
@@ -446,7 +442,6 @@ class ChatViewModel(
         )
         conversationRepository.addMessage(assistantMsg)
         updateMessages(_messages.value + assistantMsg.toUiModel(warnings = validation.warnings))
-        _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = assistantMsg.id))
         conversationRepository.updateTokenCounts(
             conversationId,
             promptDelta = usage.promptTokens,
