@@ -1,25 +1,41 @@
 package com.clinref.app.ui.chat
 
+import android.content.ClipData
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.MedicalServices
+import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -28,14 +44,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,16 +62,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import org.koin.compose.viewmodel.koinViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.content.ClipData
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.toClipEntry
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
 import com.clinref.app.ui.chat.components.GeminiChatInput
@@ -64,10 +82,6 @@ import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
 import com.clinref.app.ui.common.ScrollToBottomFAB
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-
-/** Upper bound for waiting on the lazy list to lay out items that were just added. */
-private const val LIST_LAYOUT_TIMEOUT_MS = 1_000L
 
 /** Non-message keys used by the conversation LazyColumn. */
 private object ChatListKeys {
@@ -75,71 +89,28 @@ private object ChatListKeys {
     const val ORCHESTRATION = "orchestration_card"
     const val STREAMING = "streaming"
     const val BOTTOM_ANCHOR = "bottom_anchor"
-    val NON_MESSAGE = setOf(LOADING_OLDER, ORCHESTRATION, STREAMING, BOTTOM_ANCHOR)
-}
-
-/** True when the user is scrolled to (or within [thresholdPx] of) the bottom of the list. */
-private fun LazyListState.isNearBottom(thresholdPx: Int = 600): Boolean {
-    if (!canScrollForward) return true
-    val info = layoutInfo
-    val visible = info.visibleItemsInfo
-    val totalCount = info.totalItemsCount
-    if (totalCount <= 0 || visible.isEmpty()) return false
-    val lastVisible = visible.last()
-    // If the bottom anchor itself is in the visible items, the list is at the bottom
-    if (lastVisible.key == ChatListKeys.BOTTOM_ANCHOR) return true
-    // If neither the bottom anchor nor the last content item is visible, we are not near bottom
-    if (lastVisible.index < totalCount - 2) return false
-    val viewportEnd = info.viewportEndOffset - info.afterContentPadding
-    val itemBottom = lastVisible.offset + lastVisible.size
-    return (itemBottom - viewportEnd) <= thresholdPx
 }
 
 /**
- * Scrolls to the absolute bottom of the list.
- *
- * Targets [ChatListKeys.BOTTOM_ANCHOR] at the tail of the LazyColumn. Since the anchor has
- * no content below it, Compose scrolls forward until the bottom content padding is reached,
- * cleanly positioning the entire message and its clinical references in view above the chat input.
+ * Accurately captures the visual reading position in the LazyColumn.
  */
-private suspend fun LazyListState.scrollToBottom(animated: Boolean = false) {
-    val totalCount = layoutInfo.totalItemsCount
-    if (totalCount <= 0) return
-    val lastIndex = totalCount - 1
-    if (animated) {
-        animateScrollToItem(lastIndex)
-    } else {
-        scrollToItem(lastIndex)
-    }
-}
-
-/**
- * Suspends until the list has laid out at least [minItems] items. Effects run before the measure
- * pass, so [LazyListState.layoutInfo] is stale right after the backing data changes.
- */
-private suspend fun LazyListState.awaitItemCount(minItems: Int) {
-    withTimeoutOrNull(LIST_LAYOUT_TIMEOUT_MS) {
-        snapshotFlow { layoutInfo.totalItemsCount }.first { it >= minItems }
-    }
-}
-
-/** Anchors on the visible message or references section by key. */
-private fun LazyListState.captureScrollPosition(
-    preferredAnchorId: String? = null,
-    forceAtBottom: Boolean = false
-): ChatScrollPosition {
+private fun LazyListState.captureExactScrollPosition(): ChatScrollPosition {
     val visible = layoutInfo.visibleItemsInfo
-    val atBottom = forceAtBottom || (visible.isNotEmpty() && (!canScrollForward || isNearBottom()))
-    val anchor = preferredAnchorId ?: if (atBottom) {
-        visible.mapNotNull { it.key as? String }.lastOrNull { it !in ChatListKeys.NON_MESSAGE }
-    } else {
-        visible.mapNotNull { it.key as? String }.firstOrNull { it !in ChatListKeys.NON_MESSAGE }
+    if (visible.isEmpty()) {
+        return ChatScrollPosition(
+            firstVisibleItemIndex = 0,
+            firstVisibleItemScrollOffset = 0,
+            anchorMessageId = null,
+            isAtBottom = true
+        )
     }
+    val atBottom = !canScrollForward
+    val firstVisibleKey = visible.firstOrNull()?.key as? String
 
     return ChatScrollPosition(
         firstVisibleItemIndex = firstVisibleItemIndex,
         firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
-        anchorMessageId = anchor,
+        anchorMessageId = firstVisibleKey,
         isAtBottom = atBottom
     )
 }
@@ -151,12 +122,12 @@ fun ChatScreen(
     onNavigateToContent: (String, String?) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onBack: () -> Unit,
-    viewModel: ChatViewModel = koinViewModel()
+    viewModel: ChatViewModel = org.koin.compose.viewmodel.koinViewModel()
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
+    val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
     val agentState by viewModel.agentState.collectAsStateWithLifecycle()
-    val toolProgress by viewModel.toolProgress.collectAsStateWithLifecycle()
     val orchestrationSteps by viewModel.orchestrationSteps.collectAsStateWithLifecycle()
     val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
     val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
@@ -165,25 +136,19 @@ fun ChatScreen(
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
     val config by viewModel.configuration.collectAsStateWithLifecycle()
+
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
-
-    val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    val showScrollToBottom by remember {
-        derivedStateOf { listState.canScrollForward }
-    }
+    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
+    var isFollowingBottom by rememberSaveable(conversationId) { mutableStateOf(true) }
+    var hasRestoredScroll by rememberSaveable(conversationId) { mutableStateOf(false) }
 
-    val isAtBottom by remember {
-        derivedStateOf { !listState.canScrollForward || listState.isNearBottom() }
-    }
-
-    var isFollowingStream by remember { mutableStateOf(true) }
-    var hasNavigatedAway by remember { mutableStateOf(false) }
-
-    val isGenerating = agentState is StreamingManager.AgentState.ToolCallInProgress ||
+    val isGenerating = activeAssistantId != null ||
+        agentState is StreamingManager.AgentState.ToolCallInProgress ||
         agentState is StreamingManager.AgentState.WaitingForLlm
 
     val textFieldState = rememberTextFieldState()
@@ -193,110 +158,115 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
+    // Intercept back navigation (gesture or button) to reliably snapshot the scroll offset
+    BackHandler {
+        viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
+        onBack()
+    }
+
+    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
+        viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
+        onNavigateToContent(topicId, sectionId)
+    }
+
+    val handleGraphicSelected: (String) -> Unit = { graphicId ->
+        viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
+        onGraphicSelected(graphicId)
+    }
+
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
-    // Restore scroll position on initial conversation open or return from an article.
+    // Restore scroll position when conversation items are available
     LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
-        if (chatItems.isEmpty()) return@LaunchedEffect
-        val items = chatItems
-        val saved = viewModel.getSavedScrollPosition(conversationId) ?: ChatScrollPosition(
-            firstVisibleItemIndex = (items.size - 1).coerceAtLeast(0),
-            firstVisibleItemScrollOffset = 0,
-            anchorMessageId = items.lastOrNull()?.key,
-            isAtBottom = true
-        )
+        if (chatItems.isEmpty() || hasRestoredScroll) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
 
-        // Wait until LazyColumn has laid out items
-        listState.awaitItemCount(items.size + 1)
-
-        if (saved.isAtBottom) {
-            listState.scrollToBottom(animated = false)
-            isFollowingStream = true
-        } else {
-            val anchorId = saved.anchorMessageId
+        val saved = viewModel.getSavedScrollPosition(conversationId)
+        if (saved == null || saved.isAtBottom) {
             val totalCount = listState.layoutInfo.totalItemsCount
-            val maxIndex = (totalCount - 1).coerceAtLeast(0)
-            val anchorIndex = anchorId
-                ?.let { id ->
-                    val exactIndex = items.indexOfFirst { it.key == id }
-                    if (exactIndex >= 0) exactIndex
-                    else {
-                        val cleanId = id.removePrefix("refs_")
-                        items.indexOfFirst { it.key == cleanId }
-                    }
-                }
-                ?.takeIf { it >= 0 }
-                ?.let { if (isLoadingOlder) it + 1 else it }
-
-            val targetIndex = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
-            val targetOffset = if (anchorId?.startsWith("refs_") == true) 0 else saved.firstVisibleItemScrollOffset
-
-            listState.scrollToItem(targetIndex, targetOffset)
-
-            if (targetOffset > 0) {
-                withTimeoutOrNull(500) {
-                    snapshotFlow {
-                        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }?.size ?: 0
-                    }.first { it >= targetOffset }
-                    listState.scrollToItem(targetIndex, targetOffset)
-                }
+            if (totalCount > 0) {
+                listState.scrollToItem(totalCount - 1)
             }
+            isFollowingBottom = true
+        } else {
+            val items = chatItems
+            val targetIndex = saved.anchorMessageId?.let { key ->
+                val idx = items.indexOfFirst { it.key == key }
+                if (idx >= 0) idx else null
+            } ?: saved.firstVisibleItemIndex.coerceIn(0, (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+
+            listState.scrollToItem(targetIndex, saved.firstVisibleItemScrollOffset)
+            isFollowingBottom = false
+        }
+        hasRestoredScroll = true
+    }
+
+    // Track user drag vs programmatic scroll to prevent fighting user scrolling
+    LaunchedEffect(isUserDragging) {
+        if (isUserDragging && listState.canScrollForward) {
+            isFollowingBottom = false
         }
     }
 
-    // Scroll to bottom when the user sends a message or when generation completes.
+    LaunchedEffect(listState.canScrollForward) {
+        if (!listState.canScrollForward) {
+            isFollowingBottom = true
+        }
+    }
+
+    // ViewModel scroll events (e.g. user sends a message or completed assistant response)
     LaunchedEffect(Unit) {
         viewModel.scrollEvents.collect { event ->
             when (event) {
                 is ChatScrollEvent.ScrollToBottom -> {
-                    isFollowingStream = true
-                    event.awaitMessageId?.let { id ->
-                        withTimeoutOrNull(LIST_LAYOUT_TIMEOUT_MS) {
-                            snapshotFlow {
-                                when (val last = chatItems.lastOrNull()) {
-                                    is ChatListItem.Message -> last.uiModel.id == id
-                                    is ChatListItem.ClinicalReferences -> last.messageId == id
-                                    null -> false
-                                }
-                            }.first { it }
-                            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > chatItems.size }
-                        }
+                    isFollowingBottom = true
+                    snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+                    val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                    if (event.animated) {
+                        listState.animateScrollToItem(lastIndex)
+                    } else {
+                        listState.scrollToItem(lastIndex)
                     }
-                    listState.scrollToBottom(animated = false)
                 }
             }
         }
     }
 
-    // Stream auto-scroll: keep list pinned to bottom while user is following the stream
+    // Real-time stream auto-scroll: continuously tracks latest tokens without fighting manual drag
     LaunchedEffect(streamingText, orchestrationSteps.size, isGenerating) {
-        if (isFollowingStream && (isGenerating || streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty())) {
-            listState.scrollToBottom(animated = false)
+        if (isFollowingBottom && (isGenerating || streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty())) {
+            val count = listState.layoutInfo.totalItemsCount
+            if (count > 0) {
+                listState.scrollToItem(count - 1)
+            }
         }
     }
 
-    // Pause auto-follow when user manually drags/scrolls up away from the bottom
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress && listState.canScrollForward) {
-            isFollowingStream = false
+    // Keyboard / IME adjustment: keep bottom message in view when soft keyboard opens
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(imeBottom > 0) {
+        if (imeBottom > 0 && isFollowingBottom) {
+            val count = listState.layoutInfo.totalItemsCount
+            if (count > 0) {
+                listState.scrollToItem(count - 1)
+            }
         }
     }
 
-    // Prepend pagination: fetch older messages when scrolled near top
+    // Prepend pagination: load older messages when scrolled near the top
     LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages) {
-        if (listState.firstVisibleItemIndex <= 2 && hasMoreMessages && !isLoadingOlder) {
+        if (listState.firstVisibleItemIndex <= 1 && hasMoreMessages && !isLoadingOlder) {
             viewModel.loadOlderMessages()
         }
     }
 
-    // Preserve scroll position when leaving composition (navigating to an article citation,
-    // switching tabs).
+    // Save scroll position when leaving composition (navigating to an article or conversation list)
     DisposableEffect(conversationId) {
         onDispose {
-            if (!hasNavigatedAway && listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
-                viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
+            if (listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+                viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
             }
         }
     }
@@ -327,8 +297,7 @@ fun ChatScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            hasNavigatedAway = true
-                            viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
+                            viewModel.saveScrollPosition(conversationId, listState.captureExactScrollPosition())
                             onBack()
                         }
                     ) {
@@ -354,31 +323,22 @@ fun ChatScreen(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             if (messages.isEmpty() && !isLoadingOlder) {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "ClinRef AI",
-                            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Clinical support model ready",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                ChatEmptyState(
+                    onSuggestionSelected = { query ->
+                        isFollowingBottom = true
+                        viewModel.sendMessage(query)
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                )
             } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
-                        top = padding.calculateTopPadding() + 10.dp,
-                        bottom = padding.calculateBottomPadding() + (if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 180.dp)
+                        top = padding.calculateTopPadding() + 8.dp,
+                        bottom = padding.calculateBottomPadding() + (if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp)
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -413,61 +373,21 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = { topicId, sectionId ->
-                                    hasNavigatedAway = true
-                                    viewModel.saveScrollPosition(
-                                        conversationId,
-                                        listState.captureScrollPosition(
-                                            preferredAnchorId = item.key
-                                        )
-                                    )
-                                    onNavigateToContent(topicId, sectionId)
-                                },
-                                onGraphicSelected = { graphicId ->
-                                    hasNavigatedAway = true
-                                    viewModel.saveScrollPosition(
-                                        conversationId,
-                                        listState.captureScrollPosition(
-                                            preferredAnchorId = item.key
-                                        )
-                                    )
-                                    onGraphicSelected(graphicId)
-                                }
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected
                             )
                             is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
                                 articles = item.articles,
                                 tables = item.tables,
-                                onNavigateToContent = { topicId, sectionId ->
-                                    val isTail = chatItems.lastOrNull()?.key == item.key
-                                    hasNavigatedAway = true
-                                    viewModel.saveScrollPosition(
-                                        conversationId,
-                                        listState.captureScrollPosition(
-                                            preferredAnchorId = item.key,
-                                            forceAtBottom = isTail
-                                        )
-                                    )
-                                    onNavigateToContent(topicId, sectionId)
-                                },
-                                onGraphicSelected = { graphicId ->
-                                    val isTail = chatItems.lastOrNull()?.key == item.key
-                                    hasNavigatedAway = true
-                                    viewModel.saveScrollPosition(
-                                        conversationId,
-                                        listState.captureScrollPosition(
-                                            preferredAnchorId = item.key,
-                                            forceAtBottom = isTail
-                                        )
-                                    )
-                                    onGraphicSelected(graphicId)
-                                },
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected,
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
                     }
 
                     if (isGenerating) {
-                        item(key = ChatListKeys.ORCHESTRATION) {
+                        item(key = activeAssistantId?.let { "orchestration_$it" } ?: ChatListKeys.ORCHESTRATION) {
                             GeminiOrchestrationIndicator(
                                 steps = orchestrationSteps,
                                 currentStatusText = currentStatusText,
@@ -477,15 +397,16 @@ fun ChatScreen(
                     }
 
                     if (streamingText.isNotEmpty()) {
-                        item(key = ChatListKeys.STREAMING) {
+                        item(key = activeAssistantId ?: ChatListKeys.STREAMING) {
                             GeminiMessageItem(
                                 message = MessageUiModel(
-                                    id = "streaming",
+                                    id = activeAssistantId ?: "streaming",
                                     role = "assistant",
                                     content = streamingText,
                                     timestamp = System.currentTimeMillis(),
                                     showTimestamp = false
                                 ),
+                                isStreaming = true,
                                 onCopyMessage = { content ->
                                     coroutineScope.launch {
                                         val clipData = ClipData.newPlainText("chat_message", content)
@@ -493,26 +414,8 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = { topicId, sectionId ->
-                                    hasNavigatedAway = true
-                                    viewModel.saveScrollPosition(
-                                        conversationId,
-                                        listState.captureScrollPosition(
-                                            preferredAnchorId = "streaming"
-                                        )
-                                    )
-                                    onNavigateToContent(topicId, sectionId)
-                                },
-                                onGraphicSelected = { graphicId ->
-                                    hasNavigatedAway = true
-                                    viewModel.saveScrollPosition(
-                                        conversationId,
-                                        listState.captureScrollPosition(
-                                            preferredAnchorId = "streaming"
-                                        )
-                                    )
-                                    onGraphicSelected(graphicId)
-                                }
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected
                             )
                         }
                     }
@@ -534,11 +437,14 @@ fun ChatScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 ScrollToBottomFAB(
-                    visible = showScrollToBottom,
+                    visible = listState.canScrollForward,
                     onClick = {
-                        isFollowingStream = true
+                        isFollowingBottom = true
                         coroutineScope.launch {
-                            listState.scrollToBottom(animated = true)
+                            val count = listState.layoutInfo.totalItemsCount
+                            if (count > 0) {
+                                listState.animateScrollToItem(count - 1)
+                            }
                         }
                     },
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -547,7 +453,7 @@ fun ChatScreen(
                 GeminiChatInput(
                     state = textFieldState,
                     onSendMessage = { text ->
-                        isFollowingStream = true
+                        isFollowingBottom = true
                         viewModel.sendMessage(text)
                         textFieldState.clearText()
                     },
@@ -562,3 +468,107 @@ fun ChatScreen(
         }
     }
 }
+
+/**
+ * Modern, clinical welcome view for empty chat conversations.
+ */
+@Composable
+private fun ChatEmptyState(
+    onSuggestionSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+            modifier = Modifier.size(56.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "ClinRef Clinical Workspace",
+            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Evidence-based decision support powered by UpToDate clinical reference topics and calculators.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        Text(
+            text = "Suggested Clinical Queries",
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        val suggestions = listOf(
+            SuggestionItem("First-line asthma management in adults", Icons.Default.MedicalServices),
+            SuggestionItem("Anticoagulation dosing & duration for acute DVT", Icons.Default.Medication),
+            SuggestionItem("Blood pressure goals in diabetic patients", Icons.Default.CheckCircle),
+            SuggestionItem("Empiric antibiotic therapy for community-acquired pneumonia", Icons.Default.Science)
+        )
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            suggestions.forEach { item ->
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSuggestionSelected(item.query) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = item.query,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class SuggestionItem(val query: String, val icon: ImageVector)

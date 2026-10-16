@@ -19,13 +19,13 @@ import com.clinref.shared.secure.SecurePreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -35,7 +35,7 @@ import java.util.UUID
 sealed interface ChatScrollEvent {
     /**
      * Scroll to the end of the conversation. [awaitMessageId], when set, is the message that was just
-     * appended; the UI must wait until it is the list tail before scrolling.
+     * appended; the UI can wait until it is present before scrolling.
      */
     data class ScrollToBottom(
         val animated: Boolean = true,
@@ -103,18 +103,18 @@ class ChatViewModel(
     private val _messages = MutableStateFlow<List<MessageUiModel>>(emptyList())
     val messages: StateFlow<List<MessageUiModel>> = _messages.asStateFlow()
 
-    private val _scrollEvents = MutableSharedFlow<ChatScrollEvent>(extraBufferCapacity = 1)
+    private val _chatItems = MutableStateFlow<List<ChatListItem>>(emptyList())
+    val chatItems: StateFlow<List<ChatListItem>> = _chatItems.asStateFlow()
+
+    private val _scrollEvents = MutableSharedFlow<ChatScrollEvent>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val scrollEvents: SharedFlow<ChatScrollEvent> = _scrollEvents.asSharedFlow()
 
-    val chatItems: StateFlow<List<ChatListItem>> = _messages.map { list ->
-        buildChatItems(list)
-    }.let { flow ->
-        val state = MutableStateFlow<List<ChatListItem>>(emptyList())
-        viewModelScope.launch {
-            flow.collect { state.value = it }
-        }
-        state.asStateFlow()
-    }
+    private val _activeAssistantMessageId = MutableStateFlow<String?>(null)
+    val activeAssistantMessageId: StateFlow<String?> = _activeAssistantMessageId.asStateFlow()
 
     val agentState: StateFlow<StreamingManager.AgentState> = streamingManager.agentState
     val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
@@ -145,12 +145,21 @@ class ChatViewModel(
         private const val PAGE_SIZE = 50
     }
 
+    /**
+     * Atomically synchronizes messages and derived decomposed chat items.
+     */
+    private fun updateMessages(newMessages: List<MessageUiModel>) {
+        _messages.value = newMessages
+        _chatItems.value = buildChatItems(newMessages)
+    }
+
     fun loadConversation(conversationId: String, forceReload: Boolean = false) {
         if (!forceReload && _currentConversationId.value == conversationId && _messages.value.isNotEmpty()) {
             return
         }
         generationJob?.cancel()
         generationJob = null
+        _activeAssistantMessageId.value = null
         _currentConversationId.value = conversationId
         messageOffset = 0
         streamingManager.reset()
@@ -160,7 +169,8 @@ class ChatViewModel(
             val messages = conversationRepository.getMessagesPage(conversationId, PAGE_SIZE, 0)
             messageOffset = messages.size
             _hasMoreMessages.value = messages.size >= PAGE_SIZE
-            _messages.value = messages.reversed().map { it.toUiModel() }
+            val uiModels = messages.reversed().map { it.toUiModel() }
+            updateMessages(uiModels)
             conversationRepository.markAsRead(conversationId)
         }
     }
@@ -178,7 +188,7 @@ class ChatViewModel(
                     messageOffset += olderMessages.size
                     _hasMoreMessages.value = olderMessages.size >= PAGE_SIZE
                     val olderUiModels = olderMessages.reversed().map { it.toUiModel() }
-                    _messages.value = olderUiModels + _messages.value
+                    updateMessages(olderUiModels + _messages.value)
                 } else {
                     _hasMoreMessages.value = false
                 }
@@ -214,19 +224,21 @@ class ChatViewModel(
 
     fun sendMessage(content: String) {
         val conversationId = _currentConversationId.value ?: return
-        if (content.isBlank()) return
+        val trimmed = content.trim()
+        if (trimmed.isBlank()) return
+
         viewModelScope.launch {
             val userMsg = MessageEntity(
                 id = UUID.randomUUID().toString(),
                 conversationId = conversationId,
                 role = "user",
-                content = content,
+                content = trimmed,
                 timestamp = System.currentTimeMillis()
             )
             conversationRepository.addMessage(userMsg)
-            _messages.value = _messages.value + userMsg.toUiModel()
+            updateMessages(_messages.value + userMsg.toUiModel())
             _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = userMsg.id))
-            conversationRepository.updateLastPreview(conversationId, content.take(100))
+            conversationRepository.updateLastPreview(conversationId, trimmed.take(100))
 
             if (conversationRepository.isOverTokenLimit(conversationId)) {
                 val errorMsg = MessageEntity(
@@ -238,7 +250,8 @@ class ChatViewModel(
                     isError = true
                 )
                 conversationRepository.addMessage(errorMsg)
-                _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
+                updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
+                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
                 return@launch
             }
 
@@ -254,13 +267,19 @@ class ChatViewModel(
                     isError = true
                 )
                 conversationRepository.addMessage(errorMsg)
-                _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
+                updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
+                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
                 return@launch
             }
+
+            // Assign a stable ID for the upcoming assistant message so that streaming and completed states share identity
+            val pendingAssistantId = UUID.randomUUID().toString()
+            _activeAssistantMessageId.value = pendingAssistantId
 
             streamingManager.reset()
             userCancelled = false
             val timeoutMs = reliabilityManager.getAgentTimeoutMs(config.provider)
+
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
                     var lastAccumulator: TurnContextAccumulator? = null
@@ -270,63 +289,64 @@ class ChatViewModel(
                             conversationId = conversationId,
                             patientProfile = patientProfile,
                             streamingManager = streamingManager,
-                            userMessage = content
+                            userMessage = trimmed
                         ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
                         lastAccumulator = accumulator
-                        agent.run(content, conversationId)
+                        agent.run(trimmed, conversationId)
                     }
                     withContext(Dispatchers.Main) {
-                        handleAgentResult(conversationId, result, lastAccumulator)
+                        handleAgentResult(conversationId, pendingAssistantId, result, lastAccumulator)
                     }
                 } catch (e: CancellationException) {
                     if (userCancelled) throw e
                     withContext(Dispatchers.Main) {
-                        streamingManager.onError(e.message ?: "Request timed out.")
-                        val errorState = streamingManager.agentState.value
-                        if (errorState is StreamingManager.AgentState.Error) {
-                            val errorMsg = MessageEntity(
-                                id = UUID.randomUUID().toString(),
-                                conversationId = conversationId,
-                                role = "assistant",
-                                content = mapErrorToUserMessage(errorState.type, errorState.message),
-                                timestamp = System.currentTimeMillis(),
-                                isError = true
-                            )
-                            conversationRepository.addMessage(errorMsg)
-                            _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
-                        }
+                        handleAgentError(conversationId, pendingAssistantId, e.message ?: "Request timed out.", StreamingManager.ErrorType.TIMEOUT)
                     }
                 } catch (e: Exception) {
                     secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel", "Clinical runtime crash: ${e.message}")
                     withContext(Dispatchers.Main) {
-                        streamingManager.onError(e.message ?: "General core execution error.")
-                        val errorState = streamingManager.agentState.value
-                        if (errorState is StreamingManager.AgentState.Error) {
-                            val errorMsg = MessageEntity(
-                                id = UUID.randomUUID().toString(),
-                                conversationId = conversationId,
-                                role = "assistant",
-                                content = mapErrorToUserMessage(errorState.type, errorState.message),
-                                timestamp = System.currentTimeMillis(),
-                                isError = true
-                            )
-                            conversationRepository.addMessage(errorMsg)
-                            _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
-                        }
+                        handleAgentError(conversationId, pendingAssistantId, e.message ?: "General core execution error.", StreamingManager.ErrorType.UNKNOWN)
+                    }
+                } finally {
+                    withContext(Dispatchers.Main) {
+                        _activeAssistantMessageId.value = null
                     }
                 }
             }
         }
     }
 
+    private suspend fun handleAgentError(
+        conversationId: String,
+        messageId: String,
+        errorMessage: String,
+        errorType: StreamingManager.ErrorType
+    ) {
+        streamingManager.onError(errorMessage)
+        val errorMsg = MessageEntity(
+            id = messageId,
+            conversationId = conversationId,
+            role = "assistant",
+            content = mapErrorToUserMessage(errorType, errorMessage),
+            timestamp = System.currentTimeMillis(),
+            isError = true
+        )
+        conversationRepository.addMessage(errorMsg)
+        updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
+        _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
+    }
+
     fun cancelGeneration() {
         userCancelled = true
         generationJob?.cancel()
         generationJob = null
+        val pendingId = _activeAssistantMessageId.value
+        _activeAssistantMessageId.value = null
         val conversationId = _currentConversationId.value ?: return
+
         viewModelScope.launch {
             val cancelMsg = MessageEntity(
-                id = UUID.randomUUID().toString(),
+                id = pendingId ?: UUID.randomUUID().toString(),
                 conversationId = conversationId,
                 role = "cancelled",
                 content = "[Clinical generation session terminated by operator]",
@@ -334,13 +354,15 @@ class ChatViewModel(
                 isError = true
             )
             conversationRepository.addMessage(cancelMsg)
-            _messages.value = _messages.value + cancelMsg.toUiModel()
+            updateMessages(_messages.value + cancelMsg.toUiModel())
             streamingManager.reset()
+            _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = cancelMsg.id))
         }
     }
 
     private suspend fun handleAgentResult(
         conversationId: String,
+        messageId: String,
         result: String,
         accumulator: TurnContextAccumulator?
     ) {
@@ -348,7 +370,7 @@ class ChatViewModel(
             is StreamingManager.AgentState.Completed -> {
                 if (state.validation.passed && !result.startsWith("Clinical Response Verification Blocked:")) {
                     saveSuccessfulMessage(
-                        conversationId, result, state.validation, state.tokenUsage
+                        conversationId, messageId, result, state.validation, state.tokenUsage
                     )
                 } else {
                     val blockedReason = state.validation.blockedReason
@@ -363,7 +385,7 @@ class ChatViewModel(
                         "Clinical Response Verification Blocked: $blockedReason"
                     }
                     val blockedMsg = MessageEntity(
-                        id = UUID.randomUUID().toString(),
+                        id = messageId,
                         conversationId = conversationId,
                         role = "assistant",
                         content = content,
@@ -371,13 +393,13 @@ class ChatViewModel(
                         isError = true
                     )
                     conversationRepository.addMessage(blockedMsg)
-                    _messages.value = _messages.value + blockedMsg.toUiModel(isError = true)
+                    updateMessages(_messages.value + blockedMsg.toUiModel(isError = true))
                     _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = blockedMsg.id))
                 }
             }
             is StreamingManager.AgentState.Error -> {
                 val errorMsg = MessageEntity(
-                    id = UUID.randomUUID().toString(),
+                    id = messageId,
                     conversationId = conversationId,
                     role = "assistant",
                     content = mapErrorToUserMessage(state.type, state.message),
@@ -385,23 +407,35 @@ class ChatViewModel(
                     isError = true
                 )
                 conversationRepository.addMessage(errorMsg)
-                _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
+                updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
                 _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
             }
             else -> {
                 secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: state ${state::class.simpleName}")
+                val fallbackResult = result.ifBlank { "Clinical query response generated." }
+                val fallbackMsg = MessageEntity(
+                    id = messageId,
+                    conversationId = conversationId,
+                    role = "assistant",
+                    content = fallbackResult,
+                    timestamp = System.currentTimeMillis()
+                )
+                conversationRepository.addMessage(fallbackMsg)
+                updateMessages(_messages.value + fallbackMsg.toUiModel())
+                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = fallbackMsg.id))
             }
         }
     }
 
     private suspend fun saveSuccessfulMessage(
         conversationId: String,
+        messageId: String,
         result: String,
         validation: SafetyValidator.ValidationResult,
         usage: StreamingManager.TokenUsage
     ) {
         val assistantMsg = MessageEntity(
-            id = UUID.randomUUID().toString(),
+            id = messageId,
             conversationId = conversationId,
             role = "assistant",
             content = result,
@@ -411,9 +445,7 @@ class ChatViewModel(
             graphicRefsJson = json.encodeToString(validation.graphicRefs)
         )
         conversationRepository.addMessage(assistantMsg)
-        _messages.value = _messages.value + assistantMsg.toUiModel(
-            warnings = validation.warnings
-        )
+        updateMessages(_messages.value + assistantMsg.toUiModel(warnings = validation.warnings))
         _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = assistantMsg.id))
         conversationRepository.updateTokenCounts(
             conversationId,
