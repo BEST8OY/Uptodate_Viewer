@@ -55,10 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
-import androidx.navigation3.runtime.NavMetadataKey
 import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.get
-import androidx.navigation3.runtime.metadata
 import androidx.navigation3.scene.Scene
 import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.ui.NavDisplay
@@ -83,10 +80,8 @@ val TopLevelRoute.icon: ImageVector
         AiRoute -> Icons.AutoMirrored.Filled.Chat
     }
 
-private object RouteMetadataKey : NavMetadataKey<NavKey>
-
 private fun Scene<NavKey>.navKey(): NavKey? =
-    metadata[RouteMetadataKey] ?: (key as? NavKey) ?: entries.lastOrNull()?.contentKey as? NavKey
+    (key as? NavKey) ?: entries.lastOrNull()?.contentKey as? NavKey
 
 @Composable
 fun NavGraph(
@@ -108,7 +103,7 @@ fun NavGraph(
 
     val navigator = remember { Navigator(navigationState) }
 
-    val isOnOverlayScreen by remember {
+    val isOnSubRoute by remember {
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
             val current = currentBackStack?.lastOrNull()
@@ -116,35 +111,29 @@ fun NavGraph(
         }
     }
 
-    var selectedGraphicId by remember { mutableStateOf<String?>(null) }
-
     BackHandler(
-        enabled = !isOnOverlayScreen && navigationState.topLevelRoute != navigationState.startRoute
+        enabled = !isOnSubRoute && navigationState.topLevelRoute != navigationState.startRoute
     ) {
         navigator.navigate(navigationState.startRoute)
     }
 
     val entryProvider: (NavKey) -> NavEntry<NavKey> = entryProvider {
-        entry<TocRoute>(
-            metadata = metadata { put(RouteMetadataKey, TocRoute) }
-        ) {
+        entry<TocRoute> {
             TocScreen(
                 onTopicSelected = { topicId ->
                     navigator.navigate(ContentRoute(topicId))
                 },
                 onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId
+                    navigator.navigate(GraphicRoute(graphicId))
                 },
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<HistoryRoute>(
-            metadata = metadata { put(RouteMetadataKey, HistoryRoute) }
-        ) {
+        entry<HistoryRoute> {
             HistoryScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
-                        selectedGraphicId = topicId.removePrefix("Graphic-")
+                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
@@ -153,13 +142,11 @@ fun NavGraph(
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<FavoritesRoute>(
-            metadata = metadata { put(RouteMetadataKey, FavoritesRoute) }
-        ) {
+        entry<FavoritesRoute> {
             FavoritesScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
-                        selectedGraphicId = topicId.removePrefix("Graphic-")
+                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
@@ -168,22 +155,18 @@ fun NavGraph(
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<ContentRoute>(
-            metadata = { key -> metadata { put(RouteMetadataKey, key) } }
-        ) { key ->
+        entry<ContentRoute> { key ->
             ContentScreen(
                 topicId = key.topicId,
                 sectionId = key.sectionId,
                 onBack = { navigator.goBack() },
                 onHome = { navigator.navigate(TocRoute) },
                 onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId
+                    navigator.navigate(GraphicRoute(graphicId))
                 }
             )
         }
-        entry<AiRoute>(
-            metadata = metadata { put(RouteMetadataKey, AiRoute) }
-        ) {
+        entry<AiRoute> {
             ConversationListScreen(
                 onConversationSelected = { conversationId ->
                     navigator.navigate(ChatRoute(conversationId))
@@ -194,28 +177,30 @@ fun NavGraph(
                 reselectEvents = navigator.reselectEvents
             )
         }
-        entry<AiSettingsRoute>(
-            metadata = metadata { put(RouteMetadataKey, AiSettingsRoute) }
-        ) {
+        entry<AiSettingsRoute> {
             AiSettingsScreen(
                 onBack = { navigator.goBack() }
             )
         }
-        entry<ChatRoute>(
-            metadata = { key -> metadata { put(RouteMetadataKey, key) } }
-        ) { key ->
-            val activeContent = navigationState.backStacks[AiRoute]?.lastOrNull() as? ContentRoute
+        entry<ChatRoute> { key ->
+            val activeContent = navigationState.backStacks[AiRoute]?.findLast { it is ContentRoute } as? ContentRoute
             ChatScreen(
                 conversationId = key.conversationId,
                 onNavigateToContent = { topicId, sectionId ->
                     navigator.navigate(ContentRoute(topicId, sectionId))
                 },
                 onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId
+                    navigator.navigate(GraphicRoute(graphicId))
                 },
                 onBack = { navigator.goBack() },
                 activeReadingTopicId = activeContent?.topicId,
                 activeReadingSectionId = activeContent?.sectionId
+            )
+        }
+        entry<GraphicRoute> { key ->
+            GraphicSheet(
+                graphicId = key.graphicId,
+                onDismiss = { navigator.goBack() }
             )
         }
     }
@@ -383,7 +368,7 @@ fun NavGraph(
 
         Row(modifier = Modifier.fillMaxSize()) {
             ClinRefNavRail(
-                visible = !isOnOverlayScreen && isWideScreen,
+                visible = !isOnSubRoute && isWideScreen,
                 currentRoute = navigationState.topLevelRoute,
                 onNavigate = { navigator.navigate(it) },
                 onReselect = { navigator.onReselect(it) },
@@ -407,7 +392,7 @@ fun NavGraph(
                 )
 
                 ClinRefBottomBar(
-                    visible = !isOnOverlayScreen && !isWideScreen,
+                    visible = !isOnSubRoute && !isWideScreen,
                     currentRoute = navigationState.topLevelRoute,
                     onNavigate = { navigator.navigate(it) },
                     onReselect = { navigator.onReselect(it) },
@@ -417,13 +402,6 @@ fun NavGraph(
                     fastSpatialSpec = fastSpatialSpec
                 )
             }
-        }
-
-        selectedGraphicId?.let { graphicId ->
-            GraphicSheet(
-                graphicId = graphicId,
-                onDismiss = { selectedGraphicId = null }
-            )
         }
     }
 }

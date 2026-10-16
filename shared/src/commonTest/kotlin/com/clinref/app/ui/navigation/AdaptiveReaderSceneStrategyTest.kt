@@ -131,4 +131,27 @@ class AdaptiveReaderSceneStrategyTest {
             assertEquals(listOf(testEntry(AiRoute), chatEntry, content1), supporting.previousEntries)
         }
     }
+
+    @Test
+    fun `returns ModalOverlayScene when last entry is GraphicRoute preserving underlying scene`() {
+        val strategy = AdaptiveReaderSceneStrategy<NavKey>(isExpanded = true)
+        val contentEntry = testEntry(ContentRoute("topic-1"))
+        val graphicEntry = testEntry(GraphicRoute("graphic-999"))
+        val entries = listOf(
+            testEntry(TocRoute),
+            contentEntry,
+            graphicEntry
+        )
+
+        with(strategy) {
+            val scene = scope.calculateScene(entries)
+            assertNotNull(scene)
+            assertTrue("Expected ModalOverlayScene", scene is ModalOverlayScene<*>)
+            val overlay = scene as ModalOverlayScene<NavKey>
+            assertEquals(graphicEntry, overlay.entry)
+            assertEquals(listOf(testEntry(TocRoute), contentEntry), overlay.overlaidEntries)
+            assertEquals(listOf(testEntry(TocRoute), contentEntry), overlay.previousEntries)
+            assertEquals(listOf(graphicEntry), overlay.entries)
+        }
+    }
 }

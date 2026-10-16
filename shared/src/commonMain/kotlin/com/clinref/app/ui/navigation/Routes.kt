@@ -40,6 +40,9 @@ data object ConversationListRoute : NavKey
 @Serializable
 data class ChatRoute(val conversationId: String) : NavKey
 
+@Serializable
+data class GraphicRoute(val graphicId: String) : NavKey
+
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
     HistoryRoute,

@@ -87,7 +87,24 @@ data class InWindowOverlayScene<T : Any>(
 }
 
 /**
- * Adaptive Navigation 3 [SceneStrategy] for clinical evidence reading:
+ * A custom [OverlayScene] that renders modal overlays (like [GraphicRoute]) while
+ * preserving [overlaidEntries] composed underneath.
+ */
+data class ModalOverlayScene<T : Any>(
+    override val key: Any,
+    override val previousEntries: List<NavEntry<T>>,
+    override val overlaidEntries: List<NavEntry<T>>,
+    val entry: NavEntry<T>
+) : OverlayScene<T> {
+    override val entries: List<NavEntry<T>> = listOf(entry)
+    override val content: @Composable (() -> Unit) = {
+        entry.Content()
+    }
+}
+
+/**
+ * Adaptive Navigation 3 [SceneStrategy] for clinical evidence reading and modal overlays:
+ * - Modal overlays (e.g. [GraphicRoute]): Renders [ModalOverlayScene] preserving underlying screen.
  * - On expanded screens (>= 840dp): Renders [SupportingPaneScene] (42% Chat / 58% Reader).
  * - On compact screens (< 840dp): Renders [InWindowOverlayScene] keeping [ChatRoute] alive underneath.
  * - For non-reader routes: Returns null to delegate to [androidx.navigation3.scene.SinglePaneSceneStrategy].
@@ -96,9 +113,20 @@ class AdaptiveReaderSceneStrategy<T : Any>(
     val isExpanded: Boolean
 ) : SceneStrategy<T> {
     override fun SceneStrategyScope<T>.calculateScene(entries: List<NavEntry<T>>): Scene<T>? {
-        if (entries.size < 2) return null
         val lastEntry = entries.lastOrNull() ?: return null
-        if (lastEntry.contentKey !is ContentRoute) return null
+
+        // 1. Modal Overlay (GraphicSheet via GraphicRoute)
+        if (lastEntry.contentKey is GraphicRoute) {
+            return ModalOverlayScene(
+                key = lastEntry.contentKey,
+                previousEntries = entries.dropLast(1),
+                overlaidEntries = entries.dropLast(1),
+                entry = lastEntry
+            )
+        }
+
+        // 2. Clinical Evidence Reader attached to Chat
+        if (entries.size < 2 || lastEntry.contentKey !is ContentRoute) return null
         val chatEntry = entries.findLast { it.contentKey is ChatRoute } ?: return null
 
         return if (isExpanded) {

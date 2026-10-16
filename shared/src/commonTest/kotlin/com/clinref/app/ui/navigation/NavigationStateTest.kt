@@ -167,4 +167,18 @@ class NavigationStateTest {
         navigator.navigate(HistoryRoute)
         assertEquals(listOf<NavKey>(HistoryRoute, ContentRoute("topic-hist")), navigator.state.backStacks[HistoryRoute]?.toList())
     }
+
+    @Test
+    fun `navigating to GraphicRoute pushes onto active stack and goBack dismisses it`() {
+        val navigator = createNavigator()
+        val contentRoute = ContentRoute("topic-1")
+        val graphicRoute = GraphicRoute("graphic-1")
+
+        navigator.navigate(contentRoute)
+        navigator.navigate(graphicRoute)
+        assertEquals(listOf<NavKey>(TocRoute, contentRoute, graphicRoute), navigator.state.backStacks[TocRoute]?.toList())
+
+        navigator.goBack()
+        assertEquals(listOf<NavKey>(TocRoute, contentRoute), navigator.state.backStacks[TocRoute]?.toList())
+    }
 }
