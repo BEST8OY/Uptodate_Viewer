@@ -38,7 +38,6 @@ class ChatViewModelTest {
     private val reliabilityManager: ReliabilityManager = mockk(relaxed = true)
     private val securePreferences = FakeSecurePreferences()
     private val secureLogger: SecureLogger = mockk(relaxed = true)
-    private val chatScrollStateCache = ChatScrollStateCache()
 
     private lateinit var viewModel: ChatViewModel
 
@@ -52,8 +51,7 @@ class ChatViewModelTest {
             streamingManager = streamingManager,
             reliabilityManager = reliabilityManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
-            chatScrollStateCache = chatScrollStateCache
+            secureLogger = secureLogger
         )
     }
 
@@ -63,43 +61,17 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun testChatScrollStateCacheSaveAndRetrieve() {
-        val position = ChatScrollPosition(
-            firstVisibleItemIndex = 12,
-            firstVisibleItemScrollOffset = 45,
-            anchorMessageId = "msg-123",
-            isAtBottom = false
-        )
-        chatScrollStateCache.save("conv-1", position)
+    fun testReadingPositionPreservation() {
+        assertNull(viewModel.savedReadingPosition)
+        viewModel.updateReadingPosition(12, 45)
 
-        val retrieved = chatScrollStateCache.get("conv-1")
-        assertNotNull(retrieved)
-        assertEquals(12, retrieved?.firstVisibleItemIndex)
-        assertEquals(45, retrieved?.firstVisibleItemScrollOffset)
-        assertEquals("msg-123", retrieved?.anchorMessageId)
-        assertFalse(retrieved?.isAtBottom ?: true)
+        val position = viewModel.savedReadingPosition
+        assertNotNull(position)
+        assertEquals(12, position?.index)
+        assertEquals(45, position?.offset)
 
-        chatScrollStateCache.clear("conv-1")
-        assertNull(chatScrollStateCache.get("conv-1"))
-    }
-
-    @Test
-    fun testViewModelSaveAndRetrieveScrollPosition() {
-        val position = ChatScrollPosition(
-            firstVisibleItemIndex = 5,
-            firstVisibleItemScrollOffset = 120,
-            anchorMessageId = "msg-456",
-            isAtBottom = false
-        )
-        viewModel.saveScrollPosition("conv-99", position)
-        val retrieved = viewModel.getSavedScrollPosition("conv-99")
-        assertNotNull(retrieved)
-        assertEquals(5, retrieved?.firstVisibleItemIndex)
-        assertEquals(120, retrieved?.firstVisibleItemScrollOffset)
-        assertEquals("msg-456", retrieved?.anchorMessageId)
-
-        viewModel.clearSavedScrollPosition("conv-99")
-        assertNull(viewModel.getSavedScrollPosition("conv-99"))
+        viewModel.clearSavedReadingPosition()
+        assertNull(viewModel.savedReadingPosition)
     }
 
     @Test
@@ -178,58 +150,12 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun testScrollPositionPreservationViaViewModel() {
-        val position = ChatScrollPosition(
-            firstVisibleItemIndex = 5,
-            firstVisibleItemScrollOffset = 100,
-            anchorMessageId = "msg-anchor",
-            isAtBottom = false
-        )
+    fun testFreshConversationLoadResetsReadingPosition() = runTest(testDispatcher) {
+        viewModel.updateReadingPosition(5, 100)
+        assertNotNull(viewModel.savedReadingPosition)
 
         viewModel.loadConversation("conv-1")
-        viewModel.saveScrollPosition(position)
-
-        val saved = viewModel.getSavedScrollPosition("conv-1")
-        assertNotNull(saved)
-        assertEquals(5, saved?.firstVisibleItemIndex)
-        assertEquals(100, saved?.firstVisibleItemScrollOffset)
-        assertEquals("msg-anchor", saved?.anchorMessageId)
-        assertFalse(saved?.isAtBottom ?: true)
-
-        viewModel.clearSavedScrollPosition("conv-1")
-        assertNull(viewModel.getSavedScrollPosition("conv-1"))
-    }
-
-    @Test
-    fun testTeardownEmptyPositionDoesNotOverwriteValidSavedPosition() {
-        val validPosition = ChatScrollPosition(
-            firstVisibleItemIndex = 3,
-            firstVisibleItemScrollOffset = 500,
-            anchorMessageId = "msg-valid",
-            isAtBottom = true
-        )
-
-        viewModel.saveScrollPosition("conv-10", validPosition)
-        assertEquals(validPosition, viewModel.getSavedScrollPosition("conv-10"))
-
-        // Spurious teardown capture (all 0s, null anchor, isAtBottom = false or true)
-        val teardownPositionFalse = ChatScrollPosition(
-            firstVisibleItemIndex = 0,
-            firstVisibleItemScrollOffset = 0,
-            anchorMessageId = null,
-            isAtBottom = false
-        )
-        viewModel.saveScrollPosition("conv-10", teardownPositionFalse)
-        assertEquals(validPosition, viewModel.getSavedScrollPosition("conv-10"))
-
-        val teardownPositionTrue = ChatScrollPosition(
-            firstVisibleItemIndex = 0,
-            firstVisibleItemScrollOffset = 0,
-            anchorMessageId = null,
-            isAtBottom = true
-        )
-        viewModel.saveScrollPosition("conv-10", teardownPositionTrue)
-        assertEquals(validPosition, viewModel.getSavedScrollPosition("conv-10"))
+        assertNull(viewModel.savedReadingPosition)
     }
 
     @Test

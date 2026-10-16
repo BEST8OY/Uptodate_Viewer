@@ -94,8 +94,7 @@ class ChatViewModel(
     private val streamingManager: StreamingManager,
     private val reliabilityManager: ReliabilityManager,
     private val securePreferences: SecurePreferences,
-    private val secureLogger: SecureLogger,
-    private val chatScrollStateCache: ChatScrollStateCache = ChatScrollStateCache()
+    private val secureLogger: SecureLogger
 ) : ViewModel() {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -153,10 +152,27 @@ class ChatViewModel(
         _chatItems.value = buildChatItems(newMessages)
     }
 
+    data class ReadingPosition(
+        val index: Int = 0,
+        val offset: Int = 0
+    )
+
+    var savedReadingPosition: ReadingPosition? = null
+        private set
+
+    fun updateReadingPosition(index: Int, offset: Int) {
+        savedReadingPosition = ReadingPosition(index, offset)
+    }
+
+    fun clearSavedReadingPosition() {
+        savedReadingPosition = null
+    }
+
     fun loadConversation(conversationId: String, forceReload: Boolean = false) {
         if (!forceReload && _currentConversationId.value == conversationId && _messages.value.isNotEmpty()) {
             return
         }
+        savedReadingPosition = null
         generationJob?.cancel()
         generationJob = null
         _activeAssistantMessageId.value = null
@@ -196,30 +212,6 @@ class ChatViewModel(
                 _isLoadingOlder.value = false
             }
         }
-    }
-
-    fun saveScrollPosition(position: ChatScrollPosition) {
-        val convId = _currentConversationId.value ?: return
-        saveScrollPosition(convId, position)
-    }
-
-    fun saveScrollPosition(conversationId: String, position: ChatScrollPosition) {
-        // Prevent spurious unmeasured or teardown captures from overwriting a valid cached position
-        if (position.anchorMessageId == null && position.firstVisibleItemIndex == 0 && position.firstVisibleItemScrollOffset == 0) {
-            val existing = chatScrollStateCache.get(conversationId)
-            if (existing != null) return
-        }
-        chatScrollStateCache.save(conversationId, position)
-    }
-
-    fun getSavedScrollPosition(conversationId: String? = null): ChatScrollPosition? {
-        val id = conversationId ?: _currentConversationId.value ?: return null
-        return chatScrollStateCache.get(id)
-    }
-
-    fun clearSavedScrollPosition(conversationId: String? = null) {
-        val id = conversationId ?: _currentConversationId.value ?: return
-        chatScrollStateCache.clear(id)
     }
 
     fun sendMessage(content: String) {

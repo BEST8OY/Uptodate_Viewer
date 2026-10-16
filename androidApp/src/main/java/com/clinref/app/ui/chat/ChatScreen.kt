@@ -76,6 +76,7 @@ import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
 import com.clinref.app.ui.common.ScrollToBottomFAB
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -131,6 +132,31 @@ fun ChatScreen(
 
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
+    }
+
+    // Continuously sync reading position to ChatViewModel while user actively scrolls
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            if (listState.isScrollInProgress) {
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            } else null
+        }.filterNotNull().collect { (index, offset) ->
+            viewModel.updateReadingPosition(index, offset)
+        }
+    }
+
+    // Restore reading position when returning from an article citation
+    var hasRestoredForCurrentEntry by remember { mutableStateOf(false) }
+    LaunchedEffect(chatItems.isNotEmpty()) {
+        if (chatItems.isNotEmpty() && !hasRestoredForCurrentEntry) {
+            val saved = viewModel.savedReadingPosition
+            if (saved != null && (saved.index > 0 || saved.offset > 0)) {
+                val maxIndex = (chatItems.size - 1).coerceAtLeast(0)
+                val targetIndex = saved.index.coerceIn(0, maxIndex)
+                listState.scrollToItem(targetIndex, saved.offset)
+            }
+            hasRestoredForCurrentEntry = true
+        }
     }
 
     // Pause auto-follow if the user manually drags up
