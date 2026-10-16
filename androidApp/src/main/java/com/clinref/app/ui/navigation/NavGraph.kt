@@ -40,17 +40,25 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.NavMetadataKey
@@ -105,11 +113,19 @@ fun NavGraph(
 
     val navigator = remember { Navigator(navigationState) }
 
+    var overlayReaderTopicId by rememberSaveable { mutableStateOf<String?>(null) }
+    var overlayReaderSectionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var isOverlayReaderVisible by rememberSaveable { mutableStateOf(false) }
+
+    val closeOverlayReader: () -> Unit = {
+        isOverlayReaderVisible = false
+    }
+
     val isOnOverlayScreen by remember {
         derivedStateOf {
             val currentBackStack = navigationState.backStacks[navigationState.topLevelRoute]
             val current = currentBackStack?.lastOrNull()
-            current !is TopLevelRoute
+            current !is TopLevelRoute || isOverlayReaderVisible
         }
     }
 
@@ -204,18 +220,23 @@ fun NavGraph(
             ChatScreen(
                 conversationId = key.conversationId,
                 onNavigateToContent = { topicId, sectionId ->
-                    navigator.navigate(ContentRoute(topicId, sectionId))
+                    overlayReaderTopicId = topicId
+                    overlayReaderSectionId = sectionId
+                    isOverlayReaderVisible = true
                 },
                 onGraphicSelected = { graphicId ->
                     selectedGraphicId = graphicId
                 },
-                onBack = { navigator.goBack() }
+                onBack = { navigator.goBack() },
+                activeReadingTopicId = if (isOverlayReaderVisible) overlayReaderTopicId else null,
+                activeReadingSectionId = if (isOverlayReaderVisible) overlayReaderSectionId else null
             )
         }
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val isWideScreen = maxWidth >= 600.dp
+        val isExpandedScreen = maxWidth >= 840.dp
         val motionScheme = MaterialTheme.motionScheme
         val spatialSpec = motionScheme.defaultSpatialSpec<IntOffset>()
         val floatSpatialSpec = motionScheme.defaultSpatialSpec<Float>()
@@ -371,27 +392,89 @@ fun NavGraph(
                 fastSpatialSpec = fastSpatialSpec
             )
 
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                NavDisplay(
-                    entries = navigationState.toDecoratedEntries(entryProvider),
-                    onBack = {
-                        navigator.goBack()
-                    },
-                    transitionSpec = forwardTransition,
-                    popTransitionSpec = popTransition,
-                    predictivePopTransitionSpec = predictivePopTransition,
-                    modifier = Modifier.fillMaxSize()
-                )
+            Row(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Box(
+                    modifier = Modifier
+                        .weight(if (isExpandedScreen && isOverlayReaderVisible) 0.42f else 1f)
+                        .fillMaxHeight()
+                ) {
+                    NavDisplay(
+                        entries = navigationState.toDecoratedEntries(entryProvider),
+                        onBack = {
+                            navigator.goBack()
+                        },
+                        transitionSpec = forwardTransition,
+                        popTransitionSpec = popTransition,
+                        predictivePopTransitionSpec = predictivePopTransition,
+                        modifier = Modifier.fillMaxSize()
+                    )
 
-                ClinRefBottomBar(
-                    visible = !isOnOverlayScreen && !isWideScreen,
-                    currentRoute = navigationState.topLevelRoute,
-                    onNavigate = { navigator.navigate(it) },
-                    onReselect = { navigator.onReselect(it) },
-                    effectsSpec = effectsSpec,
-                    fastEffectsSpec = fastEffectsSpec,
-                    spatialSpec = spatialSpec,
-                    fastSpatialSpec = fastSpatialSpec
+                    ClinRefBottomBar(
+                        visible = !isOnOverlayScreen && !isWideScreen,
+                        currentRoute = navigationState.topLevelRoute,
+                        onNavigate = { navigator.navigate(it) },
+                        onReselect = { navigator.onReselect(it) },
+                        effectsSpec = effectsSpec,
+                        fastEffectsSpec = fastEffectsSpec,
+                        spatialSpec = spatialSpec,
+                        fastSpatialSpec = fastSpatialSpec
+                    )
+                }
+
+                if (isExpandedScreen) {
+                    AnimatedVisibility(
+                        visible = isOverlayReaderVisible,
+                        enter = slideInHorizontally(spatialSpec) { it } + fadeIn(effectsSpec),
+                        exit = slideOutHorizontally(fastSpatialSpec) { it } + fadeOut(fastEffectsSpec),
+                        modifier = Modifier
+                            .weight(0.58f)
+                            .fillMaxHeight()
+                    ) {
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            VerticalDivider(
+                                modifier = Modifier.fillMaxHeight(),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                OverlayReaderContent(
+                                    topicId = overlayReaderTopicId,
+                                    sectionId = overlayReaderSectionId,
+                                    isOverlayReaderVisible = isOverlayReaderVisible,
+                                    onBack = closeOverlayReader,
+                                    onHome = {
+                                        closeOverlayReader()
+                                        navigator.navigate(TocRoute)
+                                    },
+                                    onGraphicSelected = { graphicId ->
+                                        selectedGraphicId = graphicId
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!isExpandedScreen) {
+            AnimatedVisibility(
+                visible = isOverlayReaderVisible,
+                enter = slideInHorizontally(spatialSpec) { it } + fadeIn(effectsSpec),
+                exit = slideOutHorizontally(fastSpatialSpec) { it } + fadeOut(fastEffectsSpec),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                OverlayReaderContent(
+                    topicId = overlayReaderTopicId,
+                    sectionId = overlayReaderSectionId,
+                    isOverlayReaderVisible = isOverlayReaderVisible,
+                    onBack = closeOverlayReader,
+                    onHome = {
+                        closeOverlayReader()
+                        navigator.navigate(TocRoute)
+                    },
+                    onGraphicSelected = { graphicId ->
+                        selectedGraphicId = graphicId
+                    }
                 )
             }
         }
@@ -401,6 +484,49 @@ fun NavGraph(
                 graphicId = graphicId,
                 onDismiss = { selectedGraphicId = null }
             )
+        }
+    }
+}
+
+@Composable
+private fun OverlayReaderContent(
+    topicId: String?,
+    sectionId: String?,
+    isOverlayReaderVisible: Boolean,
+    onBack: () -> Unit,
+    onHome: () -> Unit,
+    onGraphicSelected: (String) -> Unit
+) {
+    if (topicId != null) {
+        BackHandler(enabled = isOverlayReaderVisible) {
+            onBack()
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            key(topicId) {
+                val overlayViewModelStoreOwner = remember(topicId) {
+                    object : ViewModelStoreOwner {
+                        override val viewModelStore = ViewModelStore()
+                    }
+                }
+                DisposableEffect(overlayViewModelStoreOwner) {
+                    onDispose {
+                        overlayViewModelStoreOwner.viewModelStore.clear()
+                    }
+                }
+                CompositionLocalProvider(LocalViewModelStoreOwner provides overlayViewModelStoreOwner) {
+                    ContentScreen(
+                        topicId = topicId,
+                        sectionId = sectionId,
+                        onBack = onBack,
+                        onHome = onHome,
+                        onGraphicSelected = onGraphicSelected
+                    )
+                }
+            }
         }
     }
 }

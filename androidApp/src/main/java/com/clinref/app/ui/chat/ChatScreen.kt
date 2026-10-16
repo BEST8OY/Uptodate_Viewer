@@ -31,9 +31,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -95,11 +98,14 @@ fun ChatScreen(
     onNavigateToContent: (String, String?) -> Unit,
     onGraphicSelected: (String) -> Unit,
     onBack: () -> Unit,
+    activeReadingTopicId: String? = null,
+    activeReadingSectionId: String? = null,
     viewModel: ChatViewModel = org.koin.compose.viewmodel.koinViewModel()
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
     val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
+    val activeReadingContext by viewModel.activeReadingContext.collectAsStateWithLifecycle()
     val agentState by viewModel.agentState.collectAsStateWithLifecycle()
     val orchestrationSteps by viewModel.orchestrationSteps.collectAsStateWithLifecycle()
     val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
@@ -113,12 +119,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
-    val initialIndex = remember { viewModel.savedReadingPosition?.index ?: 0 }
-    val initialOffset = remember { viewModel.savedReadingPosition?.offset ?: 0 }
-    val listState = rememberLazyListState(
-        initialFirstVisibleItemIndex = initialIndex,
-        initialFirstVisibleItemScrollOffset = initialOffset
-    )
+    val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
@@ -139,73 +140,8 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
-        val visible = listState.layoutInfo.visibleItemsInfo
-        val firstKey = visible.firstOrNull()?.key as? String
-        viewModel.updateReadingPosition(
-            listState.firstVisibleItemIndex,
-            listState.firstVisibleItemScrollOffset,
-            firstKey
-        )
-        onNavigateToContent(topicId, sectionId)
-    }
-
-    val handleGraphicSelected: (String) -> Unit = { graphicId ->
-        val visible = listState.layoutInfo.visibleItemsInfo
-        val firstKey = visible.firstOrNull()?.key as? String
-        viewModel.updateReadingPosition(
-            listState.firstVisibleItemIndex,
-            listState.firstVisibleItemScrollOffset,
-            firstKey
-        )
-        onGraphicSelected(graphicId)
-    }
-
-    // --- Scroll Position Preservation ---
-    var hasRestoredScroll by remember(conversationId) { mutableStateOf(false) }
-
-    // Restore reading position when returning from an article citation
-    LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
-        if (chatItems.isEmpty() || hasRestoredScroll) return@LaunchedEffect
-        val saved = viewModel.savedReadingPosition
-        if (saved != null && (saved.index > 0 || saved.offset > 0 || saved.anchorMessageId != null)) {
-            val items = chatItems
-            val targetIndex = saved.anchorMessageId?.let { key ->
-                val idx = items.indexOfFirst { it.key == key }
-                if (idx >= 0) idx else null
-            } ?: saved.index.coerceIn(0, (items.size - 1).coerceAtLeast(0))
-
-            listState.scrollToItem(targetIndex, saved.offset)
-            isFollowingBottom = false
-        }
-        hasRestoredScroll = true
-    }
-
-    // Continuously sync resting position while user is actively reading
-    LaunchedEffect(listState) {
-        snapshotFlow {
-            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-        }.collect { (index, offset) ->
-            if (hasRestoredScroll) {
-                val firstKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String
-                viewModel.updateReadingPosition(index, offset, firstKey)
-            }
-        }
-    }
-
-    // Snapshot position on teardown/dispose (back gestures or route changes)
-    DisposableEffect(viewModel, listState) {
-        onDispose {
-            val visible = listState.layoutInfo.visibleItemsInfo
-            if (visible.isNotEmpty()) {
-                val firstKey = visible.firstOrNull()?.key as? String
-                viewModel.updateReadingPosition(
-                    listState.firstVisibleItemIndex,
-                    listState.firstVisibleItemScrollOffset,
-                    firstKey
-                )
-            }
-        }
+    LaunchedEffect(activeReadingTopicId, activeReadingSectionId) {
+        viewModel.setActiveReadingContext(activeReadingTopicId, activeReadingSectionId)
     }
 
     // Pause auto-follow if the user manually drags up
@@ -292,18 +228,7 @@ fun ChatScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            val visible = listState.layoutInfo.visibleItemsInfo
-                            val firstKey = visible.firstOrNull()?.key as? String
-                            viewModel.updateReadingPosition(
-                                listState.firstVisibleItemIndex,
-                                listState.firstVisibleItemScrollOffset,
-                                firstKey
-                            )
-                            onBack()
-                        }
-                    ) {
+                    IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -376,14 +301,14 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected
                             )
                             is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
                                 articles = item.articles,
                                 tables = item.tables,
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected,
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected,
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
@@ -417,8 +342,8 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected
+                                onNavigateToContent = onNavigateToContent,
+                                onGraphicSelected = onGraphicSelected
                             )
                         }
                     }
@@ -452,6 +377,48 @@ fun ChatScreen(
                     },
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
+
+                activeReadingContext?.let { ctx ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)),
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MenuBook,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Viewing: ${ctx.topicId}${ctx.sectionId?.let { " › $it" } ?: ""}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            IconButton(
+                                onClick = { viewModel.setActiveReadingContext(null) },
+                                modifier = Modifier.size(16.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear reference context",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
 
                 GeminiChatInput(
                     state = textFieldState,
