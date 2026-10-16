@@ -372,6 +372,7 @@ class ChatViewModel(
                     )
                     conversationRepository.addMessage(blockedMsg)
                     _messages.value = _messages.value + blockedMsg.toUiModel(isError = true)
+                    _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = blockedMsg.id))
                 }
             }
             is StreamingManager.AgentState.Error -> {
@@ -385,6 +386,7 @@ class ChatViewModel(
                 )
                 conversationRepository.addMessage(errorMsg)
                 _messages.value = _messages.value + errorMsg.toUiModel(isError = true)
+                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
             }
             else -> {
                 secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: state ${state::class.simpleName}")
@@ -412,6 +414,7 @@ class ChatViewModel(
         _messages.value = _messages.value + assistantMsg.toUiModel(
             warnings = validation.warnings
         )
+        _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = assistantMsg.id))
         conversationRepository.updateTokenCounts(
             conversationId,
             promptDelta = usage.promptTokens,

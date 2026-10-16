@@ -79,14 +79,16 @@ private object ChatListKeys {
 }
 
 /** True when the user is scrolled to (or within [thresholdPx] of) the bottom of the list. */
-private fun LazyListState.isNearBottom(thresholdPx: Int = 120): Boolean {
+private fun LazyListState.isNearBottom(thresholdPx: Int = 600): Boolean {
     if (!canScrollForward) return true
     val info = layoutInfo
     val visible = info.visibleItemsInfo
     val totalCount = info.totalItemsCount
     if (totalCount <= 0 || visible.isEmpty()) return false
     val lastVisible = visible.last()
-    // If neither the bottom anchor nor the last message item is visible, we are not near bottom
+    // If the bottom anchor itself is in the visible items, the list is at the bottom
+    if (lastVisible.key == ChatListKeys.BOTTOM_ANCHOR) return true
+    // If neither the bottom anchor nor the last content item is visible, we are not near bottom
     if (lastVisible.index < totalCount - 2) return false
     val viewportEnd = info.viewportEndOffset - info.afterContentPadding
     val itemBottom = lastVisible.offset + lastVisible.size
@@ -121,13 +123,18 @@ private suspend fun LazyListState.awaitItemCount(minItems: Int) {
     }
 }
 
-/** Anchors on the first visible message by key, which is stable across prepends. */
-private fun LazyListState.captureScrollPosition(): ChatScrollPosition {
+/** Anchors on the visible message or references section by key. */
+private fun LazyListState.captureScrollPosition(
+    preferredAnchorId: String? = null,
+    forceAtBottom: Boolean = false
+): ChatScrollPosition {
     val visible = layoutInfo.visibleItemsInfo
-    val atBottom = visible.isNotEmpty() && (!canScrollForward || isNearBottom())
-    val anchor = visible
-        .mapNotNull { it.key as? String }
-        .firstOrNull { it !in ChatListKeys.NON_MESSAGE }
+    val atBottom = forceAtBottom || (visible.isNotEmpty() && (!canScrollForward || isNearBottom()))
+    val anchor = preferredAnchorId ?: if (atBottom) {
+        visible.mapNotNull { it.key as? String }.lastOrNull { it !in ChatListKeys.NON_MESSAGE }
+    } else {
+        visible.mapNotNull { it.key as? String }.firstOrNull { it !in ChatListKeys.NON_MESSAGE }
+    }
 
     return ChatScrollPosition(
         firstVisibleItemIndex = firstVisibleItemIndex,
@@ -173,6 +180,9 @@ fun ChatScreen(
         derivedStateOf { !listState.canScrollForward || listState.isNearBottom() }
     }
 
+    var isFollowingStream by remember { mutableStateOf(true) }
+    var hasNavigatedAway by remember { mutableStateOf(false) }
+
     val isGenerating = agentState is StreamingManager.AgentState.ToolCallInProgress ||
         agentState is StreamingManager.AgentState.WaitingForLlm
 
@@ -199,10 +209,11 @@ fun ChatScreen(
         )
 
         // Wait until LazyColumn has laid out items
-        listState.awaitItemCount(items.size)
+        listState.awaitItemCount(items.size + 1)
 
         if (saved.isAtBottom) {
             listState.scrollToBottom(animated = false)
+            isFollowingStream = true
         } else {
             val anchorId = saved.anchorMessageId
             val totalCount = listState.layoutInfo.totalItemsCount
@@ -220,16 +231,27 @@ fun ChatScreen(
                 ?.let { if (isLoadingOlder) it + 1 else it }
 
             val targetIndex = (anchorIndex ?: saved.firstVisibleItemIndex).coerceIn(0, maxIndex)
-            listState.scrollToItem(targetIndex, saved.firstVisibleItemScrollOffset)
+            val targetOffset = if (anchorId?.startsWith("refs_") == true) 0 else saved.firstVisibleItemScrollOffset
+
+            listState.scrollToItem(targetIndex, targetOffset)
+
+            if (targetOffset > 0) {
+                withTimeoutOrNull(500) {
+                    snapshotFlow {
+                        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }?.size ?: 0
+                    }.first { it >= targetOffset }
+                    listState.scrollToItem(targetIndex, targetOffset)
+                }
+            }
         }
     }
 
-    // Scroll to bottom when the user sends a message.
+    // Scroll to bottom when the user sends a message or when generation completes.
     LaunchedEffect(Unit) {
         viewModel.scrollEvents.collect { event ->
             when (event) {
                 is ChatScrollEvent.ScrollToBottom -> {
-                    // The event is emitted before chatItems and the list layout catch up.
+                    isFollowingStream = true
                     event.awaitMessageId?.let { id ->
                         withTimeoutOrNull(LIST_LAYOUT_TIMEOUT_MS) {
                             snapshotFlow {
@@ -239,21 +261,26 @@ fun ChatScreen(
                                     null -> false
                                 }
                             }.first { it }
+                            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > chatItems.size }
                         }
                     }
-                    listState.awaitItemCount(chatItems.size)
-                    listState.scrollToBottom(animated = event.animated)
+                    listState.scrollToBottom(animated = false)
                 }
             }
         }
     }
 
-    // Stream auto-scroll: follow stream ONLY if user is already at the bottom
-    LaunchedEffect(streamingText, orchestrationSteps.size) {
-        if (streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty()) {
-            if (isAtBottom) {
-                listState.scrollToBottom(animated = false)
-            }
+    // Stream auto-scroll: keep list pinned to bottom while user is following the stream
+    LaunchedEffect(streamingText, orchestrationSteps.size, isGenerating) {
+        if (isFollowingStream && (isGenerating || streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty())) {
+            listState.scrollToBottom(animated = false)
+        }
+    }
+
+    // Pause auto-follow when user manually drags/scrolls up away from the bottom
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress && listState.canScrollForward) {
+            isFollowingStream = false
         }
     }
 
@@ -268,7 +295,7 @@ fun ChatScreen(
     // switching tabs).
     DisposableEffect(conversationId) {
         onDispose {
-            if (listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+            if (!hasNavigatedAway && listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
                 viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
             }
         }
@@ -300,6 +327,7 @@ fun ChatScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = {
+                            hasNavigatedAway = true
                             viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
                             onBack()
                         }
@@ -371,16 +399,6 @@ fun ChatScreen(
                         }
                     }
 
-                    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
-                        viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
-                        onNavigateToContent(topicId, sectionId)
-                    }
-
-                    val handleGraphicSelected: (String) -> Unit = { graphicId ->
-                        viewModel.saveScrollPosition(conversationId, listState.captureScrollPosition())
-                        onGraphicSelected(graphicId)
-                    }
-
                     items(
                         items = chatItems,
                         key = { it.key }
@@ -395,14 +413,54 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected
+                                onNavigateToContent = { topicId, sectionId ->
+                                    hasNavigatedAway = true
+                                    viewModel.saveScrollPosition(
+                                        conversationId,
+                                        listState.captureScrollPosition(
+                                            preferredAnchorId = item.key
+                                        )
+                                    )
+                                    onNavigateToContent(topicId, sectionId)
+                                },
+                                onGraphicSelected = { graphicId ->
+                                    hasNavigatedAway = true
+                                    viewModel.saveScrollPosition(
+                                        conversationId,
+                                        listState.captureScrollPosition(
+                                            preferredAnchorId = item.key
+                                        )
+                                    )
+                                    onGraphicSelected(graphicId)
+                                }
                             )
                             is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
                                 articles = item.articles,
                                 tables = item.tables,
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected,
+                                onNavigateToContent = { topicId, sectionId ->
+                                    val isTail = chatItems.lastOrNull()?.key == item.key
+                                    hasNavigatedAway = true
+                                    viewModel.saveScrollPosition(
+                                        conversationId,
+                                        listState.captureScrollPosition(
+                                            preferredAnchorId = item.key,
+                                            forceAtBottom = isTail
+                                        )
+                                    )
+                                    onNavigateToContent(topicId, sectionId)
+                                },
+                                onGraphicSelected = { graphicId ->
+                                    val isTail = chatItems.lastOrNull()?.key == item.key
+                                    hasNavigatedAway = true
+                                    viewModel.saveScrollPosition(
+                                        conversationId,
+                                        listState.captureScrollPosition(
+                                            preferredAnchorId = item.key,
+                                            forceAtBottom = isTail
+                                        )
+                                    )
+                                    onGraphicSelected(graphicId)
+                                },
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
@@ -435,8 +493,26 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = handleNavigateToContent,
-                                onGraphicSelected = handleGraphicSelected
+                                onNavigateToContent = { topicId, sectionId ->
+                                    hasNavigatedAway = true
+                                    viewModel.saveScrollPosition(
+                                        conversationId,
+                                        listState.captureScrollPosition(
+                                            preferredAnchorId = "streaming"
+                                        )
+                                    )
+                                    onNavigateToContent(topicId, sectionId)
+                                },
+                                onGraphicSelected = { graphicId ->
+                                    hasNavigatedAway = true
+                                    viewModel.saveScrollPosition(
+                                        conversationId,
+                                        listState.captureScrollPosition(
+                                            preferredAnchorId = "streaming"
+                                        )
+                                    )
+                                    onGraphicSelected(graphicId)
+                                }
                             )
                         }
                     }
@@ -460,6 +536,7 @@ fun ChatScreen(
                 ScrollToBottomFAB(
                     visible = showScrollToBottom,
                     onClick = {
+                        isFollowingStream = true
                         coroutineScope.launch {
                             listState.scrollToBottom(animated = true)
                         }
@@ -470,6 +547,7 @@ fun ChatScreen(
                 GeminiChatInput(
                     state = textFieldState,
                     onSendMessage = { text ->
+                        isFollowingStream = true
                         viewModel.sendMessage(text)
                         textFieldState.clearText()
                     },
