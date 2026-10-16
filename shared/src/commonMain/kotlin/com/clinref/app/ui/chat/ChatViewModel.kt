@@ -154,14 +154,19 @@ class ChatViewModel(
 
     data class ReadingPosition(
         val index: Int = 0,
-        val offset: Int = 0
+        val offset: Int = 0,
+        val anchorMessageId: String? = null
     )
 
     var savedReadingPosition: ReadingPosition? = null
         private set
 
-    fun updateReadingPosition(index: Int, offset: Int) {
-        savedReadingPosition = ReadingPosition(index, offset)
+    fun updateReadingPosition(index: Int, offset: Int, anchorMessageId: String? = null) {
+        // Prevent spurious unmeasured or teardown captures from overwriting a valid reading position
+        if (index == 0 && offset == 0 && anchorMessageId == null && savedReadingPosition != null) {
+            return
+        }
+        savedReadingPosition = ReadingPosition(index, offset, anchorMessageId)
     }
 
     fun clearSavedReadingPosition() {

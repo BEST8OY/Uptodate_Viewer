@@ -63,12 +63,18 @@ class ChatViewModelTest {
     @Test
     fun testReadingPositionPreservation() {
         assertNull(viewModel.savedReadingPosition)
-        viewModel.updateReadingPosition(12, 45)
+        viewModel.updateReadingPosition(12, 45, "msg-123")
 
         val position = viewModel.savedReadingPosition
         assertNotNull(position)
         assertEquals(12, position?.index)
         assertEquals(45, position?.offset)
+        assertEquals("msg-123", position?.anchorMessageId)
+
+        // Spurious teardown capture (0, 0, null) must NOT overwrite valid reading position
+        viewModel.updateReadingPosition(0, 0, null)
+        assertEquals(12, viewModel.savedReadingPosition?.index)
+        assertEquals("msg-123", viewModel.savedReadingPosition?.anchorMessageId)
 
         viewModel.clearSavedReadingPosition()
         assertNull(viewModel.savedReadingPosition)

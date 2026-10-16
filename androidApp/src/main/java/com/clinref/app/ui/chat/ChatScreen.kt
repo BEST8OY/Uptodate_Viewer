@@ -139,30 +139,72 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // --- Scroll Position Preservation ---
-    // Primary: rememberLazyListState(initialIndex, initialOffset) initializes the list
-    // directly at the saved reading position on Frame 0, avoiding transient (0,0) states
-    // and false pagination triggers. Nav3's SaveableStateHolderNavEntryDecorator also
-    // preserves the LazyListState bundle across navigation entries.
+    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
+        val visible = listState.layoutInfo.visibleItemsInfo
+        val firstKey = visible.firstOrNull()?.key as? String
+        viewModel.updateReadingPosition(
+            listState.firstVisibleItemIndex,
+            listState.firstVisibleItemScrollOffset,
+            firstKey
+        )
+        onNavigateToContent(topicId, sectionId)
+    }
 
-    // Continuously sync current position to the ViewModel while the screen is active.
+    val handleGraphicSelected: (String) -> Unit = { graphicId ->
+        val visible = listState.layoutInfo.visibleItemsInfo
+        val firstKey = visible.firstOrNull()?.key as? String
+        viewModel.updateReadingPosition(
+            listState.firstVisibleItemIndex,
+            listState.firstVisibleItemScrollOffset,
+            firstKey
+        )
+        onGraphicSelected(graphicId)
+    }
+
+    // --- Scroll Position Preservation ---
+    var hasRestoredScroll by remember(conversationId) { mutableStateOf(false) }
+
+    // Restore reading position when returning from an article citation
+    LaunchedEffect(conversationId, chatItems.isNotEmpty()) {
+        if (chatItems.isEmpty() || hasRestoredScroll) return@LaunchedEffect
+        val saved = viewModel.savedReadingPosition
+        if (saved != null && (saved.index > 0 || saved.offset > 0 || saved.anchorMessageId != null)) {
+            val items = chatItems
+            val targetIndex = saved.anchorMessageId?.let { key ->
+                val idx = items.indexOfFirst { it.key == key }
+                if (idx >= 0) idx else null
+            } ?: saved.index.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+
+            listState.scrollToItem(targetIndex, saved.offset)
+            isFollowingBottom = false
+        }
+        hasRestoredScroll = true
+    }
+
+    // Continuously sync resting position while user is actively reading
     LaunchedEffect(listState) {
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
         }.collect { (index, offset) ->
-            viewModel.updateReadingPosition(index, offset)
+            if (hasRestoredScroll) {
+                val firstKey = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.key as? String
+                viewModel.updateReadingPosition(index, offset, firstKey)
+            }
         }
     }
 
-    // Capture exact position when ChatScreen leaves composition (e.g. tapping a clinical
-    // source citation to navigate to ContentScreen). Ensures resting position is persisted
-    // even if the user stopped scrolling long before leaving.
+    // Snapshot position on teardown/dispose (back gestures or route changes)
     DisposableEffect(viewModel, listState) {
         onDispose {
-            viewModel.updateReadingPosition(
-                listState.firstVisibleItemIndex,
-                listState.firstVisibleItemScrollOffset
-            )
+            val visible = listState.layoutInfo.visibleItemsInfo
+            if (visible.isNotEmpty()) {
+                val firstKey = visible.firstOrNull()?.key as? String
+                viewModel.updateReadingPosition(
+                    listState.firstVisibleItemIndex,
+                    listState.firstVisibleItemScrollOffset,
+                    firstKey
+                )
+            }
         }
     }
 
@@ -198,9 +240,9 @@ fun ChatScreen(
         }
     }
 
-    // Auto-scroll stream deltas when following the bottom
-    LaunchedEffect(streamingText, orchestrationSteps.size, isGenerating) {
-        if (isFollowingBottom && (isGenerating || streamingText.isNotEmpty() || orchestrationSteps.isNotEmpty())) {
+    // Auto-scroll stream deltas when following the bottom during active generation
+    LaunchedEffect(streamingText, isGenerating) {
+        if (isFollowingBottom && (isGenerating || streamingText.isNotEmpty())) {
             val count = listState.layoutInfo.totalItemsCount
             if (count > 0) {
                 listState.scrollToItem(count - 1)
@@ -250,7 +292,18 @@ fun ChatScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = {
+                            val visible = listState.layoutInfo.visibleItemsInfo
+                            val firstKey = visible.firstOrNull()?.key as? String
+                            viewModel.updateReadingPosition(
+                                listState.firstVisibleItemIndex,
+                                listState.firstVisibleItemScrollOffset,
+                                firstKey
+                            )
+                            onBack()
+                        }
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
@@ -323,14 +376,14 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = onNavigateToContent,
-                                onGraphicSelected = onGraphicSelected
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected
                             )
                             is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
                                 articles = item.articles,
                                 tables = item.tables,
-                                onNavigateToContent = onNavigateToContent,
-                                onGraphicSelected = onGraphicSelected,
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected,
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
@@ -364,8 +417,8 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = onNavigateToContent,
-                                onGraphicSelected = onGraphicSelected
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected
                             )
                         }
                     }
