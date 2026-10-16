@@ -48,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -76,7 +77,6 @@ import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
 import com.clinref.app.ui.common.ScrollToBottomFAB
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -113,7 +113,12 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    val initialIndex = remember { viewModel.savedReadingPosition?.index ?: 0 }
+    val initialOffset = remember { viewModel.savedReadingPosition?.offset ?: 0 }
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = initialIndex,
+        initialFirstVisibleItemScrollOffset = initialOffset
+    )
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
@@ -134,28 +139,30 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    // Continuously sync reading position to ChatViewModel while user actively scrolls
+    // --- Scroll Position Preservation ---
+    // Primary: rememberLazyListState(initialIndex, initialOffset) initializes the list
+    // directly at the saved reading position on Frame 0, avoiding transient (0,0) states
+    // and false pagination triggers. Nav3's SaveableStateHolderNavEntryDecorator also
+    // preserves the LazyListState bundle across navigation entries.
+
+    // Continuously sync current position to the ViewModel while the screen is active.
     LaunchedEffect(listState) {
         snapshotFlow {
-            if (listState.isScrollInProgress) {
-                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-            } else null
-        }.filterNotNull().collect { (index, offset) ->
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
             viewModel.updateReadingPosition(index, offset)
         }
     }
 
-    // Restore reading position when returning from an article citation
-    var hasRestoredForCurrentEntry by remember { mutableStateOf(false) }
-    LaunchedEffect(chatItems.isNotEmpty()) {
-        if (chatItems.isNotEmpty() && !hasRestoredForCurrentEntry) {
-            val saved = viewModel.savedReadingPosition
-            if (saved != null && (saved.index > 0 || saved.offset > 0)) {
-                val maxIndex = (chatItems.size - 1).coerceAtLeast(0)
-                val targetIndex = saved.index.coerceIn(0, maxIndex)
-                listState.scrollToItem(targetIndex, saved.offset)
-            }
-            hasRestoredForCurrentEntry = true
+    // Capture exact position when ChatScreen leaves composition (e.g. tapping a clinical
+    // source citation to navigate to ContentScreen). Ensures resting position is persisted
+    // even if the user stopped scrolling long before leaving.
+    DisposableEffect(viewModel, listState) {
+        onDispose {
+            viewModel.updateReadingPosition(
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset
+            )
         }
     }
 
