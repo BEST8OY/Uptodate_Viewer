@@ -76,18 +76,32 @@ class StreamingManager {
     private val _streamingText = MutableStateFlow("")
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
 
+    private val _reasoningText = MutableStateFlow("")
+    val reasoningText: StateFlow<String> = _reasoningText.asStateFlow()
+
+    private val _isReasoning = MutableStateFlow(false)
+    val isReasoning: StateFlow<Boolean> = _isReasoning.asStateFlow()
+
     private var stepCounter = 0
     private var activeToolCalls = 0
     private var accumulatedUsage = TokenUsage()
     private val streamingBuffer = StringBuilder()
+    private val reasoningBuffer = StringBuilder()
+    private val pendingTagBuffer = StringBuilder()
+    private var inReasoningBlock = false
 
     fun onToolCallStarting(toolName: String, args: String) {
         stepCounter++
         activeToolCalls++
 
-        // Pre-tool thought hygiene: reset streaming text so intermediate thoughts don't contaminate response
+        // Pre-tool thought hygiene: reset streaming and reasoning buffers so intermediate thoughts don't contaminate response
         streamingBuffer.clear()
+        reasoningBuffer.clear()
+        pendingTagBuffer.clear()
+        inReasoningBlock = false
         _streamingText.value = ""
+        _reasoningText.value = ""
+        _isReasoning.value = false
 
         val stepId = "step_$stepCounter"
         val (title, detail) = getStepInfo(toolName, args)
@@ -107,6 +121,7 @@ class StreamingManager {
 
         val description = when (toolName) {
             "searchTopics" -> "Searching medical topics…"
+            "getTopicOverview" -> "Retrieving topic overview & core evidence…"
             "getTopicOutline" -> "Reading topic outline…"
             "getRelatedTopics" -> "Finding related clinical topics…"
             "getTopicSectionsText" -> "Retrieving evidence sections…"
@@ -143,12 +158,89 @@ class StreamingManager {
     }
 
     fun onStreamingTextDelta(delta: String) {
-        streamingBuffer.append(delta)
+        for (i in delta.indices) {
+            val ch = delta[i]
+            processStreamingChar(ch)
+        }
         _streamingText.value = streamingBuffer.toString()
+        _reasoningText.value = reasoningBuffer.toString()
     }
 
     fun onStreamingReasoningDelta(delta: String) {
-        // Reserved for models with chain-of-thought streaming (e.g. Gemini Thinking, o-series)
+        reasoningBuffer.append(delta)
+        _reasoningText.value = reasoningBuffer.toString()
+        _isReasoning.value = true
+    }
+
+    private fun processStreamingChar(ch: Char) {
+        if (pendingTagBuffer.isNotEmpty()) {
+            pendingTagBuffer.append(ch)
+            if (ch == '>') {
+                val candidate = pendingTagBuffer.toString()
+                pendingTagBuffer.clear()
+                if (isOpeningReasoningTag(candidate)) {
+                    inReasoningBlock = true
+                    _isReasoning.value = true
+                } else if (isClosingReasoningTag(candidate)) {
+                    inReasoningBlock = false
+                    _isReasoning.value = false
+                } else {
+                    appendToActiveBuffer(candidate)
+                }
+            } else if (!isPotentialTagPrefix(pendingTagBuffer.toString())) {
+                val notTag = pendingTagBuffer.toString()
+                pendingTagBuffer.clear()
+                appendToActiveBuffer(notTag)
+            } else if (pendingTagBuffer.length > 64) {
+                val overflow = pendingTagBuffer.toString()
+                pendingTagBuffer.clear()
+                appendToActiveBuffer(overflow)
+            }
+        } else {
+            if (ch == '<') {
+                pendingTagBuffer.append(ch)
+            } else {
+                appendToActiveBuffer(ch.toString())
+            }
+        }
+    }
+
+    private fun appendToActiveBuffer(text: String) {
+        if (inReasoningBlock) {
+            reasoningBuffer.append(text)
+        } else {
+            // Trim leading whitespace if streamingBuffer is still empty
+            if (streamingBuffer.isEmpty() && text.all { it == '\n' || it == '\r' || it == ' ' }) {
+                return
+            }
+            streamingBuffer.append(text)
+        }
+    }
+
+    private fun isOpeningReasoningTag(tag: String): Boolean {
+        val lower = tag.lowercase()
+        return lower == "<thought>" || lower == "<think>" || lower == "<reasoning>" ||
+               lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ")
+    }
+
+    private fun isClosingReasoningTag(tag: String): Boolean {
+        val lower = tag.lowercase()
+        return lower == "</thought>" || lower == "</think>" || lower == "</reasoning>"
+    }
+
+    private fun isPotentialTagPrefix(prefix: String): Boolean {
+        val lower = prefix.lowercase()
+        val validPrefixes = listOf(
+            "<", "<t", "<th", "<tho", "<thou", "<thoug", "<thought",
+            "<thi", "<thin", "<think",
+            "<r", "<re", "<rea", "<reas", "<reaso", "<reason", "<reasoni", "<reasonin", "<reasoning",
+            "</", "</t", "</th", "</tho", "</thou", "</thoug", "</thought",
+            "</thi", "</thin", "</think",
+            "</r", "</re", "</rea", "</reas", "</reaso", "</reason", "</reasoni", "</reasonin", "</reasoning"
+        )
+        if (validPrefixes.any { it.startsWith(lower) }) return true
+        if (lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ")) return true
+        return false
     }
 
     fun onStreamingToolCallDelta(callId: String, content: String, toolName: String? = null) {
@@ -156,7 +248,14 @@ class StreamingManager {
     }
 
     fun onStreamingEnd() {
-        // LLM token emission completed for current turn
+        if (pendingTagBuffer.isNotEmpty()) {
+            val remaining = pendingTagBuffer.toString()
+            pendingTagBuffer.clear()
+            appendToActiveBuffer(remaining)
+            _streamingText.value = streamingBuffer.toString()
+            _reasoningText.value = reasoningBuffer.toString()
+        }
+        _isReasoning.value = false
     }
 
     fun onLlmCallCompleted(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
@@ -175,7 +274,12 @@ class StreamingManager {
             if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.COMPLETED) else it
         }
         streamingBuffer.clear()
+        reasoningBuffer.clear()
+        pendingTagBuffer.clear()
+        inReasoningBlock = false
         _streamingText.value = ""
+        _reasoningText.value = ""
+        _isReasoning.value = false
         _agentState.value = AgentState.Completed(result, validation, accumulatedUsage)
     }
 
@@ -187,7 +291,12 @@ class StreamingManager {
             if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.FAILED) else it
         }
         streamingBuffer.clear()
+        reasoningBuffer.clear()
+        pendingTagBuffer.clear()
+        inReasoningBlock = false
         _streamingText.value = ""
+        _reasoningText.value = ""
+        _isReasoning.value = false
         val type = classifyError(error)
         _agentState.value = AgentState.Error(error, type)
     }
@@ -197,7 +306,12 @@ class StreamingManager {
         activeToolCalls = 0
         accumulatedUsage = TokenUsage()
         streamingBuffer.clear()
+        reasoningBuffer.clear()
+        pendingTagBuffer.clear()
+        inReasoningBlock = false
         _streamingText.value = ""
+        _reasoningText.value = ""
+        _isReasoning.value = false
         _toolProgress.value = null
         _orchestrationSteps.value = emptyList()
         _liveDiscoveredSources.value = emptyList()
@@ -217,6 +331,11 @@ class StreamingManager {
                 "searchTopicSections" -> {
                     val query = element?.get("query")?.jsonPrimitive?.content ?: ""
                     "Search In-Topic Sections" to if (query.isNotBlank()) "Query: \"$query\"" else null
+                }
+                "getTopicOverview" -> {
+                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
+                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
+                    "Examine Topic Overview" to if (topicId.isNotBlank()) "Topic ID: $topicId" else null
                 }
                 "getTopicOutline" -> {
                     val topicId = element?.get("topicId")?.jsonPrimitive?.content
@@ -260,6 +379,17 @@ class StreamingManager {
                         } else {
                             "No topics found"
                         }
+                    }
+                }
+                "getTopicOverview" -> {
+                    val title = element?.get("title")?.jsonPrimitive?.content
+                        ?: element?.get("topic_title")?.jsonPrimitive?.content
+                    val count = (element?.get("sections") as? kotlinx.serialization.json.JsonArray)?.size
+                        ?: (element?.get("outline") as? kotlinx.serialization.json.JsonArray)?.size ?: 0
+                    if (!title.isNullOrBlank() && !AiJsonUtils.isNumericOnly(title)) {
+                        "Overview: \"$title\" ($count sections)"
+                    } else {
+                        "Topic overview loaded ($count sections)"
                     }
                 }
                 "getTopicOutline" -> {

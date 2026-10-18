@@ -1,6 +1,9 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.clinref.app.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 
 @Serializable
 data class SearchResultTopicItem(
@@ -49,6 +52,22 @@ data class TopicOutlineResponse(
 )
 
 @Serializable
+data class TopicOverviewResponse(
+    @JsonNames("topic_id", "topicId")
+    val topicId: String,
+    @JsonNames("topic_title", "title")
+    val title: String,
+    @JsonNames("topic_type", "topicType")
+    val topicType: String = "article",
+    @JsonNames("outline", "sections")
+    val sections: List<OutlineSectionItem> = emptyList(),
+    val graphics: List<OutlineGraphicItem> = emptyList(),
+    @JsonNames("related_topics", "relatedTopics")
+    val relatedTopics: List<RelatedTopicItem> = emptyList(),
+    val markdown: String = ""
+)
+
+@Serializable
 data class RelatedTopicsResponse(
     val topicId: String,
     val relatedTopics: List<RelatedTopicItem> = emptyList()
@@ -60,7 +79,9 @@ data class TopicSectionsResponse(
     val topicTitle: String,
     val sectionTitles: Map<String, String> = emptyMap(),
     val markdown: String,
-    val invalidSections: List<String>? = null
+    val invalidSections: List<String>? = null,
+    val omittedSections: List<String>? = null,
+    val truncated: Boolean? = null
 )
 
 @Serializable

@@ -28,6 +28,7 @@ class TurnContextAccumulator(
     private val outlineSections = ConcurrentHashMap<String, Map<String, String>>() // topicId -> {sectionId: title}
     private val graphicToTopic = ConcurrentHashMap<String, String>() // graphicId -> topicId
     private var userQuestion: String = ""
+    private var patientProfile: PatientProfile? = null
 
     private val pendingToolArgs = ConcurrentHashMap<String, String>()
     private val executedToolCalls = CopyOnWriteArrayList<Pair<String, String>>() // toolName, argsJson
@@ -46,6 +47,7 @@ class TurnContextAccumulator(
         pendingToolArgs.clear()
         executedToolCalls.clear()
         userQuestion = ""
+        patientProfile = null
         lastTopicId = ""
     }
 
@@ -60,6 +62,12 @@ class TurnContextAccumulator(
     fun setUserQuestion(question: String) {
         userQuestion = question
     }
+
+    fun setPatientProfile(profile: PatientProfile?) {
+        patientProfile = profile
+    }
+
+    fun getPatientProfile(): PatientProfile? = patientProfile
 
     fun getToolCalls(): List<SafetyValidator.ToolCallRecord> = toolCalls.toList()
 
@@ -109,6 +117,7 @@ class TurnContextAccumulator(
 
         if (logicalSuccess) {
             when (canonicalName) {
+                "getTopicOverview" -> parseTopicOverviewResult(parsedArgs, result)
                 "searchTopics" -> parseSearchResults(result)
                 "getRelatedTopics" -> parseRelatedTopicsResult(result)
                 "getTopicOutline" -> parseOutlineResult(parsedArgs, result)
@@ -119,8 +128,8 @@ class TurnContextAccumulator(
         }
     }
 
-    fun buildTurnContext(answer: String): SafetyValidator.TurnContext {
-        val rawAnswer = answer
+    fun buildTurnContext(answer: String, profile: PatientProfile? = null): SafetyValidator.TurnContext {
+        val cleanAnswer = ReasoningTokenSanitizer.stripReasoning(answer)
 
         // Populate topicTitle and sectionTitle on fetched sections from accumulated state or resolvers
         val sectionsWithTitle = fetchedSections.map { sec ->
@@ -172,13 +181,14 @@ class TurnContextAccumulator(
 
         return SafetyValidator.TurnContext(
             toolCalls = toolCalls.toList(),
-            answer = rawAnswer,
+            answer = cleanAnswer,
             toolResults = toolResults.toList(),
             fetchedSections = sectionsWithTitle,
             graphicIds = graphicIds.toSet(),
             userQuestion = userQuestion,
             topicRefs = finalTopicRefs,
-            graphicRefs = autoGraphicRefs
+            graphicRefs = autoGraphicRefs,
+            patientProfile = profile ?: this.patientProfile
         )
     }
 
@@ -190,6 +200,7 @@ class TurnContextAccumulator(
     fun snapshotForCorrection(): TurnContextAccumulator {
         val snapshot = TurnContextAccumulator(topicTitleResolver, sectionTitleResolver)
         snapshot.userQuestion = this.userQuestion
+        snapshot.patientProfile = this.patientProfile
         snapshot.fetchedSections.addAll(this.fetchedSections)
         snapshot.graphicIds.addAll(this.graphicIds)
         snapshot.graphicTitles.putAll(this.graphicTitles)
@@ -467,6 +478,81 @@ class TurnContextAccumulator(
                 graphicTitles[graphicId] = title
                 graphicTitles[cleanId] = title
             }
+        }
+    }
+
+    private fun parseTopicOverviewResult(args: Map<String, String>, result: String) {
+        try {
+            val obj = AiJsonUtils.parseAsJsonObject(result) ?: return
+            val topicId = obj["topicId"]?.jsonPrimitive?.content
+                ?: obj["topic_id"]?.jsonPrimitive?.content
+                ?: args["topicId"] ?: args["topic_id"] ?: return
+            lastTopicId = topicId
+
+            val title = obj["title"]?.jsonPrimitive?.content
+                ?: obj["topic_title"]?.jsonPrimitive?.content ?: ""
+            if (AiJsonUtils.isValidTopicTitle(title)) {
+                topicTitles[topicId] = title
+            }
+
+            // Outline sections
+            val sections = obj["sections"] as? kotlinx.serialization.json.JsonArray
+                ?: obj["outline"] as? kotlinx.serialization.json.JsonArray
+            val sectionMap = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
+            if (sections != null) {
+                for (item in sections) {
+                    val sectionObj = item as? JsonObject ?: continue
+                    val id = sectionObj["id"]?.jsonPrimitive?.content ?: continue
+                    val sectionTitle = sectionObj["title"]?.jsonPrimitive?.content ?: ""
+                    val cleanSecTitle = AiJsonUtils.cleanSectionTitle(sectionTitle)
+                    if (cleanSecTitle.isNotBlank()) {
+                        sectionMap[id] = cleanSecTitle
+                    }
+                }
+                if (sectionMap.isNotEmpty()) {
+                    outlineSections[topicId] = sectionMap
+                }
+            }
+
+            // Graphics
+            val graphics = obj["graphics"] as? kotlinx.serialization.json.JsonArray
+            if (graphics != null) {
+                for (item in graphics) {
+                    val graphicObj = item as? JsonObject ?: continue
+                    val gid = graphicObj["id"]?.jsonPrimitive?.content ?: continue
+                    val cleanGid = AiJsonUtils.cleanGraphicId(gid)
+                    graphicToTopic[gid] = topicId
+                    graphicToTopic[cleanGid] = topicId
+                    val gTitle = graphicObj["title"]?.jsonPrimitive?.content ?: ""
+                    if (gTitle.isNotBlank()) {
+                        graphicTitles[gid] = gTitle
+                        graphicTitles[cleanGid] = gTitle
+                    }
+                }
+            }
+
+            // Calculator topic evidence
+            val finalTopicTitle = resolveTopicTitle(topicId, title)
+            val topicType = obj["topicType"]?.jsonPrimitive?.content
+                ?: obj["topic_type"]?.jsonPrimitive?.content
+            if (topicType == "calc") {
+                val fullMarkdown = obj["markdown"]?.jsonPrimitive?.content ?: ""
+                fetchedSections.add(
+                    SafetyValidator.FetchedSection(
+                        topicId = topicId,
+                        topicTitle = finalTopicTitle,
+                        sectionId = "FULL",
+                        sectionTitle = "Calculator Tool Content",
+                        contentSnippet = fullMarkdown.take(2000)
+                    )
+                )
+            }
+
+            if (sectionMap.isNotEmpty()) {
+                outlineSections[topicId] = sectionMap
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "parseTopicOverviewResult: ${e.message}")
         }
     }
 }

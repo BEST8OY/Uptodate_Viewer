@@ -8,6 +8,7 @@ import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.app.domain.ai.ClinicalSource
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.PatientProfile
+import com.clinref.app.domain.ai.ReasoningTokenSanitizer
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
@@ -119,8 +120,9 @@ class ChatViewModel(
     val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
     val orchestrationSteps: StateFlow<List<StreamingManager.OrchestrationStep>> = streamingManager.orchestrationSteps
     val currentStatusText: StateFlow<String> = streamingManager.currentStatusText
-    val liveDiscoveredSources: StateFlow<List<SafetyValidator.TopicRef>> = streamingManager.liveDiscoveredSources
     val streamingText: StateFlow<String> = streamingManager.streamingText
+    val reasoningText: StateFlow<String> = streamingManager.reasoningText
+    val isReasoning: StateFlow<Boolean> = streamingManager.isReasoning
 
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
@@ -340,11 +342,12 @@ class ChatViewModel(
         result: String,
         accumulator: TurnContextAccumulator?
     ) {
+        val cleanResult = ReasoningTokenSanitizer.stripReasoning(result)
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
-                if (state.validation.passed && !result.startsWith("Clinical Response Verification Blocked:")) {
+                if (state.validation.passed && !cleanResult.startsWith("Clinical Response Verification Blocked:")) {
                     saveSuccessfulMessage(
-                        conversationId, messageId, result, state.validation, state.tokenUsage
+                        conversationId, messageId, cleanResult, state.validation, state.tokenUsage
                     )
                 } else {
                     val blockedReason = state.validation.blockedReason
@@ -353,8 +356,8 @@ class ChatViewModel(
                         SecureLogger.Level.WARN, "ChatViewModel",
                         "Safety blocked: $blockedReason."
                     )
-                    val content = if (result.startsWith("Clinical Response Verification Blocked:")) {
-                        result
+                    val content = if (cleanResult.startsWith("Clinical Response Verification Blocked:")) {
+                        cleanResult
                     } else {
                         "Clinical Response Verification Blocked: $blockedReason"
                     }

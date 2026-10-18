@@ -75,6 +75,9 @@ class KoogAgentFactory(
             topicTitleResolver = { tid -> medicalDatabaseTools.getTopicTitle(tid) },
             sectionTitleResolver = { tid, sid -> medicalDatabaseTools.getSectionTitle(tid, sid) }
         )
+        // Deliver the patient profile to the accumulator so SafetyValidator Rule 4
+        // (deterministic renal & allergy bounds) can engage in-graph — the system prompt alone is advisory.
+        accumulator.setPatientProfile(patientProfile)
         if (userMessage.isNotBlank()) {
             accumulator.setUserQuestion(userMessage)
         }

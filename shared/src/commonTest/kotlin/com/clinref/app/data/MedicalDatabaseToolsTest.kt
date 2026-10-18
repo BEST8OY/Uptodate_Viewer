@@ -11,6 +11,7 @@ import kotlinx.coroutines.runBlocking
 import com.clinref.app.data.tools.GetGraphicContentTool
 import com.clinref.app.data.tools.GetRelatedTopicsTool
 import com.clinref.app.data.tools.GetTopicOutlineTool
+import com.clinref.app.data.tools.GetTopicOverviewTool
 import com.clinref.app.data.tools.GetTopicSectionsTextTool
 import com.clinref.app.data.tools.SearchTopicsTool
 import kotlinx.serialization.json.Json
@@ -192,10 +193,11 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `asToolList returns 6 class-based tools with expected names`() {
+    fun `asToolList returns 7 class-based tools with expected names`() {
         val toolList = tools.asToolList()
-        assertEquals(6, toolList.size)
+        assertEquals(7, toolList.size)
         val names = toolList.map { it.name }.toSet()
+        assertTrue(names.contains("getTopicOverview"))
         assertTrue(names.contains("searchTopics"))
         assertTrue(names.contains("getTopicOutline"))
         assertTrue(names.contains("searchTopicSections"))
@@ -406,6 +408,125 @@ class MedicalDatabaseToolsTest {
         assertEquals("H2", matches[0].jsonObject["sectionId"]!!.jsonPrimitive.content)
         assertEquals("Renal Impairment", matches[0].jsonObject["sectionTitle"]!!.jsonPrimitive.content)
         assertTrue(matches[0].jsonObject["snippet"]!!.jsonPrimitive.content.contains("reduce dose by 50%"))
+    }
+
+    @Test
+    fun `getTopicOverview returns outline and graphics for articles`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H_SR&quot;})">Summary &amp; Recommendations</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H_DOSE&quot;})">Dosing &amp; Administration</a></li>
+                <li><a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})">Dosing Table</a></li>
+            </ul>
+        """.trimIndent()
+        val bodyHtml = """
+            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>Disease description.</p>
+            <p class="headingAnchor" id="H_SR"><span class="h1">Summary &amp; Recommendations</span><span class="headingEndMark">—</span>Aspirin 81 mg daily is recommended.</p>
+            <p class="headingAnchor" id="H_DOSE"><span class="h1">Dosing &amp; Administration</span><span class="headingEndMark">—</span>Oral route with water.</p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("100") } returns "Aspirin Therapy"
+
+        val resultJson = tools.getTopicOverview("100")
+        val obj = json.parseToJsonElement(resultJson).jsonObject
+
+        // Invariants
+        assertEquals("100", obj["topicId"]!!.jsonPrimitive.content)
+        assertEquals("Aspirin Therapy", obj["title"]!!.jsonPrimitive.content)
+        assertEquals("article", obj["topicType"]!!.jsonPrimitive.content)
+        assertEquals(3, obj["sections"]!!.jsonArray.size)
+        assertEquals(1, obj["graphics"]!!.jsonArray.size)
+
+        val md = obj["markdown"]!!.jsonPrimitive.content
+        assertEquals("", md)
+    }
+
+    @Test
+    fun `getTopicOverview returns structured error for nonexistent topic`() {
+        every { contentRepository.getTopicContent("nonexistent_999") } returns null
+
+        val resultJson = tools.getTopicOverview("nonexistent_999")
+        val obj = json.parseToJsonElement(resultJson).jsonObject
+
+        assertTrue(obj.containsKey("error"))
+        assertEquals("Topic not found: nonexistent_999", obj["error"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `getTopicSectionsText respects token-based cap`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H_RENAL&quot;})">Renal Impairment</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H_SR&quot;})">Summary &amp; Recommendations</a></li>
+            </ul>
+        """.trimIndent()
+        val longText = "Guideline statement. ".repeat(60)
+        val bodyHtml = """
+            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>$longText</p>
+            <p class="headingAnchor" id="H_RENAL"><span class="h1">Renal Impairment</span><span class="headingEndMark">—</span>$longText</p>
+            <p class="headingAnchor" id="H_SR"><span class="h1">Summary &amp; Recommendations</span><span class="headingEndMark">—</span>$longText</p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("200") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("200") } returns "Drug A"
+
+        // Execute with 100 maxTokens = 400 maxChars
+        val resultJson = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"), maxTokens = 100)
+        val obj = json.parseToJsonElement(resultJson).jsonObject
+
+        assertTrue(obj.containsKey("truncated"))
+        assertEquals("true", obj["truncated"]!!.jsonPrimitive.content)
+        assertTrue(obj.containsKey("omittedSections"))
+        val omitted = obj["omittedSections"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(omitted.contains("H_RENAL"))
+
+        val md = obj["markdown"]!!.jsonPrimitive.content
+        assertTrue(md.contains("[Section truncated due to token limit]"))
+    }
+
+    @Test
+    fun `getTopicOverview correctly handles calculator topics with synthetic FULL section`() {
+        every { contentRepository.getTopicContent("148929") } returns ContentRepository.TopicContent(
+            outlineHtml = "",
+            bodyHtml = "<div>PREVENT Risk Calculator Inputs</div>"
+        )
+        every { contentRepository.getTopicTitle("148929") } returns "AHA PREVENT Calculator"
+
+        val resultJson = tools.getTopicOverview("148929")
+        val obj = json.parseToJsonElement(resultJson).jsonObject
+
+        assertEquals("calc", obj["topicType"]!!.jsonPrimitive.content)
+        val sections = obj["sections"]!!.jsonArray
+        assertEquals(1, sections.size)
+        assertEquals("FULL", sections[0].jsonObject["id"]!!.jsonPrimitive.content)
+
+        val md = obj["markdown"]!!.jsonPrimitive.content
+        assertTrue(md.contains("=== Calculator: AHA PREVENT Calculator ==="))
+        assertTrue(md.contains("PREVENT Risk Calculator Inputs"))
+    }
+
+    @Test
+    fun `getTopicOverviewTool executes properly with snake_case and camelCase args`() = runBlocking {
+        every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(
+            outlineHtml = """<a href="appAction({&quot;section&quot;:&quot;H_SR&quot;})">Summary &amp; Recommendations</a>""",
+            bodyHtml = """<p id="H_SR">Guidance 10 mg.</p>"""
+        )
+        every { contentRepository.getTopicTitle("100") } returns "Topic 100"
+
+        // Execute via class-based Koog tool instance
+        val res1 = tools.getTopicOverviewTool.execute(
+            GetTopicOverviewTool.Args(topicId = "100")
+        )
+        val obj1 = json.parseToJsonElement(res1).jsonObject
+        assertEquals("100", obj1["topicId"]!!.jsonPrimitive.content)
+
+        // Test JSON argument deserialization parity
+        val jsonArgs = """{"topic_id": "100"}"""
+        val decodedArgs = json.decodeFromString<GetTopicOverviewTool.Args>(jsonArgs)
+        assertEquals("100", decodedArgs.topicId)
     }
 }
 

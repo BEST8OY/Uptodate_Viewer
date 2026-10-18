@@ -14,6 +14,7 @@ class MedicalDatabaseTools(
     private val assetRepository: AssetRepository
 ) {
 
+    val getTopicOverviewTool by lazy { com.clinref.app.data.tools.GetTopicOverviewTool(this) }
     val searchTopicsTool by lazy { com.clinref.app.data.tools.SearchTopicsTool(this) }
     val getTopicOutlineTool by lazy { com.clinref.app.data.tools.GetTopicOutlineTool(this) }
     val searchTopicSectionsTool by lazy { com.clinref.app.data.tools.SearchTopicSectionsTool(this) }
@@ -22,6 +23,7 @@ class MedicalDatabaseTools(
     val getGraphicContentTool by lazy { com.clinref.app.data.tools.GetGraphicContentTool(this) }
 
     fun asToolList(): List<ai.koog.agents.core.tools.Tool<*, *>> = listOf(
+        getTopicOverviewTool,
         searchTopicsTool,
         getTopicOutlineTool,
         searchTopicSectionsTool,
@@ -149,6 +151,59 @@ class MedicalDatabaseTools(
         }
     }
 
+    fun getTopicOverview(topicId: String): String {
+        val cleanTopicId = topicId.trim()
+        val content = contentRepository.getTopicContent(cleanTopicId)
+            ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
+
+        val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
+        val topicTitles = mutableMapOf<String, String>()
+        topicTitles[cleanTopicId] = title
+
+        val isCalc = content.outlineHtml.isBlank()
+        if (isCalc) {
+            val calcMarkdown = htmlToMarkdown(content.bodyHtml) { tid ->
+                topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
+            }
+            val header = "=== Calculator: $title ==="
+            val fullMd = "$header\n$calcMarkdown"
+            return json.encodeToString(
+                TopicOverviewResponse(
+                    topicId = cleanTopicId,
+                    title = title,
+                    topicType = "calc",
+                    sections = listOf(OutlineSectionItem(id = "FULL", title = "Calculator Tool Content", level = 1)),
+                    graphics = emptyList(),
+                    relatedTopics = emptyList(),
+                    markdown = fullMd
+                )
+            )
+        }
+
+        val outline = parseOutline(content.outlineHtml)
+        val sectionsList = outline.sections.map {
+            OutlineSectionItem(id = it.id, title = it.title, level = it.level, parentId = it.parentId)
+        }
+        val graphicsList = outline.graphics.filter { it.isTable }.map { g ->
+            OutlineGraphicItem(id = g.id, title = g.title, isTable = true)
+        }
+        val relatedList = outline.relatedTopics.map { rt ->
+            RelatedTopicItem(id = rt.id, title = rt.title)
+        }
+
+        return json.encodeToString(
+            TopicOverviewResponse(
+                topicId = cleanTopicId,
+                title = title,
+                topicType = "article",
+                sections = sectionsList,
+                graphics = graphicsList,
+                relatedTopics = relatedList,
+                markdown = ""
+            )
+        )
+    }
+
     fun getTopicOutline(topicId: String): String {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
@@ -214,10 +269,13 @@ class MedicalDatabaseTools(
         )
     }
 
-    fun getTopicSectionsText(topicId: String, sectionIds: List<String>): String {
+    fun getTopicSectionsText(topicId: String, sectionIds: List<String>, maxTokens: Int = 4000): String {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return json.encodeToString(ToolErrorResponse("Topic not found"))
+            ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
+
+        val tokenBudget = if (maxTokens <= 0) 4000 else maxTokens
+        val maxChars = tokenBudget * 4
 
         val topicTitle = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
         val topicTitles = mutableMapOf<String, String>()
@@ -234,12 +292,19 @@ class MedicalDatabaseTools(
                 topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
             }
             val header = if (isCalc) "=== Calculator: $topicTitle ===" else "=== Section: FULL ==="
+            var fullText = "$header\n$markdown"
+            var isTruncated: Boolean? = null
+            if (fullText.length > maxChars) {
+                fullText = fullText.take(maxChars).trimEnd() + "\n\n[Content truncated due to token limit]"
+                isTruncated = true
+            }
             return json.encodeToString(
                 TopicSectionsResponse(
                     topicId = cleanTopicId,
                     topicTitle = topicTitle,
                     sectionTitles = mapOf("FULL" to topicTitle),
-                    markdown = "$header\n$markdown"
+                    markdown = fullText,
+                    truncated = isTruncated
                 )
             )
         }
@@ -264,10 +329,16 @@ class MedicalDatabaseTools(
                 else -> {
                     // Try case-insensitive ID match
                     val matchedById = idToTitle.keys.firstOrNull { it.equals(clean, ignoreCase = true) }
-                    // Try title match
+                    // Try title match (strip leading bullet/dash prefixes both sides — LLMs echo bullets that
+                    // parseOutlineTitle already stripped from the outline; includes • and ● bullets)
                     val matchedByTitle = idToTitle.entries.firstOrNull { (id, title) ->
                         title.equals(clean, ignoreCase = true) ||
-                        title.trimStart('-', '–', '—', ' ').equals(clean.trimStart('-', '–', '—', ' '), ignoreCase = true)
+                        title.trim()
+                            .replace(LEADING_BULLET_OR_DASH_REGEX, "")
+                            .equals(
+                                clean.trim().replace(LEADING_BULLET_OR_DASH_REGEX, ""),
+                                ignoreCase = true
+                            )
                     }?.key
 
                     val resolvedId = matchedById ?: matchedByTitle
@@ -294,17 +365,47 @@ class MedicalDatabaseTools(
 
         val sectionsMd = mutableListOf<String>()
         val sectionTitles = mutableMapOf<String, String>()
+        val omittedSections = mutableListOf<String>()
+        var currentChars = 0
+        var isTruncated = false
+
         for (sectionId in validIds) {
             val title = idToTitle[sectionId] ?: ""
-            sectionTitles[sectionId] = title
             val sectionHtml = extractSectionHtml(content.bodyHtml, outline.sections, sectionId)
-            if (sectionHtml != null) {
-                val markdown = htmlToMarkdown(sectionHtml) { tid ->
+            val secMarkdown = if (sectionHtml != null) {
+                htmlToMarkdown(sectionHtml) { tid ->
                     topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
                 }
-                sectionsMd.add("=== Section: $sectionId ===\n$markdown")
             } else {
-                sectionsMd.add("=== Section: $sectionId ===\nSection not found.")
+                "Section not found."
+            }
+            val secEntry = "=== Section: $sectionId ===\n$secMarkdown"
+
+            if (isTruncated) {
+                omittedSections.add(sectionId)
+                continue
+            }
+
+            val entryLen = secEntry.length
+            val separatorLen = if (sectionsMd.isNotEmpty()) 2 else 0
+
+            if (currentChars + separatorLen + entryLen <= maxChars) {
+                sectionsMd.add(secEntry)
+                sectionTitles[sectionId] = title
+                currentChars += separatorLen + entryLen
+            } else {
+                val remaining = maxChars - (currentChars + separatorLen)
+                if (sectionsMd.isEmpty() || remaining >= 200) {
+                    val headerPrefix = "=== Section: $sectionId ===\n"
+                    val cutoff = maxOf(headerPrefix.length + 20, remaining - 50)
+                    val partial = secEntry.take(cutoff).trimEnd() + "\n\n[Section truncated due to token limit]"
+                    sectionsMd.add(partial)
+                    sectionTitles[sectionId] = title
+                    currentChars += separatorLen + partial.length
+                } else {
+                    omittedSections.add(sectionId)
+                }
+                isTruncated = true
             }
         }
 
@@ -314,7 +415,9 @@ class MedicalDatabaseTools(
                 topicTitle = topicTitle,
                 sectionTitles = sectionTitles,
                 markdown = sectionsMd.joinToString("\n\n"),
-                invalidSections = invalidIds.ifEmpty { null }
+                invalidSections = invalidIds.ifEmpty { null },
+                omittedSections = omittedSections.ifEmpty { null },
+                truncated = if (isTruncated) true else null
             )
         )
     }
@@ -324,6 +427,7 @@ class MedicalDatabaseTools(
         val rawGraphicId = cleanId.replace(Regex("(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)"), "")
 
         val graphicData = assetRepository.getGraphic(rawGraphicId)
+            ?: (if (rawGraphicId != cleanId) assetRepository.getGraphic(cleanId) else null)
             ?: return json.encodeToString(ToolErrorResponse("Graphic $cleanId not found"))
 
         if (graphicData.subtype.isNotEmpty() && !graphicData.isTable) {

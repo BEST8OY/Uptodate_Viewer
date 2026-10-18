@@ -20,6 +20,7 @@ class SafetyValidatorTest {
         userQuestion: String = "",
         topicRefs: List<SafetyValidator.TopicRef> = emptyList(),
         graphicRefs: List<SafetyValidator.GraphicRef> = emptyList(),
+        patientProfile: PatientProfile? = null
     ) = SafetyValidator.TurnContext(
         toolCalls = toolCalls,
         answer = answer,
@@ -29,6 +30,7 @@ class SafetyValidatorTest {
         userQuestion = userQuestion,
         topicRefs = topicRefs,
         graphicRefs = graphicRefs,
+        patientProfile = patientProfile
     )
 
     private fun toolCall(
@@ -85,10 +87,7 @@ class SafetyValidatorTest {
             toolResults = listOf("content"),
             fetchedSections = listOf(section()),
         ))
-        // Should not fail on rule 1
-        if (!result.passed) {
-            assertFalse(result.blockedReason!!.contains("section or table content"))
-        }
+        assertTrue("Section text fetch via getTopicSectionsText satisfies rule 1, got: ${result.blockedReason}", result.passed)
     }
 
     @Test
@@ -99,9 +98,18 @@ class SafetyValidatorTest {
             toolResults = listOf("table content"),
             fetchedSections = listOf(section()),
         ))
-        if (!result.passed) {
-            assertFalse(result.blockedReason!!.contains("section or table content"))
-        }
+        assertTrue("Graphic table fetch satisfies rule 1, got: ${result.blockedReason}", result.passed)
+    }
+
+    @Test
+    fun `rule 1 passes for getTopicOverview`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall(name = "getTopicOverview")),
+            answer = "test",
+            toolResults = listOf("overview content"),
+            fetchedSections = listOf(section()),
+        ))
+        assertTrue("Compound overview fetch satisfies rule 1, got: ${result.blockedReason}", result.passed)
     }
 
     @Test
@@ -423,5 +431,389 @@ class SafetyValidatorTest {
             fetchedSections = listOf(section())
         ))
         assertTrue(result.passed)
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Rule 4: Patient Profile Bounds (Renal & Allergy Cross-Referencing)
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `rule 4 blocks affirmative recommendation of allergenic drug (penicillin to amoxicillin)`() {
+        val profile = PatientProfile(
+            allergies = listOf("penicillin (anaphylaxis)")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen & Dosing: Amoxicillin 500 mg orally three times daily for 10 days.",
+            toolResults = listOf("Amoxicillin 500 mg three times daily is recommended."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("Documented patient allergy contraindication"))
+        assertTrue(result.blockedReason!!.contains("penicillin (anaphylaxis)"))
+        assertTrue(result.blockedReason!!.contains("amoxicillin"))
+    }
+
+    @Test
+    fun `rule 4 passes when non-cross-reactive alternative is recommended for penicillin allergy`() {
+        val profile = PatientProfile(
+            allergies = listOf("penicillin (anaphylaxis)")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen & Dosing: Azithromycin 500 mg on day 1, then 250 mg daily for 4 days.",
+            toolResults = listOf("Azithromycin 500 mg on day 1, then 250 mg daily."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 4 passes when allergenic drug is explicitly stated as avoided or contraindicated`() {
+        val profile = PatientProfile(
+            allergies = listOf("penicillin")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Avoid amoxicillin due to documented penicillin allergy. First-line therapy: Azithromycin 500 mg daily.",
+            toolResults = listOf("Azithromycin 500 mg daily. Amoxicillin is commonly used."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 4 blocks cross-reactive sulfa drug (sulfa allergy to Bactrim)`() {
+        val profile = PatientProfile(
+            allergies = listOf("sulfa drugs")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen: Prescribe Bactrim DS 1 tablet twice daily.",
+            toolResults = listOf("Bactrim DS 1 tablet twice daily."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("allergy contraindication"))
+        assertTrue(result.blockedReason!!.contains("bactrim"))
+    }
+
+    @Test
+    fun `rule 4 blocks cross-reactive NSAID (aspirin allergy to ibuprofen)`() {
+        val profile = PatientProfile(
+            allergies = listOf("aspirin")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Administer ibuprofen 400 mg every 6 hours.",
+            toolResults = listOf("Ibuprofen 400 mg every 6 hours."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("allergy contraindication"))
+        assertTrue(result.blockedReason!!.contains("ibuprofen"))
+    }
+
+    @Test
+    fun `rule 4 blocks NSAIDs in severe renal impairment (eGFR 22 mL per min)`() {
+        val profile = PatientProfile(
+            conditions = listOf("Severe CKD", "eGFR 22 mL/min")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen & Dosing: Indomethacin 50 mg three times daily.",
+            toolResults = listOf("Indomethacin 50 mg three times daily is first-line for acute gout."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("Documented patient renal contraindication"))
+        assertTrue(result.blockedReason!!.contains("indomethacin"))
+    }
+
+    @Test
+    fun `rule 4 blocks metformin in severe renal impairment (eGFR under 30)`() {
+        val profile = PatientProfile(
+            notes = "Patient has chronic kidney disease with eGFR of 24 mL/min"
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen & Dosing: Metformin 500 mg twice daily with meals.",
+            toolResults = listOf("Metformin 500 mg twice daily with meals."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("metformin"))
+        assertTrue(result.blockedReason!!.contains("contraindicated"))
+    }
+
+    @Test
+    fun `rule 4 blocks colchicine in severe renal impairment when no adjustment specified`() {
+        val profile = PatientProfile(
+            conditions = listOf("CKD stage 4 (eGFR 20)")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen & Dosing: Colchicine 1.2 mg followed by 0.6 mg one hour later.",
+            toolResults = listOf("Colchicine 1.2 mg followed by 0.6 mg one hour later."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason!!.contains("colchicine requires renal dosage adjustment"))
+    }
+
+    @Test
+    fun `rule 4 passes for colchicine in severe renal impairment when renal adjustment is specified`() {
+        val profile = PatientProfile(
+            conditions = listOf("CKD stage 4 (eGFR 20)")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen & Dosing: Colchicine 0.3 mg daily with renal dose adjustment for CKD.",
+            toolResults = listOf("Colchicine 0.3 mg daily with renal dose adjustment for CKD."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 4 passes for glucocorticoids when NSAID is explicitly noted as contraindicated in severe renal impairment`() {
+        val profile = PatientProfile(
+            conditions = listOf("Severe renal impairment (eGFR 18 mL/min)")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "NSAIDs such as indomethacin are contraindicated in severe renal impairment. First-Line Regimen & Dosing: Intra-articular triamcinolone 20 mg.",
+            toolResults = listOf("Intra-articular triamcinolone 20 mg. NSAIDs are first line."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 4 passes when patientProfile has no renal impairment and no allergies`() {
+        val profile = PatientProfile(
+            age = "45",
+            sex = "male",
+            conditions = listOf("Hypertension")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen & Dosing: Lisinopril 10 mg daily.",
+            toolResults = listOf("Lisinopril 10 mg daily is recommended."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertTrue(result.passed)
+    }
+
+    @Test
+    fun `rule 4 blocks affirmative recommendation of ibuprofen for compound Aspirin NSAIDs allergy`() {
+        val profile = PatientProfile(
+            allergies = listOf("Aspirin/NSAIDs")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Recommend ibuprofen 400 mg for acute pain.",
+            toolResults = listOf("Ibuprofen 400 mg for acute pain."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason?.contains("allergy contraindication", ignoreCase = true) == true)
+        assertTrue(result.blockedReason?.contains("ibuprofen", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun `rule 4 blocks affirmative recommendation of amoxicillin for trailing dot penicillin allergy`() {
+        val profile = PatientProfile(
+            allergies = listOf("penicillin.")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Prescribe amoxicillin 500 mg orally.",
+            toolResults = listOf("Amoxicillin 500 mg orally."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason?.contains("allergy contraindication", ignoreCase = true) == true)
+        assertTrue(result.blockedReason?.contains("amoxicillin", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun `rule 4 blocks affirmative recommendation of ibuprofen for plural NSAIDs allergy`() {
+        val profile = PatientProfile(
+            allergies = listOf("NSAIDs")
+        )
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Recommend ibuprofen 400 mg.",
+            toolResults = listOf("Ibuprofen 400 mg."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(result.passed)
+        assertTrue(result.blockedReason?.contains("allergy contraindication", ignoreCase = true) == true)
+        assertTrue(result.blockedReason?.contains("ibuprofen", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun `rule 4 blocks ibuprofen and metformin for Stage 4 CKD`() {
+        val profile = PatientProfile(
+            conditions = listOf("Stage 4 CKD")
+        )
+        val resultIbu = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen: Ibuprofen 600 mg TID.",
+            toolResults = listOf("Ibuprofen 600 mg TID."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(resultIbu.passed)
+        assertTrue(resultIbu.blockedReason?.contains("renal contraindication", ignoreCase = true) == true)
+        assertTrue(resultIbu.blockedReason?.contains("ibuprofen", ignoreCase = true) == true)
+
+        val resultMet = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen: Metformin 500 mg twice daily.",
+            toolResults = listOf("Metformin 500 mg twice daily."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(resultMet.passed)
+        assertTrue(resultMet.blockedReason?.contains("renal contraindication", ignoreCase = true) == true)
+        assertTrue(resultMet.blockedReason?.contains("metformin", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun `rule 4 blocks ibuprofen and metformin for Stage 5 CKD`() {
+        val profile = PatientProfile(
+            conditions = listOf("Stage 5 CKD")
+        )
+        val resultIbu = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen: Ibuprofen 600 mg TID.",
+            toolResults = listOf("Ibuprofen 600 mg TID."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(resultIbu.passed)
+        assertTrue(resultIbu.blockedReason?.contains("renal contraindication", ignoreCase = true) == true)
+        assertTrue(resultIbu.blockedReason?.contains("ibuprofen", ignoreCase = true) == true)
+
+        val resultMet = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "First-Line Regimen: Metformin 500 mg twice daily.",
+            toolResults = listOf("Metformin 500 mg twice daily."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertFalse(resultMet.passed)
+        assertTrue(resultMet.blockedReason?.contains("renal contraindication", ignoreCase = true) == true)
+        assertTrue(resultMet.blockedReason?.contains("metformin", ignoreCase = true) == true)
+    }
+
+    @Test
+    fun `rule 4 passes for colchicine with reduce dose and reduced dose phrasings in severe renal impairment`() {
+        val profile = PatientProfile(
+            conditions = listOf("eGFR 22 mL/min")
+        )
+        val resultReduce = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Colchicine 0.3 mg daily, reduce dose due to low GFR.",
+            toolResults = listOf("Colchicine 0.3 mg daily, reduce dose due to low GFR."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertTrue(resultReduce.passed)
+
+        val resultReduced = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Colchicine 0.3 mg daily, reduced dose due to renal function.",
+            toolResults = listOf("Colchicine 0.3 mg daily, reduced dose due to renal function."),
+            fetchedSections = listOf(section()),
+            patientProfile = profile
+        ))
+        assertTrue(resultReduced.passed)
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // SystemPrompt Directives & Non-FTS Correction Verification
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `system prompt build includes PICO, SOAP, and point-of-care category output directives`() {
+        val profile = PatientProfile(
+            age = "65",
+            sex = "female",
+            conditions = listOf("Atrial Fibrillation"),
+            medications = listOf("Metoprolol 25 mg"),
+            allergies = listOf("Penicillin"),
+            notes = "eGFR 45 mL/min"
+        )
+        val prompt = SystemPrompt.build(profile, AiProvider.GOOGLE)
+
+        // PICO & SOAP architecture
+        assertTrue(prompt.contains("PICO"))
+        assertTrue(prompt.contains("SOAP"))
+        assertTrue(prompt.contains("Patient/Problem"))
+        assertTrue(prompt.contains("Intervention"))
+        assertTrue(prompt.contains("Comparison"))
+        assertTrue(prompt.contains("Outcome"))
+
+        // Point-of-care category output structure
+        assertTrue(prompt.contains("First-Line Regimen & Dosing"))
+        assertTrue(prompt.contains("Organ Function & Adjustments"))
+        assertTrue(prompt.contains("Contraindications & Critical Warnings"))
+
+        // Patient profile fields
+        assertTrue(prompt.contains("Age: 65"))
+        assertTrue(prompt.contains("Sex: female"))
+        assertTrue(prompt.contains("Atrial Fibrillation"))
+        assertTrue(prompt.contains("Metoprolol 25 mg"))
+        assertTrue(prompt.contains("Penicillin"))
+        assertTrue(prompt.contains("eGFR 45 mL/min"))
+    }
+
+    @Test
+    fun `system prompt buildCorrectionPrompt uses non-FTS tools and handles contraindication`() {
+        // Missing sections branch
+        val missingPrompt = SystemPrompt.buildCorrectionPrompt(
+            blockedReason = "Answer requires section or table content retrieval.",
+            evidenceSummary = "No section text was successfully fetched in the prior turn."
+        )
+        assertFalse(missingPrompt.contains("searchTopicSections"))
+        assertTrue(missingPrompt.contains("getTopicOverview"))
+        assertTrue(missingPrompt.contains("getTopicSectionsText"))
+
+        // Contraindication branch
+        val contraPrompt = SystemPrompt.buildCorrectionPrompt(
+            blockedReason = "Documented patient allergy contraindication: amoxicillin recommended for penicillin allergy",
+            evidenceSummary = "Section [H1]: Amoxicillin 500 mg TID."
+        )
+        assertFalse(contraPrompt.contains("searchTopicSections"))
+        assertTrue(contraPrompt.contains("REMEDIAL INSTRUCTIONS"))
+        assertTrue(contraPrompt.contains("violated a documented patient safety constraint"))
+        assertTrue(contraPrompt.contains("getTopicOverview"))
+        assertTrue(contraPrompt.contains("getTopicSectionsText"))
+
+        // Unverified quantities branch
+        val unverifiedPrompt = SystemPrompt.buildCorrectionPrompt(
+            blockedReason = "Unverified clinical quantities found in response: 750 mg.",
+            evidenceSummary = "Section [H1]: 500 mg."
+        )
+        assertFalse(unverifiedPrompt.contains("searchTopicSections"))
+        assertTrue(unverifiedPrompt.contains("getTopicOverview"))
+        assertTrue(unverifiedPrompt.contains("getTopicSectionsText"))
     }
 }

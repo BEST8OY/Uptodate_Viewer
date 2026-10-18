@@ -16,6 +16,25 @@ import kotlinx.serialization.json.JsonNames
  * Field names support both camelCase and snake_case aliases via @JsonNames.
  */
 
+class GetTopicOverviewTool(
+    private val databaseTools: MedicalDatabaseTools
+) : SimpleTool<GetTopicOverviewTool.Args>(
+    argsType = typeToken<Args>(),
+    name = "getTopicOverview",
+    description = "Retrieve the complete topic outline hierarchy and graphic/related topic metadata (plus full markdown content for calculators). " +
+        "For standard clinical articles, section text is not pre-fetched in the overview and must be retrieved on demand via getTopicSectionsText(topicId, sectionIds). " +
+        "ALWAYS call this after searchTopics to obtain the topic outline and candidate section IDs."
+) {
+    @Serializable
+    data class Args(
+        @property:LLMDescription("The topic ID returned by searchTopics (e.g., '12345')")
+        @JsonNames("topic_id", "topicId")
+        val topicId: String
+    )
+
+    override suspend fun execute(args: Args): String = databaseTools.getTopicOverview(args.topicId)
+}
+
 class SearchTopicsTool(
     private val databaseTools: MedicalDatabaseTools
 ) : SimpleTool<SearchTopicsTool.Args>(
@@ -76,7 +95,7 @@ class GetTopicSectionsTextTool(
 ) : SimpleTool<GetTopicSectionsTextTool.Args>(
     argsType = typeToken<Args>(),
     name = "getTopicSectionsText",
-    description = "Retrieve multiple sections from the same topic in a single call."
+    description = "Retrieve multiple sections from the same topic in a single call, bounded by a token budget (default 4000 tokens)."
 ) {
     @Serializable
     data class Args(
@@ -85,10 +104,13 @@ class GetTopicSectionsTextTool(
         val topicId: String,
         @property:LLMDescription("List of section IDs to retrieve from getTopicOutline")
         @JsonNames("section_ids")
-        val sectionIds: List<String>
+        val sectionIds: List<String> = emptyList(),
+        @property:LLMDescription("Maximum tokens of section text to return (default 4000 tokens / ~16000 characters)")
+        @JsonNames("max_tokens", "maxTokens")
+        val maxTokens: Int = 4000
     )
 
-    override suspend fun execute(args: Args): String = databaseTools.getTopicSectionsText(args.topicId, args.sectionIds)
+    override suspend fun execute(args: Args): String = databaseTools.getTopicSectionsText(args.topicId, args.sectionIds, args.maxTokens)
 }
 
 class GetGraphicContentTool(

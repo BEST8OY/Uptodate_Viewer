@@ -71,6 +71,37 @@ class TurnContextAccumulatorTest {
     }
 
     // ══════════════════════════════════════════════════════════════════
+    // Patient profile wiring (SafetyValidator Rule 4 integration)
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `patient profile set on accumulator flows into built turn context`() {
+        val profile = PatientProfile(
+            age = "24",
+            sex = "male",
+            conditions = listOf("pharyngitis"),
+            allergies = listOf("penicillin (anaphylaxis)")
+        )
+        accumulator.setPatientProfile(profile)
+        val ctx = accumulator.buildTurnContext("Prescribe amoxicillin.")
+        assertEquals(profile, ctx.patientProfile)
+    }
+
+    @Test
+    fun `rule 4 engages when profile is wired through accumulator`() {
+        accumulator.setPatientProfile(
+            PatientProfile(allergies = listOf("penicillin (anaphylaxis)"))
+        )
+        accumulator.onToolCallStarting("call-1", "{}")
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
+
+        val validator = SafetyValidator()
+        val result = validator.validate(accumulator.buildTurnContext("Prescribe amoxicillin."))
+        assertFalse("Documented penicillin allergy must block amoxicillin via the wired profile", result.passed)
+        assertTrue(result.blockedReason?.contains("allergy contraindication", ignoreCase = true) == true)
+    }
+
+    // ══════════════════════════════════════════════════════════════════
     // Section tracking
     // ══════════════════════════════════════════════════════════════════
 
@@ -779,6 +810,62 @@ class TurnContextAccumulatorTest {
         assertNotNull(parsedDouble)
         val resultsDouble = parsedDouble?.get("results") as? kotlinx.serialization.json.JsonArray
         assertEquals(1, resultsDouble?.size)
+    }
+
+    @Test
+    fun `onToolCallCompleted parses getTopicOverview outline and getTopicSectionsText content`() {
+        val overviewJson = """
+            {
+                "topicId": "100",
+                "title": "Atrial Fibrillation",
+                "topicType": "article",
+                "sections": [
+                    {"id": "H1", "title": "Overview", "level": 1},
+                    {"id": "H_SR", "title": "Summary & Recommendations", "level": 1}
+                ],
+                "graphics": [
+                    {"id": "g99", "title": "DOAC Dosing Table", "isTable": true}
+                ],
+                "relatedTopics": []
+            }
+        """.trimIndent()
+
+        accumulator.onToolCallStarting("call_overview_1", """{"topic_id": "100"}""")
+        accumulator.onToolCallCompleted(
+            toolCallId = "call_overview_1",
+            toolName = "getTopicOverview",
+            result = overviewJson,
+            success = true
+        )
+
+        val sectionsJson = """
+            {
+                "topicId": "100",
+                "topicTitle": "Atrial Fibrillation",
+                "sectionTitles": {
+                    "H_SR": "Summary & Recommendations"
+                },
+                "markdown": "=== Section: H_SR ===\nGive apixaban 5 mg twice daily."
+            }
+        """.trimIndent()
+
+        accumulator.onToolCallStarting("call_sec_1", """{"topic_id": "100", "section_ids": ["H_SR"]}""")
+        accumulator.onToolCallCompleted(
+            toolCallId = "call_sec_1",
+            toolName = "getTopicSectionsText",
+            result = sectionsJson,
+            success = true
+        )
+
+        val tc = accumulator.buildTurnContext("Apixaban 5 mg twice daily is recommended.")
+        val fetchedSec = tc.fetchedSections.firstOrNull { it.sectionId == "H_SR" }
+        assertNotNull(fetchedSec)
+        assertEquals("Atrial Fibrillation", fetchedSec?.topicTitle)
+        assertEquals("Summary & Recommendations", fetchedSec?.sectionTitle)
+        assertEquals(1, tc.topicRefs.size)
+        assertEquals("100", tc.topicRefs[0].topicId)
+        assertEquals("H_SR", tc.topicRefs[0].sectionId)
+        assertEquals("Summary & Recommendations", tc.topicRefs[0].label)
     }
 }
 

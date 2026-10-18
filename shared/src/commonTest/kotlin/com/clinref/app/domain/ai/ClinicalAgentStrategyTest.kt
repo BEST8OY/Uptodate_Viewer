@@ -1,6 +1,7 @@
 package com.clinref.app.domain.ai
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,6 +24,8 @@ class ClinicalAgentStrategyTest {
         assertTrue("Must contain nodeSendInput", nodeNames.any { it.contains("nodeSendInput") })
         assertTrue("Must contain nodeExecuteTool", nodeNames.any { it.contains("nodeExecuteTool") })
         assertTrue("Must contain nodeSendToolResult", nodeNames.any { it.contains("nodeSendToolResult") })
+        assertTrue("Must contain intercept_premature", nodeNames.contains("intercept_premature"))
+        assertTrue("Must contain clinical_synthesis", nodeNames.contains("clinical_synthesis"))
         assertTrue("Must contain validate_safety", nodeNames.contains("validate_safety"))
         assertTrue("Must contain build_remediation", nodeNames.contains("build_remediation"))
         assertTrue("Must contain safety_block", nodeNames.contains("safety_block"))
@@ -46,18 +49,32 @@ class ClinicalAgentStrategyTest {
         val finishEdges = allEdges.filter { it.toNode == strategy.nodeFinish }
         assertTrue("At least one edge must target nodeFinish", finishEdges.isNotEmpty())
 
-        // Remediation must loop back to nodeSendInput
         val sendInputNode = allNodes.first { it.name.contains("nodeSendInput") }
         val remediateNode = allNodes.first { it.name == "build_remediation" }
+        val interceptNode = allNodes.first { it.name == "intercept_premature" }
+        val synthesisNode = allNodes.first { it.name == "clinical_synthesis" }
+        val validateNode = allNodes.first { it.name == "validate_safety" }
+        val safetyBlockNode = allNodes.first { it.name == "safety_block" }
+
+        // Remediation must loop back to nodeSendInput
         assertTrue(
             "Remediation node must edge forwardTo nodeSendInput",
             remediateNode.edges.any { it.toNode == sendInputNode }
         )
 
-        // Safety validation node must edge to finish, remediation, and safety_block
-        val validateNode = allNodes.first { it.name == "validate_safety" }
-        val safetyBlockNode = allNodes.first { it.name == "safety_block" }
+        // Intercept premature node must loop back to nodeSendInput
+        assertTrue(
+            "intercept_premature node must edge forwardTo nodeSendInput",
+            interceptNode.edges.any { it.toNode == sendInputNode }
+        )
 
+        // Clinical synthesis node must edge forwardTo validate_safety
+        assertTrue(
+            "clinical_synthesis node must edge forwardTo validate_safety",
+            synthesisNode.edges.any { it.toNode == validateNode }
+        )
+
+        // Safety validation node must edge to finish, remediation, and safety_block
         assertTrue(
             "validate_safety must connect to nodeFinish",
             validateNode.edges.any { it.toNode == strategy.nodeFinish }
@@ -73,16 +90,64 @@ class ClinicalAgentStrategyTest {
     }
 
     @Test
-    fun `safety evaluation sealed class holds correct models`() {
+    fun `safety evaluation sealed class holds correct models and remediation targets`() {
         val valid = ClinicalAgentStrategy.SafetyEvaluation.Valid("Verified response")
         assertEquals("Verified response", valid.content)
 
-        val remediation = ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation("Missing unit", "Evidence text")
-        assertEquals("Missing unit", remediation.reason)
-        assertEquals("Evidence text", remediation.evidence)
+        val remediationEvidence = ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation(
+            reason = "Missing section evidence",
+            evidence = "No section text",
+            targetPhase = ClinicalAgentStrategy.RemediationTarget.PHASE_1_EVIDENCE
+        )
+        assertEquals("Missing section evidence", remediationEvidence.reason)
+        assertEquals("No section text", remediationEvidence.evidence)
+        assertEquals(ClinicalAgentStrategy.RemediationTarget.PHASE_1_EVIDENCE, remediationEvidence.targetPhase)
+
+        val remediationSynthesis = ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation(
+            reason = "Unverified dosage",
+            evidence = "Standard dose 5 mg",
+            targetPhase = ClinicalAgentStrategy.RemediationTarget.PHASE_2_SYNTHESIS
+        )
+        assertEquals(ClinicalAgentStrategy.RemediationTarget.PHASE_2_SYNTHESIS, remediationSynthesis.targetPhase)
 
         val blocked = ClinicalAgentStrategy.SafetyEvaluation.Blocked("Invented numbers")
         assertEquals("Invented numbers", blocked.reason)
+    }
+
+    @Test
+    fun `clinical state sealed hierarchy represents operational phases`() {
+        val evidencePhase = ClinicalAgentStrategy.ClinicalState.EvidenceGathering(
+            query = "What is the dose of amoxicillin?",
+            toolRounds = 1,
+            fetchedSectionsCount = 2,
+            graphicCount = 0
+        )
+        assertEquals(1, evidencePhase.toolRounds)
+        assertEquals(2, evidencePhase.fetchedSectionsCount)
+
+        val turnContext = TurnContextAccumulator().buildTurnContext("Clean clinical response")
+        val synthesisPhase = ClinicalAgentStrategy.ClinicalState.ClinicalSynthesis(
+            rawResponse = "<thought>Thinking...</thought>Clean clinical response",
+            cleanedResponse = "Clean clinical response",
+            turnContext = turnContext
+        )
+        assertEquals("Clean clinical response", synthesisPhase.cleanedResponse)
+
+        val verificationPhase = ClinicalAgentStrategy.ClinicalState.SafetyVerification(
+            evaluation = ClinicalAgentStrategy.SafetyEvaluation.Valid("Verified"),
+            retryCount = 0,
+            targetPhase = ClinicalAgentStrategy.RemediationTarget.PHASE_1_EVIDENCE
+        )
+        assertEquals(0, verificationPhase.retryCount)
+    }
+
+    @Test
+    fun `buildPrematureInterceptionPrompt contains required retrieval directives`() {
+        val prompt = SystemPrompt.buildPrematureInterceptionPrompt()
+        assertTrue(prompt.contains("SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED"))
+        assertTrue(prompt.contains("MANDATORY CLINICAL DIRECTIVE"))
+        assertTrue(prompt.contains("getTopicOverview"))
+        assertTrue(prompt.contains("searchTopics"))
     }
 
     @Test
