@@ -14,7 +14,7 @@ User Clinical Query + Patient Profile
              ▼
 [Phase 1: Evidence Gathering & Tool Retrieval]
   ├── Compound Retrieval: getTopicOverview (outline hierarchy + calculator full markdown)
-  └── Granular Retrieval: searchTopics (unidex), getTopicOutline, getTopicSectionsText, getGraphicContent, getRelatedTopics
+  └── Granular Retrieval: searchTopics (unidex), getTopicOverview (compound bundle), getTopicSectionsText, getGraphicContent, getRelatedTopics
              │
              ▼
 [Phase 2: Clinical Synthesis]
@@ -69,7 +69,7 @@ User Clinical Query + Patient Profile
 - Kotlin wire emits camelCase primary keys (`@JsonNames` aliases are decode-only, snake_case CSV keys are not emitted on the Kotlin wire); Python emits dual camel+snake keys. Input robustness identical; output parity asymmetry accepted.
 - Python `search_topic_sections` returns `matches`/`message` for a missing topic (recorded as tool success) where Kotlin returns `{"error": "Topic not found: X"}` (tool failure). Converged terminal outcomes; envelope divergence documented here.
 - Premature-interception on "tools ran but failed to produce evidence": Kotlin intercepts as premature; Python routes via Rule 1 missing-sections correction. Same terminal block, different counters/route — deliberate.
-- Python outline section entries omit `parentId`; Python payload carries duplicate camel+snake keys; both are additive and harmless.
+- Python `get_topic_overview` section entries omit `parentId`; Python payload carries duplicate camel+snake keys; both are additive and harmless.
 - `RemediationTarget` enum currently only labels the log line (both targets loop through `nodeRemediate` → `nodeSendInput`); type it into routing if remediation paths ever diverge.
 - `StreamingManager` reasoning-buffer StringBuilders live on the agent handler thread with Main-thread `reset()` — pre-existing pattern; harden before exposing `reasoningText`/`isReasoning` in Compose UI. Orphaned `liveDiscoveredSources` machinery has no consumers post-Ch- refactor — cleanup candidate.
 

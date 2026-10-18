@@ -11,9 +11,9 @@
 
 | Test Target | Test Suites | Total Tests | Pass Rate | Execution Time | DB Dependencies |
 |---|---|---|---|---|---|
-| **Python Prototype** | `test_e2e.py`<br>`test_clinref.py`<br>`test_integration.py`<br>`test_gate2_adversarial.py`<br>`test_m2_adversarial.py`<br>`test_adversarial_m1.py`<br>`test_challenger_m1_iter2.py`<br>`test_challenger_m1_adversarial.py` | **549** | **100% (549/549)** | ~190s | Live root SQLite databases (read-only, MD5-verified) |
+| **Python Prototype** | `test_e2e.py`<br>`test_clinref.py`<br>`test_integration.py`<br>`test_gate2_adversarial.py`<br>`test_m2_adversarial.py`<br>`test_adversarial_m1.py`<br>`test_challenger_m1_iter2.py`<br>`test_challenger_m1_adversarial.py` | **514** | **100% (514/514)** | ~190s | Live root SQLite databases (read-only, MD5-verified) |
 | **Kotlin Multiplatform (`:shared`)** | `com.clinref.app.e2e.*`<br>`com.clinref.app.domain.ai.*`<br>`com.clinref.app.data.*`<br>`com.clinref.app.adversarial.*`<br>`com.clinref.app.ui.*` | **303** | **100% (303/303)** | ~38s | Bundled SQLite / In-Memory Room / Desktop JVM |
-| **Total Combined** | **All Tiers (1–5)** | **852** | **100%** | **~228s** | **Hermetic, zero external network** |
+| **Total Combined** | **All Tiers (1–5)** | **817** | **100%** | **~228s** | **Hermetic, zero external network** |
 
 ---
 
@@ -100,4 +100,6 @@ Per PROJECT.md milestone M3 (2 Reviewers, 2 Challengers, 1 Forensic Auditor):
 | Challenger 2 | Interface contracts & serialization adversarial probes (runtime-demonstrated) | FAIL (V1, V2, V4, V5, V6 demonstrated) | All five demonstrated violations fixed with live-DB probes + anti-regression tests. Documented residual divergences in PROJECT.md. |
 | Forensic Auditor | Machine-state evidence (counts, checksums, secrets, FTS compliance) | CERTIFIED | 549 Python / 303 Kotlin tests verified via collection + JUnit XML; root-DB MD5s unchanged across runs; `.env` untracked+ignored and zero secret matches; non-FTS directive proven (chmod-000 `fsearch.db` + checksum pin). |
 
-**Post-remediation verification**: `uv run pytest` 549/549 (189.87s) · `./gradlew :shared:desktopTest` 303/303 (32s) · `:desktopApp:compileKotlin` clean. Combined **852/852 (100%)**.
+**Post-remediation verification (M3 gate)**: `uv run pytest` 549/549 (189.87s) · `./gradlew :shared:desktopTest` 303/303 (32s) · `:desktopApp:compileKotlin` clean. Combined **852/852 (100%)**.
+
+**Redundancy cleanup follow-up (2026-10-18)**: `getTopicOutline` / `get_topic_outline` tool removed cross-platform (functionally subsumed by `getTopicOverview` — strict superset); strict registry is now **6 tools**. `AiJsonUtils.normalizeToolName` retains the legacy `get_topic_outline → getTopicOutline` mapping for persisted-history canonicalization (pinned by test). Re-verified: `uv run pytest` **514/514** (188.58s) · `./gradlew :shared:desktopTest` **303/303**. Combined **817/817 (100%)**.

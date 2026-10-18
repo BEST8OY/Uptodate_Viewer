@@ -52,7 +52,7 @@
 ### Python Prototype (`python_prototype/`)
 > **Important**: Run these commands **ONLY** when you have modified `.py` files inside `python_prototype/`.
 ```bash
-uv run pytest test_clinref.py        # Run 151 unit tests (ONLY when python_prototype/ code was modified)
+uv run pytest test_clinref.py        # Run 150 unit tests (ONLY when python_prototype/ code was modified)
 uv run pytest test_integration.py   # Run 58 integration tests against root SQLite DBs (ONLY when python_prototype/ code was modified)
 uv run python run.py                 # Run interactive CLI agent
 ```
@@ -73,7 +73,7 @@ See [`docs/testing.md`](docs/testing.md) for the complete testing strategy, test
 ## Architectural Parity & Design Precedence (Kotlin & Python)
 > **Design Precedence**: `python_prototype/` serves as an algorithm verification testbed and reference implementation. Algorithmic tool flow, safety regexes, and validation criteria should align, but **architectural parity must NEVER compromise idiomatic Kotlin, Jetpack Compose M3 Expressive, Room 3, Navigation 3, or Koin architecture**. When superior multiplatform UX or cleaner software engineering warrants divergence (e.g., rich UI models, navigation scoping, native DI), prioritize Kotlin/CMP architecture.
 
-1. **Pure 3-Stage Pipeline**: `searchTopics` / `search_topics` returns candidate topics `[{id, title}]`; `getTopicOutline` / `get_topic_outline` retrieves topic outline (sections, table graphics, `topicType`).
+1. **Pure 3-Stage Pipeline**: `searchTopics` / `search_topics` returns candidate topics `[{id, title}]`; `getTopicOverview` / `get_topic_overview` retrieves the compound bundle (section outline, table graphics, related topics, `topicType`, full markdown for calculators).
 2. **Intent-Aware Safety Validation**: Non-clinical greetings bypass tool requirements. Answers containing clinical numbers/units (`CLINICAL_QUANTITY_REGEX`) require tool verification; unverified quantities trigger a hard block for self-correction.
 3. **Number & Quantity Normalization**: Range bounds (`5-10 mg`) and thousand separators (`1,200 mg` vs `1200 mg`) are normalized during text verification. Structural numbers (section IDs, years, list steps) are exempted.
 4. **HTML & Link Sanitization**: `javascript:appAction(...)` JSON link payloads convert to `[Text](Topic-ID)` / `[Text](Graphic-ID)`. Footnote citation brackets (`[1]`, `[1, 2]`) are stripped.

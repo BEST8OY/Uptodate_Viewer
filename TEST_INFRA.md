@@ -40,7 +40,7 @@ Any behavioral rule, metric conversion formula, patient boundary threshold, or e
 | Feature # | Feature Name | Tier | Primary Test Files | Core Verification Invariants |
 |---|---|---|---|---|
 | **F1** | Compound Topic Overview Retrieval | Tier 1, 4 | `test_e2e.py`<br>`CompoundRetrievalE2ETest.kt` | `getTopicOverview` / `get_topic_overview` returns bundled outline + pre-fetched high-yield sections (`Summary & Recommendations`, `Dosing`, `Management`) in 1 round-trip; falls back gracefully for calculators (`topicType = "calc"`). |
-| **F2** | Granular Tool Preservation | Tier 1, 4 | `test_integration.py`<br>`MedicalDatabaseToolsTest.kt` | Preserves all 6 granular tools (`searchTopics`, `getTopicOutline`, `getTopicSectionsText`, `getGraphicContent`, `searchTopicSections`, `getRelatedTopics`); smart section title matching; non-table graphic rejection. |
+| **F2** | Granular Tool Preservation | Tier 1, 4 | `test_integration.py`<br>`MedicalDatabaseToolsTest.kt` | Preserves the strict 6-tool contract (`getTopicOverview` bundle + 5 granular: `searchTopics`, `getTopicSectionsText`, `getGraphicContent`, `searchTopicSections`, `getRelatedTopics`); smart section title matching; non-table graphic rejection. |
 | **F3** | Bidirectional Serialization & Schema Parity | Tier 1, 4 | `test_clinref.py`<br>`MedicalDatabaseToolsTest.kt`<br>`CompoundRetrievalE2ETest.kt` | Exact parameter naming and `@JsonNames` aliases (`topic_id` vs `topicId`, `section_ids` vs `sectionIds`); uniform JSON error envelope `{"error": "..."}`; no double-escaping or field dropping. |
 | **F4** | 3-Phase State Machine (Koog & LangGraph) | Tier 3, 4 | `test_e2e.py`<br>`KoogAgentStrategyE2ETest.kt` | Structured phases: Evidence Gathering & Tool Retrieval -> Clinical Synthesis -> In-Graph Safety Verification & Remediation. Autonomous transitions without external loop intervention. |
 | **F5** | Premature Synthesis Prevention | Tier 3, 4 | `test_e2e.py`<br>`KoogAgentStrategyE2ETest.kt` | Intercepts clinical claims generated before tool retrieval; forces evidence retrieval before synthesis on non-conversational queries (Rule 0). |
@@ -69,7 +69,7 @@ Input parameters and execution contexts are partitioned into discrete equivalenc
 
 2. **Retrieval Tool Execution Paths**:
    - `R1_COMPOUND`: High-yield compound retrieval (`getTopicOverview`) returning outline + sections in 1 round trip.
-   - `R2_GRANULAR`: Multi-step granular retrieval (`searchTopics` -> `getTopicOutline` -> `getTopicSectionsText`).
+   - `R2_GRANULAR`: Multi-step granular retrieval (`searchTopics` -> `getTopicOverview` -> `getTopicSectionsText`).
    - `R3_TABLE`: Graphic table retrieval (`getGraphicContent`) for tabular dosing matrices.
    - `R4_RETRY`: Search query auto-retry through unidex suggestion candidates.
 
@@ -125,7 +125,7 @@ Tests probe exact critical thresholds where clinical behavior shifts:
 
 #### Scenario 4: Medical Calculator Full Body Retrieval
 - **Topic**: Calculator topic (e.g. `148929` / CHA2DS2-VASc).
-- **Flow**: `getTopicOutline` returns `topicType = "calc"` and `sections = [{"id": "FULL"}]` -> `getTopicSectionsText("FULL")` returns complete calculator markdown -> synthesis without invented numbers -> citation auto-populated without invalid sub-sections.
+- **Flow**: `getTopicOverview` returns `topicType = "calc"` and `sections = [{"id": "FULL"}]` -> `getTopicSectionsText("FULL")` returns complete calculator markdown -> synthesis without invented numbers -> citation auto-populated without invalid sub-sections.
 
 #### Scenario 5: Multi-Turn Self-Correction Remediation Loop
 - **Flow**: Model invents ungrounded figure (`"cure rate of 99.4%"`) -> `SafetyValidator` fails Rule 2 (invented numbers) -> graph routes to `buildCorrectionPrompt` -> correction prompt feeds exact violation and prior evidence -> model rectifies response -> validation passes -> final answer output.
@@ -139,13 +139,13 @@ Uptodate_Viewer/
 ├── TEST_INFRA.md                          # Test infrastructure specification (this document)
 ├── TEST_READY.md                          # Test readiness certificate and feature verification summary
 ├── python_prototype/                      # Python prototype test suite
-│   ├── test_clinref.py                    # Unit tests for validator, parser, tools, agent (151 tests)
+│   ├── test_clinref.py                    # Unit tests for validator, parser, tools, agent (150 tests)
 │   ├── test_integration.py                # Database integration tests against root SQLite DBs (58 tests)
 │   ├── test_e2e.py                        # Opaque-box E2E clinical inquiry, compound retrieval & safety tests
 │   ├── test_gate2_adversarial.py          # Gate 2 hardening: SQL injection, arg-alias, non-FTS & DB-integrity batteries (156 tests)
 │   ├── test_m2_adversarial.py             # Milestone 2 adversarial prompts, profile bounds & remediation tests (63 tests)
 │   ├── test_adversarial_m1.py             # Milestone 1 adversarial retrieval & state machine tests (28 tests)
-│   ├── test_challenger_m1_iter2.py        # 7-tool preservation, alias & smart-resolution cascade tests (48 tests)
+│   ├── test_challenger_m1_iter2.py        # 6-tool preservation, alias & smart-resolution cascade tests
 │   ├── test_challenger_m1_adversarial.py  # Cross-platform alias risk probes (21 tests)
 │   ├── reasoning_sanitizer.py             # Pure reasoning/thinking token sanitizer (parity with Kotlin)
 │   ├── harness_challenger_m1.py           # Standalone SQL-injection challenge harness (gate evidence)
