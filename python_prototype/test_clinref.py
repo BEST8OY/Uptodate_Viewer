@@ -15,11 +15,17 @@ from safety_validator import (
     CLINICAL_QUANTITY_REGEX,
     FetchedSection,
     GraphicRef,
+    PatientProfile,
     SafetyValidator,
     ToolCallRecord,
     TopicRef,
     TurnContext,
     ValidationResult,
+)
+from system_prompt import (
+    build_correction_prompt,
+    build_system_prompt,
+    extract_patient_context,
 )
 from html_parser import (
     extract_graphics_from_outline,
@@ -738,15 +744,16 @@ class TestToolsInit:
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         assert isinstance(tool_list, list)
-        assert len(tool_list) == 6
+        assert len(tool_list) == 7
 
     def test_init_tools_includes_expected_names(self):
         import tools
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         names = [t.name for t in tool_list]
-        assert len(names) == 6
+        assert len(names) == 7
         assert set(names) == {
+            "get_topic_overview",
             "search_topics",
             "get_topic_outline",
             "search_topic_sections",
@@ -879,6 +886,43 @@ class TestGetTopicSectionText:
         assert "5 mg" in result
         data = json.loads(result)
         assert data.get("topicId") == "123"
+
+    def test_respects_token_budget_cap(self):
+        import tools
+        long_text_1 = "Word " * 200  # ~1000 chars
+        long_text_2 = "More " * 200  # ~1000 chars
+        self.mock_db.get_topic_body.return_value = f"<h2 id='H1'>Sec 1</h2><p>{long_text_1}</p><h2 id='H2'>Sec 2</h2><p>{long_text_2}</p>"
+        self.mock_db.get_topic_outline.return_value = (
+            '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Sec 1</a>'
+            '<a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Sec 2</a>'
+        )
+        # 100 tokens = ~400 chars. Section 1 will be truncated, Section 2 will be omitted.
+        result = tools.get_topic_sections_text.invoke(
+            {"topic_id": "123", "section_ids": ["H1", "H2"], "max_tokens": 100}
+        )
+        data = json.loads(result)
+        assert data.get("truncated") is True
+        assert "omittedSections" in data
+        assert "H2" in data["omittedSections"]
+        assert "[Section truncated due to token limit]" in data["markdown"]
+
+    def test_calculator_token_cap(self):
+        import tools
+        self.mock_db.get_topic_outline.return_value = None
+        self.mock_db.get_topic_body.return_value = "<p>" + ("Calculations " * 300) + "</p>"
+        self.mock_db.get_topic_title.return_value = "Calculator"
+        self.mock_db.get_topic_asset.return_value = {
+            "topicInfo": {"type": "calc"},
+            "bodyHtml": "<p>" + ("Calculations " * 300) + "</p>",
+            "outlineHtml": ""
+        }
+        # 50 tokens = 200 chars
+        result = tools.get_topic_sections_text.invoke(
+            {"topic_id": "148929", "section_ids": ["FULL"], "max_tokens": 50}
+        )
+        data = json.loads(result)
+        assert data.get("truncated") is True
+        assert "[Content truncated due to token limit]" in data["markdown"]
 
 
 class TestGetGraphicContent:
@@ -1343,3 +1387,577 @@ class TestSchemaParityAndSafetyBlock:
         assert final_tc.structured_topic_refs[0].label == "Indications"
         assert res["validation_result"]["passed"] is True
 
+
+class TestGetTopicOverview:
+    """Unit tests for get_topic_overview compound retrieval tool."""
+
+    def setup_method(self):
+        import tools
+        self.mock_db = MagicMock()
+        tools.init_tools(self.mock_db)
+
+    def test_topic_not_found(self):
+        import tools
+        self.mock_db.get_topic_outline.return_value = None
+        self.mock_db.get_topic_body.return_value = None
+        self.mock_db.get_topic_asset.return_value = None
+
+        result = tools.get_topic_overview.invoke({"topic_id": "999"})
+        data = json.loads(result)
+        assert "error" in data
+        assert "Topic not found: 999" in data["error"]
+
+    def test_bundles_outline_and_graphics(self):
+        import tools
+        self.mock_db.get_topic_outline.return_value = (
+            '<ul id="innerOutline">'
+            '  <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>'
+            '  <li><a href="appAction({&quot;section&quot;:&quot;H_SR&quot;})">Summary &amp; Recommendations</a></li>'
+            '  <li><a href="appAction({&quot;section&quot;:&quot;H_DOSING&quot;})">Dosing</a></li>'
+            '  <li><a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})">Table 1</a></li>'
+            '</ul>'
+        )
+        self.mock_db.get_topic_body.return_value = (
+            '<div id="H1">Overview content</div>'
+            '<div id="H_SR">Summary: Give apixaban 5 mg twice daily.</div>'
+            '<div id="H_DOSING">Dosing details: reduce to 2.5 mg if CrCl &lt; 30.</div>'
+        )
+        self.mock_db.get_topic_title.return_value = "Apixaban Therapy"
+        self.mock_db.get_topic_asset.return_value = {"bodyHtml": "...", "outlineHtml": "..."}
+
+        result = tools.get_topic_overview.invoke({"topic_id": "123"})
+        data = json.loads(result)
+
+        # Schema & Invariants
+        assert data["topicId"] == "123"
+        assert data["topic_id"] == "123"
+        assert data["title"] == "Apixaban Therapy"
+        assert data["topicType"] == "article"
+        assert len(data["sections"]) == 3
+        assert len(data["graphics"]) == 1
+        assert data["markdown"] == ""
+
+    def test_calculator_topic_handling(self):
+        import tools
+        self.mock_db.get_topic_outline.return_value = None
+        self.mock_db.get_topic_body.return_value = "<p>Formula: GFR = 141 * min(Scr/kappa, 1)</p>"
+        self.mock_db.get_topic_title.return_value = "eGFR Calculator"
+        self.mock_db.get_topic_asset.return_value = {
+            "topicInfo": {"type": "calc"},
+            "bodyHtml": "<p>Formula: GFR = 141 * min(Scr/kappa, 1)</p>",
+            "outlineHtml": ""
+        }
+
+        result = tools.get_topic_overview.invoke({"topic_id": "148929"})
+        data = json.loads(result)
+
+        assert data["topicType"] == "calc"
+        assert len(data["sections"]) == 1
+        assert data["sections"][0]["id"] == "FULL"
+        assert "=== Calculator: eGFR Calculator ===" in data["markdown"]
+        assert "GFR = 141" in data["markdown"]
+
+    def test_smart_section_resolution_fallback(self):
+        import tools
+        self.mock_db.get_topic_outline.return_value = (
+            '<ul id="innerOutline">'
+            '  <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>'
+            '  <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">— Renal Impairment</a></li>'
+            '</ul>'
+        )
+        self.mock_db.get_topic_body.return_value = (
+            '<div id="H1">Overview</div><div id="H2">Renal text</div>'
+        )
+        self.mock_db.get_topic_title.return_value = "Drug C"
+        self.mock_db.get_topic_asset.return_value = {"bodyHtml": "...", "outlineHtml": "..."}
+
+        # Case-insensitive section ID
+        res1 = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "123", "section_ids": ["h2"]}))
+        assert "H2" in res1["sectionTitles"]
+        assert "=== Section: H2 ===" in res1["markdown"]
+
+        # Title match with stripped dash
+        res2 = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "123", "section_ids": ["Renal Impairment"]}))
+        assert "H2" in res2["sectionTitles"]
+        assert "=== Section: H2 ===" in res2["markdown"]
+
+        # Error envelope on nonexistent topic
+        self.mock_db.get_topic_body.return_value = None
+        self.mock_db.get_topic_outline.return_value = None
+        self.mock_db.get_topic_asset.return_value = None
+        res3 = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "999", "section_ids": ["H1"]}))
+        assert "error" in res3
+        assert "Topic not found: 999" in res3["error"]
+
+
+class TestReasoningTokenSanitizer:
+    """Unit tests for reasoning token hygiene and chain-of-thought sanitization."""
+
+    def test_strips_thought_tags_cleanly(self):
+        from reasoning_sanitizer import ReasoningTokenSanitizer
+        input_text = "<thought>Check eGFR 22 mL/min and dose 500mg</thought>Amoxicillin 250 mg orally every 12 hours."
+        sanitized = ReasoningTokenSanitizer.sanitize(input_text)
+        assert sanitized.clean_text == "Amoxicillin 250 mg orally every 12 hours."
+        assert sanitized.reasoning_text == "Check eGFR 22 mL/min and dose 500mg"
+
+    def test_strips_think_tags(self):
+        from reasoning_sanitizer import ReasoningTokenSanitizer
+        input_text = "<think>Patient is 70yo, CrCl is 45 mL/min</think>The recommended dosage is 50 mg daily."
+        clean = ReasoningTokenSanitizer.strip_reasoning(input_text)
+        assert clean == "The recommended dosage is 50 mg daily."
+
+    def test_strips_reasoning_tags_with_attributes(self):
+        from reasoning_sanitizer import ReasoningTokenSanitizer
+        input_text = '<thought type="clinical_step">Consider penicillin allergy.</thought>Azithromycin 500 mg day 1.'
+        sanitized = ReasoningTokenSanitizer.sanitize(input_text)
+        assert sanitized.clean_text == "Azithromycin 500 mg day 1."
+        assert sanitized.reasoning_text == "Consider penicillin allergy."
+
+    def test_strips_unclosed_thought_block_at_end(self):
+        from reasoning_sanitizer import ReasoningTokenSanitizer
+        input_text = "<thought>Evaluating patient symptoms: fever, cough..."
+        clean = ReasoningTokenSanitizer.strip_reasoning(input_text)
+        assert clean == ""
+        assert ReasoningTokenSanitizer.extract_reasoning(input_text) == "Evaluating patient symptoms: fever, cough..."
+
+    def test_preserves_clinical_less_than_comparisons(self):
+        from reasoning_sanitizer import ReasoningTokenSanitizer
+        input_text = "eGFR < 30 mL/min requires dose reduction to 250 mg. Hemoglobin < 7 g/dL indicates transfusion."
+        clean = ReasoningTokenSanitizer.strip_reasoning(input_text)
+        assert clean == input_text
+        assert not ReasoningTokenSanitizer.contains_reasoning(input_text)
+
+    def test_prevents_number_validation_false_positives_in_safety_validator(self):
+        from reasoning_sanitizer import ReasoningTokenSanitizer
+        from safety_validator import SafetyValidator, ToolCallRecord, TurnContext
+
+        validator = SafetyValidator()
+        tool_result = "Dosing in renal impairment: 250 mg orally every 12 hours."
+        tool_call = ToolCallRecord(
+            tool_name="get_topic_sections_text",
+            arguments={"topic_id": "123"},
+            result=tool_result,
+            success=True,
+        )
+
+        raw_llm_answer = "<thought>Standard dose is 1000 mg, but patient eGFR is 20 mL/min. Adjust to 250 mg.</thought>Give 250 mg orally."
+
+        # Without sanitization: Fails because 1000 mg is not in toolResult
+        unhygienic_ctx = TurnContext(
+            tool_calls=[tool_call],
+            answer=raw_llm_answer,
+            tool_results=[tool_result],
+        )
+        unhygienic_result = validator.validate(unhygienic_ctx)
+        assert unhygienic_result.passed is False
+        assert "1000 mg" in (unhygienic_result.blocked_reason or "") or "Unverified" in (unhygienic_result.blocked_reason or "")
+
+        # With sanitization: Passes because 1000 mg is stripped from answer
+        clean_answer = ReasoningTokenSanitizer.strip_reasoning(raw_llm_answer)
+        hygienic_ctx = TurnContext(
+            tool_calls=[tool_call],
+            answer=clean_answer,
+            tool_results=[tool_result],
+        )
+        hygienic_result = validator.validate(hygienic_ctx)
+        assert hygienic_result.passed is True
+
+    def test_prevents_conversational_query_false_positives_in_safety_validator(self):
+        from reasoning_sanitizer import ReasoningTokenSanitizer
+        from safety_validator import SafetyValidator, TurnContext
+
+        validator = SafetyValidator()
+        raw_llm_answer = "<thought>Friendly greeting. 100% confidence. No dosing needed.</thought>Hello! How can I assist you today?"
+
+        # Without sanitization: 100% causes is_non_clinical_response to return False, blocking the greeting
+        raw_ctx = TurnContext(
+            tool_calls=[],
+            answer=raw_llm_answer,
+            user_question="Hello",
+        )
+        raw_result = validator.validate(raw_ctx)
+        assert raw_result.passed is False
+
+        # With sanitization: passes Rule 0
+        clean_ctx = TurnContext(
+            tool_calls=[],
+            answer=ReasoningTokenSanitizer.strip_reasoning(raw_llm_answer),
+            user_question="Hello",
+        )
+        clean_result = validator.validate(clean_ctx)
+        assert clean_result.passed is True
+
+    def test_streaming_filter_delta_processing(self):
+        from reasoning_sanitizer import ReasoningStreamFilter
+
+        stream_filter = ReasoningStreamFilter()
+        chunks = ["<tho", "ught>checking eGFR<", "/thought>Amoxicillin ", "500 mg."]
+        clean_accum = []
+        reasoning_accum = []
+
+        for chunk in chunks:
+            c, r = stream_filter.process_delta(chunk)
+            if c:
+                clean_accum.append(c)
+            if r:
+                reasoning_accum.append(r)
+
+        assert "".join(clean_accum) == "Amoxicillin 500 mg."
+        assert "".join(reasoning_accum) == "checking eGFR"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Rule 4: Patient Profile Safety Bounds (Renal & Allergy Cross-Referencing)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestPatientProfileSafetyBounds:
+    """Tier 1 programmatic patient profile bounds validation."""
+
+    def test_allergy_contraindication_blocks_amoxicillin_for_penicillin_allergy(self):
+        profile = PatientProfile(allergies=["penicillin (anaphylaxis)"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen & Dosing: Amoxicillin 500 mg PO TID for 10 days.",
+            tool_results=["Amoxicillin 500 mg PO TID for 10 days."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "Documented patient allergy contraindication" in res.blocked_reason
+        assert "penicillin (anaphylaxis)" in res.blocked_reason
+        assert "amoxicillin" in res.blocked_reason
+
+    def test_allergy_passes_non_cross_reactive_azithromycin(self):
+        profile = PatientProfile(allergies=["penicillin (anaphylaxis)"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen & Dosing: Azithromycin 500 mg on day 1, then 250 mg daily for 4 days.",
+            tool_results=["Azithromycin 500 mg on day 1, then 250 mg daily."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert res.passed
+
+    def test_allergy_passes_when_drug_explicitly_avoided(self):
+        profile = PatientProfile(allergies=["penicillin"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="Avoid amoxicillin due to documented penicillin allergy. First-line therapy: Azithromycin 500 mg daily.",
+            tool_results=["Azithromycin 500 mg daily. Amoxicillin is commonly used."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert res.passed
+
+    def test_allergy_cross_reactive_sulfa_bactrim(self):
+        profile = PatientProfile(allergies=["sulfa drugs"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen: Prescribe Bactrim DS 1 tablet twice daily.",
+            tool_results=["Bactrim DS 1 tablet twice daily."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "allergy contraindication" in res.blocked_reason
+        assert "bactrim" in res.blocked_reason
+
+    def test_allergy_cross_reactive_nsaid_ibuprofen(self):
+        profile = PatientProfile(allergies=["aspirin"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="Administer ibuprofen 400 mg every 6 hours.",
+            tool_results=["Ibuprofen 400 mg every 6 hours."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "allergy contraindication" in res.blocked_reason
+        assert "ibuprofen" in res.blocked_reason
+
+    def test_renal_contraindication_blocks_indomethacin_for_egfr_under_30(self):
+        profile = PatientProfile(conditions=["Severe CKD", "eGFR 22 mL/min"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen & Dosing: Indomethacin 50 mg three times daily.",
+            tool_results=["Indomethacin 50 mg three times daily is first-line for acute gout."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "Documented patient renal contraindication" in res.blocked_reason
+        assert "indomethacin" in res.blocked_reason
+
+    def test_renal_contraindication_blocks_metformin_for_egfr_under_30(self):
+        profile = PatientProfile(notes="Patient has chronic kidney disease with eGFR of 24 mL/min")
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen & Dosing: Metformin 500 mg twice daily with meals.",
+            tool_results=["Metformin 500 mg twice daily with meals."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "metformin" in res.blocked_reason
+        assert "contraindicated" in res.blocked_reason
+
+    def test_renal_adjustment_blocks_colchicine_when_unadjusted(self):
+        profile = PatientProfile(conditions=["CKD stage 4 (eGFR 20)"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen & Dosing: Colchicine 1.2 mg followed by 0.6 mg one hour later.",
+            tool_results=["Colchicine 1.2 mg followed by 0.6 mg one hour later."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "colchicine requires renal dosage adjustment" in res.blocked_reason
+
+    def test_renal_adjustment_passes_colchicine_when_adjusted(self):
+        profile = PatientProfile(conditions=["CKD stage 4 (eGFR 20)"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen & Dosing: Colchicine 0.3 mg daily with renal dose adjustment for CKD.",
+            tool_results=["Colchicine 0.3 mg daily with renal dose adjustment for CKD."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert res.passed
+
+    def test_renal_passes_glucocorticoids_with_nsaid_contraindicated(self):
+        profile = PatientProfile(conditions=["Severe renal impairment (eGFR 18 mL/min)"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="NSAIDs such as indomethacin are contraindicated in severe renal impairment. First-Line Regimen & Dosing: Intra-articular triamcinolone 20 mg.",
+            tool_results=["Intra-articular triamcinolone 20 mg. NSAIDs are first line."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert res.passed
+
+    def test_patient_profile_without_renal_or_allergy_passes(self):
+        profile = PatientProfile(age="45", sex="male", conditions=["Hypertension"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen & Dosing: Lisinopril 10 mg daily.",
+            tool_results=["Lisinopril 10 mg daily is recommended."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert res.passed
+
+    def test_allergy_compound_slash_aspirin_nsaids_blocks_ibuprofen(self):
+        profile = PatientProfile(allergies=["Aspirin/NSAIDs"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="Recommend ibuprofen 400 mg for acute pain.",
+            tool_results=["Ibuprofen 400 mg for acute pain."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "allergy contraindication" in res.blocked_reason.lower()
+        assert "ibuprofen" in res.blocked_reason.lower()
+
+    def test_allergy_trailing_punctuation_penicillin_dot_blocks_amoxicillin(self):
+        profile = PatientProfile(allergies=["penicillin."])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="Prescribe amoxicillin 500 mg orally.",
+            tool_results=["Amoxicillin 500 mg orally."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "allergy contraindication" in res.blocked_reason.lower()
+        assert "amoxicillin" in res.blocked_reason.lower()
+
+    def test_allergy_plural_nsaids_blocks_ibuprofen(self):
+        profile = PatientProfile(allergies=["NSAIDs"])
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="Recommend ibuprofen 400 mg.",
+            tool_results=["Ibuprofen 400 mg."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res = SafetyValidator().validate(ctx)
+        assert not res.passed
+        assert "allergy contraindication" in res.blocked_reason.lower()
+        assert "ibuprofen" in res.blocked_reason.lower()
+
+    def test_renal_stage_4_ckd_blocks_ibuprofen_and_metformin(self):
+        profile = PatientProfile(conditions=["Stage 4 CKD"])
+        ctx_ibu = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen: Ibuprofen 600 mg TID.",
+            tool_results=["Ibuprofen 600 mg TID."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res_ibu = SafetyValidator().validate(ctx_ibu)
+        assert not res_ibu.passed
+        assert "renal contraindication" in res_ibu.blocked_reason.lower()
+        assert "ibuprofen" in res_ibu.blocked_reason.lower()
+
+        ctx_met = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen: Metformin 500 mg twice daily.",
+            tool_results=["Metformin 500 mg twice daily."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res_met = SafetyValidator().validate(ctx_met)
+        assert not res_met.passed
+        assert "renal contraindication" in res_met.blocked_reason.lower()
+        assert "metformin" in res_met.blocked_reason.lower()
+
+    def test_renal_stage_5_ckd_blocks_ibuprofen_and_metformin(self):
+        profile = PatientProfile(conditions=["Stage 5 CKD"])
+        ctx_ibu = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen: Ibuprofen 600 mg TID.",
+            tool_results=["Ibuprofen 600 mg TID."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res_ibu = SafetyValidator().validate(ctx_ibu)
+        assert not res_ibu.passed
+        assert "renal contraindication" in res_ibu.blocked_reason.lower()
+        assert "ibuprofen" in res_ibu.blocked_reason.lower()
+
+        ctx_met = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="First-Line Regimen: Metformin 500 mg twice daily.",
+            tool_results=["Metformin 500 mg twice daily."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res_met = SafetyValidator().validate(ctx_met)
+        assert not res_met.passed
+        assert "renal contraindication" in res_met.blocked_reason.lower()
+        assert "metformin" in res_met.blocked_reason.lower()
+
+    def test_renal_colchicine_reduce_dose_and_reduced_dose_passes(self):
+        profile = PatientProfile(conditions=["eGFR 22 mL/min"])
+        ctx_reduce = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="Colchicine 0.3 mg daily, reduce dose due to low GFR.",
+            tool_results=["Colchicine 0.3 mg daily, reduce dose due to low GFR."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res_reduce = SafetyValidator().validate(ctx_reduce)
+        assert res_reduce.passed
+
+        ctx_reduced = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="content", success=True)],
+            answer="Colchicine 0.3 mg daily, reduced dose due to renal function.",
+            tool_results=["Colchicine 0.3 mg daily, reduced dose due to renal function."],
+            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
+            patient_profile=profile,
+        )
+        res_reduced = SafetyValidator().validate(ctx_reduced)
+        assert res_reduced.passed
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# System Prompt & Remediation Redesign (PICO, SOAP, Categories, Non-FTS)
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestSystemPromptArchitecture:
+    """Verifies PICO/SOAP directives, category output, and non-FTS remediation."""
+
+    def test_system_prompt_pico_soap_category_output(self):
+        context = extract_patient_context({
+            "age": "65",
+            "sex": "female",
+            "conditions": ["Atrial Fibrillation"],
+            "medications": ["Metoprolol 25 mg"],
+            "allergies": ["Penicillin"],
+            "notes": "eGFR 45 mL/min",
+        })
+        prompt = build_system_prompt(patient_context=context)
+
+        # PICO & SOAP architecture
+        assert "PICO" in prompt
+        assert "SOAP" in prompt
+        assert "Patient/Problem" in prompt
+        assert "Intervention" in prompt
+        assert "Comparison" in prompt
+        assert "Outcome" in prompt
+
+        # Category outputs
+        assert "First-Line Regimen & Dosing" in prompt
+        assert "Organ Function & Adjustments" in prompt
+        assert "Contraindications & Critical Warnings" in prompt
+
+        # Patient profile parsing
+        assert "Age: 65" in prompt
+        assert "Sex: female" in prompt
+        assert "Atrial Fibrillation" in prompt
+        assert "Metoprolol 25 mg" in prompt
+        assert "Penicillin" in prompt
+        assert "eGFR 45 mL/min" in prompt
+
+    def test_extract_patient_context_gender_and_sex(self):
+        ctx1 = extract_patient_context({"age": "50", "sex": "male"})
+        assert "Sex: male" in ctx1
+
+        ctx2 = extract_patient_context({"age": "50", "gender": "female"})
+        assert "Sex: female" in ctx2
+
+    def test_extract_patient_context_allergies_and_notes(self):
+        ctx = extract_patient_context({
+            "allergies": ["sulfa", "penicillin"],
+            "notes": "Renal transplant recipient",
+        })
+        assert "Allergies: sulfa, penicillin" in ctx
+        assert "Notes: Renal transplant recipient" in ctx
+
+    def test_build_correction_prompt_non_fts_missing_sections(self):
+        prompt = build_correction_prompt(
+            blocked_reason="Answer requires section or table content retrieval.",
+            evidence_summary="No section text was successfully fetched in the prior turn.",
+        )
+        assert "search_topic_sections" not in prompt
+        assert "searchTopicSections" not in prompt
+        assert "get_topic_overview" in prompt
+        assert "get_topic_sections_text" in prompt
+
+    def test_build_correction_prompt_non_fts_contraindication(self):
+        prompt = build_correction_prompt(
+            blocked_reason="Documented patient allergy contraindication: amoxicillin recommended for penicillin allergy",
+            evidence_summary="Section [H1]: Amoxicillin 500 mg TID.",
+        )
+        assert "search_topic_sections" not in prompt
+        assert "searchTopicSections" not in prompt
+        assert "REMEDIAL INSTRUCTIONS" in prompt
+        assert "violated a documented patient safety constraint" in prompt
+        assert "get_topic_overview" in prompt
+        assert "get_topic_sections_text" in prompt
+
+    def test_build_correction_prompt_non_fts_unverified_quantities(self):
+        prompt = build_correction_prompt(
+            blocked_reason="Unverified clinical quantities found in response: 750 mg.",
+            evidence_summary="Section [H1]: 500 mg.",
+        )
+        assert "search_topic_sections" not in prompt
+        assert "searchTopicSections" not in prompt
+        assert "get_topic_overview" in prompt
+        assert "get_topic_sections_text" in prompt

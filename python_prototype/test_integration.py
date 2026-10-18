@@ -56,8 +56,8 @@ class TestDatabaseAccess:
         rows = db.toc.execute("SELECT COUNT(*) AS cnt FROM TOC").fetchone()
         assert rows["cnt"] > 0
 
-    def test_search_accessible(self, db):
-        rows = db.search.execute("SELECT COUNT(*) AS cnt FROM Search").fetchone()
+    def test_unidex_accessible(self, db):
+        rows = db.unidex.execute("SELECT COUNT(*) AS cnt FROM topic").fetchone()
         assert rows["cnt"] > 0
 
     def test_asset_accessible(self, db):
@@ -488,11 +488,55 @@ class TestCalculatorSupport:
         assert "Age" in data["markdown"] or "Inputs" in data["markdown"]
 
     def test_search_fts_multiword_query(self, db):
-        """Verify that multi-word clinical queries find topics via FTS4 in fsearch.db."""
+        """Verify that multi-word clinical queries find topics via non-FTS unidex.en.sqlite search."""
         results = db.search_topics("asthma management", limit=5)
         assert len(results) > 0
         titles = [r["title"].lower() for r in results]
         assert any("asthma" in t for t in titles)
+
+    def test_premature_interception_node_in_agent_workflow(self, db):
+        """Verify that LLM text output before tool execution on clinical query routes to intercept_premature."""
+        from langchain_core.messages import AIMessage, HumanMessage
+        from agent import create_clinical_agent
+        from safety_validator import TurnContext
+
+        class ScriptedSequenceLLM:
+            def __init__(self, responses):
+                self.responses = list(responses)
+                self.call_count = 0
+            def bind_tools(self, tools):
+                return self
+            def invoke(self, messages, config=None):
+                if self.call_count < len(self.responses):
+                    resp = self.responses[self.call_count]
+                    self.call_count += 1
+                    return resp
+                return AIMessage(content="Final safe text without dosage.")
+
+        # Turn 1: Premature assertion with dosage
+        resp1 = AIMessage(content="Recommended dosage is 10 mg daily.")
+        # Turn 2: Safe response after receiving interception prompt
+        resp2 = AIMessage(content="Consulting clinical guidance.")
+
+        llm = ScriptedSequenceLLM([resp1, resp2])
+        agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test", max_premature_retries=2)
+
+        initial_state = {
+            "messages": [HumanMessage(content="What is the apixaban dose?")],
+            "system_prompt": "Test",
+            "turn_context": TurnContext().model_dump(),
+            "user_question": "What is the apixaban dose?",
+            "retry_count": 0,
+            "validation_result": None,
+            "tool_rounds": 0,
+            "premature_retries": 0,
+        }
+        final_state = agent.invoke(initial_state)
+        # Verify intercept_premature ran and added interception prompt message
+        messages = final_state["messages"]
+        interception_msgs = [m for m in messages if isinstance(m, HumanMessage) and "SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED" in m.content]
+        assert len(interception_msgs) >= 1
+        assert final_state["premature_retries"] >= 1
 
     def test_get_topic_sections_text_empty_section_ids_defaults(self, db):
         """Calling get_topic_sections_text with empty section_ids returns default sections."""
@@ -503,3 +547,66 @@ class TestCalculatorSupport:
         data = json.loads(res_str)
         assert len(data.get("markdown", "")) > 0
         assert len(data.get("sectionTitles", {})) > 0
+
+
+class TestGetTopicOverviewIntegration:
+    """Integration tests for get_topic_overview against live UpToDate SQLite databases."""
+
+    def test_real_article_topic_overview(self, db):
+        import tools
+        tools.init_tools(db)
+
+        # Topic 1: Known medical narrative article
+        raw_res = tools.get_topic_overview.invoke({"topic_id": "1"})
+        data = json.loads(raw_res)
+
+        assert "error" not in data
+        assert data["topicId"] == "1"
+        assert len(data["title"]) > 0
+        assert data["topicType"] == "article"
+        assert len(data["sections"]) >= 3
+        assert data["markdown"] == ""
+
+    def test_real_calculator_topic_overview(self, db):
+        import tools
+        tools.init_tools(db)
+
+        # Topic 148929: AHA PREVENT Risk Calculator
+        raw_res = tools.get_topic_overview.invoke({"topic_id": "148929"})
+        data = json.loads(raw_res)
+
+        assert "error" not in data
+        assert data["topicId"] == "148929"
+        assert data["topicType"] == "calc"
+        assert len(data["sections"]) == 1
+        assert data["sections"][0]["id"] == "FULL"
+        assert "=== Calculator:" in data["markdown"]
+
+    def test_overview_and_sections_token_cap_real_database(self, db):
+        import tools
+        tools.init_tools(db)
+
+        overview_res = json.loads(tools.get_topic_overview.invoke({
+            "topic_id": "1",
+        }))
+        assert len(overview_res["sections"]) >= 3
+        first_sid = overview_res["sections"][0]["id"]
+
+        # Fetch section on demand with token cap
+        sec_res = json.loads(tools.get_topic_sections_text.invoke({
+            "topic_id": "1",
+            "section_ids": [first_sid],
+            "max_tokens": 1000,
+        }))
+        assert first_sid in sec_res["sectionTitles"]
+        assert f"=== Section: {first_sid} ===" in sec_res["markdown"]
+
+    def test_nonexistent_topic_real_database(self, db):
+        import tools
+        tools.init_tools(db)
+
+        raw_res = tools.get_topic_overview.invoke({"topic_id": "99999999"})
+        data = json.loads(raw_res)
+        assert "error" in data
+        assert "Topic not found: 99999999" in data["error"]
+

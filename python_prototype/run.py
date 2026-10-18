@@ -20,7 +20,39 @@ load_dotenv()
 
 from database import ClinRefDatabase
 from html_parser import extract_outline_sections
-from safety_validator import CONVERSATIONAL_USER_REGEX, SafetyValidator, TurnContext
+from safety_validator import CONVERSATIONAL_USER_REGEX, PatientProfile, SafetyValidator, TurnContext
+
+
+def collect_patient_profile() -> Optional[dict]:
+    """Interactively collect an optional patient profile (parity with the Kotlin UI's PatientProfile editor).
+
+    Answers feed both the system prompt context and the deterministic Tier-1
+    patient-bound safety checks (renal eGFR/CrCl + documented allergy cross-reactivity).
+    """
+    print("Patient profile (press Enter to skip a field — empty profile disables patient-bound checks):")
+    try:
+        age = input("  Age: ").strip()
+        sex = input("  Sex: ").strip()
+        conditions = input("  Conditions (comma-separated): ").strip()
+        medications = input("  Medications (comma-separated): ").strip()
+        allergies = input("  Allergies (comma-separated): ").strip()
+        notes = input("  Notes: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+
+    profile: dict = {}
+    if age:
+        profile["age"] = age
+    if sex:
+        profile["sex"] = sex
+    for key, raw in (("conditions", conditions), ("medications", medications), ("allergies", allergies)):
+        items = [part.strip() for part in raw.split(",") if part.strip()]
+        if items:
+            profile[key] = items
+    if notes:
+        profile["notes"] = notes
+    return profile or None
 
 
 def is_conversational_query(query: str) -> bool:
@@ -122,7 +154,11 @@ def run_interactive(provider: str, model: str, db_path: str):
     """Run interactive chat loop."""
     db = ClinRefDatabase(db_dir=Path(db_path))
     tools = init_tools(db)
-    system_prompt = build_system_prompt(provider=provider)
+    patient_profile = collect_patient_profile()
+    system_prompt = build_system_prompt(
+        patient_context=extract_patient_context(patient_profile),
+        provider=provider,
+    )
     api_key = resolve_api_key(provider)
     llm = create_llm(provider, model, api_key)
     llm_with_tools = llm.bind_tools(tools)
@@ -150,6 +186,9 @@ def run_interactive(provider: str, model: str, db_path: str):
 
         # Build initial state with full conversation history
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+        turn_context = TurnContext(
+            patient_profile=PatientProfile(**patient_profile) if patient_profile else None
+        ).model_dump()
         initial_state = {
             "messages": (
                 [SystemMessage(content=system_prompt)]
@@ -157,11 +196,12 @@ def run_interactive(provider: str, model: str, db_path: str):
                 + [HumanMessage(content=user_input)]
             ),
             "system_prompt": system_prompt,
-            "turn_context": TurnContext().model_dump(),
+            "turn_context": turn_context,
             "user_question": user_input,
             "retry_count": 0,
             "validation_result": None,
             "tool_rounds": 0,
+            "premature_retries": 0,
         }
 
         # Run agent with streaming output
@@ -237,7 +277,7 @@ def run_interactive(provider: str, model: str, db_path: str):
     db.close()
 
 
-def run_single_query(query: str, provider: str, model: str, db_path: str):
+def run_single_query(query: str, provider: str, model: str, db_path: str, patient_profile: Optional[dict] = None):
     """Run a single query and print the result with streaming flow."""
     # Zero-LLM Fast Path for basic conversational inputs
     if is_conversational_query(query):
@@ -247,7 +287,12 @@ def run_single_query(query: str, provider: str, model: str, db_path: str):
 
     db = ClinRefDatabase(db_dir=Path(db_path))
     tools = init_tools(db)
-    system_prompt = build_system_prompt(provider=provider)
+    if patient_profile is None and sys.stdin.isatty():
+        patient_profile = collect_patient_profile()
+    system_prompt = build_system_prompt(
+        patient_context=extract_patient_context(patient_profile),
+        provider=provider,
+    )
     api_key = resolve_api_key(provider)
     llm = create_llm(provider, model, api_key)
     llm_with_tools = llm.bind_tools(tools)
@@ -257,7 +302,7 @@ def run_single_query(query: str, provider: str, model: str, db_path: str):
     token_tracker = TokenTracker()
     agent = create_clinical_agent(llm_with_tools, tools, system_prompt, callbacks=[token_tracker])
 
-    initial_state = create_initial_state(query, system_prompt)
+    initial_state = create_initial_state(query, system_prompt, patient_profile=patient_profile)
 
     print(f"Query: {query}\n")
     answer = ""

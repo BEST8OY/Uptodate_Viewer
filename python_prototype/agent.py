@@ -7,7 +7,7 @@ State graph:
 
 import json
 import re
-from typing import Annotated, Callable, Optional, TypedDict
+from typing import Annotated, Callable, Optional, TypedDict, Union
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
@@ -17,13 +17,15 @@ from langgraph.graph.message import add_messages
 from safety_validator import (
     FetchedSection,
     GraphicRef,
+    PatientProfile,
     SafetyValidator,
     ToolCallRecord,
     TopicRef,
     TurnContext,
     ValidationResult,
 )
-from system_prompt import build_correction_prompt
+from reasoning_sanitizer import strip_reasoning
+from system_prompt import build_correction_prompt, build_premature_interception_prompt
 
 
 class AgentState(TypedDict):
@@ -34,6 +36,7 @@ class AgentState(TypedDict):
     retry_count: int
     validation_result: Optional[dict]
     tool_rounds: int  # Number of execute_tools passes this turn
+    premature_retries: int  # Number of premature interception retries
 
 
 def _build_tool_map(tools: list[BaseTool]) -> dict[str, Callable]:
@@ -75,6 +78,7 @@ def create_clinical_agent(
     callbacks: list = None,
     max_tool_retries: int = 24,
     max_safety_retries: int = 2,
+    max_premature_retries: int = 2,
 ):
     """Create the clinical retrieval agent graph.
 
@@ -86,14 +90,32 @@ def create_clinical_agent(
         max_tool_retries: Max execute_tools rounds before routing to validation
             instead of looping further (default 24, mirrors Kotlin's cap)
         max_safety_retries: Max self-correction retries (default 2)
+        max_premature_retries: Max premature interception retries before routing to safety validation (default 2)
     """
     tool_map = _build_tool_map(tools)
+    effective_premature_retries = min(max_premature_retries, max_safety_retries) if max_safety_retries == 0 else max_premature_retries
 
     def should_continue(state: AgentState) -> str:
-        """Route: tool calls -> execute_tools, text response -> validate_safety."""
+        """Route: tool calls -> execute_tools, premature text -> intercept_premature, text -> validate_safety."""
         last_message = state["messages"][-1]
         if isinstance(last_message, AIMessage) and last_message.tool_calls:
             return "execute_tools"
+
+        tc = TurnContext(**state["turn_context"])
+        raw_text = last_message.content if isinstance(last_message, AIMessage) and last_message.content else ""
+        clean_text = strip_reasoning(raw_text)
+        tc.answer = clean_text
+        tc.user_question = state.get("user_question", "")
+
+        is_conversational = SafetyValidator.is_non_clinical_response(tc)
+        has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
+        has_tools = len(tc.tool_calls) > 0
+
+        # Phase 1 premature interception: clinical response generated before any tools or evidence
+        if not is_conversational and not has_tools and not has_evidence:
+            if state.get("premature_retries", 0) < effective_premature_retries:
+                return "intercept_premature"
+
         return "validate_safety"
 
     def after_tools(state: AgentState) -> str:
@@ -206,6 +228,52 @@ def create_clinical_agent(
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+            # Track topic overview bundling
+            if name in ("get_topic_overview", "getTopicOverview"):
+                try:
+                    overview_data = json.loads(result_content)
+                    topic_id = str(
+                        overview_data.get("topicId", overview_data.get("topic_id", args.get("topic_id", args.get("topicId", ""))))
+                    ).strip()
+                    topic_title = overview_data.get("title", overview_data.get("topicTitle", overview_data.get("topic_title", "")))
+                    if topic_id and topic_title and not str(topic_title).isdigit():
+                        tc.topic_titles[topic_id] = topic_title
+
+                    # Outline sections
+                    sections = overview_data.get("sections", overview_data.get("outline", []))
+                    if topic_id and sections:
+                        tc.outline_sections[topic_id] = {
+                            s["id"]: s["title"].lstrip("-–— ") for s in sections if s.get("id")
+                        }
+
+                    # Graphics mapping
+                    graphics = overview_data.get("graphics", [])
+                    for g in graphics:
+                        gid = str(g.get("id", "")).strip()
+                        if gid:
+                            tc.graphic_to_topic[gid] = topic_id
+                            clean_gid = re.sub(r"(?i)^graphic-", "", gid)
+                            tc.graphic_to_topic[clean_gid] = topic_id
+                            g_title = g.get("title", "")
+                            if g_title:
+                                tc.graphic_titles[gid] = g_title
+                                tc.graphic_titles[clean_gid] = g_title
+
+                    # Calculator topic evidence
+                    if overview_data.get("topicType") == "calc" or overview_data.get("topic_type") == "calc":
+                        full_md = overview_data.get("markdown", "")
+                        tc.fetched_sections.append(
+                            FetchedSection(
+                                topic_id=topic_id,
+                                topic_title=tc.topic_titles.get(topic_id, topic_title),
+                                section_id="FULL",
+                                section_title="Calculator Tool Content",
+                                content_snippet=full_md[:2000],
+                            )
+                        )
+                except (json.JSONDecodeError, AttributeError, TypeError):
+                    pass
+
             # Track topic titles and section titles from outline
             if name == "get_topic_outline":
                 try:
@@ -270,7 +338,13 @@ def create_clinical_agent(
                         pass
                 # Use stored outline sections for titles (fallback to parsed data)
                 section_map = tc.outline_sections.get(topic_id, section_titles)
-                section_ids = args.get("section_ids") or args.get("sectionIds") or []
+                # Accept singular alias forms too (parity with Kotlin accumulator: sectionId/section_id)
+                section_ids = (
+                    args.get("section_ids") or args.get("sectionIds")
+                    or args.get("section_id") or args.get("sectionId") or []
+                )
+                if isinstance(section_ids, str):
+                    section_ids = [section_ids]
                 for sid in section_ids:
                     tc.fetched_sections.append(
                         FetchedSection(
@@ -287,7 +361,8 @@ def create_clinical_agent(
                 graphic_id = str(args.get("graphic_id", args.get("graphicId", ""))).strip()
                 if graphic_id:
                     clean_gid = re.sub(r"(?i)^graphic-", "", graphic_id)
-                    tc.graphic_ids.add(clean_gid)
+                    if clean_gid not in tc.graphic_ids:  # insertion-ordered, dedup across remediation turns
+                        tc.graphic_ids.append(clean_gid)
                     # Extract title from result: "### Graphic Table: {title}\n\n{markdown}"
                     m = re.match(r"### Graphic Table:\s*(.+)", result_content)
                     if m:
@@ -310,13 +385,19 @@ def create_clinical_agent(
         """Resolve the turn's final answer from the last plain-text AI message."""
         for msg in reversed(state["messages"]):
             if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-                return msg.content
+                return strip_reasoning(msg.content)
         return ""
 
     def validate_safety(state: AgentState) -> dict:
         """Run safety validation on the final answer."""
         tc = TurnContext(**state["turn_context"])
         answer = _extract_final_answer(state, tc)
+
+        # Ensure last AIMessage has reasoning stripped
+        for msg in reversed(state["messages"]):
+            if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                msg.content = answer
+                break
 
         tc.answer = answer
         tc.user_question = state.get("user_question", "")
@@ -379,20 +460,35 @@ def create_clinical_agent(
             return "llm"
         return END
 
+    def intercept_premature(state: AgentState) -> dict:
+        """Intercept premature response before tools were executed on clinical inquiry.
+
+        Injects interception prompt directive and returns to LLM (mirrors Kotlin nodeInterceptPremature).
+        """
+        current_retries = state.get("premature_retries", 0) + 1
+        prompt = build_premature_interception_prompt(str(current_retries))
+        return {
+            "messages": [HumanMessage(content=prompt)],
+            "premature_retries": current_retries,
+        }
+
     # ── Build the graph ────────────────────────────────────────────────
 
     workflow = StateGraph(AgentState)
 
     workflow.add_node("llm", call_llm)
     workflow.add_node("execute_tools", execute_tools)
+    workflow.add_node("intercept_premature", intercept_premature)
     workflow.add_node("validate_safety", validate_safety)
 
     workflow.set_entry_point("llm")
 
     workflow.add_conditional_edges("llm", should_continue, {
         "execute_tools": "execute_tools",
+        "intercept_premature": "intercept_premature",
         "validate_safety": "validate_safety",
     })
+    workflow.add_edge("intercept_premature", "llm")
     workflow.add_conditional_edges("execute_tools", after_tools, {
         "llm": "llm",
         "validate_safety": "validate_safety",
@@ -485,17 +581,26 @@ def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
 def create_initial_state(
     user_message: str,
     system_prompt: str,
+    patient_profile: Optional[Union[PatientProfile, dict]] = None,
 ) -> dict:
-    """Create initial agent state for a new turn."""
+    """Create initial agent state for a new turn.
+
+    patient_profile (optional dict with age/sex/conditions/medications/allergies/notes)
+    is wired into TurnContext so the deterministic Tier-1 patient bounds (renal & allergy)
+    can fire in-graph — parity with KoogAgentFactory.accumulator.setPatientProfile().
+    """
+    if isinstance(patient_profile, dict):
+        patient_profile = PatientProfile(**patient_profile) if patient_profile else None
     return {
         "messages": [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_message),
         ],
         "system_prompt": system_prompt,
-        "turn_context": TurnContext().model_dump(),
+        "turn_context": TurnContext(patient_profile=patient_profile).model_dump(),
         "user_question": user_message,
         "retry_count": 0,
         "validation_result": None,
         "tool_rounds": 0,
+        "premature_retries": 0,
     }
