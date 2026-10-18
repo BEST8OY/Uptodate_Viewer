@@ -28,6 +28,9 @@ from html_parser import (
 # Global database instance — initialized by run.py
 _db: Optional[ClinRefDatabase] = None
 
+# Maximum sections returned per get_topic_sections_text call; extras land in omittedSections
+MAX_SECTIONS_PER_CALL = 6
+
 
 def init_tools(db: ClinRefDatabase) -> list:
     """Initialize tools with a database instance. Returns tool list."""
@@ -310,7 +313,7 @@ def get_topic_sections_text(
     maxTokens: Optional[int] = None,
     **kwargs,
 ) -> str:
-    """Retrieve multiple sections from the same topic in a single call, bounded by a token budget (default 4000 tokens / ~16000 characters)."""
+    """Retrieve up to 6 sections from the same topic in a single call. Each section is capped at its own token budget (default 4000 tokens / ~16000 characters per section) and clipped with a '[Section truncated due to token limit]' marker. Requested section IDs beyond 6 are returned in omittedSections."""
     if _db is None:
         return json.dumps({"error": "Database not initialized"})
 
@@ -397,10 +400,15 @@ def get_topic_sections_text(
     sections_md = []
     section_titles = {}
     omitted_sections = []
-    current_chars = 0
     is_truncated = False
 
-    for section_id in valid_ids:
+    for index, section_id in enumerate(valid_ids):
+        # Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
+        # extra IDs are reported in omittedSections (never dropped silently).
+        if index >= MAX_SECTIONS_PER_CALL:
+            omitted_sections.append(section_id)
+            continue
+
         title = id_to_title.get(section_id, "")
         section_html = extract_section_html(body_html, outline_html or "", section_id)
         if section_html:
@@ -409,29 +417,16 @@ def get_topic_sections_text(
         else:
             sec_entry = f"=== Section: {section_id} ===\nSection not found."
 
-        if is_truncated:
-            omitted_sections.append(section_id)
-            continue
-
-        entry_len = len(sec_entry)
-        separator_len = 2 if sections_md else 0
-
-        if current_chars + separator_len + entry_len <= max_chars:
-            sections_md.append(sec_entry)
-            section_titles[section_id] = title
-            current_chars += separator_len + entry_len
-        else:
-            remaining = max_chars - (current_chars + separator_len)
-            if not sections_md or remaining >= 200:
-                header_prefix = f"=== Section: {section_id} ===\n"
-                cutoff = max(len(header_prefix) + 20, remaining - 50)
-                partial = sec_entry[:cutoff].rstrip() + "\n\n[Section truncated due to token limit]"
-                sections_md.append(partial)
-                section_titles[section_id] = title
-                current_chars += separator_len + len(partial)
-            else:
-                omitted_sections.append(section_id)
+        # Per-section budget: every requested section returns its own content up to
+        # max_chars, clipped with a marker — sections are never dropped for budget.
+        if len(sec_entry) > max_chars:
+            header_prefix = f"=== Section: {section_id} ===\n"
+            cutoff = max(len(header_prefix) + 20, max_chars - 50)
+            sec_entry = sec_entry[:cutoff].rstrip() + "\n\n[Section truncated due to token limit]"
             is_truncated = True
+
+        sections_md.append(sec_entry)
+        section_titles[section_id] = title
 
     result = {
         "topicId": clean_topic_id,

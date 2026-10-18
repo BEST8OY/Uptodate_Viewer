@@ -868,7 +868,7 @@ class TestGetTopicSectionText:
         data = json.loads(result)
         assert data.get("topicId") == "123"
 
-    def test_respects_token_budget_cap(self):
+    def test_per_section_token_budget_cap(self):
         import tools
         long_text_1 = "Word " * 200  # ~1000 chars
         long_text_2 = "More " * 200  # ~1000 chars
@@ -877,15 +877,38 @@ class TestGetTopicSectionText:
             '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Sec 1</a>'
             '<a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Sec 2</a>'
         )
-        # 100 tokens = ~400 chars. Section 1 will be truncated, Section 2 will be omitted.
+        # 100 tokens = ~400 chars PER SECTION. Both requested sections are returned;
+        # each is individually clipped with a marker — no aggregate omissions exist.
         result = tools.get_topic_sections_text.invoke(
             {"topic_id": "123", "section_ids": ["H1", "H2"], "max_tokens": 100}
         )
         data = json.loads(result)
         assert data.get("truncated") is True
-        assert "omittedSections" in data
-        assert "H2" in data["omittedSections"]
-        assert "[Section truncated due to token limit]" in data["markdown"]
+        assert "omittedSections" not in data
+        assert set(data["sectionTitles"].keys()) == {"H1", "H2"}
+        md = data["markdown"]
+        assert "=== Section: H1 ===" in md
+        assert "=== Section: H2 ===" in md
+        assert md.count("[Section truncated due to token limit]") == 2
+
+    def test_sections_beyond_six_per_call_omitted(self):
+        import tools
+        self.mock_db.get_topic_body.return_value = "".join(
+            f"<h2 id='H{i}'>Sec {i}</h2><p>Content {i}.</p>" for i in range(1, 8)
+        )
+        self.mock_db.get_topic_outline.return_value = "".join(
+            '<a href="appAction({&quot;section&quot;:&quot;H%d&quot;})">Sec %d</a>' % (i, i)
+            for i in range(1, 8)
+        )
+        result = tools.get_topic_sections_text.invoke(
+            {"topic_id": "123", "section_ids": [f"H{i}" for i in range(1, 8)]}
+        )
+        data = json.loads(result)
+        # Count guard: at most 6 sections per call; the 7th is reported, never silently dropped
+        assert set(data["sectionTitles"].keys()) == {f"H{i}" for i in range(1, 7)}
+        assert data["omittedSections"] == ["H7"]
+        assert "truncated" not in data
+        assert "=== Section: H7 ===" not in data["markdown"]
 
     def test_calculator_token_cap(self):
         import tools

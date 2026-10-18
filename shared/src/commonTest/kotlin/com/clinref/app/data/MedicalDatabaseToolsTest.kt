@@ -454,7 +454,7 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicSectionsText respects token-based cap`() {
+    fun `getTopicSectionsText applies per-section token budget cap`() {
         val outlineHtml = """
             <ul id="innerOutline">
                 <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
@@ -472,18 +472,52 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("200") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("200") } returns "Drug A"
 
-        // Execute with 100 maxTokens = 400 maxChars
+        // Execute with 100 maxTokens = 400 maxChars PER SECTION. Both requested sections are
+        // returned (each individually clipped) — aggregate omissions no longer exist.
         val resultJson = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"), maxTokens = 100)
         val obj = json.parseToJsonElement(resultJson).jsonObject
 
         assertTrue(obj.containsKey("truncated"))
         assertEquals("true", obj["truncated"]!!.jsonPrimitive.content)
-        assertTrue(obj.containsKey("omittedSections"))
-        val omitted = obj["omittedSections"]!!.jsonArray.map { it.jsonPrimitive.content }
-        assertTrue(omitted.contains("H_RENAL"))
+        assertTrue(!obj.containsKey("omittedSections"))
+        val titles = obj["sectionTitles"]!!.jsonObject
+        assertTrue(titles.containsKey("H1"))
+        assertTrue(titles.containsKey("H_RENAL"))
 
         val md = obj["markdown"]!!.jsonPrimitive.content
-        assertTrue(md.contains("[Section truncated due to token limit]"))
+        assertTrue(md.contains("=== Section: H1 ==="))
+        assertTrue(md.contains("=== Section: H_RENAL ==="))
+        val marker = "[Section truncated due to token limit]"
+        assertEquals(2, md.split(marker).size - 1)
+    }
+
+    @Test
+    fun `getTopicSectionsText returns at most six sections per call`() {
+        val outlineHtml = (1..7).joinToString("") {
+            """<li><a href="appAction({&quot;section&quot;:&quot;H$it&quot;})">Sec $it</a></li>"""
+        }
+        val bodyHtml = (1..7).joinToString("") {
+            """<p class="headingAnchor" id="H$it"><span class="h1">Sec $it</span><span class="headingEndMark">—</span>Short text $it.</p>"""
+        }
+        every { contentRepository.getTopicContent("300") } returns ContentRepository.TopicContent(
+            outlineHtml = """<ul id="innerOutline">$outlineHtml</ul>""",
+            bodyHtml = bodyHtml
+        )
+        every { contentRepository.getTopicTitle("300") } returns "Topic 300"
+
+        val resultJson = tools.getTopicSectionsText("300", (1..7).map { "H$it" })
+        val obj = json.parseToJsonElement(resultJson).jsonObject
+
+        // Count guard: at most 6 sections per call; the 7th is reported, never silently dropped
+        val titles = obj["sectionTitles"]!!.jsonObject
+        (1..6).forEach { assertTrue(titles.containsKey("H$it")) }
+        assertTrue(!titles.containsKey("H7"))
+        assertTrue(!obj.containsKey("truncated"))
+        val omitted = obj["omittedSections"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("H7"), omitted)
+        val md = obj["markdown"]!!.jsonPrimitive.content
+        assertTrue(md.contains("=== Section: H6 ==="))
+        assertTrue(!md.contains("=== Section: H7 ==="))
     }
 
     @Test

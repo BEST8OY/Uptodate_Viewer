@@ -8,6 +8,9 @@ import kotlinx.serialization.json.Json
 
 private const val TAG = "MedTools"
 
+// Maximum sections returned per getTopicSectionsText call; extras land in omittedSections
+private const val MAX_SECTIONS_PER_CALL = 6
+
 class MedicalDatabaseTools(
     private val searchRepository: SearchRepository,
     private val contentRepository: ContentRepository,
@@ -323,10 +326,16 @@ class MedicalDatabaseTools(
         val sectionsMd = mutableListOf<String>()
         val sectionTitles = mutableMapOf<String, String>()
         val omittedSections = mutableListOf<String>()
-        var currentChars = 0
         var isTruncated = false
 
-        for (sectionId in validIds) {
+        validIds.forEachIndexed { index, sectionId ->
+            // Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
+            // extra IDs are reported in omittedSections (never dropped silently).
+            if (index >= MAX_SECTIONS_PER_CALL) {
+                omittedSections.add(sectionId)
+                return@forEachIndexed
+            }
+
             val title = idToTitle[sectionId] ?: ""
             val sectionHtml = extractSectionHtml(content.bodyHtml, outline.sections, sectionId)
             val secMarkdown = if (sectionHtml != null) {
@@ -336,34 +345,19 @@ class MedicalDatabaseTools(
             } else {
                 "Section not found."
             }
-            val secEntry = "=== Section: $sectionId ===\n$secMarkdown"
+            var secEntry = "=== Section: $sectionId ===\n$secMarkdown"
 
-            if (isTruncated) {
-                omittedSections.add(sectionId)
-                continue
-            }
-
-            val entryLen = secEntry.length
-            val separatorLen = if (sectionsMd.isNotEmpty()) 2 else 0
-
-            if (currentChars + separatorLen + entryLen <= maxChars) {
-                sectionsMd.add(secEntry)
-                sectionTitles[sectionId] = title
-                currentChars += separatorLen + entryLen
-            } else {
-                val remaining = maxChars - (currentChars + separatorLen)
-                if (sectionsMd.isEmpty() || remaining >= 200) {
-                    val headerPrefix = "=== Section: $sectionId ===\n"
-                    val cutoff = maxOf(headerPrefix.length + 20, remaining - 50)
-                    val partial = secEntry.take(cutoff).trimEnd() + "\n\n[Section truncated due to token limit]"
-                    sectionsMd.add(partial)
-                    sectionTitles[sectionId] = title
-                    currentChars += separatorLen + partial.length
-                } else {
-                    omittedSections.add(sectionId)
-                }
+            // Per-section budget: every requested section returns its own content up to
+            // maxChars, clipped with a marker — sections are never dropped for budget.
+            if (secEntry.length > maxChars) {
+                val headerPrefix = "=== Section: $sectionId ===\n"
+                val cutoff = maxOf(headerPrefix.length + 20, maxChars - 50)
+                secEntry = secEntry.take(cutoff).trimEnd() + "\n\n[Section truncated due to token limit]"
                 isTruncated = true
             }
+
+            sectionsMd.add(secEntry)
+            sectionTitles[sectionId] = title
         }
 
         return json.encodeToString(

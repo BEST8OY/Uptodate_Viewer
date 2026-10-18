@@ -77,7 +77,7 @@ class GetTopicSectionsTextTool(
 ) : SimpleTool<GetTopicSectionsTextTool.Args>(
     argsType = typeToken<Args>(),
     name = "getTopicSectionsText",
-    description = "Retrieve multiple sections from the same topic in a single call, bounded by a token budget (default 4000 tokens)."
+    description = "Retrieve up to 6 sections from the same topic in a single call. Each section is capped at its own token budget (default 4000 tokens); requested section IDs beyond 6 are returned in omittedSections."
 ) {
     @Serializable
     data class Args(
@@ -87,7 +87,7 @@ class GetTopicSectionsTextTool(
         @property:LLMDescription("List of section IDs to retrieve from getTopicOverview")
         @JsonNames("section_ids")
         val sectionIds: List<String> = emptyList(),
-        @property:LLMDescription("Maximum tokens of section text to return (default 4000 tokens / ~16000 characters)")
+        @property:LLMDescription("Maximum tokens per returned section (default 4000 tokens / ~16000 characters per section)")
         @JsonNames("max_tokens", "maxTokens")
         val maxTokens: Int = 4000
     )
