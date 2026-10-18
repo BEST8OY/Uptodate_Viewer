@@ -111,7 +111,6 @@ object AiJsonUtils {
     fun normalizeToolName(rawName: String): String = when (rawName) {
         "get_topic_overview", "getTopicOverview" -> "getTopicOverview"
         "search_topics", "searchTopics" -> "searchTopics"
-        "get_topic_outline", "getTopicOutline" -> "getTopicOutline"
         "get_related_topics", "getRelatedTopics" -> "getRelatedTopics"
         "get_topic_sections_text", "getTopicSectionsText" -> "getTopicSectionsText"
         "get_graphic_content", "getGraphicContent" -> "getGraphicContent"

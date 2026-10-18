@@ -604,7 +604,7 @@ class TurnContextAccumulatorTest {
 
         accumulator.onToolCallStarting("call-2", """{"topic_id":"5678"}""")
         accumulator.onToolCallCompleted(
-            "call-2", "get_topic_outline",
+            "call-2", "get_topic_overview",
             """{"topicId":"5678","title":"Treatment of acute gout","sections":[{"id":"sec_colchicine","title":"Colchicine dosing"}]}""",
             true
         )
@@ -625,7 +625,6 @@ class TurnContextAccumulatorTest {
     @Test
     fun `AiJsonUtils normalizes tool names and arguments to canonical forms`() {
         assertEquals("searchTopics", AiJsonUtils.normalizeToolName("search_topics"))
-        assertEquals("getTopicOutline", AiJsonUtils.normalizeToolName("get_topic_outline"))
         assertEquals("getRelatedTopics", AiJsonUtils.normalizeToolName("get_related_topics"))
         assertEquals("getTopicSectionsText", AiJsonUtils.normalizeToolName("get_topic_sections_text"))
         assertEquals("getGraphicContent", AiJsonUtils.normalizeToolName("get_graphic_content"))
