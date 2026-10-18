@@ -152,22 +152,6 @@ class ChatViewModel(
         _chatItems.value = buildChatItems(newMessages)
     }
 
-    data class ReadingContext(
-        val topicId: String,
-        val sectionId: String? = null
-    )
-
-    private val _activeReadingContext = MutableStateFlow<ReadingContext?>(null)
-    val activeReadingContext: StateFlow<ReadingContext?> = _activeReadingContext.asStateFlow()
-
-    fun setActiveReadingContext(topicId: String?, sectionId: String? = null) {
-        _activeReadingContext.value = if (topicId != null) {
-            ReadingContext(topicId, sectionId)
-        } else {
-            null
-        }
-    }
-
     fun loadConversation(conversationId: String, forceReload: Boolean = false) {
         if (!forceReload && _currentConversationId.value == conversationId && _messages.value.isNotEmpty()) {
             return
@@ -217,14 +201,6 @@ class ChatViewModel(
         val conversationId = _currentConversationId.value ?: return
         val trimmed = content.trim()
         if (trimmed.isBlank()) return
-
-        val activeContext = _activeReadingContext.value
-        val effectivePrompt = if (activeContext != null && !trimmed.startsWith("[Context:")) {
-            val sectionHint = if (!activeContext.sectionId.isNullOrBlank()) " (section: ${activeContext.sectionId})" else ""
-            "[Context: Clinician is viewing topic ${activeContext.topicId}$sectionHint]\n$trimmed"
-        } else {
-            trimmed
-        }
 
         viewModelScope.launch {
             val userMsg = MessageEntity(
@@ -291,7 +267,7 @@ class ChatViewModel(
                             userMessage = trimmed
                         ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
                         lastAccumulator = accumulator
-                        agent.run(effectivePrompt, conversationId)
+                        agent.run(trimmed, conversationId)
                     }
                     withContext(Dispatchers.Main) {
                         handleAgentResult(conversationId, pendingAssistantId, result, lastAccumulator)

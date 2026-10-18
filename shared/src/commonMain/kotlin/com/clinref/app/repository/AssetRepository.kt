@@ -13,15 +13,16 @@ class AssetRepository(
     }
 
     fun getGraphic(graphicId: String): GraphicData? {
-        synchronized(cache) { cache[graphicId] }?.let { return it }
+        val cleanId = graphicId.removePrefix("Graphic-")
+        synchronized(cache) { cache[cleanId] }?.let { return it }
 
-        val data = assetDao.getGraphicJson(graphicId) ?: run {
-            Log.w(TAG, "No decodable payload for graphic $graphicId")
+        val data = assetDao.getGraphicJson(cleanId) ?: run {
+            Log.w(TAG, "No decodable payload for graphic $cleanId")
             return null
         }
         val graphicInfo = data["graphicInfo"] as? Map<*, *>
         val result = GraphicData(
-            id = graphicId,
+            id = cleanId,
             title = graphicInfo?.get("displayName") as? String ?: "",
             type = graphicInfo?.get("type") as? String ?: "",
             subtype = graphicInfo?.get("subtype") as? String ?: "",
@@ -29,15 +30,16 @@ class AssetRepository(
             base64Image = data["base64Image"] as? String,
             movieUrl = data["movieUrl"] as? String
         )
-        synchronized(cache) { cache[graphicId] = result }
+        synchronized(cache) { cache[cleanId] = result }
         return result
     }
 
     fun getGraphicTitle(graphicId: String): String? {
-        synchronized(cache) { cache[graphicId] }?.let {
+        val cleanId = graphicId.removePrefix("Graphic-")
+        synchronized(cache) { cache[cleanId] }?.let {
             if (it.title.isNotEmpty()) return it.title
         }
-        return assetDao.getGraphicTitle(graphicId)
+        return assetDao.getGraphicTitle(cleanId)
     }
 
     private companion object {

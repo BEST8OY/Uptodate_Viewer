@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Medication
-import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,6 +79,15 @@ import com.clinref.app.ui.chat.components.GeminiChatInput
 import com.clinref.app.ui.chat.components.GeminiMessageItem
 import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
 import com.clinref.app.ui.common.ScrollToBottomFAB
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.saveable.listSaver
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import com.clinref.app.ui.content.ContentScreen
+import com.clinref.app.ui.content.GraphicSheet
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -91,21 +99,30 @@ private object ChatListKeys {
     const val BOTTOM_ANCHOR = "bottom_anchor"
 }
 
+data class ArticleSheetRequest(
+    val topicId: String,
+    val sectionId: String? = null
+)
+
+private val ArticleSheetRequestSaver = listSaver<ArticleSheetRequest, String?>(
+    save = { listOf(it.topicId, it.sectionId) },
+    restore = { list ->
+        val topic = list.getOrNull(0) ?: return@listSaver null
+        ArticleSheetRequest(topicId = topic, sectionId = list.getOrNull(1))
+    }
+)
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChatScreen(
     conversationId: String,
-    onNavigateToContent: (String, String?) -> Unit,
-    onGraphicSelected: (String) -> Unit,
+    onNavigateToHome: () -> Unit,
     onBack: () -> Unit,
-    activeReadingTopicId: String? = null,
-    activeReadingSectionId: String? = null,
     viewModel: ChatViewModel = org.koin.compose.viewmodel.koinViewModel()
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
     val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
-    val activeReadingContext by viewModel.activeReadingContext.collectAsStateWithLifecycle()
     val agentState by viewModel.agentState.collectAsStateWithLifecycle()
     val orchestrationSteps by viewModel.orchestrationSteps.collectAsStateWithLifecycle()
     val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
@@ -136,12 +153,21 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
-    LaunchedEffect(conversationId) {
-        viewModel.loadConversation(conversationId)
+    var activeArticle by rememberSaveable(stateSaver = ArticleSheetRequestSaver) {
+        mutableStateOf<ArticleSheetRequest?>(null)
+    }
+    var activeGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
+    var inArticleGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
+        activeArticle = ArticleSheetRequest(topicId, sectionId)
+    }
+    val handleGraphicSelected: (String) -> Unit = { graphicId ->
+        activeGraphicId = graphicId.removePrefix("Graphic-")
     }
 
-    LaunchedEffect(activeReadingTopicId, activeReadingSectionId) {
-        viewModel.setActiveReadingContext(activeReadingTopicId, activeReadingSectionId)
+    LaunchedEffect(conversationId) {
+        viewModel.loadConversation(conversationId)
     }
 
     // Pause auto-follow if the user manually drags up
@@ -301,14 +327,14 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = onNavigateToContent,
-                                onGraphicSelected = onGraphicSelected
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected
                             )
                             is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
                                 articles = item.articles,
                                 tables = item.tables,
-                                onNavigateToContent = onNavigateToContent,
-                                onGraphicSelected = onGraphicSelected,
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected,
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
@@ -342,8 +368,8 @@ fun ChatScreen(
                                         snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                     }
                                 },
-                                onNavigateToContent = onNavigateToContent,
-                                onGraphicSelected = onGraphicSelected
+                                onNavigateToContent = handleNavigateToContent,
+                                onGraphicSelected = handleGraphicSelected
                             )
                         }
                     }
@@ -378,48 +404,6 @@ fun ChatScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                activeReadingContext?.let { ctx ->
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)),
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MenuBook,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Viewing: ${ctx.topicId}${ctx.sectionId?.let { " › $it" } ?: ""}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            IconButton(
-                                onClick = { viewModel.setActiveReadingContext(null) },
-                                modifier = Modifier.size(16.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Clear reference context",
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
                 GeminiChatInput(
                     state = textFieldState,
                     onSendMessage = { text ->
@@ -436,6 +420,70 @@ fun ChatScreen(
                 )
             }
         }
+    }
+
+    val currentArticle = activeArticle
+    if (currentArticle != null) {
+        val articleSheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true
+        )
+        val articleStoreOwner = remember(currentArticle) {
+            object : ViewModelStoreOwner {
+                override val viewModelStore = ViewModelStore()
+            }
+        }
+        DisposableEffect(articleStoreOwner) {
+            onDispose {
+                articleStoreOwner.viewModelStore.clear()
+            }
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = {
+                activeArticle = null
+                inArticleGraphicId = null
+            },
+            sheetState = articleSheetState,
+            dragHandle = null,
+            sheetGesturesEnabled = false,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            CompositionLocalProvider(
+                LocalViewModelStoreOwner provides articleStoreOwner
+            ) {
+                ContentScreen(
+                    topicId = currentArticle.topicId,
+                    sectionId = currentArticle.sectionId,
+                    isModal = true,
+                    onBack = {
+                        activeArticle = null
+                        inArticleGraphicId = null
+                    },
+                    onHome = {
+                        activeArticle = null
+                        inArticleGraphicId = null
+                        onNavigateToHome()
+                    },
+                    onGraphicSelected = { graphicId ->
+                        inArticleGraphicId = graphicId.removePrefix("Graphic-")
+                    }
+                )
+            }
+
+            if (inArticleGraphicId != null) {
+                GraphicSheet(
+                    graphicId = inArticleGraphicId!!,
+                    onDismiss = { inArticleGraphicId = null }
+                )
+            }
+        }
+    }
+
+    if (activeGraphicId != null) {
+        GraphicSheet(
+            graphicId = activeGraphicId!!,
+            onDismiss = { activeGraphicId = null }
+        )
     }
 }
 

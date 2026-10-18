@@ -136,20 +136,6 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun testActiveReadingContextManagement() {
-        assertNull(viewModel.activeReadingContext.value)
-
-        viewModel.setActiveReadingContext("asthma-101", "sec-treatment")
-        val ctx = viewModel.activeReadingContext.value
-        assertNotNull(ctx)
-        assertEquals("asthma-101", ctx?.topicId)
-        assertEquals("sec-treatment", ctx?.sectionId)
-
-        viewModel.setActiveReadingContext(null)
-        assertNull(viewModel.activeReadingContext.value)
-    }
-
-    @Test
     fun testChatItemsDecomposesAssistantMessageWithReferences() = runTest(testDispatcher) {
         val userMsg = MessageEntity(
             id = "user-1",

@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.repository.AssetRepository
 import com.clinref.shared.platform.PlatformLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +23,7 @@ class GraphicViewModel(
     val uiState: StateFlow<GraphicUiState> = _uiState.asStateFlow()
 
     private var lastGraphicId: String? = null
+    private var loadJob: Job? = null
 
     fun loadGraphic(graphicId: String) {
         lastGraphicId = graphicId
@@ -32,16 +35,23 @@ class GraphicViewModel(
     }
 
     private fun load(graphicId: String) {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _uiState.value = GraphicUiState.Loading
             try {
                 val result = withContext(ioDispatcher) {
                     assetRepository.getGraphic(graphicId)
                 }
-                _uiState.value = result?.let { GraphicUiState.Success(it) } ?: GraphicUiState.Error
+                if (lastGraphicId == graphicId) {
+                    _uiState.value = result?.let { GraphicUiState.Success(it) } ?: GraphicUiState.Error
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 PlatformLogger.e(TAG, "Failed to load graphic $graphicId", e)
-                _uiState.value = GraphicUiState.Error
+                if (lastGraphicId == graphicId) {
+                    _uiState.value = GraphicUiState.Error
+                }
             }
         }
     }

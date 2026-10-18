@@ -125,7 +125,7 @@ fun GeminiMessageItem(
                                         onNavigateToContent(topicId, null)
                                     }
                                     uri.startsWith("graphic:") -> {
-                                        val graphicId = uri.removePrefix("graphic:")
+                                        val graphicId = uri.removePrefix("graphic:").removePrefix("Graphic-")
                                         onGraphicSelected(graphicId)
                                     }
                                     else -> {

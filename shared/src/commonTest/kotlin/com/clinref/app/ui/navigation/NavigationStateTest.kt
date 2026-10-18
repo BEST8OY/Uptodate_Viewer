@@ -169,16 +169,62 @@ class NavigationStateTest {
     }
 
     @Test
-    fun `navigating to GraphicRoute pushes onto active stack and goBack dismisses it`() {
+    fun `standard library entry points TOC, History, and Favorites push ContentRoute onto their backstacks for full-screen navigation`() {
         val navigator = createNavigator()
-        val contentRoute = ContentRoute("topic-1")
-        val graphicRoute = GraphicRoute("graphic-1")
 
-        navigator.navigate(contentRoute)
-        navigator.navigate(graphicRoute)
-        assertEquals(listOf<NavKey>(TocRoute, contentRoute, graphicRoute), navigator.state.backStacks[TocRoute]?.toList())
-
+        // 1. TOC (and Global Search within TOC) navigates to ContentRoute
+        val tocContent = ContentRoute("topic-toc", "sec-1")
+        navigator.navigate(tocContent)
+        assertEquals(listOf<NavKey>(TocRoute, tocContent), navigator.state.backStacks[TocRoute]?.toList())
         navigator.goBack()
-        assertEquals(listOf<NavKey>(TocRoute, contentRoute), navigator.state.backStacks[TocRoute]?.toList())
+        assertEquals(listOf<NavKey>(TocRoute), navigator.state.backStacks[TocRoute]?.toList())
+
+        // 2. History navigates to ContentRoute
+        navigator.navigate(HistoryRoute)
+        val historyContent = ContentRoute("topic-history")
+        navigator.navigate(historyContent)
+        assertEquals(listOf<NavKey>(HistoryRoute, historyContent), navigator.state.backStacks[HistoryRoute]?.toList())
+        navigator.goBack()
+        assertEquals(listOf<NavKey>(HistoryRoute), navigator.state.backStacks[HistoryRoute]?.toList())
+
+        // 3. Favorites navigates to ContentRoute
+        navigator.navigate(FavoritesRoute)
+        val favContent = ContentRoute("topic-fav")
+        navigator.navigate(favContent)
+        assertEquals(listOf<NavKey>(FavoritesRoute, favContent), navigator.state.backStacks[FavoritesRoute]?.toList())
+        navigator.goBack()
+        assertEquals(listOf<NavKey>(FavoritesRoute), navigator.state.backStacks[FavoritesRoute]?.toList())
+    }
+
+    @Test
+    fun `AI chat backstack invariant - conversation stack remains unmutated by in-chat reading while preserving session across home navigation`() {
+        val navigator = createNavigator()
+
+        // Navigate to AI tab and enter a conversation
+        navigator.navigate(AiRoute)
+        val chatRoute = ChatRoute("conv-session-123")
+        navigator.navigate(chatRoute)
+
+        assertEquals(AiRoute, navigator.state.topLevelRoute)
+        assertEquals(listOf<NavKey>(AiRoute, chatRoute), navigator.state.backStacks[AiRoute]?.toList())
+
+        // In AI Chat, article citations and graphic previews are displayed via local ModalBottomSheet
+        // overlays inside ChatScreen without mutating navigator backstacks (R1, R3).
+        // Backstack remains strictly [AiRoute, ChatRoute]
+        assertEquals(2, navigator.state.backStacks[AiRoute]?.size)
+        assertEquals(chatRoute, navigator.state.backStacks[AiRoute]?.last())
+
+        // Clinician taps "Home" from in-sheet reader, navigating to TocRoute (R2)
+        navigator.navigate(TocRoute)
+        assertEquals(TocRoute, navigator.state.topLevelRoute)
+
+        // AI backstack is preserved intact with the conversation still active (100% conversation preservation)
+        assertEquals(listOf<NavKey>(AiRoute, chatRoute), navigator.state.backStacks[AiRoute]?.toList())
+
+        // Switching back to AiRoute restores the active conversation directly
+        navigator.navigate(AiRoute)
+        assertEquals(AiRoute, navigator.state.topLevelRoute)
+        assertEquals(listOf<NavKey>(AiRoute, chatRoute), navigator.state.backStacks[AiRoute]?.toList())
     }
 }
+

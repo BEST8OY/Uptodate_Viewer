@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,8 +70,6 @@ import com.clinref.app.ui.toc.TocScreen
 import com.clinref.app.ui.chat.ChatScreen
 import com.clinref.app.ui.conversations.ConversationListScreen
 import com.clinref.app.ui.settings.AiSettingsScreen
-import com.clinref.app.ui.settings.SettingsViewModel
-import kotlinx.serialization.Serializable
 
 val TopLevelRoute.icon: ImageVector
     get() = when (this) {
@@ -102,6 +101,7 @@ fun NavGraph(
     )
 
     val navigator = remember { Navigator(navigationState) }
+    var selectedGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val isOnSubRoute by remember {
         derivedStateOf {
@@ -124,7 +124,7 @@ fun NavGraph(
                     navigator.navigate(ContentRoute(topicId))
                 },
                 onGraphicSelected = { graphicId ->
-                    navigator.navigate(GraphicRoute(graphicId))
+                    selectedGraphicId = graphicId.removePrefix("Graphic-")
                 },
                 reselectEvents = navigator.reselectEvents
             )
@@ -133,7 +133,7 @@ fun NavGraph(
             HistoryScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
-                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
+                        selectedGraphicId = topicId.removePrefix("Graphic-")
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
@@ -146,7 +146,7 @@ fun NavGraph(
             FavoritesScreen(
                 onTopicSelected = { topicId ->
                     if (topicId.startsWith("Graphic-")) {
-                        navigator.navigate(GraphicRoute(topicId.removePrefix("Graphic-")))
+                        selectedGraphicId = topicId.removePrefix("Graphic-")
                     } else {
                         navigator.navigate(ContentRoute(topicId))
                     }
@@ -162,7 +162,7 @@ fun NavGraph(
                 onBack = { navigator.goBack() },
                 onHome = { navigator.navigate(TocRoute) },
                 onGraphicSelected = { graphicId ->
-                    navigator.navigate(GraphicRoute(graphicId))
+                    selectedGraphicId = graphicId.removePrefix("Graphic-")
                 }
             )
         }
@@ -183,34 +183,16 @@ fun NavGraph(
             )
         }
         entry<ChatRoute> { key ->
-            val activeContent = navigationState.backStacks[AiRoute]?.findLast { it is ContentRoute } as? ContentRoute
             ChatScreen(
                 conversationId = key.conversationId,
-                onNavigateToContent = { topicId, sectionId ->
-                    navigator.navigate(ContentRoute(topicId, sectionId))
-                },
-                onGraphicSelected = { graphicId ->
-                    navigator.navigate(GraphicRoute(graphicId))
-                },
-                onBack = { navigator.goBack() },
-                activeReadingTopicId = activeContent?.topicId,
-                activeReadingSectionId = activeContent?.sectionId
-            )
-        }
-        entry<GraphicRoute> { key ->
-            GraphicSheet(
-                graphicId = key.graphicId,
-                onDismiss = { navigator.goBack() }
+                onNavigateToHome = { navigator.navigate(TocRoute) },
+                onBack = { navigator.goBack() }
             )
         }
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val isWideScreen = maxWidth >= 600.dp
-        val isExpandedScreen = maxWidth >= 840.dp
-        val adaptiveReaderSceneStrategy = remember(isExpandedScreen) {
-            AdaptiveReaderSceneStrategy<NavKey>(isExpanded = isExpandedScreen)
-        }
         val motionScheme = MaterialTheme.motionScheme
         val spatialSpec = motionScheme.defaultSpatialSpec<IntOffset>()
         val floatSpatialSpec = motionScheme.defaultSpatialSpec<Float>()
@@ -223,11 +205,7 @@ fun NavGraph(
             val initialKey = initialState.navKey()
             val targetKey = targetState.navKey()
 
-            if (targetState is SupportingPaneScene<*> || initialState is SupportingPaneScene<*>) {
-                (fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)).apply {
-                    targetContentZIndex = 0f
-                }
-            } else if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
+            if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
                 // Lateral Peer Navigation: Directional Shared Axis X (Neutral zIndex)
                 val fromIndex = topLevelRoutes.indexOf(initialKey)
                 val toIndex = topLevelRoutes.indexOf(targetKey)
@@ -272,11 +250,7 @@ fun NavGraph(
             val initialKey = initialState.navKey()
             val targetKey = targetState.navKey()
 
-            if (initialState is SupportingPaneScene<*> || targetState is SupportingPaneScene<*>) {
-                (fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)).apply {
-                    targetContentZIndex = 0f
-                }
-            } else if (initialKey is AiSettingsRoute) {
+            if (initialKey is AiSettingsRoute) {
                 // Auxiliary Modal Recede / Drop Down (Target parent underneath at zIndex 0f)
                 ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
                     fadeIn(effectsSpec)) togetherWith
@@ -322,11 +296,7 @@ fun NavGraph(
             val initialKey = initialState.navKey()
             val targetKey = targetState.navKey()
 
-            if (initialState is SupportingPaneScene<*> || targetState is SupportingPaneScene<*>) {
-                (fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)).apply {
-                    targetContentZIndex = 0f
-                }
-            } else if (initialKey is AiSettingsRoute) {
+            if (initialKey is AiSettingsRoute) {
                 ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
                     fadeIn(effectsSpec)) togetherWith
                     (slideOutVertically(fastSpatialSpec) { (it * 0.12f).roundToInt() } +
@@ -384,7 +354,7 @@ fun NavGraph(
                     onBack = {
                         navigator.goBack()
                     },
-                    sceneStrategies = listOf(adaptiveReaderSceneStrategy, SinglePaneSceneStrategy()),
+                    sceneStrategies = listOf(SinglePaneSceneStrategy()),
                     transitionSpec = forwardTransition,
                     popTransitionSpec = popTransition,
                     predictivePopTransitionSpec = predictivePopTransition,
@@ -402,6 +372,13 @@ fun NavGraph(
                     fastSpatialSpec = fastSpatialSpec
                 )
             }
+        }
+
+        selectedGraphicId?.let { graphicId ->
+            GraphicSheet(
+                graphicId = graphicId,
+                onDismiss = { selectedGraphicId = null }
+            )
         }
     }
 }

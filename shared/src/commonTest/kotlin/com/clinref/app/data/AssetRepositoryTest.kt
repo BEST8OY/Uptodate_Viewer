@@ -124,4 +124,19 @@ class AssetRepositoryTest {
         assertEquals("DAO Title", title)
         verify(exactly = 1) { assetDao.getGraphicTitle("99") }
     }
+
+    @Test
+    fun `strips Graphic prefix before querying cache and dao`() {
+        every { assetDao.getGraphicJson("123") } returns mapOf(
+            "graphicInfo" to mapOf("displayName" to "Stripped Graphic"),
+            "imageHtml" to "<img src=\"y\">"
+        )
+        val repo = AssetRepository(assetDao)
+
+        val graphic = repo.getGraphic("Graphic-123")
+
+        verify(exactly = 1) { assetDao.getGraphicJson("123") }
+        assertEquals("123", graphic?.id)
+        assertEquals("Stripped Graphic", graphic?.title)
+    }
 }

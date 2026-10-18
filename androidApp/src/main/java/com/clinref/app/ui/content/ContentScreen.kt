@@ -68,6 +68,7 @@ fun ContentScreen(
     onBack: () -> Unit,
     onHome: () -> Unit,
     onGraphicSelected: (String) -> Unit,
+    isModal: Boolean = false,
     viewModel: ContentViewModel = koinViewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -170,6 +171,7 @@ fun ContentScreen(
         when {
             showSearch -> closeSearch()
             showOutline -> viewModel.toggleOutline()
+            isModal -> onBack()
             canGoBack -> viewModel.goBack()
             else -> onBack()
         }
@@ -188,7 +190,11 @@ fun ContentScreen(
     }
 
     BackHandler(enabled = showSearch || showOutline || canGoBack) {
-        handleTopBarBackNavigation()
+        when {
+            showSearch -> closeSearch()
+            showOutline -> viewModel.toggleOutline()
+            canGoBack -> viewModel.goBack()
+        }
     }
 
     // Reveal the toolbar whenever content changes or an overlay (search/outline) closes,
@@ -225,7 +231,8 @@ fun ContentScreen(
         topBar = {
             ContentTopBar(
                 title = articleTitle,
-                onBackClick = { handleTopBarBackNavigation() }
+                onBackClick = { handleTopBarBackNavigation() },
+                isModal = isModal
             )
         }
     ) { padding ->
@@ -335,29 +342,6 @@ fun ContentScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ContentTopBar(
-    title: String,
-    onBackClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    TopAppBar(
-        title = {
-            Text(
-                text = title.ifEmpty { "Content" },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        navigationIcon = {
-            IconButton(onClick = onBackClick) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-        },
-        modifier = modifier
-    )
-}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

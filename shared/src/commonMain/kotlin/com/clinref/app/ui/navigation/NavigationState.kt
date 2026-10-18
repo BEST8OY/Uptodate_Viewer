@@ -34,9 +34,7 @@ val navSavedStateConfig = SavedStateConfiguration {
             subclass(AiRoute::class, AiRoute.serializer())
             subclass(ContentRoute::class, ContentRoute.serializer())
             subclass(AiSettingsRoute::class, AiSettingsRoute.serializer())
-            subclass(ConversationListRoute::class, ConversationListRoute.serializer())
             subclass(ChatRoute::class, ChatRoute.serializer())
-            subclass(GraphicRoute::class, GraphicRoute.serializer())
         }
     }
 }

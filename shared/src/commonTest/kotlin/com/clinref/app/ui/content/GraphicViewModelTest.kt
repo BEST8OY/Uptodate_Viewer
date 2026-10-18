@@ -85,4 +85,19 @@ class GraphicViewModelTest {
         assertEquals(GraphicUiState.Success(data), vm.uiState.value)
         verify(exactly = 2) { assetRepository.getGraphic("7") }
     }
+
+    @Test
+    fun `rapid loadGraphic calls cancel earlier requests and emit latest result`() = runTest(dispatcher.scheduler) {
+        val data1 = GraphicData(id = "1", imageHtml = "<p>1</p>")
+        val data2 = GraphicData(id = "2", imageHtml = "<p>2</p>")
+        every { assetRepository.getGraphic("1") } returns data1
+        every { assetRepository.getGraphic("2") } returns data2
+        val vm = viewModel()
+
+        vm.loadGraphic("1")
+        vm.loadGraphic("2")
+        advanceUntilIdle()
+
+        assertEquals(GraphicUiState.Success(data2), vm.uiState.value)
+    }
 }

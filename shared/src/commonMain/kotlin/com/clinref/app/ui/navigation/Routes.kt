@@ -34,14 +34,9 @@ data class ContentRoute(val topicId: String, val sectionId: String? = null) : Na
 @Serializable
 data object AiSettingsRoute : NavKey
 
-@Serializable
-data object ConversationListRoute : NavKey
 
 @Serializable
 data class ChatRoute(val conversationId: String) : NavKey
-
-@Serializable
-data class GraphicRoute(val graphicId: String) : NavKey
 
 val topLevelRoutes: List<TopLevelRoute> = listOf(
     TocRoute,
