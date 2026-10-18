@@ -140,10 +140,9 @@ def _full_workflow() -> str:
 1. TARGETED SEARCH: Call search_topics(query) using core medical conditions or drug names. Inspect candidate topics and their titles.
 2. TOPIC OVERVIEW: Call get_topic_overview(topic_id) to retrieve outline hierarchy, table graphics, and related topics (calculators return full tool content).
 3. ON-DEMAND SECTION RETRIEVAL: Inspect outline sections returned in the overview. Select relevant section IDs matching the patient's specific presentation, condition, and risk factors, then call get_topic_sections_text(topic_id, section_ids). You decide fully which sections to fetch based on the clinical question.
-4. TOKEN BUDGET: get_topic_sections_text enforces a token-based cap (default 4,000 tokens / ~16,000 characters). Request the most clinically relevant sections for your query.
-5. PARALLEL RETRIEVAL: When comparing alternatives or evaluating multidrug regimens, call retrieval tools in parallel.
-6. GRAPHIC TABLES: Inspect outline graphics for tables (dosing tables, staging criteria, risk scores) and call get_graphic_content(graphic_id). Skip non-table figures/algorithms.
-7. CITATIONS & LINKS: Clinical source cards, topic links, and interactive tables are rendered automatically by the UI. Write clinical names in plain text. DO NOT generate manual 'References', 'Sources', or markdown links."""
+4. PARALLEL RETRIEVAL: When comparing alternatives or evaluating multidrug regimens, call retrieval tools in parallel.
+5. GRAPHIC TABLES: Inspect outline graphics for tables (dosing tables, staging criteria, risk scores) and call get_graphic_content(graphic_id). Skip non-table figures/algorithms.
+6. CITATIONS & LINKS: Clinical source cards, topic links, and interactive tables are rendered automatically by the UI. Write clinical names in plain text. DO NOT generate manual 'References', 'Sources', or markdown links."""
 
 
 def _ollama_workflow() -> str:

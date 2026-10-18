@@ -115,10 +115,9 @@ CORE PRINCIPLES:
 1. TARGETED SEARCH: Call searchTopics(query) using core medical conditions or drug names. Inspect candidate topics and their titles.
 2. TOPIC OVERVIEW: Call getTopicOverview(topicId) to retrieve outline hierarchy, table graphics, and related topics (calculators return full tool content).
 3. ON-DEMAND SECTION RETRIEVAL: Inspect outline sections returned in the overview. Select relevant section IDs matching the patient's specific presentation, condition, and risk factors, then call getTopicSectionsText(topicId, sectionIds). You decide fully which sections to fetch based on the clinical question.
-4. TOKEN BUDGET: getTopicSectionsText enforces a token-based cap (default 4000 tokens / ~16000 characters). Request the most clinically relevant sections for your query.
-5. PARALLEL RETRIEVAL: When comparing alternatives or evaluating multidrug regimens, call retrieval tools in parallel.
-6. GRAPHIC TABLES: Inspect outline graphics for tables (dosing tables, staging criteria, risk scores) and call getGraphicContent(graphicId). Skip non-table figures/algorithms.
-7. CITATIONS & LINKS: Clinical source cards, topic links, and interactive tables are rendered automatically by the UI. Write clinical names in plain text. DO NOT generate manual 'References', 'Sources', or markdown links."""
+4. PARALLEL RETRIEVAL: When comparing alternatives or evaluating multidrug regimens, call retrieval tools in parallel.
+5. GRAPHIC TABLES: Inspect outline graphics for tables (dosing tables, staging criteria, risk scores) and call getGraphicContent(graphicId). Skip non-table figures/algorithms.
+6. CITATIONS & LINKS: Clinical source cards, topic links, and interactive tables are rendered automatically by the UI. Write clinical names in plain text. DO NOT generate manual 'References', 'Sources', or markdown links."""
 
     private fun citationRules(): String = """ANSWER FORMAT & CITATIONS:
 - Provide pure clinical content directly addressing the question.
