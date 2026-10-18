@@ -93,6 +93,25 @@ class ClinicalAgentStrategyTest {
             "validate_safety must connect to safety_block",
             validateNode.edges.any { it.toNode == safetyBlockNode }
         )
+
+        // LLM output routing connects to premature interception and synthesis
+        val sendToolResultNode = allNodes.first { it.name.contains("nodeSendToolResult") }
+        assertTrue(
+            "nodeSendInput must connect to intercept_premature",
+            sendInputNode.edges.any { it.toNode == interceptNode }
+        )
+        assertTrue(
+            "nodeSendInput must connect to clinical_synthesis",
+            sendInputNode.edges.any { it.toNode == synthesisNode }
+        )
+        assertTrue(
+            "nodeSendToolResult must connect to intercept_premature",
+            sendToolResultNode.edges.any { it.toNode == interceptNode }
+        )
+        assertTrue(
+            "nodeSendToolResult must connect to clinical_synthesis",
+            sendToolResultNode.edges.any { it.toNode == synthesisNode }
+        )
     }
 
     @Test
@@ -267,6 +286,45 @@ class ClinicalAgentStrategyTest {
             id = null
         )
         assertSame(assistant, ClinicalAgentStrategy.truncateStaleSearchResults(assistant))
+    }
+
+    @Test
+    fun `premature interception condition logic respects tool calls and retrieved evidence`() {
+        val accumulator = TurnContextAccumulator()
+        accumulator.setUserQuestion("What are diabetes blood pressure goals?")
+
+        // 1. Initial state without tools or evidence -> clinical text is premature
+        assertTrue(
+            "Clinical response before tools or evidence must be premature",
+            ClinicalAgentStrategy.isPrematureTurn(accumulator, "Target BP is <130/80 mmHg", 0, 2)
+        )
+
+        // 2. Conversational response without tools or evidence -> NOT premature
+        assertFalse(
+            "Conversational greeting without tools must not be premature",
+            ClinicalAgentStrategy.isPrematureTurn(accumulator, "Hello, how can I help you today?", 0, 2)
+        )
+
+        // 3. Evidence fetched (sections present) -> NOT premature
+        accumulator.onToolCallCompleted(
+            toolCallId = "call-1",
+            toolName = "getTopicSectionsText",
+            result = """{"topicId":"3861","topicTitle":"Hypertension in adults","sectionTitles":{"H1":"Goals"}}""",
+            success = true,
+            toolArgs = """{"topicId":"3861","sectionIds":["H1"]}"""
+        )
+        assertFalse(
+            "Clinical response with fetched section evidence must never be premature",
+            ClinicalAgentStrategy.isPrematureTurn(accumulator, "Target BP is <130/80 mmHg", 0, 2)
+        )
+
+        // 4. Retry budget exhausted -> NOT premature (allows flow to safety verification)
+        val freshAccumulator = TurnContextAccumulator()
+        freshAccumulator.setUserQuestion("What are diabetes blood pressure goals?")
+        assertFalse(
+            "Exhausted premature retries must not be intercepted as premature",
+            ClinicalAgentStrategy.isPrematureTurn(freshAccumulator, "Target BP is <130/80 mmHg", 2, 2)
+        )
     }
 }
 
