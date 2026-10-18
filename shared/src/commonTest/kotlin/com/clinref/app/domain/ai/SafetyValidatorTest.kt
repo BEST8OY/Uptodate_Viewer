@@ -783,6 +783,13 @@ class SafetyValidatorTest {
         assertTrue(prompt.contains("Metoprolol 25 mg"))
         assertTrue(prompt.contains("Penicillin"))
         assertTrue(prompt.contains("eGFR 45 mL/min"))
+
+        // Token-budget re-fetch protocol (mirrors Python system_prompt.py)
+        assertTrue(prompt.contains("TOKEN BUDGET"))
+        assertTrue(prompt.contains("omittedSections"))
+        assertTrue(prompt.contains("truncated=true"))
+        assertTrue(prompt.contains("re-fetch"))
+        assertTrue(prompt.contains("child sub-section IDs"))
     }
 
     @Test
