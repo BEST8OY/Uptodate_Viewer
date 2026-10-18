@@ -1,10 +1,10 @@
 """Empirical Challenger Test Suite for Milestone 1 Iteration 2.
 
 Tests:
-1. 7-tool preservation (tool count, naming, signatures).
-2. camelCase & snake_case aliases across all 7 tools via both `tool.invoke()` and direct call `tool.func(...)`:
+1. 6-tool preservation (tool count, naming, signatures).
+2. camelCase & snake_case aliases across all 6 tools via both `tool.invoke()` and direct call `tool.func(...)`:
    - search_topics: query, search_query, query_text, queryText, searchQuery
-   - get_topic_outline: topic_id, topicId
+   - get_topic_overview: topic_id/topicId
    - get_related_topics: topic_id, topicId
    - get_topic_sections_text: topic_id/topicId and section_ids/sectionIds (as list and single string)
    - search_topic_sections: topic_id/topicId and query/queryText/search_query/searchQuery
@@ -45,28 +45,28 @@ def setup_tools(db):
     tools.init_tools(db)
 
 
-class TestSevenToolPreservation:
-    """Empirical verification that all 7 tools exist, are properly registered, and mirror Kotlin."""
+class TestSixToolPreservation:
+    """Empirical verification that all 6 tools exist, are properly registered, and mirror Kotlin."""
 
     def test_tool_count_and_identity(self, db):
         tool_list = tools.init_tools(db)
-        assert len(tool_list) == 7, f"Expected exactly 7 tools, found {len(tool_list)}"
+        assert len(tool_list) == 6, f"Expected exactly 6 tools, found {len(tool_list)}"
 
         expected_names = {
             "get_topic_overview",
             "search_topics",
-            "get_topic_outline",
             "search_topic_sections",
             "get_related_topics",
             "get_topic_sections_text",
             "get_graphic_content",
         }
         actual_names = {t.name for t in tool_list}
+        assert "get_topic_outline" not in actual_names
         assert actual_names == expected_names, f"Tool name mismatch: {actual_names} vs {expected_names}"
 
 
 class TestCamelCaseAndSnakeCaseAliases:
-    """Verify that all 7 tools accept both snake_case and camelCase parameters via invoke() and direct call."""
+    """Verify that all 6 tools accept both snake_case and camelCase parameters via invoke() and direct call."""
 
     # 1. search_topics: search_query and queryText
     @pytest.mark.parametrize("payload", [
@@ -93,22 +93,22 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert len(res2["results"]) > 0
         assert res1["results"][0]["id"] == res2["results"][0]["id"]
 
-    # 2. get_topic_outline: topic_id and topicId
+    # 2. get_topic_overview: topic_id and topicId
     @pytest.mark.parametrize("payload", [
         {"topic_id": "1"},
         {"topicId": "1"},
         {"topic_id": "1", "topicId": "1"},
     ])
-    def test_get_topic_outline_parameter_aliases_invoke(self, payload):
-        raw = tools.get_topic_outline.invoke(payload)
+    def test_get_topic_overview_parameter_aliases_invoke(self, payload):
+        raw = tools.get_topic_overview.invoke(payload)
         data = json.loads(raw)
-        assert "error" not in data, f"Unexpected error in get_topic_outline: {data}"
+        assert "error" not in data, f"Unexpected error in get_topic_overview: {data}"
         assert data["topicId"] == "1"
         assert len(data["sections"]) > 0
 
-    def test_get_topic_outline_direct_func_call(self):
-        res1 = json.loads(tools.get_topic_outline.func(topic_id="1"))
-        res2 = json.loads(tools.get_topic_outline.func(topicId="1"))
+    def test_get_topic_overview_direct_func_call(self):
+        res1 = json.loads(tools.get_topic_overview.func(topic_id="1"))
+        res2 = json.loads(tools.get_topic_overview.func(topicId="1"))
         assert res1["title"] == res2["title"]
         assert len(res1["sections"]) == len(res2["sections"])
 
@@ -295,11 +295,11 @@ class TestAdversarialEdgeCases:
         data = json.loads(raw)
         assert len(data["results"]) > 0
 
-        raw_outline = tools.get_topic_outline.invoke({
+        raw_overview = tools.get_topic_overview.invoke({
             "topicId": "1",
             "unknown_metadata": {"foo": "bar"}
         })
-        assert "error" not in json.loads(raw_outline)
+        assert "error" not in json.loads(raw_overview)
 
     def test_none_values_handling(self):
         # When model passes null/None

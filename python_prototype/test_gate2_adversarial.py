@@ -56,7 +56,7 @@ class TestDirectiveComplianceNoFsearch:
         assert not hasattr(db, "search"), "ClinRefDatabase still has search property connecting to fsearch.db!"
 
     def test_all_tools_work_when_fsearch_is_unreadable(self, db):
-        """Make fsearch.db completely unreadable (chmod 000). All 7 tools must function 100% normally."""
+        """Make fsearch.db completely unreadable (chmod 000). All 6 tools must function 100% normally."""
         fsearch_path = DB_DIR / "fsearch.db"
         if not fsearch_path.exists():
             pytest.skip("fsearch.db not present")
@@ -74,27 +74,23 @@ class TestDirectiveComplianceNoFsearch:
             res2 = json.loads(tools.get_topic_overview.invoke({"topic_id": "1"}))
             assert "error" not in res2, "get_topic_overview failed when fsearch.db was chmod 000!"
 
-            # 3. get_topic_outline
-            res3 = json.loads(tools.get_topic_outline.invoke({"topic_id": "1"}))
-            assert "error" not in res3, "get_topic_outline failed when fsearch.db was chmod 000!"
-
-            # 4. get_topic_sections_text
+            # 3. get_topic_sections_text
             res4 = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "1", "section_ids": ["Summary"]}))
             assert "error" not in res4, "get_topic_sections_text failed when fsearch.db was chmod 000!"
 
-            # 5. search_topic_sections
+            # 4. search_topic_sections
             res5 = json.loads(tools.search_topic_sections.invoke({"topic_id": "1", "query": "dosing"}))
             assert "matches" in res5, "search_topic_sections failed when fsearch.db was chmod 000!"
 
-            # 6. get_related_topics
+            # 5. get_related_topics
             res6 = json.loads(tools.get_related_topics.invoke({"topic_id": "1"}))
             assert "relatedTopics" in res6, "get_related_topics failed when fsearch.db was chmod 000!"
 
-            # 7. get_graphic_content (table)
+            # 6. get_graphic_content (table)
             res7 = tools.get_graphic_content.invoke({"graphic_id": "116392"})
             assert "Graphic Table:" in res7, "get_graphic_content failed when fsearch.db was chmod 000!"
 
-            # 8. get_graphic_content (non-table figure correctly rejected)
+            # get_graphic_content (non-table figure correctly rejected)
             res8 = tools.get_graphic_content.invoke({"graphic_id": "108657"})
             assert "not a table" in res8, "non-table graphic was not rejected!"
 
@@ -149,11 +145,6 @@ class TestAdversarialInputsAndSQLInjection:
         assert "error" in res, f"Expected error for '{bad_id}', got: {res}"
         if t1_title:
             assert res.get("title") != t1_title, f"Security vulnerability: '{bad_id}' aliased to Topic 1!"
-
-    @pytest.mark.parametrize("bad_id", MALFORMED_IDS)
-    def test_outline_rejects_malformed_ids(self, bad_id):
-        res = json.loads(tools.get_topic_outline.invoke({"topic_id": bad_id}))
-        assert "error" in res, f"Expected error for outline '{bad_id}', got: {res}"
 
     @pytest.mark.parametrize("bad_id", MALFORMED_IDS)
     def test_sections_text_rejects_malformed_topic_ids(self, bad_id):
@@ -225,8 +216,8 @@ class TestConcurrencyAndThreadSafety:
                         r = json.loads(tools.search_topics.invoke({"query": "asthma"}))
                         assert len(r.get("results", [])) > 0
                     elif op == 3:
-                        r = json.loads(tools.get_topic_outline.invoke({"topic_id": "1"}))
-                        assert len(r.get("sections", [])) > 0
+                        r = json.loads(tools.get_related_topics.invoke({"topic_id": "1"}))
+                        assert "relatedTopics" in r
                     elif op == 4:
                         r = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "1", "section_ids": ["Summary"]}))
                         assert r.get("topicId") == "1"

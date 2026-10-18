@@ -1,11 +1,12 @@
 """LangChain tools for medical database access.
 
-Mirrors Kotlin MedicalDatabaseTools — 5 tools:
-1. search_topics — unidex curated topic search
-2. get_topic_outline — Section list for a topic
+Mirrors Kotlin MedicalDatabaseTools — 6 tools:
+1. get_topic_overview — Compound bundle: sections, table graphics, related topics (+ calculator markdown)
+2. search_topics — unidex curated topic search
 3. get_related_topics — Related topic IDs + titles for candidate pool
 4. get_topic_sections_text — Batch section retrieval
-5. get_graphic_content — Table data as markdown (or error for non-table)
+5. search_topic_sections — In-topic keyword section locator
+6. get_graphic_content — Table data as markdown (or error for non-table)
 """
 
 import json
@@ -35,7 +36,6 @@ def init_tools(db: ClinRefDatabase) -> list:
     return [
         get_topic_overview,
         search_topics,
-        get_topic_outline,
         search_topic_sections,
         get_related_topics,
         get_topic_sections_text,
@@ -262,65 +262,6 @@ def search_topics(
         "refine_with": suggestions,
         "message": "Success",
     })
-
-
-@tool
-def get_topic_outline(
-    topic_id: str = "",
-    topicId: Optional[str] = None,
-    **kwargs,
-) -> str:
-    """Retrieve the topic outline containing section IDs, titles, graphic metadata, and related topics.
-
-    ALWAYS call this after search_topics to obtain sectionId values for get_topic_sections_text.
-    """
-    if _db is None:
-        return json.dumps({"error": "Database not initialized"})
-
-    effective_topic_id = topic_id or topicId or kwargs.get("topic_id") or kwargs.get("topicId") or ""
-    clean_id = str(effective_topic_id).strip()
-    if not clean_id or ClinRefDatabase._extract_numeric_id(clean_id) is None:
-        return json.dumps({"error": f"Topic not found: {clean_id}"})
-
-    outline_html = _db.get_topic_outline(clean_id)
-    asset = _db.get_topic_asset(clean_id) if (not outline_html and hasattr(_db, "get_topic_asset")) else None
-    if asset is not None and not isinstance(asset, dict):
-        asset = None
-
-    if not outline_html and not (asset and asset.get("bodyHtml")):
-        return json.dumps({"error": f"Topic not found: {clean_id}"})
-
-    title = _db.get_topic_title(clean_id) or clean_id
-    t_type = ClinRefDatabase.get_topic_type(asset) if asset else ("calc" if not outline_html else "article")
-
-    if t_type == "calc":
-        return json.dumps({
-            "topicId": clean_id,
-            "title": title,
-            "topicType": "calc",
-            "topic_type": "calc",
-            "sections": [{"id": "FULL", "title": "Calculator Tool Content"}],
-            "graphics": [],
-            "relatedTopics": [],
-            "related_topics": [],
-        }, indent=2)
-
-    sections = extract_outline_sections(outline_html or "")
-    graphics = [g for g in extract_graphics_from_outline(outline_html or "") if g.get("is_table")]
-    for g in graphics:
-        g["isTable"] = True
-    related = extract_related_topics(outline_html or "")
-
-    return json.dumps({
-        "topicId": clean_id,
-        "title": title,
-        "topicType": "article",
-        "topic_type": "article",
-        "sections": sections,
-        "graphics": graphics,
-        "relatedTopics": related,
-        "related_topics": related,
-    }, indent=2)
 
 
 @tool

@@ -112,12 +112,19 @@ class TestSectionContentRequired:
         assert result is not None
         assert not result.passed
 
-    def test_outline_only_blocked(self):
+    def test_overview_passes(self):
+        # Calculator overview carries full tool content, so a successful
+        # get_topic_overview alone satisfies the evidence requirement.
         ctx = TurnContext(
-            tool_calls=[
-                ToolCallRecord(tool_name="search_topics", arguments={}, result="{}", success=True),
-                ToolCallRecord(tool_name="get_topic_outline", arguments={}, result="{}", success=True),
-            ],
+            tool_calls=[ToolCallRecord(tool_name="get_topic_overview", arguments={}, result="{}", success=True)],
+            answer="test",
+        )
+        result = SafetyValidator()._validate_section_content_required(ctx)
+        assert result is None
+
+    def test_failed_overview_blocked(self):
+        ctx = TurnContext(
+            tool_calls=[ToolCallRecord(tool_name="get_topic_overview", arguments={}, result="{}", success=False)],
             answer="test",
         )
         result = SafetyValidator()._validate_section_content_required(ctx)
@@ -744,23 +751,23 @@ class TestToolsInit:
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         assert isinstance(tool_list, list)
-        assert len(tool_list) == 7
+        assert len(tool_list) == 6
 
     def test_init_tools_includes_expected_names(self):
         import tools
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         names = [t.name for t in tool_list]
-        assert len(names) == 7
+        assert len(names) == 6
         assert set(names) == {
             "get_topic_overview",
             "search_topics",
-            "get_topic_outline",
             "search_topic_sections",
             "get_related_topics",
             "get_topic_sections_text",
             "get_graphic_content",
         }
+        assert "get_topic_outline" not in names
         assert "submit_clinical_answer" not in names
         assert "get_graphic_info" not in names
 
@@ -821,32 +828,6 @@ class TestSearchTopics:
         self.mock_db.get_suggestions.return_value = []
         tools.search_topics.invoke({"query": "  aspirin  "})
         self.mock_db.search_topics.assert_called_with("aspirin", limit=10)
-
-
-class TestGetTopicOutline:
-    """Tests for get_topic_outline tool."""
-
-    def setup_method(self):
-        import tools
-        self.mock_db = MagicMock()
-        tools.init_tools(self.mock_db)
-
-    def test_topic_not_found(self):
-        import tools
-        self.mock_db.get_topic_outline.return_value = None
-        result = tools.get_topic_outline.invoke({"topic_id": "999"})
-        data = json.loads(result)
-        assert "error" in data
-
-    def test_returns_outline(self):
-        import tools
-        self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Intro</a>'
-        self.mock_db.get_topic_title.return_value = "Test Topic"
-        result = tools.get_topic_outline.invoke({"topic_id": "123"})
-        data = json.loads(result)
-        assert data["title"] == "Test Topic"
-        assert len(data["sections"]) == 1
-        assert data["topicId"] == "123"
 
 
 class TestGetTopicSectionText:
@@ -1234,7 +1215,7 @@ class TestAutoPopulateRefs:
 class TestSchemaParityAndSafetyBlock:
     """Verify schema parity with Kotlin responses and in-graph safety blocking."""
 
-    def test_get_topic_outline_includes_canonical_camel_case_keys(self):
+    def test_get_topic_overview_includes_canonical_camel_case_keys(self):
         import tools
         from unittest.mock import MagicMock
         mock_db = MagicMock()
@@ -1247,8 +1228,8 @@ class TestSchemaParityAndSafetyBlock:
         mock_db.get_topic_title.return_value = "Test Topic"
         tools.init_tools(mock_db)
 
-        outline_str = tools.get_topic_outline.invoke({"topic_id": "123"})
-        data = json.loads(outline_str)
+        overview_str = tools.get_topic_overview.invoke({"topic_id": "123"})
+        data = json.loads(overview_str)
         assert "topicType" in data
         assert data["topicType"] == "article"
         assert "relatedTopics" in data

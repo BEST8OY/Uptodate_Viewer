@@ -97,7 +97,7 @@ class TestClinicalInquiryE2E:
         """Standard clinical inquiry: search -> outline -> batch sections -> verified answer."""
         tool_list = [
             tools.search_topics,
-            tools.get_topic_outline,
+            tools.get_topic_overview,
             tools.get_topic_sections_text,
             tools.get_graphic_content,
         ]
@@ -114,7 +114,7 @@ class TestClinicalInquiryE2E:
         resp_turn2 = AIMessage(
             content="",
             tool_calls=[{
-                "name": "get_topic_outline",
+                "name": "get_topic_overview",
                 "args": {"topic_id": "1"},
                 "id": "call_outline_1",
             }]
@@ -280,8 +280,8 @@ class TestCompoundRetrievalE2E:
         """Calculator topics return calc type and FULL section without outline failures."""
         asset = db.get_topic_asset("148929")  # Known calculator
         if asset:
-            raw_outline = tools.get_topic_outline.invoke({"topic_id": "148929"})
-            data = json.loads(raw_outline)
+            raw_overview = tools.get_topic_overview.invoke({"topic_id": "148929"})
+            data = json.loads(raw_overview)
             assert data.get("topicType") == "calc"
             assert data["sections"][0]["id"] == "FULL"
 
@@ -296,7 +296,7 @@ class TestCompoundRetrievalE2E:
 
     def test_nonexistent_topic_returns_structured_error(self, db):
         """Non-existent topic returns JSON error envelope rather than throwing exceptions."""
-        result = tools.get_topic_outline.invoke({"topic_id": "nonexistent_9999999"})
+        result = tools.get_topic_overview.invoke({"topic_id": "nonexistent_9999999"})
         data = json.loads(result)
         assert "error" in data
         assert "Topic not found" in data["error"]
@@ -631,12 +631,12 @@ class TestM3GateRemediation:
 
     def test_singular_section_id_argument_yields_citations(self, db):
         """V6: LLM-issued singular `section_id` must be tracked into citations (was silently dropped)."""
-        outline = json.loads(tools.get_topic_outline.func(topic_id="3852"))
+        outline = json.loads(tools.get_topic_overview.func(topic_id="3852"))
         first_sid = next(s["id"] for s in outline["sections"] if s.get("id") and s["id"] != "FULL")
 
         resp_tool = AIMessage(
             content="",
-            tool_calls=[{"name": "get_topic_outline", "args": {"topic_id": "3852"}, "id": "call_outline_1"}],
+            tool_calls=[{"name": "get_topic_overview", "args": {"topic_id": "3852"}, "id": "call_outline_1"}],
         )
         resp_tool2 = AIMessage(
             content="",
@@ -651,7 +651,7 @@ class TestM3GateRemediation:
         mock_llm = ScriptedSequenceLLM([resp_tool, resp_tool2, resp_final])
         agent = create_clinical_agent(
             llm=mock_llm,
-            tools=[tools.get_topic_outline, tools.get_topic_sections_text],
+            tools=[tools.get_topic_overview, tools.get_topic_sections_text],
             system_prompt="Clinical System Prompt",
             max_safety_retries=2,
         )

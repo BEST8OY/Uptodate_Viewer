@@ -77,17 +77,7 @@ def test_malformed_ids(db: ClinRefDatabase) -> dict:
         except Exception as e:
             failures.append(f"get_topic_overview('{tid}') crashed with exception: {e}")
 
-        # 2. tools.get_topic_outline
-        tests_run += 1
-        res = tools.get_topic_outline.invoke({"topic_id": tid})
-        try:
-            data = json.loads(res)
-            if "error" not in data:
-                failures.append(f"get_topic_outline('{tid}') did NOT return error! Got: {res[:100]}")
-        except Exception as e:
-            failures.append(f"get_topic_outline('{tid}') crashed with exception: {e}")
-
-        # 3. tools.get_topic_sections_text
+        # 2. tools.get_topic_sections_text
         tests_run += 1
         res = tools.get_topic_sections_text.invoke({"topic_id": tid, "section_ids": ["s1"]})
         try:
@@ -97,7 +87,7 @@ def test_malformed_ids(db: ClinRefDatabase) -> dict:
         except Exception as e:
             failures.append(f"get_topic_sections_text('{tid}') crashed with exception: {e}")
 
-        # 4. tools.get_related_topics
+        # 3. tools.get_related_topics
         tests_run += 1
         res = tools.get_related_topics.invoke({"topic_id": tid})
         try:

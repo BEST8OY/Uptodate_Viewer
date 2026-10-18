@@ -408,7 +408,7 @@ class TestFullPipeline:
 
 
 class TestRealDatabasePureSearchPipeline:
-    """Test tools.search_topics and tools.get_topic_outline against real database for 3-stage pipeline."""
+    """Test tools.search_topics and tools.get_topic_overview against real database for 3-stage pipeline."""
 
     def test_search_topics_returns_pure_candidate_list(self, db):
         import tools
@@ -422,7 +422,7 @@ class TestRealDatabasePureSearchPipeline:
         assert "outline" not in top_match, "search_topics should return candidate topics without embedded outline"
 
     @pytest.mark.parametrize("query", ["asthma", "gout", "apixaban", "pneumonia"])
-    def test_search_topics_and_get_outline_pipeline(self, db, query):
+    def test_search_topics_and_get_overview_pipeline(self, db, query):
         import tools
         tools.init_tools(db)
 
@@ -431,10 +431,10 @@ class TestRealDatabasePureSearchPipeline:
         assert "results" in data
         if data["results"]:
             top_id = data["results"][0]["id"]
-            outline_json = tools.get_topic_outline.invoke({"topic_id": top_id})
-            outline_data = json.loads(outline_json)
-            assert "sections" in outline_data
-            assert "graphics" in outline_data
+            overview_json = tools.get_topic_overview.invoke({"topic_id": top_id})
+            overview_data = json.loads(overview_json)
+            assert "sections" in overview_data
+            assert "graphics" in overview_data
 
 
 class TestDiverseHTMLHandling:

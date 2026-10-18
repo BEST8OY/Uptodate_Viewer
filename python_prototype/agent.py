@@ -275,34 +275,6 @@ def create_clinical_agent(
                     pass
 
             # Track topic titles and section titles from outline
-            if name == "get_topic_outline":
-                try:
-                    outline_data = json.loads(result_content)
-                    topic_title = outline_data.get("title", "")
-                    topic_id = outline_data.get("topicId", args.get("topic_id", args.get("topicId", "")))
-                    if topic_id and topic_title and not str(topic_title).isdigit():
-                        tc.topic_titles[topic_id] = topic_title
-                    # Store full section ID → title map (strip leading outline dashes)
-                    sections = outline_data.get("sections", [])
-                    if topic_id and sections:
-                        tc.outline_sections[topic_id] = {
-                            s["id"]: s["title"].lstrip("-–— ") for s in sections if s.get("id")
-                        }
-                    # Store graphics mapping to this topic
-                    graphics = outline_data.get("graphics", [])
-                    for g in graphics:
-                        gid = str(g.get("id", "")).strip()
-                        if gid:
-                            tc.graphic_to_topic[gid] = topic_id
-                            clean_gid = re.sub(r"(?i)^graphic-", "", gid)
-                            tc.graphic_to_topic[clean_gid] = topic_id
-                            g_title = g.get("title", "")
-                            if g_title:
-                                tc.graphic_titles[gid] = g_title
-                                tc.graphic_titles[clean_gid] = g_title
-                except (json.JSONDecodeError, AttributeError):
-                    pass
-
             # Batch section tracking
             if name == "get_topic_sections_text":
                 topic_id = str(args.get("topic_id", args.get("topicId", ""))).strip()
