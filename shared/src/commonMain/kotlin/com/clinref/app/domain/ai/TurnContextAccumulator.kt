@@ -69,7 +69,15 @@ class TurnContextAccumulator(
 
     fun getPatientProfile(): PatientProfile? = patientProfile
 
+    val fetchedSectionsCount: Int get() = fetchedSections.size
+    val graphicCount: Int get() = graphicIds.size
+    val hasFetchedSections: Boolean get() = fetchedSections.isNotEmpty()
+    val hasEvidence: Boolean get() = fetchedSections.isNotEmpty() || graphicIds.isNotEmpty()
+    val hasToolCalls: Boolean get() = toolCalls.isNotEmpty()
+
     fun getToolCalls(): List<SafetyValidator.ToolCallRecord> = toolCalls.toList()
+    fun getFetchedSections(): List<SafetyValidator.FetchedSection> = fetchedSections.toList()
+    fun getGraphicIds(): Set<String> = graphicIds.toSet()
 
     fun onToolCallStarting(toolCallId: String, args: String) {
         if (toolCallId.isNotBlank()) {

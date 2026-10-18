@@ -141,16 +141,15 @@ object ClinicalAgentStrategy {
          */
         val nodeToolRoundBoundary by node<ReceivedToolResults, ReceivedToolResults>("tool_round_boundary") { toolResults ->
             toolRounds++
-            val context = accumulator.buildTurnContext("")
             currentState = ClinicalState.EvidenceGathering(
                 toolRounds = toolRounds,
-                fetchedSectionsCount = context.fetchedSections.size,
-                graphicCount = context.graphicIds.size
+                fetchedSectionsCount = accumulator.fetchedSectionsCount,
+                graphicCount = accumulator.graphicCount
             )
 
             if (toolRounds >= MAX_TOOL_ROUNDS) {
                 Log.w(TAG, "Tool round budget exhausted ($toolRounds >= $MAX_TOOL_ROUNDS); forcing safety validation")
-            } else if (context.fetchedSections.isNotEmpty()) {
+            } else if (accumulator.hasFetchedSections) {
                 llm.writeSession {
                     rewritePrompt { prompt ->
                         if (prompt.messages.size <= 4) prompt
@@ -165,11 +164,10 @@ object ClinicalAgentStrategy {
 
         val nodeInterceptPremature by node<String, String>("intercept_premature") { _ ->
             prematureInterceptions++
-            val context = accumulator.buildTurnContext("")
             currentState = ClinicalState.EvidenceGathering(
                 toolRounds = prematureInterceptions,
-                fetchedSectionsCount = context.fetchedSections.size,
-                graphicCount = context.graphicIds.size
+                fetchedSectionsCount = accumulator.fetchedSectionsCount,
+                graphicCount = accumulator.graphicCount
             )
             Log.w(TAG, "Premature response intercepted (attempt $prematureInterceptions). State: $currentState. Redirecting to retrieval.")
             // Mirrors Python build_premature_interception_prompt(retry counts): the directive is static;
@@ -316,13 +314,11 @@ object ClinicalAgentStrategy {
         prematureInterceptions: Int,
         maxSafetyRetries: Int
     ): Boolean {
+        if (prematureInterceptions >= maxSafetyRetries) return false
+        if (accumulator.hasToolCalls || accumulator.hasEvidence) return false
+
         val context = accumulator.buildTurnContext(text)
-        return if (SafetyValidator.isNonClinicalResponse(context)) {
-            false
-        } else {
-            (context.toolCalls.isEmpty() && context.fetchedSections.isEmpty() && context.graphicIds.isEmpty()) &&
-                (prematureInterceptions < maxSafetyRetries)
-        }
+        return !SafetyValidator.isNonClinicalResponse(context)
     }
 
     /**
@@ -344,13 +340,16 @@ object ClinicalAgentStrategy {
         val hasEvidence = turnContext.fetchedSections.isNotEmpty() || turnContext.graphicIds.isNotEmpty()
 
         // Blank-answer guard: a budget-forced (tool_round_boundary) exit or any
-        // interrupted turn that gathered evidence but never synthesized MUST NOT
-        // complete the turn with an empty answer. Steer into Phase 2 synthesis.
-        val validation = if (cleanText.isBlank() && hasEvidence) {
+        // empty response MUST NOT complete the turn with an empty answer.
+        val validation = if (cleanText.isBlank()) {
             SafetyValidator.ValidationResult(
                 passed = false,
                 warnings = emptyList(),
-                blockedReason = "No final clinical answer was synthesized; render the gathered evidence"
+                blockedReason = if (hasEvidence) {
+                    "No final clinical answer was synthesized; render the gathered evidence"
+                } else {
+                    "No clinical response was generated. Evidence retrieval is required."
+                }
             )
         } else {
             safetyValidator.validate(turnContext)
@@ -361,8 +360,9 @@ object ClinicalAgentStrategy {
         }
 
         if (retryCount >= maxSafetyRetries) {
-            val blockedReason = if (cleanText.isBlank() && hasEvidence) {
-                "No final clinical answer was synthesized after evidence gathering"
+            val blockedReason = if (cleanText.isBlank()) {
+                if (hasEvidence) "No final clinical answer was synthesized after evidence gathering"
+                else "No clinical response was generated after retries"
             } else {
                 validation.blockedReason ?: "Clinical verification blocked after retries"
             }

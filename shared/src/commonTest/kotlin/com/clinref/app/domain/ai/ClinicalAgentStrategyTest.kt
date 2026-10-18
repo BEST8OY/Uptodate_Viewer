@@ -326,6 +326,220 @@ class ClinicalAgentStrategyTest {
             ClinicalAgentStrategy.isPrematureTurn(freshAccumulator, "Target BP is <130/80 mmHg", 2, 2)
         )
     }
+
+    @Test
+    fun `evaluateSafetyTurn returns Valid when response passes clinical verification`() {
+        val validator = SafetyValidator()
+        val sections = listOf(
+            SafetyValidator.FetchedSection(
+                topicId = "3861",
+                topicTitle = "Hypertension in adults",
+                sectionId = "H1",
+                sectionTitle = "Blood pressure targets",
+                contentSnippet = "Goal blood pressure is <130/80 mmHg for patients with diabetes."
+            )
+        )
+        val turnContext = SafetyValidator.TurnContext(
+            toolCalls = listOf(
+                SafetyValidator.ToolCallRecord(
+                    toolName = "getTopicSectionsText",
+                    arguments = mapOf("topicId" to "3861", "sectionIds" to "[\"H1\"]"),
+                    result = "Goal blood pressure is <130/80 mmHg",
+                    success = true
+                )
+            ),
+            answer = "Goal blood pressure is <130/80 mmHg for patients with diabetes.",
+            fetchedSections = sections,
+            userQuestion = "What are diabetes blood pressure goals?"
+        )
+
+        var retryCalled = false
+        val evaluation = ClinicalAgentStrategy.evaluateSafetyTurn(
+            cleanText = turnContext.answer,
+            turnContext = turnContext,
+            safetyValidator = validator,
+            retryCount = 0,
+            maxSafetyRetries = 2,
+            onPrepareRetry = { retryCalled = true }
+        )
+
+        assertTrue(evaluation is ClinicalAgentStrategy.SafetyEvaluation.Valid)
+        assertEquals("Goal blood pressure is <130/80 mmHg for patients with diabetes.", (evaluation as ClinicalAgentStrategy.SafetyEvaluation.Valid).content)
+        assertFalse("Retry callback must not be invoked on valid response", retryCalled)
+    }
+
+    @Test
+    fun `evaluateSafetyTurn steers blank response with evidence into Phase 2 synthesis`() {
+        val validator = SafetyValidator()
+        val sections = listOf(
+            SafetyValidator.FetchedSection(
+                topicId = "3861",
+                topicTitle = "Hypertension in adults",
+                sectionId = "H1",
+                sectionTitle = "Blood pressure targets",
+                contentSnippet = "Goal blood pressure is <130/80 mmHg"
+            )
+        )
+        val turnContext = SafetyValidator.TurnContext(
+            toolCalls = listOf(
+                SafetyValidator.ToolCallRecord(
+                    toolName = "getTopicSectionsText",
+                    arguments = mapOf("topicId" to "3861", "sectionIds" to "[\"H1\"]"),
+                    result = "Goal blood pressure is <130/80 mmHg",
+                    success = true
+                )
+            ),
+            answer = "",
+            fetchedSections = sections,
+            userQuestion = "What are diabetes blood pressure goals?"
+        )
+
+        var retryCalled = false
+        val evaluation = ClinicalAgentStrategy.evaluateSafetyTurn(
+            cleanText = "",
+            turnContext = turnContext,
+            safetyValidator = validator,
+            retryCount = 0,
+            maxSafetyRetries = 2,
+            onPrepareRetry = { retryCalled = true }
+        )
+
+        assertTrue(evaluation is ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation)
+        val rem = evaluation as ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation
+        assertEquals(ClinicalAgentStrategy.RemediationTarget.PHASE_2_SYNTHESIS, rem.targetPhase)
+        assertTrue(rem.reason.contains("No final clinical answer was synthesized"))
+        assertTrue(rem.evidence.contains("Section [H1]"))
+        assertTrue(retryCalled)
+    }
+
+    @Test
+    fun `evaluateSafetyTurn blocks blank response when retries are exhausted`() {
+        val validator = SafetyValidator()
+        val turnContext = SafetyValidator.TurnContext(
+            toolCalls = emptyList(),
+            answer = "",
+            fetchedSections = listOf(
+                SafetyValidator.FetchedSection("3861", "Hypertension", "H1", "Goals", "Snippet")
+            ),
+            userQuestion = "What are diabetes blood pressure goals?"
+        )
+
+        val evaluation = ClinicalAgentStrategy.evaluateSafetyTurn(
+            cleanText = "",
+            turnContext = turnContext,
+            safetyValidator = validator,
+            retryCount = 2,
+            maxSafetyRetries = 2,
+            onPrepareRetry = { error("Should not prepare retry when budget exhausted") }
+        )
+
+        assertTrue(evaluation is ClinicalAgentStrategy.SafetyEvaluation.Blocked)
+        val blocked = evaluation as ClinicalAgentStrategy.SafetyEvaluation.Blocked
+        assertTrue(blocked.reason.contains("No final clinical answer was synthesized after evidence gathering"))
+    }
+
+    @Test
+    fun `evaluateSafetyTurn steers missing evidence failure into Phase 1 evidence retrieval`() {
+        val validator = SafetyValidator()
+        val turnContext = SafetyValidator.TurnContext(
+            toolCalls = emptyList(),
+            answer = "Dosing is 500 mg orally daily.",
+            fetchedSections = emptyList(),
+            userQuestion = "What is the dosing?"
+        )
+
+        var retryCalled = false
+        val evaluation = ClinicalAgentStrategy.evaluateSafetyTurn(
+            cleanText = turnContext.answer,
+            turnContext = turnContext,
+            safetyValidator = validator,
+            retryCount = 0,
+            maxSafetyRetries = 2,
+            onPrepareRetry = { retryCalled = true }
+        )
+
+        assertTrue(evaluation is ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation)
+        val rem = evaluation as ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation
+        assertEquals(ClinicalAgentStrategy.RemediationTarget.PHASE_1_EVIDENCE, rem.targetPhase)
+        assertTrue(retryCalled)
+    }
+
+    @Test
+    fun `evaluateSafetyTurn steers unverified quantities with evidence into Phase 2 synthesis`() {
+        val validator = SafetyValidator()
+        val sections = listOf(
+            SafetyValidator.FetchedSection(
+                topicId = "100",
+                topicTitle = "Drug Therapy",
+                sectionId = "S1",
+                sectionTitle = "Dosing",
+                contentSnippet = "Standard dose is 250 mg daily."
+            )
+        )
+        val turnContext = SafetyValidator.TurnContext(
+            toolCalls = listOf(
+                SafetyValidator.ToolCallRecord(
+                    toolName = "getTopicSectionsText",
+                    arguments = mapOf("topicId" to "100", "sectionIds" to "[\"S1\"]"),
+                    result = "Standard dose is 250 mg daily.",
+                    success = true
+                )
+            ),
+            answer = "Take 999 mg daily.", // 999 mg is invented/unverified
+            toolResults = listOf("Standard dose is 250 mg daily."),
+            fetchedSections = sections,
+            userQuestion = "What is the dosage?"
+        )
+
+        var retryCalled = false
+        val evaluation = ClinicalAgentStrategy.evaluateSafetyTurn(
+            cleanText = turnContext.answer,
+            turnContext = turnContext,
+            safetyValidator = validator,
+            retryCount = 0,
+            maxSafetyRetries = 2,
+            onPrepareRetry = { retryCalled = true }
+        )
+
+        assertTrue(evaluation is ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation)
+        val rem = evaluation as ClinicalAgentStrategy.SafetyEvaluation.NeedsRemediation
+        assertEquals(ClinicalAgentStrategy.RemediationTarget.PHASE_2_SYNTHESIS, rem.targetPhase)
+        assertTrue(rem.reason.contains("999 mg"))
+        assertTrue(retryCalled)
+    }
+
+    @Test
+    fun `evidenceSummaryFrom formats snippets and empty fallbacks cleanly`() {
+        val emptySummary = ClinicalAgentStrategy.evidenceSummaryFrom(emptyList())
+        assertEquals("No section text was successfully fetched in the prior turn.", emptySummary)
+
+        val withSnippet = ClinicalAgentStrategy.evidenceSummaryFrom(
+            listOf(
+                SafetyValidator.FetchedSection(
+                    topicId = "1",
+                    topicTitle = "Topic A",
+                    sectionId = "S1",
+                    sectionTitle = "Overview",
+                    contentSnippet = "Clinical text here"
+                )
+            )
+        )
+        assertTrue(withSnippet.contains("Section [S1] (Overview):"))
+        assertTrue(withSnippet.contains("Clinical text here"))
+
+        val withoutSnippet = ClinicalAgentStrategy.evidenceSummaryFrom(
+            listOf(
+                SafetyValidator.FetchedSection(
+                    topicId = "1",
+                    topicTitle = "Topic A",
+                    sectionId = "S2",
+                    sectionTitle = "Summary",
+                    contentSnippet = ""
+                )
+            )
+        )
+        assertEquals("Section [S2] (Summary) from topic Topic A", withoutSnippet)
+    }
 }
 
 /** Shorthand import alias for the Koog tool-result part used by compaction tests. */
