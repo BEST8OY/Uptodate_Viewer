@@ -49,7 +49,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class AdversarialStressTest {
+class UiConcurrencyStressTest {
 
     private val testDispatcher = StandardTestDispatcher()
 

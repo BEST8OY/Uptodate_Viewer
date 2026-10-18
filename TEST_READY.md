@@ -11,9 +11,9 @@
 
 | Test Target | Test Suites | Total Tests | Pass Rate | Execution Time | DB Dependencies |
 |---|---|---|---|---|---|
-| **Python Prototype** | `test_e2e.py`<br>`test_clinref.py`<br>`test_integration.py`<br>`test_gate2_adversarial.py`<br>`test_m2_adversarial.py`<br>`test_adversarial_m1.py`<br>`test_challenger_m1_iter2.py`<br>`test_challenger_m1_adversarial.py` | **514** | **100% (514/514)** | ~190s | Live root SQLite databases (read-only, MD5-verified) |
-| **Kotlin Multiplatform (`:shared`)** | `com.clinref.app.e2e.*`<br>`com.clinref.app.domain.ai.*`<br>`com.clinref.app.data.*`<br>`com.clinref.app.adversarial.*`<br>`com.clinref.app.ui.*` | **303** | **100% (303/303)** | ~38s | Bundled SQLite / In-Memory Room / Desktop JVM |
-| **Total Combined** | **All Tiers (1–5)** | **817** | **100%** | **~228s** | **Hermetic, zero external network** |
+| **Python Prototype** | `test_e2e.py`<br>`test_clinref.py`<br>`test_integration.py`<br>`test_adversarial_stress.py`<br>`test_tool_contracts.py` | **411** | **100% (411/411)** | ~70s | Live root SQLite databases (read-only, MD5-verified) |
+| **Kotlin Multiplatform (`:shared`)** | `com.clinref.app.domain.ai.*`<br>`com.clinref.app.data.*`<br>`com.clinref.app.adversarial.*`<br>`com.clinref.app.ui.*` | **260** | **100% (260/260)** | ~20s | Bundled SQLite / In-Memory Room / Desktop JVM |
+| **Total Combined** | **All Tiers (1–5)** | **671** | **100%** | **~90s** | **Hermetic, zero external network** |
 
 ---
 
@@ -49,19 +49,19 @@ cd python_prototype && uv run pytest test_integration.py -v
 
 | Feature # | Feature Name | Tier | Status | Verification Detail |
 |---|---|---|---|---|
-| **F1** | Compound Topic Overview Retrieval | Tier 1, 4 | **READY** | Tested in `test_e2e.py` and `CompoundRetrievalE2ETest.kt`: batch outline bundling, high-yield sections, and calculator fallback verified. |
-| **F2** | Granular Tool Preservation | Tier 1, 4 | **READY** | Tested in `test_integration.py`, `MedicalDatabaseToolsTest.kt`, `CompoundRetrievalE2ETest.kt`: all 6 granular tools preserved with smart section resolution and non-table graphic rejection. |
+| **F1** | Compound Topic Overview Retrieval | Tier 1, 4 | **READY** | Tested in `test_integration.py` and `MedicalDatabaseToolsTest.kt`: batch outline bundling, calculator fallback, and structured error envelopes verified. |
+| **F2** | Granular Tool Preservation | Tier 1, 4 | **READY** | Tested in `test_integration.py` and `MedicalDatabaseToolsTest.kt`: all 6 granular tools preserved with smart section resolution and non-table graphic rejection. |
 | **F3** | Bidirectional Serialization & Schema Parity | Tier 1, 4 | **READY** | Tested across Python and Kotlin: `@JsonNames` aliases, camelCase/snake_case interop, and error envelopes `{"error": ...}` verified. |
-| **F4** | 3-Phase State Machine (Koog & LangGraph) | Tier 3, 4 | **READY** | Tested in `test_e2e.py` and `KoogAgentStrategyE2ETest.kt`: state graph topology, node transitions, and closed-loop routing verified. |
-| **F5** | Premature Synthesis Prevention | Tier 3, 4 | **READY** | Tested in `test_e2e.py` and `ClinicalInquiryE2ETest.kt`: Rule 0 intercepts clinical claims prior to database retrieval while allowing conversational greetings. |
-| **F6** | Streaming Reasoning & Thinking Token Hygiene | Tier 3, 4 | **READY** | Tested in `test_clinref.py`, `ReasoningTokenSanitizerTest.kt`, and `KoogAgentStrategyE2ETest.kt`: XML thought tag stripping and buffer isolation prevent false-positive number validation failures. |
-| **F7** | Deterministic Tier 1 Safety Validation | Tier 1, 4 | **READY** | Tested in `test_e2e.py` and `SafetyValidationE2ETest.kt`: exact dosage verification, metric prefix conversions (`g <-> mg <-> mcg`, `L <-> mL`), and numerical range bounds verified. |
-| **F8** | Targeted Tier 2 Semantic Grounding | Tier 2, 4 | **READY** | Tested in `test_e2e.py` and `SafetyValidationE2ETest.kt`: contraindication guardrails and evidence grounding checks against retrieved section markdown verified. |
-| **F9** | 100% Deterministic Citation Auto-Population | Tier 2, 4 | **READY** | Tested in `test_e2e.py` and `ClinicalInquiryE2ETest.kt`: `TopicRef`, `GraphicRef`, and `ClinicalSource` auto-populated directly from tool execution records without LLM bibliographies. |
-| **F10** | Structured Point-of-Care System Prompt | Tier 3, 4 | **READY** | Tested in `test_clinref.py` and `ClinicalInquiryE2ETest.kt`: PICO/SOAP structure, patient contraindication checking, and category clinical outputs verified. |
-| **F11** | Context-Aware Remediation Prompt Builder | Tier 3, 4 | **READY** | Tested in `test_e2e.py` and `ClinicalInquiryE2ETest.kt`: `buildCorrectionPrompt` generates actionable, context-aware instructions for missing sections and unverified figures. |
-| **F12** | Opaque-Box E2E Testing Suite | Tier 4 | **READY** | Complete end-to-end inquiry flows, compound retrieval, patient contraindications, dosage boundaries, and self-correction remediation loops established. |
-| **F13** | Final Integration & Adversarial Hardening | Tier 5 | **READY** | Tested in `test_adversarial_m1.py`, `test_challenger_m1_iter2.py`, `AdversarialCompoundRetrievalTest.kt`, `AdversarialCascadeTest.kt`: stress, fuzzing, SQL injection probes, and 100% E2E pass verified against live root SQLite databases. |
+| **F4** | 3-Phase State Machine (Koog & LangGraph) | Tier 3, 4 | **READY** | Tested in `test_e2e.py` and `ClinicalAgentStrategyTest.kt`: state graph topology, node transitions, and closed-loop routing verified. |
+| **F5** | Premature Synthesis Prevention | Tier 3, 4 | **READY** | Tested in `test_e2e.py` and `ClinicalAgentStrategyTest.kt`: Rule 0 intercepts clinical claims prior to database retrieval while allowing conversational greetings. |
+| **F6** | Streaming Reasoning & Thinking Token Hygiene | Tier 3, 4 | **READY** | Tested in `test_clinref.py`, `ReasoningTokenSanitizerTest.kt`, and `StreamingManagerTest.kt`: XML thought tag stripping and buffer isolation prevent false-positive number validation failures. |
+| **F7** | Deterministic Tier 1 Safety Validation | Tier 1, 4 | **READY** | Tested in `test_clinref.py` and `SafetyValidatorTest.kt`: exact dosage verification, metric prefix conversions (`g <-> mg <-> mcg`, `L <-> mL`), and numerical range bounds verified. |
+| **F8** | Targeted Tier 2 Semantic Grounding | Tier 2, 4 | **READY** | Tested in `test_clinref.py` and `SafetyValidatorTest.kt`: contraindication guardrails and evidence grounding checks against retrieved section markdown verified. |
+| **F9** | 100% Deterministic Citation Auto-Population | Tier 2, 4 | **READY** | Tested in `test_clinref.py` and `TurnContextAccumulatorTest.kt`: `TopicRef`, `GraphicRef`, and `ClinicalSource` auto-populated directly from tool execution records without LLM bibliographies. |
+| **F10** | Structured Point-of-Care System Prompt | Tier 3, 4 | **READY** | Tested in `test_clinref.py`: PICO/SOAP structure, patient contraindication checking, and category clinical outputs verified. |
+| **F11** | Context-Aware Remediation Prompt Builder | Tier 3, 4 | **READY** | Tested in `test_clinref.py` and `ClinicalAgentStrategyTest.kt`: `buildCorrectionPrompt` generates actionable, context-aware instructions for missing sections and unverified figures. |
+| **F12** | Opaque-Box E2E Testing Suite | Tier 4 | **READY** | Complete end-to-end inquiry flows, in-graph premature interception, self-correction remediation loops, citations, and hostile-input neutralization established. |
+| **F13** | Final Integration & Adversarial Hardening | Tier 5 | **READY** | Tested in `test_adversarial_stress.py`, `test_tool_contracts.py`, `AdversarialInputFuzzTest.kt`, `UiConcurrencyStressTest.kt`: stress, fuzzing, SQL injection probes, and DB immutability verified against live root SQLite databases. |
 
 ---
 
@@ -70,21 +70,20 @@ cd python_prototype && uv run pytest test_integration.py -v
 1. **`TEST_INFRA.md`**: Project-level specification outlining test philosophy, feature inventory test matrix, category-partitioning, boundary value analysis, pairwise combinations, real-world clinical scenarios, and runner commands.
 2. **`python_prototype/test_e2e.py`**:
    - `TestClinicalInquiryE2E`: Full inquiry flows, conversational bypass, premature synthesis blocking.
-   - `TestCompoundRetrievalE2E`: Compound batch retrieval, overview contracts, calculator topic handling, structured error handling.
-   - `TestPatientContraindicationE2E`: Renal function cutoffs (eGFR < 30 mL/min), documented allergy cross-referencing.
-   - `TestDosageBoundaryE2E`: Metric conversions (`g/mg/mcg`, `L/mL`), range endpoints, near-miss blocks, unverified statistics blocks.
    - `TestRemediationLoopE2E`: In-graph self-correction remediation loops, retries exhaustion terminal blocks.
    - `TestCitationExtractionE2E`: Citation auto-population and `ClinicalArticle` / `ClinicalTable` hierarchical grouping.
-3. **`shared/src/commonTest/kotlin/com/clinref/app/e2e/`**:
-   - `ClinicalInquiryE2ETest.kt`: Multi-turn clinical inquiry cycles, accumulator state tracking, conversational bypass, premature answer blocking, self-correction remediation cycles, and terminal safety blocks.
-   - `CompoundRetrievalE2ETest.kt`: Batch compound section retrieval, smart section resolution (case-insensitive and title matching), calculator topic resilience, structured error envelopes, graphic table markdown rendering, and 6-tool preservation.
-   - `SafetyValidationE2ETest.kt`: Tier 1 exact dosages, metric conversions, range boundaries, near-miss detection, invented number blocking, and citation extraction with parent topic attribution.
-   - `KoogAgentStrategyE2ETest.kt`: Koog autonomous graph topology, node and directed edge declarations, closed-loop remediation routing, safety evaluation sealed models, and thinking token hygiene.
+   - `TestPrematureInterceptionGraphE2E`: In-graph premature interception through `create_clinical_agent` — conversational bypass, interception notice directives, two-retry budget exhaustion, evidence-routes-to-validation.
+   - Compound retrieval tool contracts now live in `test_integration.py` (`TestGetTopicOverviewIntegration`); validator rule scenarios (metric conversions, range bounds, contraindications) now live in `test_clinref.py`.
+3. **Canonical Kotlin unit & adversarial suite** (`shared/src/commonTest/kotlin/com/clinref/app/`):
+   - `SafetyValidatorTest.kt`: Rules 0–4 canonical coverage — premature blocking, evidence grounding, invented numbers, metric conversions, patient profile bounds.
+   - `ClinicalAgentStrategyTest.kt`: Koog graph topology, node/edge declarations, remediation routing, safety evaluation sealed models, and interception prompt directives.
+   - `MedicalDatabaseToolsTest.kt`: Tool contracts, `@JsonNames` bidirectional payload decoding, `ContentDao` malformed-ID regex gate.
+   - `adversarial/AdversarialInputFuzzTest.kt`: consolidated hostile-input battery across all 6 tools (SQL injection strings, unicode, null bytes, negative/oversized IDs).
 4. **M3 Gate anti-regression additions**:
-   - Python `TestM3GateRemediation` (`test_e2e.py` §7): singular `section_id` citations, patient-profile wiring into agent state (Rule 4 in-graph), graphic-ID prefix variants, overview table-only graphics, deterministic GraphicRef insertion order.
-   - Python `TestCamelCaseAndSnakeCaseAliases` extended with `q`/`keyword` payloads (`test_challenger_m1_iter2.py`).
+   - Python `TestM3GateRemediation` (`test_e2e.py` §4): singular `section_id` citations, patient-profile wiring into agent state (Rule 4 in-graph), graphic-ID prefix variants, overview table-only graphics, deterministic GraphicRef insertion order.
+   - Python `TestCamelCaseAndSnakeCaseAliases` extended with `q`/`keyword` payloads (`test_tool_contracts.py`).
    - Kotlin `TurnContextAccumulatorTest`: patient-profile-through-accumulator wiring tests (Rule 4 engages end-to-end).
-   - Kotlin `SafetyValidatorTest` / `AdversarialRenalBoundaryTest` / `AllergyPromptAdversarialTest` / `AdversarialCascadeTest`: converted from assertion-free probes to hard assertions (surfaced and pinned the bullet-prefix section resolution fix).
+   - Kotlin `SafetyValidatorTest` (Rule 4 hard assertions) and `MedicalDatabaseToolsTest` (bullet-prefix / case-insensitive section resolution fix pinned in the smart-resolution tests).
 
 ---
 

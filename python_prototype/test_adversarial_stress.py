@@ -194,11 +194,17 @@ class TestAdversarialInputsAndSQLInjection:
 
 
 class TestConcurrencyAndThreadSafety:
-    """Multi-threaded stress testing: 20 threads executing 250 requests concurrently."""
+    """Multi-threaded stress testing: 8 threads executing 48 requests concurrently.
+
+    Verifies the SQLite/LangChain retrieval-tool layer is thread-safe under
+    interleaved concurrent access. Kept at regression-test scale (the former
+    20x15 barrage was benchmark-scale): the modulo op-mix still interleaves
+    all 7 tool operations across threads, while keeping the suite fast.
+    """
 
     def test_multithreaded_mixed_tool_barrage(self, db):
-        num_threads = 20
-        calls_per_thread = 15
+        num_threads = 8
+        calls_per_thread = 6
         total_calls = num_threads * calls_per_thread
 
         def worker(thread_idx: int):
@@ -240,7 +246,7 @@ class TestConcurrencyAndThreadSafety:
         all_errors = [err for sublist in results for err in sublist]
 
         assert len(all_errors) == 0, f"Concurrency test encountered {len(all_errors)} errors: {all_errors[:5]}"
-        assert duration < 200.0, f"Concurrency test took too long: {duration:.2f}s for {total_calls} calls"
+        assert duration < 90.0, f"Concurrency test took too long: {duration:.2f}s for {total_calls} calls"
 
 
 class TestDatabaseImmutability:

@@ -21,7 +21,7 @@
 ### Build & Test Commands
 
 ```bash
-# Desktop tests & compilation check (primary local verification command — 301 tests in ~49s)
+# Desktop tests & compilation check (primary local verification command — 260 tests in ~12s)
 ./gradlew :shared:desktopTest --stacktrace
 
 # Run Desktop diagnostic verifier & app (queries root SQLite DBs, all 10 ViewModels, Room 3)
@@ -52,7 +52,7 @@
 ### Python Prototype (`python_prototype/`)
 > **Important**: Run these commands **ONLY** when you have modified `.py` files inside `python_prototype/`.
 ```bash
-uv run pytest test_clinref.py        # Run 150 unit tests (ONLY when python_prototype/ code was modified)
+uv run pytest test_clinref.py        # Run 151 unit tests (ONLY when python_prototype/ code was modified)
 uv run pytest test_integration.py   # Run 58 integration tests against root SQLite DBs (ONLY when python_prototype/ code was modified)
 uv run python run.py                 # Run interactive CLI agent
 ```

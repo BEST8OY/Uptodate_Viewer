@@ -39,19 +39,19 @@ Any behavioral rule, metric conversion formula, patient boundary threshold, or e
 
 | Feature # | Feature Name | Tier | Primary Test Files | Core Verification Invariants |
 |---|---|---|---|---|
-| **F1** | Compound Topic Overview Retrieval | Tier 1, 4 | `test_e2e.py`<br>`CompoundRetrievalE2ETest.kt` | `getTopicOverview` / `get_topic_overview` returns bundled outline + pre-fetched high-yield sections (`Summary & Recommendations`, `Dosing`, `Management`) in 1 round-trip; falls back gracefully for calculators (`topicType = "calc"`). |
+| **F1** | Compound Topic Overview Retrieval | Tier 1, 4 | `test_integration.py`<br>`MedicalDatabaseToolsTest.kt` | `getTopicOverview` / `get_topic_overview` returns bundled outline + graphics (`Summary & Recommendations`, `Dosing`, `Management`) in 1 round-trip; falls back gracefully for calculators (`topicType = "calc"`). |
 | **F2** | Granular Tool Preservation | Tier 1, 4 | `test_integration.py`<br>`MedicalDatabaseToolsTest.kt` | Preserves the strict 6-tool contract (`getTopicOverview` bundle + 5 granular: `searchTopics`, `getTopicSectionsText`, `getGraphicContent`, `searchTopicSections`, `getRelatedTopics`); smart section title matching; non-table graphic rejection. |
-| **F3** | Bidirectional Serialization & Schema Parity | Tier 1, 4 | `test_clinref.py`<br>`MedicalDatabaseToolsTest.kt`<br>`CompoundRetrievalE2ETest.kt` | Exact parameter naming and `@JsonNames` aliases (`topic_id` vs `topicId`, `section_ids` vs `sectionIds`); uniform JSON error envelope `{"error": "..."}`; no double-escaping or field dropping. |
-| **F4** | 3-Phase State Machine (Koog & LangGraph) | Tier 3, 4 | `test_e2e.py`<br>`KoogAgentStrategyE2ETest.kt` | Structured phases: Evidence Gathering & Tool Retrieval -> Clinical Synthesis -> In-Graph Safety Verification & Remediation. Autonomous transitions without external loop intervention. |
-| **F5** | Premature Synthesis Prevention | Tier 3, 4 | `test_e2e.py`<br>`KoogAgentStrategyE2ETest.kt` | Intercepts clinical claims generated before tool retrieval; forces evidence retrieval before synthesis on non-conversational queries (Rule 0). |
-| **F6** | Streaming Reasoning & Thinking Token Hygiene | Tier 3, 4 | `test_clinref.py`<br>`AdversarialRemedyTest.kt`<br>`KoogAgentStrategyE2ETest.kt` | Isolates reasoning tokens to dedicated flows; strips XML `<thought>` tags; ensures thinking tokens do not leak into chat text or trigger false-positive number validation failures. |
-| **F7** | Deterministic Tier 1 Safety Validation | Tier 1, 4 | `test_clinref.py`<br>`SafetyValidatorTest.kt`<br>`SafetyValidationE2ETest.kt` | Regex/AST dosage extraction; unit conversions (g/mg/mcg, L/mL); numerical range checking; patient profile bounds (eGFR/CrCl < 30 mL/min, documented allergy cross-referencing). |
-| **F8** | Targeted Tier 2 Semantic Grounding | Tier 2, 4 | `test_clinref.py`<br>`SafetyValidatorTest.kt`<br>`SafetyValidationE2ETest.kt` | Guardrails for critical contraindications, black-box warnings, and ungrounded clinical assertions against retrieved section markdown. |
-| **F9** | 100% Deterministic Citation Auto-Population | Tier 2, 4 | `test_clinref.py`<br>`TurnContextAccumulatorTest.kt`<br>`ClinicalInquiryE2ETest.kt` | `TopicRef`, `GraphicRef`, and `ClinicalSource` automatically extracted from successful tool execution records; parent topics attributed for graphic tables; calculator FULL section filtered. |
+| **F3** | Bidirectional Serialization & Schema Parity | Tier 1, 4 | `test_clinref.py`<br>`MedicalDatabaseToolsTest.kt`<br>`test_tool_contracts.py` | Exact parameter naming and `@JsonNames` aliases (`topic_id` vs `topicId`, `section_ids` vs `sectionIds`); uniform JSON error envelope `{"error": "..."}`; no double-escaping or field dropping. |
+| **F4** | 3-Phase State Machine (Koog & LangGraph) | Tier 3, 4 | `test_e2e.py`<br>`ClinicalAgentStrategyTest.kt` | Structured phases: Evidence Gathering & Tool Retrieval -> Clinical Synthesis -> In-Graph Safety Verification & Remediation. Autonomous transitions without external loop intervention. |
+| **F5** | Premature Synthesis Prevention | Tier 3, 4 | `test_e2e.py`<br>`ClinicalAgentStrategyTest.kt` | Intercepts clinical claims generated before tool retrieval; forces evidence retrieval before synthesis on non-conversational queries (Rule 0). |
+| **F6** | Streaming Reasoning & Thinking Token Hygiene | Tier 3, 4 | `test_clinref.py`<br>`ReasoningTokenSanitizerTest.kt`<br>`StreamingManagerTest.kt` | Isolates reasoning tokens to dedicated flows; strips XML `<thought>` tags; ensures thinking tokens do not leak into chat text or trigger false-positive number validation failures. |
+| **F7** | Deterministic Tier 1 Safety Validation | Tier 1, 4 | `test_clinref.py`<br>`SafetyValidatorTest.kt` | Regex/AST dosage extraction; unit conversions (g/mg/mcg, L/mL); numerical range checking; patient profile bounds (eGFR/CrCl < 30 mL/min, documented allergy cross-referencing). |
+| **F8** | Targeted Tier 2 Semantic Grounding | Tier 2, 4 | `test_clinref.py`<br>`SafetyValidatorTest.kt` | Guardrails for critical contraindications, black-box warnings, and ungrounded clinical assertions against retrieved section markdown. |
+| **F9** | 100% Deterministic Citation Auto-Population | Tier 2, 4 | `test_clinref.py`<br>`TurnContextAccumulatorTest.kt` | `TopicRef`, `GraphicRef`, and `ClinicalSource` automatically extracted from successful tool execution records; parent topics attributed for graphic tables; calculator FULL section filtered. |
 | **F10** | Structured Point-of-Care System Prompt | Tier 3, 4 | `test_clinref.py`<br>`ClinicalAgentStrategyTest.kt` | System prompts enforce structured PICO/SOAP problem formulation, explicit patient contraindication cross-referencing, and concise category-based clinical outputs. |
-| **F11** | Context-Aware Remediation Prompt Builder | Tier 3, 4 | `test_clinref.py`<br>`ClinicalAgentStrategyTest.kt`<br>`ClinicalInquiryE2ETest.kt` | `buildCorrectionPrompt` produces actionable, context-aware remediation instructions directing the model to retrieve missing sections or rectify unverified quantities. |
-| **F12** | Opaque-Box E2E Testing Suite | Tier 4 | `test_e2e.py`<br>`ClinicalInquiryE2ETest.kt`<br>`CompoundRetrievalE2ETest.kt` | Complete end-to-end clinical workflows from query to verified answer across multi-turn tool loops, patient profile checks, and citations. |
-| **F13** | Final Integration & Adversarial Hardening | Tier 5 | `test_integration.py`<br>`AdversarialStressTest.kt`<br>`AdversarialRemedyTest.kt` | Extreme inputs, special characters, malformed JSON, SQL injection probes, read-only DB integrity, and rapid multi-turn stress testing. |
+| **F11** | Context-Aware Remediation Prompt Builder | Tier 3, 4 | `test_clinref.py`<br>`ClinicalAgentStrategyTest.kt` | `buildCorrectionPrompt` produces actionable, context-aware remediation instructions directing the model to retrieve missing sections or rectify unverified quantities. |
+| **F12** | Opaque-Box E2E Testing Suite | Tier 4 | `test_e2e.py`<br>`AdversarialInputFuzzTest.kt` | Complete end-to-end clinical workflows from query to verified answer across multi-turn tool loops, patient profile checks, and citations. |
+| **F13** | Final Integration & Adversarial Hardening | Tier 5 | `test_integration.py`<br>`test_adversarial_stress.py`<br>`AdversarialInputFuzzTest.kt`<br>`UiConcurrencyStressTest.kt`<br>`GraphicIdRobustnessTest.kt` | Extreme inputs, special characters, malformed JSON, SQL injection probes, read-only DB integrity, and rapid multi-turn stress testing. |
 
 ---
 
@@ -139,41 +139,39 @@ Uptodate_Viewer/
 ├── TEST_INFRA.md                          # Test infrastructure specification (this document)
 ├── TEST_READY.md                          # Test readiness certificate and feature verification summary
 ├── python_prototype/                      # Python prototype test suite
-│   ├── test_clinref.py                    # Unit tests for validator, parser, tools, agent (150 tests)
+│   ├── test_clinref.py                    # Unit tests for validator, parser, tools, agent (151 tests)
 │   ├── test_integration.py                # Database integration tests against root SQLite DBs (58 tests)
-│   ├── test_e2e.py                        # Opaque-box E2E clinical inquiry, compound retrieval & safety tests
-│   ├── test_gate2_adversarial.py          # Gate 2 hardening: SQL injection, arg-alias, non-FTS & DB-integrity batteries (156 tests)
-│   ├── test_m2_adversarial.py             # Milestone 2 adversarial prompts, profile bounds & remediation tests (63 tests)
-│   ├── test_adversarial_m1.py             # Milestone 1 adversarial retrieval & state machine tests (28 tests)
-│   ├── test_challenger_m1_iter2.py        # 6-tool preservation, alias & smart-resolution cascade tests
-│   ├── test_challenger_m1_adversarial.py  # Cross-platform alias risk probes (21 tests)
+│   ├── test_e2e.py                        # In-graph E2E: clinical inquiry, interception, remediation, citations (26 tests)
+│   ├── test_adversarial_stress.py          # Gate 2 hardening: SQL injection, malformed IDs, DB-integrity, concurrency (126 tests)
+│   ├── test_tool_contracts.py        # 6-tool preservation, arg aliases & smart-resolution cascade tests (50 tests)
 │   ├── reasoning_sanitizer.py             # Pure reasoning/thinking token sanitizer (parity with Kotlin)
-│   ├── harness_challenger_m1.py           # Standalone SQL-injection challenge harness (gate evidence)
 └── shared/src/commonTest/kotlin/          # Kotlin Multiplatform test suite (:shared)
     └── com/clinref/app/
         ├── data/
-        │   ├── MedicalDatabaseToolsTest.kt# Granular tool execution & JSON schema tests
-        │   ├── AdversarialCascadeTest.kt   # Smart-resolution cascades (incl. bullet prefixes) & partial truncation
+        │   ├── MedicalDatabaseToolsTest.kt# Granular tool execution, JSON schema & bidirectional payload tests
         │   └── AssetRepositoryTest.kt      # Asset dao and payload decompression tests
         ├── domain/ai/
         │   ├── ClinicalAgentStrategyTest.kt# Koog autonomous strategy graph node/edge tests
-        │   ├── SafetyValidatorTest.kt      # Rules 0-4 quantitative & patient-bound validation tests
+        │   ├── SafetyValidatorTest.kt      # Rules 0-4 quantitative & patient-bound validation tests (canonical)
         │   ├── TurnContextAccumulatorTest.kt# Tool call tracking, citation auto-population & profile wiring tests
         │   ├── ReasoningTokenSanitizerTest.kt # Thinking-token leak/strip parity tests
         │   └── StreamingManagerTest.kt     # Fragmented tag demux & streaming buffer hygiene tests
         ├── adversarial/
-        │   ├── AdversarialCompoundRetrievalTest.kt # Injection/emoji/unicode/IDs fuzz battery
-        │   ├── AdversarialPrematureInterceptionTest.kt # Rule 0 interception & greeting bypass
-        │   ├── AdversarialRenalBoundaryTest.kt # eGFR/CrCl boundary BVA (29/30/31)
-        │   ├── AllergyPromptAdversarialTest.kt # Cross-reactivity & punctuation allergen battery
-        │   ├── AdversarialRemedyTest.kt    # State restoration and lifecycle audit tests
-        │   └── AdversarialStressTest.kt    # Stress, fuzzing, and boundary condition tests
-        └── e2e/                           # Kotlin Multiplatform E2E Test Suite
-            ├── ClinicalInquiryE2ETest.kt  # Full inquiry flows, self-correction, citations
-            ├── CompoundRetrievalE2ETest.kt# Compound retrieval contracts & section resolution
-            ├── SafetyValidationE2ETest.kt # Tier 1 quantitative & Tier 2 semantic safety
-            └── KoogAgentStrategyE2ETest.kt# Koog state machine transitions & streaming hygiene
+        │   ├── AdversarialInputFuzzTest.kt # Consolidated hostile-input battery across all 6 tools
+        │   └── UiConcurrencyStressTest.kt  # GraphicViewModel/ChatSheet/NavDisplay concurrency & leak stress
+        └── ui/
+            ├── navigation/NavSaverRobustnessTest.kt # Nav3 Saver restoration + polymorphic route serialization
+            └── content/GraphicIdRobustnessTest.kt   # AssetRepository/ChatScreen Graphic- prefix pipeline robustness
 ```
+
+> **Consolidation note**: The per-milestone adversarial files (`AdversarialCompoundRetrievalTest`,
+> `AdversarialPrematureInterceptionTest`, `AdversarialRenalBoundaryTest`, `AllergyPromptAdversarialTest`,
+> `AdversarialCascadeTest`, `harness_challenger_m1.py`, `test_adversarial_m1.py`, `test_m2_adversarial.py`,
+> `test_challenger_m1_adversarial.py`) were folded into the canonical files above
+> (`SafetyValidatorTest`, `ClinicalAgentStrategyTest`, `MedicalDatabaseToolsTest`,
+> `test_clinref.py`, `test_e2e.py`, `test_adversarial_stress.py`) plus the single
+> `AdversarialInputFuzzTest.kt` hostile-input battery. Future adversarial cases must be
+> added to the canonical file that owns the concern, not to a new per-milestone file.
 
 ---
 

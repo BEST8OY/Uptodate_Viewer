@@ -9,7 +9,6 @@ Tests:
    - get_topic_sections_text: topic_id/topicId and section_ids/sectionIds (as list and single string)
    - search_topic_sections: topic_id/topicId and query/queryText/search_query/searchQuery
    - get_graphic_content: graphic_id, graphicId (with and without 'graphic-' prefix)
-   - get_topic_overview: topic_id/topicId
 3. Smart section resolution cascades:
    - Exact ID match
    - Case-insensitive ID match
@@ -93,7 +92,7 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert len(res2["results"]) > 0
         assert res1["results"][0]["id"] == res2["results"][0]["id"]
 
-    # 2. get_topic_overview: topic_id and topicId
+    # 2. get_topic_overview: topic_id and topicId (consolidated duplicates)
     @pytest.mark.parametrize("payload", [
         {"topic_id": "1"},
         {"topicId": "1"},
@@ -105,12 +104,7 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert "error" not in data, f"Unexpected error in get_topic_overview: {data}"
         assert data["topicId"] == "1"
         assert len(data["sections"]) > 0
-
-    def test_get_topic_overview_direct_func_call(self):
-        res1 = json.loads(tools.get_topic_overview.func(topic_id="1"))
-        res2 = json.loads(tools.get_topic_overview.func(topicId="1"))
-        assert res1["title"] == res2["title"]
-        assert len(res1["sections"]) == len(res2["sections"])
+        assert data["topicType"] == "article"
 
     # 3. get_related_topics: topic_id and topicId
     @pytest.mark.parametrize("payload", [
@@ -124,11 +118,6 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert "error" not in data, f"Unexpected error in get_related_topics: {data}"
         assert data["topicId"] == "1"
         assert "relatedTopics" in data
-
-    def test_get_related_topics_direct_func_call(self):
-        res1 = json.loads(tools.get_related_topics.func(topic_id="1"))
-        res2 = json.loads(tools.get_related_topics.func(topicId="1"))
-        assert res1["relatedTopics"] == res2["relatedTopics"]
 
     # 4. get_topic_sections_text: topic_id/topicId and section_ids/sectionIds
     @pytest.mark.parametrize("payload", [
@@ -146,12 +135,6 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert data["topicId"] == "1"
         assert "H1" in data["sectionTitles"]
         assert len(data["markdown"]) > 0
-
-    def test_get_topic_sections_text_direct_func_call(self):
-        res1 = json.loads(tools.get_topic_sections_text.func(topic_id="1", section_ids=["H1"]))
-        res2 = json.loads(tools.get_topic_sections_text.func(topicId="1", sectionIds=["H1"]))
-        assert res1["sectionTitles"] == res2["sectionTitles"]
-        assert res1["markdown"] == res2["markdown"]
 
     # 5. search_topic_sections: topic_id/topicId and query/queryText/search_query/searchQuery (+ q/keyword)
     @pytest.mark.parametrize("payload", [
@@ -171,11 +154,6 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert "matches" in data
         assert len(data["matches"]) > 0
 
-    def test_search_topic_sections_direct_func_call(self):
-        res1 = json.loads(tools.search_topic_sections.func(topic_id="1", query="dose"))
-        res2 = json.loads(tools.search_topic_sections.func(topicId="1", queryText="dose"))
-        assert len(res1["matches"]) == len(res2["matches"])
-
     # 6. get_graphic_content: graphic_id and graphicId
     @pytest.mark.parametrize("payload", [
         {"graphic_id": "116392"},
@@ -191,29 +169,36 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert "### Graphic Table:" in raw
         assert "error" not in raw.lower()
 
+    # Per-tool snake/camel alias equivalence through the raw LangChain function.
+    # Replaces five near-identical per-tool `_direct_func_call` test bodies.
+    @pytest.mark.parametrize(
+        "tool_name, snake_args, camel_args, keys",
+        [
+            ("search_topics", {"search_query": "gout"}, {"queryText": "gout"}, ["results"]),
+            ("get_topic_overview", {"topic_id": "1"}, {"topicId": "1"}, ["title", "sections"]),
+            ("get_related_topics", {"topic_id": "1"}, {"topicId": "1"}, ["relatedTopics"]),
+            ("get_topic_sections_text",
+             {"topic_id": "1", "section_ids": ["H1"]},
+             {"topicId": "1", "sectionIds": ["H1"]},
+             ["sectionTitles", "markdown"]),
+            ("search_topic_sections",
+             {"topic_id": "1", "query": "dose"},
+             {"topicId": "1", "queryText": "dose"},
+             ["matches"]),
+        ],
+    )
+    def test_tool_alias_equivalence_direct_func_call(self, tool_name, snake_args, camel_args, keys):
+        tool = getattr(tools, tool_name)
+        snake_res = json.loads(tool.func(**snake_args))
+        camel_res = json.loads(tool.func(**camel_args))
+        for key in keys:
+            assert snake_res[key] == camel_res[key], \
+                f"{tool_name}: snake_case {key} != camelCase {key}"
+
     def test_get_graphic_content_direct_func_call(self):
         res1 = tools.get_graphic_content.func(graphic_id="116392")
         res2 = tools.get_graphic_content.func(graphicId="116392")
         assert res1 == res2
-
-    # 7. get_topic_overview: topic_id and topicId aliases
-    @pytest.mark.parametrize("payload", [
-        {"topic_id": "1"},
-        {"topicId": "1"},
-    ])
-    def test_get_topic_overview_parameter_aliases_invoke(self, payload):
-        raw = tools.get_topic_overview.invoke(payload)
-        data = json.loads(raw)
-        assert "error" not in data, f"Unexpected error in get_topic_overview: {data}"
-        assert data["topicId"] == "1"
-        assert len(data["sections"]) > 0
-        assert data["topicType"] == "article"
-
-    def test_get_topic_overview_direct_func_call(self):
-        res1 = json.loads(tools.get_topic_overview.func(topic_id="1"))
-        res2 = json.loads(tools.get_topic_overview.func(topicId="1"))
-        assert res1["title"] == res2["title"]
-        assert res1["sections"] == res2["sections"]
 
 
 class TestSmartSectionResolutionCascades:

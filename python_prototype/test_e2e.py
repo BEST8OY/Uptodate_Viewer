@@ -1,43 +1,37 @@
 """End-to-end opaque-box clinical inquiry and safety test suite.
 
-Exercising:
+Exercising (against live root UpToDate SQLite databases with deterministic mock
+LLMs, no external API dependencies):
 1. Full clinical inquiry flows with database verification.
-2. Compound retrieval contracts and high-yield section bundling.
-3. Patient contraindication scenarios (renal eGFR bounds, documented allergies).
-4. Dosage boundary value analysis & metric unit conversions.
-5. In-graph multi-turn self-correction remediation loops.
-6. Auto-populated citations and clinical reference grouping.
+2. In-graph multi-turn self-correction remediation loops.
+3. Auto-populated citations and clinical reference grouping.
+4. M3 gate remediation regressions (singular section_id, profile wiring,
+   graphic prefix normalization, table-only graphics, citation ordering).
+5. Premature synthesis interception through the agent graph (merged from the
+   former Milestone-1 challenger suite).
 
-All tests execute against live root UpToDate SQLite databases using deterministic
-mock LLMs without external API dependencies.
+Unit-level validator rules (dosage ranges, metric conversions, patient profile
+bounds) live in test_clinref.py, and live-database tool contracts live in
+test_integration.py.
 """
 
 import json
-import re
 from pathlib import Path
 from typing import Optional
 
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
 from agent import create_clinical_agent, create_initial_state
 from clinical_source import (
-    ClinicalArticle,
-    ClinicalTable,
     group_topic_refs_to_articles,
     graphic_refs_to_tables,
 )
 from database import ClinRefDatabase
-from html_parser import extract_outline_sections
 from safety_validator import (
-    CLINICAL_QUANTITY_REGEX,
     FetchedSection,
-    GraphicRef,
-    SafetyValidator,
     ToolCallRecord,
-    TopicRef,
     TurnContext,
-    ValidationResult,
 )
 import tools
 
@@ -236,210 +230,7 @@ class TestClinicalInquiryE2E:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 2. Compound Retrieval & High-Yield Bundling
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestCompoundRetrievalE2E:
-    """Test compound retrieval contracts, high-yield section bundling, and granular fallback."""
-
-    def test_compound_batch_section_retrieval_against_live_db(self, db):
-        """Batch section retrieval fetches multiple sections with markdown formatting in 1 round-trip."""
-        outline_html = db.get_topic_outline("1")
-        sections = extract_outline_sections(outline_html)
-        target_sids = [s["id"] for s in sections[:3]]
-        assert len(target_sids) >= 2
-
-        raw_result = tools.get_topic_sections_text.invoke({
-            "topic_id": "1",
-            "section_ids": target_sids,
-        })
-        data = json.loads(raw_result)
-
-        assert data["topicId"] == "1"
-        assert len(data["topicTitle"]) > 0
-        assert "markdown" in data
-        # Ensure all requested valid sections have individual headers in the bundled markdown
-        for sid in target_sids:
-            assert f"=== Section: {sid} ===" in data["markdown"]
-
-    def test_topic_overview_contract_compliance(self, db):
-        """Topic overview contract: returns outline metadata and graphics without prefetching for articles."""
-        clean_id = "1"
-        res_raw = tools.get_topic_overview.invoke({"topic_id": clean_id})
-        data = json.loads(res_raw)
-
-        assert data["topicId"] == "1"
-        assert len(data["sections"]) >= 3
-        assert "prefetchedSections" not in data
-        assert "highYieldSections" not in data
-        assert data["markdown"] == ""
-
-
-    def test_calculator_topic_compound_handling(self, db):
-        """Calculator topics return calc type and FULL section without outline failures."""
-        asset = db.get_topic_asset("148929")  # Known calculator
-        if asset:
-            raw_overview = tools.get_topic_overview.invoke({"topic_id": "148929"})
-            data = json.loads(raw_overview)
-            assert data.get("topicType") == "calc"
-            assert data["sections"][0]["id"] == "FULL"
-
-            # Retrieve FULL section
-            raw_body = tools.get_topic_sections_text.invoke({
-                "topic_id": "148929",
-                "section_ids": ["FULL"],
-            })
-            body_data = json.loads(raw_body)
-            assert "markdown" in body_data
-            assert "invalidSections" not in body_data
-
-    def test_nonexistent_topic_returns_structured_error(self, db):
-        """Non-existent topic returns JSON error envelope rather than throwing exceptions."""
-        result = tools.get_topic_overview.invoke({"topic_id": "nonexistent_9999999"})
-        data = json.loads(result)
-        assert "error" in data
-        assert "Topic not found" in data["error"]
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 3. Patient Contraindication Scenarios
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestPatientContraindicationE2E:
-    """Test patient profile bounds (eGFR, CrCl, documented allergies)."""
-
-    def test_renal_contraindication_scenario_boundary_check(self):
-        """Patient with severe renal impairment (eGFR 24 mL/min < 30 cutoff) flags contraindications."""
-        # Evidence with standard and reduced dose thresholds
-        evidence = (
-            "Apixaban standard dosing is 5 mg twice daily. "
-            "For patients with severe renal impairment (eGFR or CrCl < 30 mL/min), "
-            "or Serum Creatinine >= 1.5 mg/dL with age >= 80 or weight <= 60 kg, "
-            "the recommended dose is reduced to 2.5 mg twice daily."
-        )
-
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=evidence, success=True)],
-            tool_results=[evidence],
-            fetched_sections=[FetchedSection(topic_id="128998", topic_title="Apixaban", section_id="H1", section_title="Dosing", content_snippet=evidence)],
-            user_question="Patient has eGFR 24 mL/min. What is the apixaban dose?",
-            answer="In a patient with severe renal impairment (eGFR 24 mL/min, below 30 mL/min), the recommended reduced dose is 2.5 mg twice daily.",
-        )
-
-        validator = SafetyValidator()
-        res = validator.validate(ctx)
-        assert res.passed is True
-
-    def test_allergy_contraindication_cross_reference_scenario(self):
-        """Clinical answer recommending penicillin to a patient with documented penicillin allergy must be evaluated."""
-        evidence = (
-            "First-line treatment for Group A streptococcal pharyngitis is oral Penicillin V 500 mg twice daily for 10 days, "
-            "or Amoxicillin 50 mg/kg once daily. For patients with documented penicillin allergy, oral Azithromycin 500 mg on day 1 "
-            "followed by 250 mg daily for 4 days is recommended."
-        )
-
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=evidence, success=True)],
-            tool_results=[evidence],
-            fetched_sections=[FetchedSection(topic_id="pharyngitis", topic_title="Pharyngitis", section_id="H2", section_title="Antibiotics", content_snippet=evidence)],
-            user_question="Patient has documented penicillin allergy (anaphylaxis). What is the treatment?",
-            answer="For patients with documented penicillin allergy, Azithromycin 500 mg on day 1 followed by 250 mg daily is recommended.",
-        )
-
-        validator = SafetyValidator()
-        res = validator.validate(ctx)
-        assert res.passed is True
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 4. Dosage Boundary Value Analysis & Unit Conversions
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestDosageBoundaryE2E:
-    """Test quantitative dosage boundaries, numerical ranges, and metric prefix conversions."""
-
-    def test_metric_unit_conversions_g_mg_mcg(self):
-        """Metric equivalence: 1000 mg == 1 g, 500 mcg == 0.5 mg, 2500 mL == 2.5 L."""
-        evidence = (
-            "Administer Cefazolin 1000 mg IV prior to incision. "
-            "Levothyroxine is initiated at 0.5 mg daily. "
-            "Fluid resuscitation requires 2500 mL normal saline."
-        )
-
-        # Claim using equivalent metric units: 1 g, 500 mcg, 2.5 L
-        answer = "Administer Cefazolin 1 g IV. Initiate Levothyroxine at 500 mcg daily. Resuscitate with 2.5 L normal saline."
-
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=evidence, success=True)],
-            tool_results=[evidence],
-            fetched_sections=[FetchedSection(topic_id="meds", topic_title="Meds", section_id="H1", section_title="Dosing", content_snippet=evidence)],
-            user_question="What are the doses?",
-            answer=answer,
-        )
-
-        validator = SafetyValidator()
-        res = validator.validate(ctx)
-        assert res.passed is True
-
-    def test_numerical_range_bounds_check(self):
-        """Evidence specifying a range '5 to 10 mg' validates endpoints and range expression."""
-        evidence = "The recommended starting dose of amlodipine is 5 to 10 mg orally once daily."
-
-        validator = SafetyValidator()
-
-        # 1. Lower bound (5 mg) passes
-        ctx_lower = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=evidence, success=True)],
-            tool_results=[evidence],
-            fetched_sections=[FetchedSection(topic_id="amlodipine", topic_title="Amlodipine", section_id="H1", section_title="Dosing", content_snippet=evidence)],
-            user_question="What is the starting dose?",
-            answer="Amlodipine is started at 5 mg orally once daily.",
-        )
-        assert validator.validate(ctx_lower).passed is True
-
-        # 2. Upper bound (10 mg) passes
-        ctx_upper = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=evidence, success=True)],
-            tool_results=[evidence],
-            fetched_sections=[FetchedSection(topic_id="amlodipine", topic_title="Amlodipine", section_id="H1", section_title="Dosing", content_snippet=evidence)],
-            user_question="What is the starting dose?",
-            answer="Amlodipine dose may be titrated up to 10 mg daily.",
-        )
-        assert validator.validate(ctx_upper).passed is True
-
-        # 3. Out-of-bounds invented number (15 mg) is blocked
-        ctx_out = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=evidence, success=True)],
-            tool_results=[evidence],
-            fetched_sections=[FetchedSection(topic_id="amlodipine", topic_title="Amlodipine", section_id="H1", section_title="Dosing", content_snippet=evidence)],
-            user_question="What is the starting dose?",
-            answer="Amlodipine maximum dose is 15 mg daily.",
-        )
-        res_out = validator.validate(ctx_out)
-        assert res_out.passed is False
-        assert "Unverified clinical quantities" in res_out.blocked_reason
-        assert "15 mg" in res_out.blocked_reason
-
-    def test_near_miss_dosage_blocked(self):
-        """Claim of 50 mg when evidence states 500 mg must be blocked."""
-        evidence = "The standard dose of Metformin is 500 mg twice daily."
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=evidence, success=True)],
-            tool_results=[evidence],
-            fetched_sections=[FetchedSection(topic_id="metformin", topic_title="Metformin", section_id="H1", section_title="Dosing", content_snippet=evidence)],
-            user_question="What is the dose?",
-            answer="Metformin is given at 50 mg twice daily.",
-        )
-        res = SafetyValidator().validate(ctx)
-        assert res.passed is False
-        assert "50" in res.blocked_reason
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 5. In-Graph Multi-Turn Self-Correction Remediation Loops
+# 2. In-Graph Multi-Turn Self-Correction Remediation Loops
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -549,7 +340,7 @@ class TestRemediationLoopE2E:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 6. Auto-Populated Citations & Clinical References
+# 3. Auto-Populated Citations & Clinical References
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -617,7 +408,7 @@ class TestCitationExtractionE2E:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 7. M3 Gate Remediation Regressions (post 5-agent gate certification)
+# 4. M3 Gate Remediation Regressions (post 5-agent gate certification)
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -758,3 +549,180 @@ class TestM3GateRemediation:
         final_state = agent.invoke(initial_state)
         ref_ids = [g["graphic_id"] for g in final_state["turn_context"]["structured_graphic_refs"]]
         assert ref_ids == selected, f"GraphicRef order must match tool-call order: {ref_ids} != {selected}"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 5. Premature Synthesis Interception Through the Agent Graph
+# ═══════════════════════════════════════════════════════════════════════
+
+
+class TestPrematureInterceptionGraphE2E:
+    """Merged from the former Milestone-1 challenger suite.
+
+    In-graph premature interception behavior: conversational queries must NOT be
+    intercepted, clinical claims without tool history must be, the retry budget
+    must terminate cleanly, and evidence-carrying responses must route to
+    validation. Thought-tag formats themselves are unit-tested against
+    reasoning_sanitizer in test_clinref.py (TestReasoningTokenSanitizer).
+    """
+
+    def _initial_state(self, user_question: str) -> dict:
+        """Graph state with all retry counters explicit (mirrors the production contract)."""
+        return {
+            "messages": [HumanMessage(content=user_question)],
+            "system_prompt": "Test Prompt",
+            "turn_context": TurnContext().model_dump(),
+            "user_question": user_question,
+            "retry_count": 0,
+            "validation_result": None,
+            "tool_rounds": 0,
+            "premature_retries": 0,
+        }
+
+    @pytest.mark.parametrize(
+        "query,greeting_text",
+        [
+            ("hello", "Hello! I am ClinRef AI, your clinical evidence assistant."),
+            ("hi there", "Hi! How can I help you with medical literature today?"),
+            ("who are you", "I am ClinRef AI, an offline clinical evidence decision support assistant."),
+            ("help", "I can assist you in searching UpToDate clinical guidelines and drug monographs."),
+            ("what can you do", "I can search clinical topics, drug dosages, and evidence tables."),
+            ("thanks", "You're welcome! Let me know if you need anything else."),
+            ("thank you very much", "Glad to help!"),
+            ("good morning", "Good morning! How may I assist you today?"),
+        ],
+    )
+    def test_conversational_queries_bypass_premature_interception(self, query, greeting_text):
+        llm = ScriptedSequenceLLM([AIMessage(content=greeting_text)])
+        agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test Prompt", max_premature_retries=2)
+
+        final_state = agent.invoke(self._initial_state(query))
+
+        # 1. premature_retries remains 0 and no interception notice was injected
+        assert final_state["premature_retries"] == 0
+        interceptions = [
+            m for m in final_state["messages"]
+            if isinstance(m, HumanMessage) and "PREMATURE RESPONSE INTERCEPTED" in m.content
+        ]
+        assert len(interceptions) == 0
+        # 2. Final message is the greeting and validation passed
+        last_msg = final_state["messages"][-1]
+        assert isinstance(last_msg, AIMessage)
+        assert greeting_text in last_msg.content
+        assert final_state["validation_result"]["passed"] is True
+
+    def test_conversational_query_with_clinical_numbers_in_thought_tags(self):
+        """Greeting whose thought block contains dosages/percentages must strip thoughts and pass."""
+        raw_output = (
+            "<thought>\n"
+            "The user said 'hello'. I recall trial 10294 evaluated 500 mg vs 250 mg with 85.5% success.\n"
+            "However, this is just a friendly greeting, so no clinical claims should be made.\n"
+            "</thought>\n"
+            "Hello doctor! I am ready to help you navigate clinical guidelines."
+        )
+        llm = ScriptedSequenceLLM([AIMessage(content=raw_output)])
+        agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test Prompt", max_premature_retries=2)
+
+        final_state = agent.invoke(self._initial_state("Hello doctor!"))
+
+        assert final_state["premature_retries"] == 0
+        last_msg = final_state["messages"][-1]
+        assert isinstance(last_msg, AIMessage)
+        assert "<thought>" not in last_msg.content
+        assert "500 mg" not in last_msg.content
+        assert "Hello doctor!" in last_msg.content
+        assert final_state["validation_result"]["passed"] is True
+
+    @pytest.mark.parametrize(
+        "premature_answer",
+        [
+            "The recommended dosage of amoxicillin is 500 mg orally every 8 hours for 10 days.",
+            "Start apixaban at 5 mg orally twice daily.",
+            "Administer ceftriaxone 1 g IV daily.",
+            "Expected response rate is approximately 95% with standard therapy.",
+        ],
+    )
+    def test_premature_assertion_routes_to_interception_node(self, premature_answer):
+        # Round 1: premature clinical answer -> intercepted; Round 2: safe response
+        llm = ScriptedSequenceLLM([
+            AIMessage(content=premature_answer),
+            AIMessage(content="I need to consult the clinical databases to provide verified dosing guidance."),
+        ])
+        agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test Prompt", max_premature_retries=2)
+
+        final_state = agent.invoke(self._initial_state("What is the recommended dose?"))
+
+        # 1. premature_retries incremented to 1
+        assert final_state["premature_retries"] == 1
+        # 2. Interception notice injected exactly once and carries retrieval directives
+        interceptions = [
+            m for m in final_state["messages"]
+            if isinstance(m, HumanMessage) and "SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED" in m.content
+        ]
+        assert len(interceptions) == 1
+        notice = interceptions[0].content
+        assert "MANDATORY CLINICAL DIRECTIVE" in notice
+        assert "get_topic_overview" in notice or "getTopicOverview" in notice
+        assert "search_topics" in notice or "searchTopics" in notice
+        # 3. LLM was invoked twice (initial + after interception)
+        assert llm.call_count == 2
+
+    def test_full_two_retry_premature_budget_exhaustion(self):
+        """With max_safety_retries=1 and max_premature_retries=2, exactly 2 interceptions then a clean terminal block."""
+        llm = ScriptedSequenceLLM([AIMessage(content=f"Turn {i}: Give 500 mg amoxicillin orally twice daily.") for i in range(1, 5)])
+        agent = create_clinical_agent(
+            llm=llm,
+            tools=[],
+            system_prompt="Test Prompt",
+            max_premature_retries=2,
+            max_safety_retries=1,
+        )
+
+        final_state = agent.invoke(self._initial_state("What is the amoxicillin dose?"))
+
+        interceptions = [
+            m for m in final_state["messages"]
+            if isinstance(m, HumanMessage) and "SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED" in m.content
+        ]
+        assert len(interceptions) == 2
+        assert final_state["premature_retries"] == 2
+
+        last_msg = final_state["messages"][-1]
+        assert isinstance(last_msg, AIMessage)
+        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
+
+    def test_response_with_fetched_evidence_routes_to_validation_not_interception(self):
+        """When fetched_sections has evidence, a direct text response routes to validation, never to interception."""
+        llm = ScriptedSequenceLLM([AIMessage(content="Based on retrieved guidelines, the dose is 5 mg twice daily.")])
+        agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test Prompt", max_premature_retries=2)
+
+        tc = TurnContext()
+        tc.tool_calls.append(
+            ToolCallRecord(
+                tool_name="get_topic_sections_text",
+                arguments={"topic_id": "1"},
+                result="...",
+                success=True,
+            )
+        )
+        tc.fetched_sections.append(
+            FetchedSection(
+                topic_id="1",
+                topic_title="Apixaban",
+                section_id="H1",
+                section_title="Dosing",
+                content_snippet="Standard dose is 5 mg twice daily.",
+            )
+        )
+        tc.topic_titles["1"] = "Apixaban"
+        tc.outline_sections["1"] = {"H1": "Dosing"}
+
+        state = self._initial_state("What is the apixaban dose?")
+        state["turn_context"] = tc.model_dump()
+        state["tool_rounds"] = 1
+
+        final_state = agent.invoke(state)
+
+        assert final_state["premature_retries"] == 0
+        assert final_state["validation_result"]["passed"] is True
+        assert "5 mg twice daily" in final_state["messages"][-1].content

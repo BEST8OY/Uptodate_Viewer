@@ -7,7 +7,9 @@ import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
 import com.clinref.app.data.tools.GetGraphicContentTool
 import com.clinref.app.data.tools.GetRelatedTopicsTool
 import com.clinref.app.data.tools.GetTopicOverviewTool
@@ -20,6 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -557,6 +560,89 @@ class MedicalDatabaseToolsTest {
         val jsonArgs = """{"topic_id": "100"}"""
         val decodedArgs = json.decodeFromString<GetTopicOverviewTool.Args>(jsonArgs)
         assertEquals("100", decodedArgs.topicId)
+    }
+
+    @Test
+    fun `TopicOverviewResponse decodes snake_case payload from Python prototype`() {
+        val pythonPayload = """
+            {
+              "topic_id": "8907",
+              "topic_title": "Aspirin Drug Overview",
+              "topic_type": "article",
+              "outline": [
+                {"id": "H1", "title": "Overview", "level": 1}
+              ],
+              "related_topics": [
+                {"id": "123", "title": "Related"}
+              ],
+              "markdown": "=== Section: H1 ===\nAspirin is used for..."
+            }
+        """.trimIndent()
+
+        val decoded = json.decodeFromString<TopicOverviewResponse>(pythonPayload)
+        assertEquals("8907", decoded.topicId)
+        assertEquals("Aspirin Drug Overview", decoded.title)
+        assertEquals("article", decoded.topicType)
+        assertEquals(1, decoded.sections.size)
+        assertEquals("H1", decoded.sections[0].id)
+        assertEquals(1, decoded.relatedTopics.size)
+        assertEquals("123", decoded.relatedTopics[0].id)
+        assertEquals("=== Section: H1 ===\nAspirin is used for...", decoded.markdown)
+    }
+
+    @Test
+    fun `TopicOverviewResponse decodes camelCase payload`() {
+        val camelPayload = """
+            {
+              "topicId": "8907",
+              "title": "Aspirin Drug Overview",
+              "topicType": "article",
+              "sections": [
+                {"id": "H1", "title": "Overview", "level": 1}
+              ],
+              "graphics": [
+                {"id": "G1", "title": "Table 1", "isTable": true}
+              ],
+              "relatedTopics": [
+                {"id": "123", "title": "Related"}
+              ],
+              "markdown": "=== Section: H1 ===\nAspirin is used for..."
+            }
+        """.trimIndent()
+
+        val decoded = json.decodeFromString<TopicOverviewResponse>(camelPayload)
+        assertEquals("8907", decoded.topicId)
+        assertEquals("Aspirin Drug Overview", decoded.title)
+        assertEquals(1, decoded.graphics.size)
+        assertEquals("G1", decoded.graphics[0].id)
+        assertTrue(decoded.graphics[0].isTable)
+        assertEquals("=== Section: H1 ===\nAspirin is used for...", decoded.markdown)
+    }
+
+    @Test
+    fun `contentDao rejects malformed topic ids without touching database`() {
+        val dbManager = mockk<DatabaseManager>(relaxed = true)
+        val contentDao = ContentDao(dbManager)
+
+        val malformed = listOf(
+            "",
+            "   ",
+            "-1",
+            "-999",
+            "1' OR 1=1--",
+            "1; DROP TABLE topic_asset;--",
+            "' UNION SELECT * FROM topic_asset--",
+            "topic-1-bad",
+            "abc123def",
+            "💊",
+            "123\u0000"
+        )
+        for (id in malformed) {
+            assertNull("ContentDao must return null for malformed topic ID '$id'", contentDao.getTopicContent(id))
+            assertNull("ContentDao must return null for malformed topic title '$id'", contentDao.getTopicTitle(id))
+        }
+        // The `^(?:topic-)?(\d+)$` regex gate must reject everything before any database access.
+        verify(exactly = 0) { dbManager.getAssetsDb() }
     }
 }
 
