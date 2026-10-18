@@ -868,7 +868,7 @@ class TestGetTopicSectionText:
         data = json.loads(result)
         assert data.get("topicId") == "123"
 
-    def test_per_section_token_budget_cap(self):
+    def test_no_token_cap_returns_sections_in_full(self):
         import tools
         long_text_1 = "Word " * 200  # ~1000 chars
         long_text_2 = "More " * 200  # ~1000 chars
@@ -877,19 +877,19 @@ class TestGetTopicSectionText:
             '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Sec 1</a>'
             '<a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Sec 2</a>'
         )
-        # 100 tokens = ~400 chars PER SECTION. Both requested sections are returned;
-        # each is individually clipped with a marker — no aggregate omissions exist.
+        # No token cap: max_tokens is accepted but ignored — sections come back whole.
         result = tools.get_topic_sections_text.invoke(
             {"topic_id": "123", "section_ids": ["H1", "H2"], "max_tokens": 100}
         )
         data = json.loads(result)
-        assert data.get("truncated") is True
+        assert "truncated" not in data
         assert "omittedSections" not in data
         assert set(data["sectionTitles"].keys()) == {"H1", "H2"}
         md = data["markdown"]
-        assert "=== Section: H1 ===" in md
-        assert "=== Section: H2 ===" in md
-        assert md.count("[Section truncated due to token limit]") == 2
+        # converter rstrips trailing whitespace, so match the body run without the final space
+        assert long_text_1.rstrip() in md
+        assert long_text_2.rstrip() in md
+        assert "[Section truncated due to token limit]" not in md
 
     def test_sections_beyond_six_per_call_omitted(self):
         import tools
@@ -910,7 +910,7 @@ class TestGetTopicSectionText:
         assert "truncated" not in data
         assert "=== Section: H7 ===" not in data["markdown"]
 
-    def test_calculator_token_cap(self):
+    def test_calculator_returns_full_text_without_cap(self):
         import tools
         self.mock_db.get_topic_outline.return_value = None
         self.mock_db.get_topic_body.return_value = "<p>" + ("Calculations " * 300) + "</p>"
@@ -920,13 +920,14 @@ class TestGetTopicSectionText:
             "bodyHtml": "<p>" + ("Calculations " * 300) + "</p>",
             "outlineHtml": ""
         }
-        # 50 tokens = 200 chars
         result = tools.get_topic_sections_text.invoke(
             {"topic_id": "148929", "section_ids": ["FULL"], "max_tokens": 50}
         )
         data = json.loads(result)
-        assert data.get("truncated") is True
-        assert "[Content truncated due to token limit]" in data["markdown"]
+        # No token cap: the whole calculator body is returned; max_tokens ignored
+        assert "truncated" not in data
+        assert "[Content truncated due to token limit]" not in data["markdown"]
+        assert data["markdown"].count("Calculations") == 300
 
 
 class TestGetGraphicContent:

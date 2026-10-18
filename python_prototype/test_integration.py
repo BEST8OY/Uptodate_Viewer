@@ -582,7 +582,7 @@ class TestGetTopicOverviewIntegration:
         assert data["sections"][0]["id"] == "FULL"
         assert "=== Calculator:" in data["markdown"]
 
-    def test_overview_and_sections_token_cap_real_database(self, db):
+    def test_overview_and_sections_retrieval_real_database(self, db):
         import tools
         tools.init_tools(db)
 

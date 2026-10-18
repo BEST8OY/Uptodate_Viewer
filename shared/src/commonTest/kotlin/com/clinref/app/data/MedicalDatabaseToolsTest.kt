@@ -454,7 +454,7 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicSectionsText applies per-section token budget cap`() {
+    fun `getTopicSectionsText returns full sections without token cap`() {
         val outlineHtml = """
             <ul id="innerOutline">
                 <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
@@ -472,23 +472,20 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("200") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("200") } returns "Drug A"
 
-        // Execute with 100 maxTokens = 400 maxChars PER SECTION. Both requested sections are
-        // returned (each individually clipped) — aggregate omissions no longer exist.
+        // No token cap: maxTokens is accepted but ignored — sections come back whole.
         val resultJson = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"), maxTokens = 100)
         val obj = json.parseToJsonElement(resultJson).jsonObject
 
-        assertTrue(obj.containsKey("truncated"))
-        assertEquals("true", obj["truncated"]!!.jsonPrimitive.content)
+        assertTrue(!obj.containsKey("truncated"))
         assertTrue(!obj.containsKey("omittedSections"))
         val titles = obj["sectionTitles"]!!.jsonObject
         assertTrue(titles.containsKey("H1"))
         assertTrue(titles.containsKey("H_RENAL"))
 
         val md = obj["markdown"]!!.jsonPrimitive.content
-        assertTrue(md.contains("=== Section: H1 ==="))
-        assertTrue(md.contains("=== Section: H_RENAL ==="))
-        val marker = "[Section truncated due to token limit]"
-        assertEquals(2, md.split(marker).size - 1)
+        // converter trims trailing whitespace, so match the body run without the final space
+        assertTrue(md.contains(longText.trimEnd()))
+        assertTrue(!md.contains("[Section truncated due to token limit]"))
     }
 
     @Test

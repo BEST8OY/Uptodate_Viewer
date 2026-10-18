@@ -234,9 +234,6 @@ class MedicalDatabaseTools(
         val content = contentRepository.getTopicContent(cleanTopicId)
             ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
 
-        val tokenBudget = if (maxTokens <= 0) 4000 else maxTokens
-        val maxChars = tokenBudget * 4
-
         val topicTitle = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
         val topicTitles = mutableMapOf<String, String>()
         topicTitles[cleanTopicId] = topicTitle
@@ -252,19 +249,13 @@ class MedicalDatabaseTools(
                 topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
             }
             val header = if (isCalc) "=== Calculator: $topicTitle ===" else "=== Section: FULL ==="
-            var fullText = "$header\n$markdown"
-            var isTruncated: Boolean? = null
-            if (fullText.length > maxChars) {
-                fullText = fullText.take(maxChars).trimEnd() + "\n\n[Content truncated due to token limit]"
-                isTruncated = true
-            }
+            val fullText = "$header\n$markdown"
             return json.encodeToString(
                 TopicSectionsResponse(
                     topicId = cleanTopicId,
                     topicTitle = topicTitle,
                     sectionTitles = mapOf("FULL" to topicTitle),
-                    markdown = fullText,
-                    truncated = isTruncated
+                    markdown = fullText
                 )
             )
         }
@@ -326,9 +317,9 @@ class MedicalDatabaseTools(
         val sectionsMd = mutableListOf<String>()
         val sectionTitles = mutableMapOf<String, String>()
         val omittedSections = mutableListOf<String>()
-        var isTruncated = false
 
         validIds.forEachIndexed { index, sectionId ->
+
             // Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
             // extra IDs are reported in omittedSections (never dropped silently).
             if (index >= MAX_SECTIONS_PER_CALL) {
@@ -345,16 +336,7 @@ class MedicalDatabaseTools(
             } else {
                 "Section not found."
             }
-            var secEntry = "=== Section: $sectionId ===\n$secMarkdown"
-
-            // Per-section budget: every requested section returns its own content up to
-            // maxChars, clipped with a marker — sections are never dropped for budget.
-            if (secEntry.length > maxChars) {
-                val headerPrefix = "=== Section: $sectionId ===\n"
-                val cutoff = maxOf(headerPrefix.length + 20, maxChars - 50)
-                secEntry = secEntry.take(cutoff).trimEnd() + "\n\n[Section truncated due to token limit]"
-                isTruncated = true
-            }
+            val secEntry = "=== Section: $sectionId ===\n$secMarkdown"
 
             sectionsMd.add(secEntry)
             sectionTitles[sectionId] = title
@@ -367,8 +349,7 @@ class MedicalDatabaseTools(
                 sectionTitles = sectionTitles,
                 markdown = sectionsMd.joinToString("\n\n"),
                 invalidSections = invalidIds.ifEmpty { null },
-                omittedSections = omittedSections.ifEmpty { null },
-                truncated = if (isTruncated) true else null
+                omittedSections = omittedSections.ifEmpty { null }
             )
         )
     }

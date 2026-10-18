@@ -313,7 +313,9 @@ def get_topic_sections_text(
     maxTokens: Optional[int] = None,
     **kwargs,
 ) -> str:
-    """Retrieve up to 6 sections from the same topic in a single call. Each section is capped at its own token budget (default 4000 tokens / ~16000 characters per section) and clipped with a '[Section truncated due to token limit]' marker. Requested section IDs beyond 6 are returned in omittedSections."""
+    """Retrieve up to 6 sections from the same topic in a single call, each returned
+    in full (no token cap; the max_tokens parameter is accepted for compatibility and
+    ignored). Requested section IDs beyond 6 are returned in omittedSections."""
     if _db is None:
         return json.dumps({"error": "Database not initialized"})
 
@@ -336,14 +338,8 @@ def get_topic_sections_text(
     elif raw_sids is None:
         raw_sids = []
 
-    raw_max_tokens = maxTokens if maxTokens is not None else kwargs.get("max_tokens", kwargs.get("maxTokens", max_tokens))
-    try:
-        token_budget = int(raw_max_tokens)
-        if token_budget <= 0:
-            token_budget = 4000
-    except (TypeError, ValueError):
-        token_budget = 4000
-    max_chars = token_budget * 4
+    # max_tokens is accepted for backward compatibility but ignored — sections and
+    # full-topic text are returned whole (no token cap).
 
     body_html = _db.get_topic_body(clean_topic_id)
     outline_html = _db.get_topic_outline(clean_topic_id)
@@ -365,10 +361,6 @@ def get_topic_sections_text(
         markdown = html_to_markdown(body_html)
         header = f"=== Calculator: {topic_title} ===" if t_type == "calc" else "=== Section: FULL ==="
         full_text = f"{header}\n{markdown}"
-        is_truncated = False
-        if len(full_text) > max_chars:
-            full_text = full_text[:max_chars].rstrip() + "\n\n[Content truncated due to token limit]"
-            is_truncated = True
         resp = {
             "topicId": clean_topic_id,
             "topicTitle": topic_title,
@@ -376,8 +368,6 @@ def get_topic_sections_text(
             "sectionTitles": {"FULL": topic_title},
             "markdown": full_text,
         }
-        if is_truncated:
-            resp["truncated"] = True
         return json.dumps(resp, indent=2, ensure_ascii=False)
 
     # Build section ID -> title map from outline
@@ -400,7 +390,6 @@ def get_topic_sections_text(
     sections_md = []
     section_titles = {}
     omitted_sections = []
-    is_truncated = False
 
     for index, section_id in enumerate(valid_ids):
         # Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
@@ -417,14 +406,6 @@ def get_topic_sections_text(
         else:
             sec_entry = f"=== Section: {section_id} ===\nSection not found."
 
-        # Per-section budget: every requested section returns its own content up to
-        # max_chars, clipped with a marker — sections are never dropped for budget.
-        if len(sec_entry) > max_chars:
-            header_prefix = f"=== Section: {section_id} ===\n"
-            cutoff = max(len(header_prefix) + 20, max_chars - 50)
-            sec_entry = sec_entry[:cutoff].rstrip() + "\n\n[Section truncated due to token limit]"
-            is_truncated = True
-
         sections_md.append(sec_entry)
         section_titles[section_id] = title
 
@@ -438,8 +419,6 @@ def get_topic_sections_text(
         result["invalidSections"] = invalid_ids
     if omitted_sections:
         result["omittedSections"] = omitted_sections
-    if is_truncated:
-        result["truncated"] = True
 
     return json.dumps(result, indent=2, ensure_ascii=False)
 
