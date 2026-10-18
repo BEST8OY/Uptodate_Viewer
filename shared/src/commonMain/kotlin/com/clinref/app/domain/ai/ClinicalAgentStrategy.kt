@@ -194,45 +194,63 @@ object ClinicalAgentStrategy {
         val nodeValidateSafety by node<String, SafetyEvaluation>("validate_safety") { text ->
             val cleanText = ReasoningTokenSanitizer.stripReasoning(text)
             val turnContext = accumulator.buildTurnContext(cleanText)
-            val validation = safetyValidator.validate(turnContext)
 
-            val evaluation = if (validation.passed) {
-                SafetyEvaluation.Valid(cleanText)
-            } else if (retryCount < maxSafetyRetries) {
-                retryCount++
-                val snapshot = accumulator.snapshotForCorrection()
-                accumulator.prepareForCorrection()
-
-                val evidenceSummary = snapshot.buildTurnContext("").fetchedSections
-                    .joinToString("\n---\n") { sec ->
-                        if (sec.contentSnippet.isNotBlank()) {
-                            "Section [${sec.sectionId}] (${sec.sectionTitle}):\n${sec.contentSnippet}"
-                        } else {
-                            "Section [${sec.sectionId}] (${sec.sectionTitle}) from topic ${sec.topicTitle}"
-                        }
-                    }.ifBlank { "No section text was successfully fetched in the prior turn." }
-
-                // Route back to Phase 1 whenever NO section evidence exists this turn:
-                //   - Rule 0 (no tools executed) and Rule 1 (no successful section/graphic fetch) both imply
-                //     fetchedSections.isEmpty(), so remediation routing must NOT depend on human-readable
-                //     blockedReason strings (byte-syncing prompts with routing silently corrupts the graph).
-                //   - Anything else (unverified quantities, graphic interpretation, patient-bounds) routes
-                //     back to Phase 2 for re-synthesis with the correction prompt.
-                val targetPhase = if (turnContext.fetchedSections.isEmpty() && turnContext.graphicIds.isEmpty()) {
-                    RemediationTarget.PHASE_1_EVIDENCE
+            // Blank-answer guard: a budget-forced (tool_round_boundary) exit or any
+            // interrupted turn that gathered evidence but never synthesized MUST NOT
+            // complete the turn with an empty answer. Intentional divergence from
+            // Python validate_safety (which passes a blank answer through): steer
+            // into Phase 2 synthesis so the clinician sees the gathered evidence.
+            val evaluation = if (
+                cleanText.isBlank() &&
+                (turnContext.fetchedSections.isNotEmpty() || turnContext.graphicIds.isNotEmpty())
+            ) {
+                if (retryCount < maxSafetyRetries) {
+                    retryCount++
+                    val snapshot = accumulator.snapshotForCorrection()
+                    accumulator.prepareForCorrection()
+                    SafetyEvaluation.NeedsRemediation(
+                        reason = "No final clinical answer was synthesized; render the gathered evidence",
+                        evidence = evidenceSummaryFrom(snapshot),
+                        targetPhase = RemediationTarget.PHASE_2_SYNTHESIS
+                    )
                 } else {
-                    RemediationTarget.PHASE_2_SYNTHESIS
+                    SafetyEvaluation.Blocked(
+                        reason = "No final clinical answer was synthesized after evidence gathering"
+                    )
                 }
-
-                SafetyEvaluation.NeedsRemediation(
-                    reason = validation.blockedReason ?: "Clinical verification failed",
-                    evidence = evidenceSummary,
-                    targetPhase = targetPhase
-                )
             } else {
-                SafetyEvaluation.Blocked(
-                    reason = validation.blockedReason ?: "Clinical verification blocked after retries"
-                )
+                val validation = safetyValidator.validate(turnContext)
+
+                if (validation.passed) {
+                    SafetyEvaluation.Valid(cleanText)
+                } else if (retryCount < maxSafetyRetries) {
+                    retryCount++
+                    val snapshot = accumulator.snapshotForCorrection()
+                    accumulator.prepareForCorrection()
+                    val evidenceSummary = evidenceSummaryFrom(snapshot)
+
+                    // Route back to Phase 1 whenever NO section evidence exists this turn:
+                    //   - Rule 0 (no tools executed) and Rule 1 (no successful section/graphic fetch) both imply
+                    //     fetchedSections.isEmpty(), so remediation routing must NOT depend on human-readable
+                    //     blockedReason strings (byte-syncing prompts with routing silently corrupts the graph).
+                    //   - Anything else (unverified quantities, graphic interpretation, patient-bounds) routes
+                    //     back to Phase 2 for re-synthesis with the correction prompt.
+                    val targetPhase = if (turnContext.fetchedSections.isEmpty() && turnContext.graphicIds.isEmpty()) {
+                        RemediationTarget.PHASE_1_EVIDENCE
+                    } else {
+                        RemediationTarget.PHASE_2_SYNTHESIS
+                    }
+
+                    SafetyEvaluation.NeedsRemediation(
+                        reason = validation.blockedReason ?: "Clinical verification failed",
+                        evidence = evidenceSummary,
+                        targetPhase = targetPhase
+                    )
+                } else {
+                    SafetyEvaluation.Blocked(
+                        reason = validation.blockedReason ?: "Clinical verification blocked after retries"
+                    )
+                }
             }
 
             currentState = ClinicalState.SafetyVerification(
@@ -282,7 +300,10 @@ object ClinicalAgentStrategy {
                 onCondition { toolRounds >= MAX_TOOL_ROUNDS }
                 transformed { "" }
         )
-        edge(nodeToolRoundBoundary forwardTo nodeSendToolResult)
+        edge(
+            (nodeToolRoundBoundary forwardTo nodeSendToolResult)
+                onCondition { toolRounds < MAX_TOOL_ROUNDS }
+        )
         edge(nodeSendToolResult forwardTo nodeExecuteTool onToolCalls { true })
         edge(nodeSendToolResult forwardTo nodeInterceptPremature onTextMessage { textPart -> isPremature(textPart) })
         edge(nodeSendToolResult forwardTo nodeClinicalSynthesis onTextMessage { textPart -> !isPremature(textPart) })
@@ -318,12 +339,30 @@ object ClinicalAgentStrategy {
     }
 
     /**
+     * Evidence digest shared by the blank-answer guard and the validation remediation
+     * branch, mirroring Python's evidence summary assembly for correction prompts.
+     */
+    private fun evidenceSummaryFrom(snapshot: TurnContextAccumulator): String =
+        snapshot.buildTurnContext("").fetchedSections
+            .joinToString("\n---\n") { sec ->
+                if (sec.contentSnippet.isNotBlank()) {
+                    "Section [${sec.sectionId}] (${sec.sectionTitle}):\n${sec.contentSnippet}"
+                } else {
+                    "Section [${sec.sectionId}] (${sec.sectionTitle}) from topic ${sec.topicTitle}"
+                }
+            }.ifBlank { "No section text was successfully fetched in the prior turn." }
+
+    /**
      * Context hygiene runtime for one LLM-history message, mirroring Python:
      * tool-`search_topics` result records whose textual payload exceeds the gate
      * length are folded down in place. No-op when the message carries no oversized
      * search listing. Returns the original instance when untouched.
+     *
+     * `internal` so [com.clinref.app.domain.ai.ClinicalAgentStrategyTest] can pin the
+     * compaction contract (preserved ids/metadata, untouched parts, no-op semantics)
+     * without a scripted LLM harness.
      */
-    private fun truncateStaleSearchResults(message: Message): Message {
+    internal fun truncateStaleSearchResults(message: Message): Message {
         if (message !is Message.User) return message
         var touched = false
         val compacted = message.parts.map { part ->

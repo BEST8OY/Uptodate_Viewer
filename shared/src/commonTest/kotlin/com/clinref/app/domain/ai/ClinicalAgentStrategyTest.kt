@@ -1,8 +1,14 @@
 package com.clinref.app.domain.ai
 
+import ai.koog.prompt.message.Message
+import ai.koog.prompt.message.MessagePart
+import ai.koog.prompt.message.RequestMetaInfo
+import ai.koog.prompt.message.ResponseMetaInfo
+import ai.koog.utils.time.KoogClock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -202,4 +208,68 @@ class ClinicalAgentStrategyTest {
         assertTrue(prompt.contains("REMEDIAL INSTRUCTIONS"))
         assertTrue(prompt.contains("Correct or remove any unverified clinical quantities"))
     }
+
+    @Test
+    fun `context hygiene truncates only stale oversized search_topics results at the tool round boundary`() {
+        val oversized = "x".repeat(400)
+        val staleSearch = ToolResultPart(id = "call-1", tool = "search_topics", output = oversized)
+        val compactSearch = ToolResultPart(id = "call-2", tool = "search_topics", output = "tiny results")
+        val freshTable = ToolResultPart(id = "call-3", tool = "get_graphic_content", output = oversized)
+        val textPart = MessagePart.Text("plain text marker")
+
+        val history = Message.User(
+            parts = listOf(staleSearch, compactSearch, freshTable, textPart),
+            metaInfo = RequestMetaInfo(KoogClock.System.now()),
+            id = null
+        )
+
+        val compacted = ClinicalAgentStrategy.truncateStaleSearchResults(history) as Message.User
+
+        assertEquals(4, compacted.parts.size)
+        val truncated = compacted.parts[0] as ToolResultPart
+        // 250 kept chars + "... [truncated search results]" suffix
+        assertEquals(250 + "... [truncated search results]".length, truncated.output.length)
+        assertTrue(truncated.output.startsWith("x".repeat(250)))
+        // Truncation must not corrupt protocol-critical tool-result metadata
+        assertEquals("call-1", truncated.id)
+        assertEquals("search_topics", truncated.tool)
+        assertFalse(truncated.isError)
+        // Untouched instances are preserved verbatim (no accidental copies)
+        assertSame(compactSearch, compacted.parts[1])
+        assertSame(freshTable, compacted.parts[2])
+        assertSame(textPart, compacted.parts[3])
+    }
+
+    @Test
+    fun `context hygiene is a no-op for clean, small, or non-user messages`() {
+        val now = KoogClock.System.now()
+
+        // No oversized search part -> original instance returned untouched
+        val cleanUser = Message.User(
+            content = "clinical question",
+            metaInfo = RequestMetaInfo(now),
+            id = null
+        )
+        assertSame(cleanUser, ClinicalAgentStrategy.truncateStaleSearchResults(cleanUser))
+
+        // Oversized payload but wrong tool name -> no-op
+        val nonSearch = Message.User(
+            parts = listOf(ToolResultPart(id = "c", tool = "get_topic_sections_text", output = "y".repeat(500))),
+            metaInfo = RequestMetaInfo(now),
+            id = null
+        )
+        assertSame(nonSearch, ClinicalAgentStrategy.truncateStaleSearchResults(nonSearch))
+
+        // Assistant/System messages never carry compactable tool results
+        val assistant = Message.Assistant(
+            content = "assistant text",
+            metaInfo = ResponseMetaInfo(now),
+            id = null
+        )
+        assertSame(assistant, ClinicalAgentStrategy.truncateStaleSearchResults(assistant))
+    }
 }
+
+/** Shorthand import alias for the Koog tool-result part used by compaction tests. */
+private typealias Tool = ai.koog.prompt.message.MessagePart.Tool
+private typealias ToolResultPart = ai.koog.prompt.message.MessagePart.Tool.Result
