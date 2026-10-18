@@ -90,6 +90,39 @@ class ClinicalAgentStrategyTest {
     }
 
     @Test
+    fun `phase 1 tool loop funnels through round boundary with forced safety exit`() {
+        val strategy = ClinicalAgentStrategy.create()
+        val allNodes = strategy.metadata.nodesMap.values
+
+        assertEquals("Tool round budget matches Python agent.max_tool_retries", 24, ClinicalAgentStrategy.MAX_TOOL_ROUNDS)
+
+        val boundaryNode = allNodes.firstOrNull { it.name == "tool_round_boundary" }
+        assertNotNull("Round boundary accounting node must exist", boundaryNode)
+
+        val executeNode = allNodes.first { it.name.contains("nodeExecuteTool") }
+        val sendToolResultNode = allNodes.first { it.name.contains("nodeSendToolResult") }
+        val validateNode = allNodes.first { it.name == "validate_safety" }
+
+        // Every tool execution passes through the accounting boundary
+        assertTrue(
+            "nodeExecuteTool must funnel into tool_round_boundary",
+            executeNode.edges.any { it.toNode == boundaryNode }
+        )
+
+        // When the budget remains, the boundary continues to the follow-up LLM call
+        assertTrue(
+            "tool_round_boundary must continue to nodeSendToolResult within budget",
+            boundaryNode!!.edges.any { it.toNode == sendToolResultNode }
+        )
+
+        // When the budget is exhausted, the boundary bypasses the LLM and forces safety
+        assertTrue(
+            "tool_round_boundary must force-exit into validate_safety at budget exhaustion",
+            boundaryNode.edges.any { it.toNode == validateNode }
+        )
+    }
+
+    @Test
     fun `safety evaluation sealed class holds correct models and remediation targets`() {
         val valid = ClinicalAgentStrategy.SafetyEvaluation.Valid("Verified response")
         assertEquals("Verified response", valid.content)

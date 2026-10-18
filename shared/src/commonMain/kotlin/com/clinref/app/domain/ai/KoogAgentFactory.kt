@@ -90,7 +90,14 @@ class KoogAgentFactory(
                 system(SystemPrompt.build(patientProfile, config.provider))
             },
             model = model,
-            maxAgentIterations = 30
+            // Node-level accounting: every strategy-node transfer consumes one
+            // iteration (each tool round-trip ≈ 3 nodes incl. the round boundary).
+            // The graph self-terminates via its own rails (MAX_TOOL_ROUNDS=24
+            // forced exit + ≤2 premature + ≤2 remediation cycles, worst case
+            // ≈ 88 node transfers), so this global cap must stay ABOVE the rail
+            // sum — otherwise it cannibalizes chatty-but-legal runs before the
+            // forced validation route can fire.
+            maxAgentIterations = 100
         )
 
         val agent = AIAgent(

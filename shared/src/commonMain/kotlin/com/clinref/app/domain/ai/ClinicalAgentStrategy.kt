@@ -3,11 +3,13 @@ package com.clinref.app.domain.ai
 import ai.koog.agents.core.agent.entity.AIAgentGraphStrategy
 import ai.koog.agents.core.dsl.builder.strategy
 import ai.koog.agents.core.dsl.builder.node
+import ai.koog.agents.core.dsl.extension.ReceivedToolResults
 import ai.koog.agents.core.dsl.extension.nodeExecuteTools
 import ai.koog.agents.core.dsl.extension.nodeLLMRequest
 import ai.koog.agents.core.dsl.extension.nodeLLMSendToolResults
 import ai.koog.agents.core.dsl.extension.onTextMessage
 import ai.koog.agents.core.dsl.extension.onToolCalls
+import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import com.clinref.shared.platform.PlatformLogger as Log
 
@@ -24,6 +26,23 @@ object ClinicalAgentStrategy {
     private const val TAG = "ClinicalAgentStrategy"
     const val STRATEGY_AUTONOMOUS = "clinical-autonomous"
     const val STRATEGY_INQUIRY = "clinical-inquiry"
+
+    /**
+     * Parity with Python `agent.max_tool_retries`: hard cap on Phase-1 execute_tools
+     * passes this turn. When the budget is exhausted, the graph routes out of evidence
+     * gathering straight to [nodeValidateSafety] (with an empty pending answer, exactly
+     * like Python's `after_tools` forced `validate_safety`) instead of letting the model
+     * keep calling individual tools until Koog's global `maxAgentIterations` aborts the
+     * whole run (`AIAgentMaxNumberOfIterationsReachedException` — each LLM/tool node
+     * transfer consumes one iteration, so 30 node-level iterations ≈ ~10 tool rounds).
+     */
+    const val MAX_TOOL_ROUNDS = 24
+
+    /** Context-hygiene truncation thresholds, mirrored from Python `after_tools`. */
+    private const val SEARCH_TOOL_NAME = "search_topics"
+    private const val SEARCH_RESULT_FULL_GATE = 300
+    private const val SEARCH_RESULT_KEEP = 250
+    private const val SEARCH_RESULT_SUFFIX = "... [truncated search results]"
 
     enum class RemediationTarget {
         /** Missing database section or table content -> route back to Phase 1 retrieval */
@@ -101,12 +120,48 @@ object ClinicalAgentStrategy {
     ): AIAgentGraphStrategy<String, String> = strategy(strategyName) {
         var retryCount = 0
         var prematureInterceptions = 0
+        var toolRounds = 0
         var currentState: ClinicalState = ClinicalState.EvidenceGathering()
 
         // ── Phase 1: Evidence Gathering & Tool Retrieval Nodes ──────────────────
         val nodeSendInput by nodeLLMRequest()
         val nodeExecuteTool by nodeExecuteTools()
         val nodeSendToolResult by nodeLLMSendToolResults()
+
+        /**
+         * Accounting gate between each tool execution and its follow-up LLM call.
+         *
+         * Mirrors Python `agent.after_tools` / `execute_tools`:
+         *  - increments the per-turn tool-round counter (one execute_tools pass = one round);
+         *  - when [MAX_TOOL_ROUNDS] is reached the outgoing forced edge bypasses the LLM
+         *    entirely and routes to safety validation, so retrieval always terminates;
+         *  - otherwise performs context hygiene: once section evidence exists, stale
+         *    `search_topics` result payloads (>300 chars) are truncated in history so
+         *    small models are not buried under accumulated retrieval bulk.
+         */
+        val nodeToolRoundBoundary by node<ReceivedToolResults, ReceivedToolResults>("tool_round_boundary") { toolResults ->
+            toolRounds++
+            val context = accumulator.buildTurnContext("")
+            currentState = ClinicalState.EvidenceGathering(
+                toolRounds = toolRounds,
+                fetchedSectionsCount = context.fetchedSections.size,
+                graphicCount = context.graphicIds.size
+            )
+
+            if (toolRounds >= MAX_TOOL_ROUNDS) {
+                Log.w(TAG, "Tool round budget exhausted ($toolRounds >= $MAX_TOOL_ROUNDS); forcing safety validation")
+            } else if (context.fetchedSections.isNotEmpty()) {
+                llm.writeSession {
+                    rewritePrompt { prompt ->
+                        if (prompt.messages.size <= 4) prompt
+                        else prompt.withMessages { messages ->
+                            messages.map { message -> truncateStaleSearchResults(message) }
+                        }
+                    }
+                }
+            }
+            toolResults
+        }
 
         val nodeInterceptPremature by node<String, String>("intercept_premature") { _ ->
             prematureInterceptions++
@@ -218,7 +273,16 @@ object ClinicalAgentStrategy {
         edge(nodeSendInput forwardTo nodeClinicalSynthesis onTextMessage { textPart -> !isPremature(textPart) })
 
         // ── 3. Phase 1 Tool Loop Routing ────────────────────────────────────────
-        edge(nodeExecuteTool forwardTo nodeSendToolResult)
+        edge(nodeExecuteTool forwardTo nodeToolRoundBoundary)
+        // Python parity: budget exhausted after execution -> skip the LLM and force
+        // the safety gate with an empty pending answer (matches _extract_final_answer()
+        // returning "" when no plain-text assistant message exists in history).
+        edge(
+            (nodeToolRoundBoundary forwardTo nodeValidateSafety)
+                onCondition { toolRounds >= MAX_TOOL_ROUNDS }
+                transformed { "" }
+        )
+        edge(nodeToolRoundBoundary forwardTo nodeSendToolResult)
         edge(nodeSendToolResult forwardTo nodeExecuteTool onToolCalls { true })
         edge(nodeSendToolResult forwardTo nodeInterceptPremature onTextMessage { textPart -> isPremature(textPart) })
         edge(nodeSendToolResult forwardTo nodeClinicalSynthesis onTextMessage { textPart -> !isPremature(textPart) })
@@ -251,5 +315,32 @@ object ClinicalAgentStrategy {
         // ── 6. Remediation & Block Transitions ──────────────────────────────────
         edge(nodeRemediate forwardTo nodeSendInput)
         edge(nodeSafetyBlock forwardTo nodeFinish)
+    }
+
+    /**
+     * Context hygiene runtime for one LLM-history message, mirroring Python:
+     * tool-`search_topics` result records whose textual payload exceeds the gate
+     * length are folded down in place. No-op when the message carries no oversized
+     * search listing. Returns the original instance when untouched.
+     */
+    private fun truncateStaleSearchResults(message: Message): Message {
+        if (message !is Message.User) return message
+        var touched = false
+        val compacted = message.parts.map { part ->
+            val toolResult = part as? MessagePart.Tool.Result ?: return@map part
+            if (toolResult.tool != SEARCH_TOOL_NAME || toolResult.output.length <= SEARCH_RESULT_FULL_GATE) {
+                part
+            } else {
+                touched = true
+                MessagePart.Tool.Result(
+                    id = toolResult.id,
+                    tool = toolResult.tool,
+                    output = toolResult.output.take(SEARCH_RESULT_KEEP) + SEARCH_RESULT_SUFFIX,
+                    isError = toolResult.isError,
+                    cacheControl = toolResult.cacheControl
+                )
+            }
+        }
+        return if (touched) message.copy(parts = compacted) else message
     }
 }
