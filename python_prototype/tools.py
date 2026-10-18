@@ -307,15 +307,13 @@ def get_related_topics(
 def get_topic_sections_text(
     topic_id: str = "",
     section_ids: Optional[Union[list[str], str]] = None,
-    max_tokens: int = 4000,
     topicId: Optional[str] = None,
     sectionIds: Optional[Union[list[str], str]] = None,
-    maxTokens: Optional[int] = None,
     **kwargs,
 ) -> str:
     """Retrieve up to 6 sections from the same topic in a single call, each returned
-    in full (no token cap; the max_tokens parameter is accepted for compatibility and
-    ignored). Requested section IDs beyond 6 are returned in omittedSections."""
+    in full (no token cap). Requested section IDs beyond 6 are returned in
+    omittedSections."""
     if _db is None:
         return json.dumps({"error": "Database not initialized"})
 
@@ -337,9 +335,6 @@ def get_topic_sections_text(
         raw_sids = [raw_sids]
     elif raw_sids is None:
         raw_sids = []
-
-    # max_tokens is accepted for backward compatibility but ignored — sections and
-    # full-topic text are returned whole (no token cap).
 
     body_html = _db.get_topic_body(clean_topic_id)
     outline_html = _db.get_topic_outline(clean_topic_id)

@@ -592,11 +592,10 @@ class TestGetTopicOverviewIntegration:
         assert len(overview_res["sections"]) >= 3
         first_sid = overview_res["sections"][0]["id"]
 
-        # Fetch section on demand with token cap
+        # Fetch section on demand
         sec_res = json.loads(tools.get_topic_sections_text.invoke({
             "topic_id": "1",
             "section_ids": [first_sid],
-            "max_tokens": 1000,
         }))
         assert first_sid in sec_res["sectionTitles"]
         assert f"=== Section: {first_sid} ===" in sec_res["markdown"]

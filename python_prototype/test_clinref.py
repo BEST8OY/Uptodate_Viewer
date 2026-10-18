@@ -877,9 +877,9 @@ class TestGetTopicSectionText:
             '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Sec 1</a>'
             '<a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Sec 2</a>'
         )
-        # No token cap: max_tokens is accepted but ignored — sections come back whole.
+        # No token cap: sections come back whole.
         result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "123", "section_ids": ["H1", "H2"], "max_tokens": 100}
+            {"topic_id": "123", "section_ids": ["H1", "H2"]}
         )
         data = json.loads(result)
         assert "truncated" not in data
@@ -921,10 +921,10 @@ class TestGetTopicSectionText:
             "outlineHtml": ""
         }
         result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "148929", "section_ids": ["FULL"], "max_tokens": 50}
+            {"topic_id": "148929", "section_ids": ["FULL"]}
         )
         data = json.loads(result)
-        # No token cap: the whole calculator body is returned; max_tokens ignored
+        # No token cap: the whole calculator body is returned
         assert "truncated" not in data
         assert "[Content truncated due to token limit]" not in data["markdown"]
         assert data["markdown"].count("Calculations") == 300

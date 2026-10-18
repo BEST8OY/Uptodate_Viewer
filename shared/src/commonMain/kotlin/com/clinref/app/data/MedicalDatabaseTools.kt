@@ -229,7 +229,7 @@ class MedicalDatabaseTools(
         )
     }
 
-    fun getTopicSectionsText(topicId: String, sectionIds: List<String>, maxTokens: Int = 4000): String {
+    fun getTopicSectionsText(topicId: String, sectionIds: List<String>): String {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
             ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))

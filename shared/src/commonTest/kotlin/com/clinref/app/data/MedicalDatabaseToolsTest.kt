@@ -472,8 +472,8 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("200") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("200") } returns "Drug A"
 
-        // No token cap: maxTokens is accepted but ignored — sections come back whole.
-        val resultJson = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"), maxTokens = 100)
+        // No token cap: sections come back whole.
+        val resultJson = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"))
         val obj = json.parseToJsonElement(resultJson).jsonObject
 
         assertTrue(!obj.containsKey("truncated"))

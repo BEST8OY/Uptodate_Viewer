@@ -86,13 +86,10 @@ class GetTopicSectionsTextTool(
         val topicId: String,
         @property:LLMDescription("List of section IDs to retrieve from getTopicOverview")
         @JsonNames("section_ids")
-        val sectionIds: List<String> = emptyList(),
-        @property:LLMDescription("Ignored - sections are returned in full, no token cap is applied")
-        @JsonNames("max_tokens", "maxTokens")
-        val maxTokens: Int = 4000
+        val sectionIds: List<String> = emptyList()
     )
 
-    override suspend fun execute(args: Args): String = databaseTools.getTopicSectionsText(args.topicId, args.sectionIds, args.maxTokens)
+    override suspend fun execute(args: Args): String = databaseTools.getTopicSectionsText(args.topicId, args.sectionIds)
 }
 
 class GetGraphicContentTool(
