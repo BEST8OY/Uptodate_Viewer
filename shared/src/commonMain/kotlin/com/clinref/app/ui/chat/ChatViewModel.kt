@@ -123,6 +123,7 @@ class ChatViewModel(
     val streamingText: StateFlow<String> = streamingManager.streamingText
     val reasoningText: StateFlow<String> = streamingManager.reasoningText
     val isReasoning: StateFlow<Boolean> = streamingManager.isReasoning
+    val liveDiscoveredSources: StateFlow<List<SafetyValidator.TopicRef>> = streamingManager.liveDiscoveredSources
 
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()

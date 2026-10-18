@@ -104,8 +104,13 @@ data class ArticleSheetRequest(
     val sectionId: String? = null
 )
 
-private val ArticleSheetRequestSaver = listSaver<ArticleSheetRequest, String?>(
-    save = { listOf(it.topicId, it.sectionId) },
+// Operates on the nullable value so the sheet's open/close state
+// (`activeArticle = null`) can be delegated from rememberSaveable; a closed
+// sheet saves as an empty list and restores back to null.
+private val ArticleSheetRequestSaver = listSaver<ArticleSheetRequest?, String?>(
+    save = { value ->
+        if (value == null) emptyList() else listOf(value.topicId, value.sectionId)
+    },
     restore = { list ->
         val topic = list.getOrNull(0) ?: return@listSaver null
         ArticleSheetRequest(topicId = topic, sectionId = list.getOrNull(1))

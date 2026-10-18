@@ -78,8 +78,12 @@ class NavSaverRobustnessTest {
 
     @Test
     fun `ArticleSheetRequestSaver contract handles null sections, empty topics, and malformed lists`() {
-        val articleSheetRequestSaver = listSaver<TestArticleSheetRequest, String?>(
-            save = { listOf(it.topicId, it.sectionId) },
+        // Mirrors ChatScreen's ArticleSheetRequestSaver: operates on the nullable
+        // request value; closed sheet (null) saves as emptyList and restores to null.
+        val articleSheetRequestSaver = listSaver<TestArticleSheetRequest?, String?>(
+            save = { value ->
+                if (value == null) emptyList() else listOf(value.topicId, value.sectionId)
+            },
             restore = { list ->
                 val topic = list.getOrNull(0) ?: return@listSaver null
                 TestArticleSheetRequest(topicId = topic, sectionId = list.getOrNull(1))
@@ -115,6 +119,12 @@ class NavSaverRobustnessTest {
         // 6. Adversarial: Empty string topic is preserved
         val restoredFromEmptyTopic = articleSheetRequestSaver.restore(listOf("", null))
         assertEquals(TestArticleSheetRequest("", null), restoredFromEmptyTopic)
+
+        // 7. Adversarial: null request (sheet closed) — saveable registry treats a
+        // null value as "nothing to save" (null return), and restoring empty data
+        // yields null (covered in case 3), keeping open/close states round-trip safe
+        val savedNull = with(articleSheetRequestSaver) { DummySaverScope.save(null) }
+        assertNull("Null request (closed sheet) must save as no-data rather than crashing on null members", savedNull)
     }
 
     @Test
