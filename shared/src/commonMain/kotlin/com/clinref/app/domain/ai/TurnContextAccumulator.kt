@@ -120,7 +120,6 @@ class TurnContextAccumulator(
                 "getTopicOverview" -> parseTopicOverviewResult(parsedArgs, result)
                 "searchTopics" -> parseSearchResults(result)
                 "getRelatedTopics" -> parseRelatedTopicsResult(result)
-                "getTopicOutline" -> parseOutlineResult(parsedArgs, result)
                 "searchTopicSections" -> parseSearchTopicSectionsResult(parsedArgs, result)
                 "getTopicSectionsText" -> parseBatchSectionResult(parsedArgs, result)
                 "getGraphicContent" -> parseGraphicResult(parsedArgs, result)
@@ -294,49 +293,6 @@ class TurnContextAccumulator(
         } catch (e: Exception) {
             Log.w(TAG, "parseRelatedTopicsResult: ${e.message}")
         }
-    }
-
-    private fun parseOutlineResult(args: Map<String, String>, result: String) {
-        try {
-            val obj = AiJsonUtils.parseAsJsonObject(result) ?: return
-            val topicId = obj["topicId"]?.jsonPrimitive?.content
-                ?: args["topicId"] ?: args["topic_id"] ?: return
-            lastTopicId = topicId
-            val title = obj["title"]?.jsonPrimitive?.content ?: ""
-            if (AiJsonUtils.isValidTopicTitle(title)) {
-                topicTitles[topicId] = title
-            }
-            // Store full section ID → title map
-            val sections = obj["sections"] as? kotlinx.serialization.json.JsonArray
-            if (sections != null) {
-                val sectionMap = mutableMapOf<String, String>()
-                for (item in sections) {
-                    val sectionObj = item as? JsonObject ?: continue
-                    val id = sectionObj["id"]?.jsonPrimitive?.content ?: continue
-                    val sectionTitle = sectionObj["title"]?.jsonPrimitive?.content ?: ""
-                    sectionMap[id] = AiJsonUtils.cleanSectionTitle(sectionTitle)
-                }
-                if (sectionMap.isNotEmpty()) {
-                    outlineSections[topicId] = sectionMap
-                }
-            }
-            // Map graphics to topic
-            val graphics = obj["graphics"] as? kotlinx.serialization.json.JsonArray
-            if (graphics != null) {
-                for (item in graphics) {
-                    val graphicObj = item as? JsonObject ?: continue
-                    val gid = graphicObj["id"]?.jsonPrimitive?.content ?: continue
-                    val cleanGid = AiJsonUtils.cleanGraphicId(gid)
-                    graphicToTopic[gid] = topicId
-                    graphicToTopic[cleanGid] = topicId
-                    val gTitle = graphicObj["title"]?.jsonPrimitive?.content ?: ""
-                    if (gTitle.isNotBlank()) {
-                        graphicTitles[gid] = gTitle
-                        graphicTitles[cleanGid] = gTitle
-                    }
-                }
-            }
-        } catch (e: Exception) { Log.w(TAG, "parseOutlineResult: ${e.message}") }
     }
 
     private fun parseSearchTopicSectionsResult(args: Map<String, String>, result: String) {

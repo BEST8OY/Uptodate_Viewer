@@ -126,10 +126,10 @@ class TurnContextAccumulatorTest {
     }
 
     @Test
-    fun `stores outline sections from getTopicOutline`() {
+    fun `stores outline sections from getTopicOverview`() {
         val outlineResult = """{"topicId":"128998","title":"Atrial Fibrillation","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"Monitoring"}]}"""
         accumulator.onToolCallStarting("call-1", """{"topicId":"128998"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", outlineResult, true)
 
         accumulator.onToolCallStarting("call-2", """{"topicId":"128998","sectionId":"H1"}""")
         accumulator.onToolCallCompleted("call-2", "getTopicSectionsText", "content", true)
@@ -140,10 +140,10 @@ class TurnContextAccumulatorTest {
 
     @Test
     fun `batch sections use stored outline titles`() {
-        // First call getTopicOutline to store titles
+        // First call getTopicOverview to store titles
         val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"Safety"}]}"""
         accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", outlineResult, true)
 
         // Then call batch sections (returns JSON with sectionTitles)
         val batchResult = """{"topicTitle":"Drug X","sectionTitles":{"H1":"Dosing","H2":"Safety"},"markdown":"content"}"""
@@ -176,7 +176,7 @@ class TurnContextAccumulatorTest {
         // Store outline
         val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"}]}"""
         accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", outlineResult, true)
 
         // Call single section
         accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionId":"H1","sectionTitle":""}""")
@@ -335,7 +335,7 @@ class TurnContextAccumulatorTest {
     fun `strips leading dashes from outline section titles`() {
         val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"-Antiplatelet therapy"}]}"""
         accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", outlineResult, true)
 
         accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionIds":["H1","H2"]}""")
         accumulator.onToolCallCompleted(
@@ -353,7 +353,7 @@ class TurnContextAccumulatorTest {
     fun `strips leading dashes from outline parsed titles`() {
         val outlineResult = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"},{"id":"H2","title":"—Anticoagulation"}]}"""
         accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicOutline", outlineResult, true)
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", outlineResult, true)
 
         accumulator.onToolCallStarting("call-2", """{"topicId":"1","sectionIds":["H2"]}""")
         accumulator.onToolCallCompleted(
@@ -376,7 +376,7 @@ class TurnContextAccumulatorTest {
         accumulator.onToolCallStarting("call-1", "{}")
         accumulator.onToolCallCompleted("call-1", "searchTopics", "results1", true)
         accumulator.onToolCallStarting("call-2", "{}")
-        accumulator.onToolCallCompleted("call-2", "getTopicOutline", "outline", true)
+        accumulator.onToolCallCompleted("call-2", "getTopicOverview", "outline", true)
         accumulator.onToolCallStarting("call-3", "{}")
         accumulator.onToolCallCompleted("call-3", "getTopicSectionsText", "content", true)
 
@@ -486,10 +486,10 @@ class TurnContextAccumulatorTest {
         accumulator.onToolCallStarting("call-1", """{"query":"liver"}""")
         accumulator.onToolCallCompleted("call-1", "searchTopics", searchResult, true)
 
-        // Model calls getTopicOutline which returns topicId as title
+        // Model calls getTopicOverview which returns topicId as title
         val outlineResult = """{"topicId":"3576","title":"3576","sections":[{"id":"H1","title":"Intro"}]}"""
         accumulator.onToolCallStarting("call-2", """{"topicId":"3576"}""")
-        accumulator.onToolCallCompleted("call-2", "getTopicOutline", outlineResult, true)
+        accumulator.onToolCallCompleted("call-2", "getTopicOverview", outlineResult, true)
 
         // Then fetches sections
         accumulator.onToolCallStarting("call-3", """{"topicId":"3576","sectionIds":["H1"]}""")
@@ -509,7 +509,7 @@ class TurnContextAccumulatorTest {
         // Double-encoded JSON string primitive as produced by Koog when serializing string tool returns
         val escapedOutlineResult = "\"{\\\"topicId\\\":\\\"7891\\\",\\\"title\\\":\\\"Laboratory assessment of thyroid function\\\",\\\"sections\\\":[{\\\"id\\\":\\\"sec_1\\\",\\\"title\\\":\\\"Serum TSH Tests\\\"}],\\\"graphics\\\":[{\\\"id\\\":\\\"67935\\\",\\\"title\\\":\\\"Assessment of thyroid function\\\"}]}\""
         accumulator.onToolCallStarting("call-1", """{"topicId":"7891"}""")
-        accumulator.onToolCallCompleted("call-1", "getTopicOutline", escapedOutlineResult, true)
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", escapedOutlineResult, true)
 
         // Then model retrieves graphic table 67935
         val escapedGraphicResult = "\"### Graphic Table: Assessment of thyroid function\\n\\n| Test | Normal Range |\""
@@ -737,8 +737,8 @@ class TurnContextAccumulatorTest {
         val searchArgs = json.decodeFromString<com.clinref.app.data.tools.SearchTopicsTool.Args>("""{"search_query":"asthma"}""")
         assertEquals("asthma", searchArgs.query)
 
-        val outlineArgs = json.decodeFromString<com.clinref.app.data.tools.GetTopicOutlineTool.Args>("""{"topic_id":"123"}""")
-        assertEquals("123", outlineArgs.topicId)
+        val overviewArgs = json.decodeFromString<com.clinref.app.data.tools.GetTopicOverviewTool.Args>("""{"topic_id":"123"}""")
+        assertEquals("123", overviewArgs.topicId)
 
         val relatedArgs = json.decodeFromString<com.clinref.app.data.tools.GetRelatedTopicsTool.Args>("""{"topic_id":"123"}""")
         assertEquals("123", relatedArgs.topicId)

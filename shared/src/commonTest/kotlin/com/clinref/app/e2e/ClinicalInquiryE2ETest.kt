@@ -56,7 +56,7 @@ class ClinicalInquiryE2ETest {
         accumulator.onToolCallStarting("call-2", """{"topicId":"128998"}""")
         accumulator.onToolCallCompleted(
             "call-2",
-            "getTopicOutline",
+            "getTopicOverview",
             """{"topicId":"128998","title":"Atrial Fibrillation Management","sections":[{"id":"H1","title":"Dosing and Administration"},{"id":"H2","title":"Renal Impairment Adjustments"}]}""",
             true
         )

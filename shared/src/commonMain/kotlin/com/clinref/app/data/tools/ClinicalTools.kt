@@ -55,24 +55,6 @@ class SearchTopicsTool(
     override suspend fun execute(args: Args): String = databaseTools.searchTopics(args.query)
 }
 
-class GetTopicOutlineTool(
-    private val databaseTools: MedicalDatabaseTools
-) : SimpleTool<GetTopicOutlineTool.Args>(
-    argsType = typeToken<Args>(),
-    name = "getTopicOutline",
-    description = "Retrieve the topic outline containing section IDs, titles, graphic metadata, and related topics. " +
-        "ALWAYS call this after searchTopics to obtain sectionId values for getTopicSectionsText."
-) {
-    @Serializable
-    data class Args(
-        @property:LLMDescription("The topic ID returned by searchTopics (e.g., '12345')")
-        @JsonNames("topic_id")
-        val topicId: String
-    )
-
-    override suspend fun execute(args: Args): String = databaseTools.getTopicOutline(args.topicId)
-}
-
 class GetRelatedTopicsTool(
     private val databaseTools: MedicalDatabaseTools
 ) : SimpleTool<GetRelatedTopicsTool.Args>(
@@ -102,7 +84,7 @@ class GetTopicSectionsTextTool(
         @property:LLMDescription("The topic ID")
         @JsonNames("topic_id")
         val topicId: String,
-        @property:LLMDescription("List of section IDs to retrieve from getTopicOutline")
+        @property:LLMDescription("List of section IDs to retrieve from getTopicOverview")
         @JsonNames("section_ids")
         val sectionIds: List<String> = emptyList(),
         @property:LLMDescription("Maximum tokens of section text to return (default 4000 tokens / ~16000 characters)")
@@ -123,7 +105,7 @@ class GetGraphicContentTool(
 ) {
     @Serializable
     data class Args(
-        @property:LLMDescription("The graphic ID from getTopicOutline (e.g., 'Graphic-12345' or '12345')")
+        @property:LLMDescription("The graphic ID from getTopicOverview (e.g., 'Graphic-12345' or '12345')")
         @JsonNames("graphic_id")
         val graphicId: String
     )

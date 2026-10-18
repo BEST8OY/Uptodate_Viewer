@@ -42,16 +42,6 @@ data class RelatedTopicItem(
 )
 
 @Serializable
-data class TopicOutlineResponse(
-    val topicId: String,
-    val title: String,
-    val topicType: String,
-    val sections: List<OutlineSectionItem> = emptyList(),
-    val graphics: List<OutlineGraphicItem> = emptyList(),
-    val relatedTopics: List<RelatedTopicItem> = emptyList()
-)
-
-@Serializable
 data class TopicOverviewResponse(
     @JsonNames("topic_id", "topicId")
     val topicId: String,

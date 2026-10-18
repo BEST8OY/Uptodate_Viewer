@@ -168,7 +168,7 @@ class CompoundRetrievalE2ETest {
         every { contentRepository.getTopicTitle("148929") } returns "CHA2DS2-VASc Score"
 
         // 1. Outline returns topicType = calc and FULL section
-        val outlineJson = databaseTools.getTopicOutline("148929")
+        val outlineJson = databaseTools.getTopicOverview("148929")
         val outlineObj = json.parseToJsonElement(outlineJson).jsonObject
 
         assertEquals("calc", outlineObj["topicType"]?.jsonPrimitive?.content)
@@ -189,7 +189,7 @@ class CompoundRetrievalE2ETest {
     fun testNonExistentTopicReturnsStructuredErrorEnvelope() {
         every { contentRepository.getTopicContent("999999") } returns null
 
-        val outlineResult = databaseTools.getTopicOutline("999999")
+        val outlineResult = databaseTools.getTopicOverview("999999")
         val outlineObj = json.parseToJsonElement(outlineResult).jsonObject
         assertTrue(outlineObj.containsKey("error"))
         assertTrue(outlineObj["error"]?.jsonPrimitive?.content?.contains("Topic not found") == true)
@@ -240,15 +240,15 @@ class CompoundRetrievalE2ETest {
     @Test
     fun testGranularToolListPreservesAllSixTools() {
         val toolList = databaseTools.asToolList()
-        assertEquals(7, toolList.size)
+        assertEquals(6, toolList.size)
 
         val toolNames = toolList.map { it.name }.toSet()
         assertTrue(toolNames.contains("getTopicOverview"))
         assertTrue(toolNames.contains("searchTopics"))
-        assertTrue(toolNames.contains("getTopicOutline"))
         assertTrue(toolNames.contains("searchTopicSections"))
         assertTrue(toolNames.contains("getRelatedTopics"))
         assertTrue(toolNames.contains("getTopicSectionsText"))
         assertTrue(toolNames.contains("getGraphicContent"))
+        assertFalse(toolNames.contains("getTopicOutline"))
     }
 }

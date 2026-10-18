@@ -16,7 +16,6 @@ class MedicalDatabaseTools(
 
     val getTopicOverviewTool by lazy { com.clinref.app.data.tools.GetTopicOverviewTool(this) }
     val searchTopicsTool by lazy { com.clinref.app.data.tools.SearchTopicsTool(this) }
-    val getTopicOutlineTool by lazy { com.clinref.app.data.tools.GetTopicOutlineTool(this) }
     val searchTopicSectionsTool by lazy { com.clinref.app.data.tools.SearchTopicSectionsTool(this) }
     val getRelatedTopicsTool by lazy { com.clinref.app.data.tools.GetRelatedTopicsTool(this) }
     val getTopicSectionsTextTool by lazy { com.clinref.app.data.tools.GetTopicSectionsTextTool(this) }
@@ -25,7 +24,6 @@ class MedicalDatabaseTools(
     fun asToolList(): List<ai.koog.agents.core.tools.Tool<*, *>> = listOf(
         getTopicOverviewTool,
         searchTopicsTool,
-        getTopicOutlineTool,
         searchTopicSectionsTool,
         getRelatedTopicsTool,
         getTopicSectionsTextTool,
@@ -200,47 +198,6 @@ class MedicalDatabaseTools(
                 graphics = graphicsList,
                 relatedTopics = relatedList,
                 markdown = ""
-            )
-        )
-    }
-
-    fun getTopicOutline(topicId: String): String {
-        val cleanTopicId = topicId.trim()
-        val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
-        val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
-        val outline = parseOutline(content.outlineHtml)
-        val isCalc = content.outlineHtml.isBlank()
-
-        val sectionsList = if (isCalc) {
-            listOf(OutlineSectionItem(id = "FULL", title = "Calculator Tool Content", level = 1))
-        } else {
-            outline.sections.map {
-                OutlineSectionItem(
-                    id = it.id,
-                    title = it.title,
-                    level = it.level,
-                    parentId = it.parentId
-                )
-            }
-        }
-
-        val graphicsList = outline.graphics.filter { it.isTable }.map { g ->
-            OutlineGraphicItem(id = g.id, title = g.title, isTable = true)
-        }
-
-        val relatedList = outline.relatedTopics.map { rt ->
-            RelatedTopicItem(id = rt.id, title = rt.title)
-        }
-
-        return json.encodeToString(
-            TopicOutlineResponse(
-                topicId = cleanTopicId,
-                title = title,
-                topicType = if (isCalc) "calc" else "article",
-                sections = sectionsList,
-                graphics = graphicsList,
-                relatedTopics = relatedList
             )
         )
     }

@@ -123,7 +123,7 @@ class SafetyValidationE2ETest {
         accumulator.onToolCallStarting("call-1", """{"topicId":"100"}""")
         accumulator.onToolCallCompleted(
             "call-1",
-            "getTopicOutline",
+            "getTopicOverview",
             """{"topicId":"100","title":"Hypertension Management","sections":[{"id":"H1","title":"Initial Therapy"}],"graphics":[{"id":"12345","title":"First-Line Antihypertensive Agents","isTable":true}]}""",
             true
         )
@@ -171,7 +171,7 @@ class SafetyValidationE2ETest {
         accumulator.onToolCallStarting("call-1", """{"topicId":"148929"}""")
         accumulator.onToolCallCompleted(
             "call-1",
-            "getTopicOutline",
+            "getTopicOverview",
             """{"topicId":"148929","title":"CHA2DS2-VASc Score","topicType":"calc","sections":[{"id":"FULL","title":"Calculator Tool Content"}]}""",
             true
         )

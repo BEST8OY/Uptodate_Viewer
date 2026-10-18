@@ -122,7 +122,6 @@ class StreamingManager {
         val description = when (toolName) {
             "searchTopics" -> "Searching medical topics…"
             "getTopicOverview" -> "Retrieving topic overview & core evidence…"
-            "getTopicOutline" -> "Reading topic outline…"
             "getRelatedTopics" -> "Finding related clinical topics…"
             "getTopicSectionsText" -> "Retrieving evidence sections…"
             "getGraphicContent" -> "Loading clinical reference table…"
@@ -337,11 +336,6 @@ class StreamingManager {
                         ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
                     "Examine Topic Overview" to if (topicId.isNotBlank()) "Topic ID: $topicId" else null
                 }
-                "getTopicOutline" -> {
-                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
-                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
-                    "Examine Topic Outline" to if (topicId.isNotBlank()) "Topic ID: $topicId" else null
-                }
                 "getRelatedTopics" -> {
                     "Expand Topic Pool" to "Retrieving related sub-topics"
                 }
@@ -392,10 +386,6 @@ class StreamingManager {
                         "Topic overview loaded ($count sections)"
                     }
                 }
-                "getTopicOutline" -> {
-                    val title = element?.get("title")?.jsonPrimitive?.content
-                    if (!title.isNullOrBlank() && !AiJsonUtils.isNumericOnly(title)) "Outline: $title" else "Outline loaded"
-                }
                 "searchTopicSections" -> {
                     val matches = element?.get("matches") as? kotlinx.serialization.json.JsonArray
                     val count = matches?.size ?: 0
@@ -429,7 +419,7 @@ class StreamingManager {
             val canonicalName = AiJsonUtils.normalizeToolName(toolName)
             val element = AiJsonUtils.parseAsJsonObject(resultText)
             when (canonicalName) {
-                "getTopicOutline" -> {
+                "getTopicOverview" -> {
                     if (element == null) return
                     val topicId = element["topicId"]?.jsonPrimitive?.content
                         ?: element["topic_id"]?.jsonPrimitive?.content ?: ""

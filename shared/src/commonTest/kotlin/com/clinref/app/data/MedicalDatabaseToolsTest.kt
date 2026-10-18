@@ -10,7 +10,6 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import com.clinref.app.data.tools.GetGraphicContentTool
 import com.clinref.app.data.tools.GetRelatedTopicsTool
-import com.clinref.app.data.tools.GetTopicOutlineTool
 import com.clinref.app.data.tools.GetTopicOverviewTool
 import com.clinref.app.data.tools.GetTopicSectionsTextTool
 import com.clinref.app.data.tools.SearchTopicsTool
@@ -87,7 +86,7 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicOutline parses outline html into sections and table graphics and sets topicType article`() {
+    fun `getTopicOverview parses outline html into sections and table graphics and sets topicType article`() {
         val outlineHtml = """
             <a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a>
             <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})"><span class="legacyTopicViewHyphen">- </span>Table A</a>
@@ -97,7 +96,7 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
         every { contentRepository.getTopicTitle("100") } returns "Topic 100"
 
-        val outlineJson = tools.getTopicOutline("100")
+        val outlineJson = tools.getTopicOverview("100")
         val obj = json.parseToJsonElement(outlineJson).jsonObject
 
         assertEquals("Topic 100", obj["title"]!!.jsonPrimitive.content)
@@ -111,11 +110,11 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicOutline handles calculator topic with empty outlineHtml`() {
+    fun `getTopicOverview handles calculator topic with empty outlineHtml`() {
         every { contentRepository.getTopicContent("148929") } returns ContentRepository.TopicContent(outlineHtml = "", bodyHtml = "<div>Calculator Input</div>")
         every { contentRepository.getTopicTitle("148929") } returns "AHA PREVENT Calculator"
 
-        val outlineJson = tools.getTopicOutline("148929")
+        val outlineJson = tools.getTopicOverview("148929")
         val obj = json.parseToJsonElement(outlineJson).jsonObject
 
         assertEquals("calc", obj["topicType"]!!.jsonPrimitive.content)
@@ -193,17 +192,17 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `asToolList returns 7 class-based tools with expected names`() {
+    fun `asToolList returns 6 class-based tools with expected names`() {
         val toolList = tools.asToolList()
-        assertEquals(7, toolList.size)
+        assertEquals(6, toolList.size)
         val names = toolList.map { it.name }.toSet()
         assertTrue(names.contains("getTopicOverview"))
         assertTrue(names.contains("searchTopics"))
-        assertTrue(names.contains("getTopicOutline"))
         assertTrue(names.contains("searchTopicSections"))
         assertTrue(names.contains("getRelatedTopics"))
         assertTrue(names.contains("getTopicSectionsText"))
         assertTrue(names.contains("getGraphicContent"))
+        assertFalse(names.contains("getTopicOutline"))
         assertFalse(names.contains("submitClinicalAnswer"))
     }
 
@@ -227,7 +226,7 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicOutline extracts section levels and parentIds properly`() {
+    fun `getTopicOverview extracts section levels and parentIds properly`() {
         val outlineHtml = """
             <ul id="innerOutline">
                 <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Hematoma</a>
@@ -246,7 +245,7 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("200") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
         every { contentRepository.getTopicTitle("200") } returns "Topic 200"
 
-        val outlineJson = tools.getTopicOutline("200")
+        val outlineJson = tools.getTopicOverview("200")
         val obj = json.parseToJsonElement(outlineJson).jsonObject
         val sections = obj["sections"]!!.jsonArray
 
@@ -274,7 +273,7 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicOutline deduplicates repeated sections such as summary and recommendations`() {
+    fun `getTopicOverview deduplicates repeated sections such as summary and recommendations`() {
         val outlineHtml = """
             <li class="sr-button"><a href="appAction({&quot;section&quot;:&quot;H_SR&quot;})">Summary &amp; Recommendations</a></li>
             <ul id="innerOutline">
@@ -286,7 +285,7 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("300") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
         every { contentRepository.getTopicTitle("300") } returns "Topic 300"
 
-        val outlineJson = tools.getTopicOutline("300")
+        val outlineJson = tools.getTopicOverview("300")
         val obj = json.parseToJsonElement(outlineJson).jsonObject
         val sections = obj["sections"]!!.jsonArray
 
@@ -296,10 +295,10 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicOutline returns error response for nonexistent topic`() {
+    fun `getTopicOverview returns error response for nonexistent topic`() {
         every { contentRepository.getTopicContent("nonexistent") } returns null
 
-        val resultJson = tools.getTopicOutline("nonexistent")
+        val resultJson = tools.getTopicOverview("nonexistent")
         val obj = json.parseToJsonElement(resultJson).jsonObject
         assertTrue(obj.containsKey("error"))
         assertTrue(obj["error"]!!.jsonPrimitive.content.contains("Topic not found"))

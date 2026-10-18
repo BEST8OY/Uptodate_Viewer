@@ -46,14 +46,13 @@ class AdversarialCascadeTest {
     }
 
     @Test
-    fun `tool count strictly 7 on Kotlin`() {
+    fun `tool count strictly 6 on Kotlin`() {
         val toolList = tools.asToolList()
-        assertEquals(7, toolList.size)
+        assertEquals(6, toolList.size)
         val names = toolList.map { it.name }.toSet()
         val expected = setOf(
             "getTopicOverview",
             "searchTopics",
-            "getTopicOutline",
             "searchTopicSections",
             "getRelatedTopics",
             "getTopicSectionsText",
