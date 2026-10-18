@@ -12,8 +12,8 @@
 | Test Target | Test Suites | Total Tests | Pass Rate | Execution Time | DB Dependencies |
 |---|---|---|---|---|---|
 | **Python Prototype** | `test_e2e.py`<br>`test_clinref.py`<br>`test_integration.py`<br>`test_adversarial_stress.py`<br>`test_tool_contracts.py` | **411** | **100% (411/411)** | ~70s | Live root SQLite databases (read-only, MD5-verified) |
-| **Kotlin Multiplatform (`:shared`)** | `com.clinref.app.domain.ai.*`<br>`com.clinref.app.data.*`<br>`com.clinref.app.adversarial.*`<br>`com.clinref.app.ui.*` | **263** | **100% (263/263)** | ~20s | Bundled SQLite / In-Memory Room / Desktop JVM |
-| **Total Combined** | **All Tiers (1–5)** | **675** | **100%** | **~90s** | **Hermetic, zero external network** |
+| **Kotlin Multiplatform (`:shared`)** | `com.clinref.app.domain.ai.*`<br>`com.clinref.app.data.*`<br>`com.clinref.app.adversarial.*`<br>`com.clinref.app.ui.*` | **270** | **100% (270/270)** | ~20s | Bundled SQLite / In-Memory Room / Desktop JVM |
+| **Total Combined** | **All Tiers (1–5)** | **681** | **100%** | **~90s** | **Hermetic, zero external network** |
 
 ---
 
