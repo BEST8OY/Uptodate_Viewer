@@ -9,7 +9,7 @@ import kotlinx.serialization.json.Json
 private const val TAG = "MedTools"
 
 // Maximum sections returned per getTopicSectionsText call; extras land in omittedSections
-private const val MAX_SECTIONS_PER_CALL = 6
+private const val MAX_SECTIONS_PER_CALL = 10
 
 class MedicalDatabaseTools(
     private val searchRepository: SearchRepository,

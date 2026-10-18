@@ -29,7 +29,7 @@ from html_parser import (
 _db: Optional[ClinRefDatabase] = None
 
 # Maximum sections returned per get_topic_sections_text call; extras land in omittedSections
-MAX_SECTIONS_PER_CALL = 6
+MAX_SECTIONS_PER_CALL = 10
 
 
 def init_tools(db: ClinRefDatabase) -> list:
@@ -311,8 +311,8 @@ def get_topic_sections_text(
     sectionIds: Optional[Union[list[str], str]] = None,
     **kwargs,
 ) -> str:
-    """Retrieve up to 6 sections from the same topic in a single call, each returned
-    in full (no token cap). Requested section IDs beyond 6 are returned in
+    """Retrieve up to 10 sections from the same topic in a single call, each returned
+    in full (no token cap). Requested section IDs beyond 10 are returned in
     omittedSections."""
     if _db is None:
         return json.dumps({"error": "Database not initialized"})

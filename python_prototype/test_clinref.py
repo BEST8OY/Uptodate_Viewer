@@ -891,24 +891,24 @@ class TestGetTopicSectionText:
         assert long_text_2.rstrip() in md
         assert "[Section truncated due to token limit]" not in md
 
-    def test_sections_beyond_six_per_call_omitted(self):
+    def test_sections_beyond_ten_per_call_omitted(self):
         import tools
         self.mock_db.get_topic_body.return_value = "".join(
-            f"<h2 id='H{i}'>Sec {i}</h2><p>Content {i}.</p>" for i in range(1, 8)
+            f"<h2 id='H{i}'>Sec {i}</h2><p>Content {i}.</p>" for i in range(1, 12)
         )
         self.mock_db.get_topic_outline.return_value = "".join(
             '<a href="appAction({&quot;section&quot;:&quot;H%d&quot;})">Sec %d</a>' % (i, i)
-            for i in range(1, 8)
+            for i in range(1, 12)
         )
         result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "123", "section_ids": [f"H{i}" for i in range(1, 8)]}
+            {"topic_id": "123", "section_ids": [f"H{i}" for i in range(1, 12)]}
         )
         data = json.loads(result)
-        # Count guard: at most 6 sections per call; the 7th is reported, never silently dropped
-        assert set(data["sectionTitles"].keys()) == {f"H{i}" for i in range(1, 7)}
-        assert data["omittedSections"] == ["H7"]
+        # Count guard: at most 10 sections per call; the 11th is reported, never silently dropped
+        assert set(data["sectionTitles"].keys()) == {f"H{i}" for i in range(1, 11)}
+        assert data["omittedSections"] == ["H11"]
         assert "truncated" not in data
-        assert "=== Section: H7 ===" not in data["markdown"]
+        assert "=== Section: H11 ===" not in data["markdown"]
 
     def test_calculator_returns_full_text_without_cap(self):
         import tools

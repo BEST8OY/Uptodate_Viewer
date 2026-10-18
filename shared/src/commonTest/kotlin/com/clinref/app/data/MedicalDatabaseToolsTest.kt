@@ -489,11 +489,11 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicSectionsText returns at most six sections per call`() {
-        val outlineHtml = (1..7).joinToString("") {
+    fun `getTopicSectionsText returns at most ten sections per call`() {
+        val outlineHtml = (1..11).joinToString("") {
             """<li><a href="appAction({&quot;section&quot;:&quot;H$it&quot;})">Sec $it</a></li>"""
         }
-        val bodyHtml = (1..7).joinToString("") {
+        val bodyHtml = (1..11).joinToString("") {
             """<p class="headingAnchor" id="H$it"><span class="h1">Sec $it</span><span class="headingEndMark">—</span>Short text $it.</p>"""
         }
         every { contentRepository.getTopicContent("300") } returns ContentRepository.TopicContent(
@@ -502,19 +502,19 @@ class MedicalDatabaseToolsTest {
         )
         every { contentRepository.getTopicTitle("300") } returns "Topic 300"
 
-        val resultJson = tools.getTopicSectionsText("300", (1..7).map { "H$it" })
+        val resultJson = tools.getTopicSectionsText("300", (1..11).map { "H$it" })
         val obj = json.parseToJsonElement(resultJson).jsonObject
 
-        // Count guard: at most 6 sections per call; the 7th is reported, never silently dropped
+        // Count guard: at most 10 sections per call; the 11th is reported, never silently dropped
         val titles = obj["sectionTitles"]!!.jsonObject
-        (1..6).forEach { assertTrue(titles.containsKey("H$it")) }
-        assertTrue(!titles.containsKey("H7"))
+        (1..10).forEach { assertTrue(titles.containsKey("H$it")) }
+        assertTrue(!titles.containsKey("H11"))
         assertTrue(!obj.containsKey("truncated"))
         val omitted = obj["omittedSections"]!!.jsonArray.map { it.jsonPrimitive.content }
-        assertEquals(listOf("H7"), omitted)
+        assertEquals(listOf("H11"), omitted)
         val md = obj["markdown"]!!.jsonPrimitive.content
-        assertTrue(md.contains("=== Section: H6 ==="))
-        assertTrue(!md.contains("=== Section: H7 ==="))
+        assertTrue(md.contains("=== Section: H10 ==="))
+        assertTrue(!md.contains("=== Section: H11 ==="))
     }
 
     @Test

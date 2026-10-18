@@ -77,7 +77,7 @@ class GetTopicSectionsTextTool(
 ) : SimpleTool<GetTopicSectionsTextTool.Args>(
     argsType = typeToken<Args>(),
     name = "getTopicSectionsText",
-    description = "Retrieve up to 6 sections from the same topic in a single call, each returned in full (no token cap); requested section IDs beyond 6 are returned in omittedSections."
+    description = "Retrieve up to 10 sections from the same topic in a single call, each returned in full (no token cap); requested section IDs beyond 10 are returned in omittedSections."
 ) {
     @Serializable
     data class Args(
