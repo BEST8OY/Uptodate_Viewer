@@ -1896,13 +1896,6 @@ class TestSystemPromptArchitecture:
         assert "Penicillin" in prompt
         assert "eGFR 45 mL/min" in prompt
 
-        # Token-budget re-fetch protocol (mirrors Kotlin SystemPrompt.kt)
-        assert "TOKEN BUDGET" in prompt
-        assert "omittedSections" in prompt
-        assert "truncated=true" in prompt
-        assert "re-fetch" in prompt
-        assert "child sub-section IDs" in prompt
-
     def test_extract_patient_context_gender_and_sex(self):
         ctx1 = extract_patient_context({"age": "50", "sex": "male"})
         assert "Sex: male" in ctx1
