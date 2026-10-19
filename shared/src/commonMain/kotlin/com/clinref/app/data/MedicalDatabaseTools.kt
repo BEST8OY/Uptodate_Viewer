@@ -52,6 +52,7 @@ class MedicalDatabaseTools(
             setOf(RegexOption.IGNORE_CASE)
         )
         private val STRIP_TAGS_REGEX = Regex("<[^>]*>")
+        private val WHITESPACE_REGEX = Regex("\\s+")
         private val NON_TEXT_BLOCKS_REGEX = Regex(
             "<(script|style|noscript|iframe)\\b[^>]*>.*?</\\1>",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
@@ -379,55 +380,121 @@ class MedicalDatabaseTools(
     /**
      * Search within a topic's sections for clinical keywords, returning matching section IDs,
      * titles, hierarchy level, and contextual snippets.
+     *
+     * Matching semantics (mirrors python_prototype/tools.py search_topic_sections): the query
+     * is split into whitespace-separated keywords and a section matches when ANY keyword occurs
+     * in its title or plain-text body — a multi-word query such as "acetaminophen dosing" must
+     * NOT be treated as a verbatim phrase. Keyword hits in the title rank above body-only hits
+     * (score = titleHits*3 + textHits); the top 8 are returned, snippets are cut from the
+     * earliest keyword occurrence in the plain-tag-stripped body text.
      */
     fun searchTopicSections(topicId: String, query: String): String {
         val cleanTopicId = topicId.trim()
         val cleanQuery = query.trim()
-        if (cleanQuery.isEmpty()) {
-            return json.encodeToString(SearchTopicSectionsResponse(topicId = cleanTopicId, query = ""))
-        }
 
         val content = contentRepository.getTopicContent(cleanTopicId)
             ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
 
+        if (cleanQuery.isEmpty()) {
+            return json.encodeToString(
+                SearchTopicSectionsResponse(
+                    topicId = cleanTopicId,
+                    query = cleanQuery,
+                    message = "Topic ID and query must be non-empty."
+                )
+            )
+        }
+
         val outline = parseOutline(content.outlineHtml)
-        val matches = mutableListOf<SectionSearchResult>()
+        if (outline.sections.isEmpty()) {
+            return json.encodeToString(
+                SearchTopicSectionsResponse(
+                    topicId = cleanTopicId,
+                    query = cleanQuery,
+                    message = "No sections found in topic outline."
+                )
+            )
+        }
+
+        val keywords = cleanQuery.lowercase().split(WHITESPACE_REGEX).filter { it.isNotBlank() }
+        if (keywords.isEmpty()) {
+            return json.encodeToString(
+                SearchTopicSectionsResponse(
+                    topicId = cleanTopicId,
+                    query = cleanQuery,
+                    message = "Topic ID and query must be non-empty."
+                )
+            )
+        }
+
+        val scored = mutableListOf<ScoredMatch>()
 
         for (section in outline.sections) {
             val sectionHtml = extractSectionHtml(content.bodyHtml, outline.sections, section.id) ?: continue
-            val sectionMd = htmlToMarkdown(sectionHtml)
-            val queryIdx = sectionMd.indexOf(cleanQuery, ignoreCase = true)
-            val titleMatches = section.title.contains(cleanQuery, ignoreCase = true)
+            val sectionText = STRIP_TAGS_REGEX.replace(sectionHtml, " ")
+                .replace(WHITESPACE_REGEX, " ")
+                .trim()
+            val titleLower = section.title.lowercase()
+            val textLower = sectionText.lowercase()
 
-            if (queryIdx >= 0 || titleMatches) {
-                val snippet = if (queryIdx >= 0) {
-                    val start = maxOf(0, queryIdx - 80)
-                    val end = minOf(sectionMd.length, queryIdx + cleanQuery.length + 120)
-                    (if (start > 0) "..." else "") + sectionMd.substring(start, end).replace("\n", " ").trim() + (if (end < sectionMd.length) "..." else "")
-                } else {
-                    sectionMd.take(200).replace("\n", " ").trim() + (if (sectionMd.length > 200) "..." else "")
+            val titleHits = keywords.count { titleLower.contains(it) }
+            val textHits = keywords.count { textLower.contains(it) }
+            if (titleHits == 0 && textHits == 0) continue
+
+            var firstIdx = -1
+            var matchedKeyword = ""
+            for (keyword in keywords) {
+                val idx = textLower.indexOf(keyword)
+                if (idx >= 0 && (firstIdx < 0 || idx < firstIdx)) {
+                    firstIdx = idx
+                    matchedKeyword = keyword
                 }
+            }
 
-                matches.add(
-                    SectionSearchResult(
+            val snippet = if (firstIdx >= 0) {
+                val start = maxOf(0, firstIdx - 60)
+                val end = minOf(sectionText.length, firstIdx + matchedKeyword.length + 90)
+                (if (start > 0) "..." else "") +
+                    sectionText.substring(start, end).trim() +
+                    (if (end < sectionText.length) "..." else "")
+            } else {
+                sectionText.take(150) + (if (sectionText.length > 150) "..." else "")
+            }
+
+            scored.add(
+                ScoredMatch(
+                    result = SectionSearchResult(
                         sectionId = section.id,
                         sectionTitle = section.title,
                         level = section.level,
                         snippet = snippet
-                    )
+                    ),
+                    score = titleHits * 3 + textHits
                 )
-            }
+            )
         }
+
+        scored.sortByDescending { it.score }
+        val topMatches = scored.take(8).map { it.result }
 
         return json.encodeToString(
             SearchTopicSectionsResponse(
                 topicId = cleanTopicId,
                 query = cleanQuery,
-                matches = matches,
-                message = "Found ${matches.size} matching sections"
+                matches = topMatches,
+                message = if (topMatches.isNotEmpty()) {
+                    "Found ${topMatches.size} matching sections."
+                } else {
+                    "No matching sections found for '$cleanQuery'."
+                }
             )
         )
     }
+
+    private data class ScoredMatch(
+        val result: SectionSearchResult,
+        val score: Int
+    )
 
     private data class ParsedSection(
         val id: String,

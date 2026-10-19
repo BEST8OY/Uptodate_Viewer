@@ -21,7 +21,7 @@
 ### Build & Test Commands
 
 ```bash
-# Desktop tests & compilation check (primary local verification command — 270 tests in ~13s)
+# Desktop tests & compilation check (primary local verification command — 273 tests in ~13s)
 ./gradlew :shared:desktopTest --stacktrace
 
 # Run Desktop diagnostic verifier & app (queries root SQLite DBs, all 10 ViewModels, Room 3)

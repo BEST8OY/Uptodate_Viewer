@@ -413,6 +413,92 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
+    fun `searchTopicSections matches any keyword of multi-word query and ranks title hits first`() {
+        // Parity regression vs python_prototype/tools.py search_topic_sections: the whole-phrase
+        // substring match returned 0 sections on-device for "acetaminophen dosing" while python
+        // returned 7 on the same databases — sections mention either word separately (e.g. an
+        // "Analgesics" section whose body contains "acetaminophen" and "dosing" independently).
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H0&quot;})">Dosing and Administration</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Analgesics</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Therapies that may be effective</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H3&quot;})">Selected hygiene measures</a></li>
+            </ul>
+        """.trimIndent()
+        val bodyHtml = """
+            <p class="headingAnchor" id="H0">For adults and children.</p>
+            <p class="headingAnchor" id="H1"><span class="h1">Analgesics</span><span class="headingEndMark">—</span>Acetaminophen provides mild relief; no dosing schedule is listed.</p>
+            <p class="headingAnchor" id="H2"><span class="h1">Therapies that may be effective</span><span class="headingEndMark">—</span>Dosing of intranasal ipratropium reduces symptoms.</p>
+            <p class="headingAnchor" id="H3"><span class="h1">Selected hygiene measures</span><span class="headingEndMark">—</span>Hand washing plus masks prevent transmission.</p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("6868") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("6868") } returns "The common cold in adults"
+
+        val obj = json.parseToJsonElement(tools.searchTopicSections("6868", "acetaminophen dosing")).jsonObject
+        val matches = obj["matches"]!!.jsonArray
+
+        assertEquals(3, matches.size)
+        // Score 3x titleHit + 1x bodyHit: title-only H0 (3) ranks above two-body-hit H1 (2),
+        // then one-body-hit H2 (1); the keyword-free H3 section never matches.
+        assertEquals("H0", matches[0].jsonObject["sectionId"]!!.jsonPrimitive.content)
+        // Title-only match falls back to the head-of-body snippet (no keyword window).
+        assertEquals("For adults and children.", matches[0].jsonObject["snippet"]!!.jsonPrimitive.content)
+        assertEquals("H1", matches[1].jsonObject["sectionId"]!!.jsonPrimitive.content)
+        // Snippet is cut around the earliest keyword occurrence in plain body text.
+        assertTrue(matches[1].jsonObject["snippet"]!!.jsonPrimitive.content.contains("Acetaminophen provides mild relief"))
+        assertEquals("H2", matches[2].jsonObject["sectionId"]!!.jsonPrimitive.content)
+        assertEquals("Found 3 matching sections.", obj["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `searchTopicSections caps results at eight with capped count message`() {
+        val outlineLi = (1..9).joinToString("") { i ->
+            """<li><a href="appAction({&quot;section&quot;:&quot;H$i&quot;})">Dosing section $i</a></li>"""
+        }
+        val outlineHtml = "<ul id=\"innerOutline\">$outlineLi</ul>"
+        val bodyParagraph = (1..9).joinToString("\n") { i ->
+            """<p class="headingAnchor" id="H$i"><span class="h1">Dosing section $i</span><span class="headingEndMark">—</span>Dosing topic content $i.</p>"""
+        }
+
+        every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(
+            outlineHtml = outlineHtml,
+            bodyHtml = bodyParagraph
+        )
+        every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
+
+        val obj = json.parseToJsonElement(tools.searchTopicSections("700", "dosing")).jsonObject
+
+        assertEquals(8, obj["matches"]!!.jsonArray.size)
+        // Python counts the capped top_matches in the message, not every match found.
+        assertEquals("Found 8 matching sections.", obj["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `searchTopicSections mirrors python messages for no hits and blank input`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+            </ul>
+        """.trimIndent()
+        val bodyHtml = """
+            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>General overview text.</p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
+
+        val noHit = json.parseToJsonElement(tools.searchTopicSections("700", "unobtainium")).jsonObject
+        assertEquals(0, noHit["matches"]!!.jsonArray.size)
+        assertEquals("No matching sections found for 'unobtainium'.", noHit["message"]!!.jsonPrimitive.content)
+
+        // Blank query does not touch the repository (python checks emptiness first).
+        val blank = json.parseToJsonElement(tools.searchTopicSections("700", "   ")).jsonObject
+        assertEquals("Topic ID and query must be non-empty.", blank["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `getTopicOverview returns outline and graphics for articles`() {
         val outlineHtml = """
             <ul id="innerOutline">
