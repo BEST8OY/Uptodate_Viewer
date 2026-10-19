@@ -50,7 +50,7 @@ updates:
           - "androidx.webkit*"
       zstd:
         patterns:
-          - "com.github.luben:zstd-jni"
+          - "org.meshtastic:kzstd"
       agp:
         patterns:
           - "com.android.application"
