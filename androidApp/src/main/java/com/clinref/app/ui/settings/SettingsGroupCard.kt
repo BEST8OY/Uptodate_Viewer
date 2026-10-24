@@ -68,7 +68,7 @@ fun SettingsGroupCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             content()
         }
     }

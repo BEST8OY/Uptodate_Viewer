@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -110,6 +112,8 @@ fun AiSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
@@ -137,8 +141,8 @@ fun AiSettingsScreen(
                                 .fillMaxWidth()
                                 .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f)
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
                             )
                         )
                         ExposedDropdownMenu(
@@ -240,7 +244,11 @@ fun AiSettingsScreen(
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                            )
                         )
                         ExposedDropdownMenu(
                             expanded = modelExpanded,
@@ -342,7 +350,7 @@ fun AiSettingsScreen(
             Card(
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -385,7 +393,7 @@ fun AiSettingsScreen(
                     val statusColor = when (result) {
                         is SettingsViewModel.TestResult.Success -> MaterialTheme.colorScheme.primaryContainer
                         is SettingsViewModel.TestResult.Error -> MaterialTheme.colorScheme.errorContainer
-                        SettingsViewModel.TestResult.Loading -> MaterialTheme.colorScheme.surfaceVariant
+                        SettingsViewModel.TestResult.Loading -> MaterialTheme.colorScheme.surfaceContainerHigh
                     }
                     val textColor = when (result) {
                         is SettingsViewModel.TestResult.Success -> MaterialTheme.colorScheme.onPrimaryContainer

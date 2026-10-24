@@ -59,7 +59,7 @@ import com.clinref.app.domain.ai.StreamingManager
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun GeminiOrchestrationIndicator(
+fun ChatOrchestrationIndicator(
     steps: List<StreamingManager.OrchestrationStep>,
     currentStatusText: String,
     liveSources: List<SafetyValidator.TopicRef> = emptyList(),
@@ -334,11 +334,11 @@ fun GeminiOrchestrationIndicator(
  * Legacy overload for backward compatibility with simple ToolProgress.
  */
 @Composable
-fun GeminiOrchestrationIndicator(
+fun ChatOrchestrationIndicator(
     progress: StreamingManager.ToolProgress,
     modifier: Modifier = Modifier
 ) {
-    GeminiOrchestrationIndicator(
+    ChatOrchestrationIndicator(
         steps = listOf(
             StreamingManager.OrchestrationStep(
                 id = "legacy_step",

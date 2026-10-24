@@ -17,7 +17,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:windowSoftInputMode="adjustNothing"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.ClinRef">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -51,7 +51,7 @@ import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 
 @Composable
-fun GeminiMessageItem(
+fun ChatMessageItem(
     message: MessageUiModel,
     isStreaming: Boolean = message.id == "streaming",
     onCopyMessage: (String) -> Unit = {},
@@ -178,7 +178,7 @@ fun GeminiMessageItem(
                 if (message.warnings.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
                     message.warnings.forEach { warning ->
-                        GeminiWarningAlert(warning = warning)
+                        ChatWarningAlert(warning = warning)
                     }
                 }
 
@@ -216,7 +216,7 @@ fun GeminiMessageItem(
 }
 
 @Composable
-fun GeminiGraphicPill(label: String, graphicId: String, onClick: () -> Unit) {
+fun GraphicPill(label: String, graphicId: String, onClick: () -> Unit) {
     InputChip(
         selected = false,
         onClick = onClick,
@@ -244,7 +244,7 @@ fun GeminiGraphicPill(label: String, graphicId: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun GeminiTopicPill(label: String, onClick: () -> Unit) {
+fun TopicPill(label: String, onClick: () -> Unit) {
     InputChip(
         selected = false,
         onClick = onClick,
@@ -272,7 +272,7 @@ fun GeminiTopicPill(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun GeminiWarningAlert(warning: String) {
+fun ChatWarningAlert(warning: String) {
     val warnColor = MaterialTheme.colorScheme.tertiary
     Row(
         modifier = Modifier

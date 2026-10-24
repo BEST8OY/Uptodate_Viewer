@@ -75,9 +75,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
-import com.clinref.app.ui.chat.components.GeminiChatInput
-import com.clinref.app.ui.chat.components.GeminiMessageItem
-import com.clinref.app.ui.chat.components.GeminiOrchestrationIndicator
+import com.clinref.app.ui.chat.components.ChatInputBar
+import com.clinref.app.ui.chat.components.ChatMessageItem
+import com.clinref.app.ui.chat.components.ChatOrchestrationIndicator
 import com.clinref.app.ui.common.ScrollToBottomFAB
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -297,7 +297,7 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(
                         top = padding.calculateTopPadding() + 8.dp,
-                        bottom = padding.calculateBottomPadding() + (if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp)
+                        bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -323,7 +323,7 @@ fun ChatScreen(
                         key = { it.key }
                     ) { item ->
                         when (item) {
-                            is ChatListItem.Message -> GeminiMessageItem(
+                            is ChatListItem.Message -> ChatMessageItem(
                                 message = item.uiModel,
                                 onCopyMessage = { content ->
                                     coroutineScope.launch {
@@ -347,7 +347,7 @@ fun ChatScreen(
 
                     if (isGenerating) {
                         item(key = activeAssistantId?.let { "orchestration_$it" } ?: ChatListKeys.ORCHESTRATION) {
-                            GeminiOrchestrationIndicator(
+                            ChatOrchestrationIndicator(
                                 steps = orchestrationSteps,
                                 currentStatusText = currentStatusText,
                                 liveSources = liveSources
@@ -357,7 +357,7 @@ fun ChatScreen(
 
                     if (streamingText.isNotEmpty()) {
                         item(key = activeAssistantId ?: ChatListKeys.STREAMING) {
-                            GeminiMessageItem(
+                            ChatMessageItem(
                                 message = MessageUiModel(
                                     id = activeAssistantId ?: "streaming",
                                     role = "assistant",
@@ -409,7 +409,7 @@ fun ChatScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                GeminiChatInput(
+                ChatInputBar(
                     state = textFieldState,
                     onSendMessage = { text ->
                         isFollowingBottom = true

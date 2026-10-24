@@ -89,9 +89,9 @@ class GraphicIdRobustnessTest {
     }
 
     @Test
-    fun `GeminiMessageItem and ChatScreen end-to-end prefix stripping pipeline handles double prefixes and URI schemes`() {
+    fun `ChatMessageItem and ChatScreen end-to-end prefix stripping pipeline handles double prefixes and URI schemes`() {
         // Pipeline:
-        // Step 1: GeminiMessageItem markdown URI handler:
+        // Step 1: ChatMessageItem markdown URI handler:
         //         val graphicId = uri.removePrefix("graphic:").removePrefix("Graphic-")
         // Step 2: ChatScreen handleGraphicSelected:
         //         activeGraphicId = graphicId.removePrefix("Graphic-")
@@ -99,7 +99,7 @@ class GraphicIdRobustnessTest {
         //         cleanId = graphicId.removePrefix("Graphic-")
 
         fun pipelineProcess(uri: String): String {
-            // Step 1 (GeminiMessageItem)
+            // Step 1 (ChatMessageItem)
             val step1 = if (uri.startsWith("graphic:")) {
                 uri.removePrefix("graphic:").removePrefix("Graphic-")
             } else {

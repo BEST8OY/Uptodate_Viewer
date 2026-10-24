@@ -9,10 +9,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -31,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,40 +56,41 @@ import com.clinref.app.domain.ai.PatientProfile
 private const val MAX_CHARS = 4000
 private const val MAX_INPUT_LINES = 8
 
-// Material 3 Component & Target Tokens
-private val BUTTON_TOUCH_TARGET_SIZE = 32.dp // Action button container size (32.dp)
-private val ACTION_ICON_SIZE = 20.dp         // Proportional action icon size (20.dp)
-private val ACTION_ROW_SPACING = 8.dp        // M3 PaddingSmall
+// Material 3 Component & Target Tokens (Accessibility compliant touch targets >= 48.dp)
+private val BUTTON_INTERACTIVE_TARGET_SIZE = 48.dp // Accessibility compliant touch target (48.dp)
+private val BUTTON_VISUAL_SIZE = 40.dp             // Action button container visual size (40.dp)
+private val ACTION_ICON_SIZE = 20.dp               // Proportional action icon size
+private val ACTION_ROW_SPACING = 8.dp              // M3 PaddingSmall
 
 // Material 3 Container Spacing Tokens
-private val CONTENT_VERTICAL_PADDING = 16.dp // 16.dp vertical padding + 32.dp button = 64.dp height (32.dp radius)
-private val CONTENT_START_PADDING = 24.dp    // M3 Grid Spacing (Large inset)
-private val CONTENT_END_PADDING = 12.dp      // M3 Grid Spacing
+private val CONTENT_VERTICAL_PADDING = 8.dp        // 8.dp vertical padding + 48.dp touch target = 64.dp height
+private val CONTENT_START_PADDING = 24.dp          // M3 Grid Spacing (Large inset)
+private val CONTENT_END_PADDING = 12.dp            // M3 Grid Spacing
 
-private val TEXT_BOX_END_PADDING = 8.dp      // M3 PaddingSmall
-private val TEXT_BOX_VERTICAL_PADDING = 6.dp // Matches single-line centered offset (32dp - 20dp)/2 = 6dp
+private val TEXT_BOX_END_PADDING = 8.dp            // M3 PaddingSmall
+private val TEXT_BOX_VERTICAL_PADDING = 8.dp       // Centered text offset
 private val MAX_TEXT_BOX_HEIGHT = 200.dp
 
-private val OUTER_HORIZONTAL_PADDING = 16.dp // M3 Screen Edge Margin (PaddingMedium)
-private val OUTER_TOP_PADDING = 12.dp        // M3 Grid Spacing
-private val OUTER_BOTTOM_PADDING = 16.dp     // M3 Screen Edge Margin (PaddingMedium)
+private val OUTER_HORIZONTAL_PADDING = 16.dp       // M3 Screen Edge Margin (PaddingMedium)
+private val OUTER_TOP_PADDING = 12.dp              // M3 Grid Spacing
+private val OUTER_BOTTOM_PADDING = 16.dp           // M3 Screen Edge Margin (PaddingMedium)
 
 // Material 3 Surface & Chip Tokens (No drop shadows)
-private val SURFACE_SHADOW_ELEVATION = 0.dp  // Clean flat surface
-private val SURFACE_TONAL_ELEVATION = 0.dp   // Container color tinting only
+private val SURFACE_SHADOW_ELEVATION = 0.dp        // Clean flat surface
+private val SURFACE_TONAL_ELEVATION = 0.dp         // Container color tinting only
 
-private val CHIP_HORIZONTAL_PADDING = 12.dp  // M3 AssistChip Standard Padding
-private val CHIP_VERTICAL_PADDING = 4.dp     // M3 PaddingExtraSmall
-private val CHIP_ICON_SIZE = 16.dp           // M3 Small Icon
-private val CHIP_BOTTOM_PADDING = 8.dp       // M3 PaddingSmall
+private val CHIP_HORIZONTAL_PADDING = 12.dp        // M3 AssistChip Standard Padding
+private val CHIP_VERTICAL_PADDING = 4.dp           // M3 PaddingExtraSmall
+private val CHIP_ICON_SIZE = 16.dp                 // M3 Small Icon
+private val CHIP_BOTTOM_PADDING = 8.dp             // M3 PaddingSmall
 
 // Material 3 Expressive Shape Token: 32.dp
-// Single-line container height = 16dp (top) + 32dp (button) + 16dp (bottom) = 64dp.
+// Single-line container height = 8dp (top) + 48dp (button target) + 8dp (bottom) = 64dp.
 // 32.dp is exactly half of 64dp (64dp / 2 = 32dp), forming a 100% mathematically exact pill capsule on single-line.
 private val CONTAINER_CORNER_RADIUS = 32.dp
 
 @Composable
-fun GeminiChatInput(
+fun ChatInputBar(
     state: TextFieldState,
     onSendMessage: (String) -> Unit,
     onCancel: () -> Unit,
@@ -107,6 +116,11 @@ fun GeminiChatInput(
                         MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                     )
                 )
+            )
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing
+                    .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
+                    .exclude(WindowInsets.ime)
             )
             .padding(horizontal = OUTER_HORIZONTAL_PADDING)
             .padding(top = OUTER_TOP_PADDING, bottom = OUTER_BOTTOM_PADDING)
@@ -180,12 +194,12 @@ fun GeminiChatInput(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(
-                                end = if (isMultiLine) 0.dp else (BUTTON_TOUCH_TARGET_SIZE * 2 + ACTION_ROW_SPACING + TEXT_BOX_END_PADDING),
-                                bottom = if (isMultiLine) (BUTTON_TOUCH_TARGET_SIZE + 8.dp) else 0.dp,
+                                end = if (isMultiLine) 0.dp else (BUTTON_INTERACTIVE_TARGET_SIZE * 2 + ACTION_ROW_SPACING + TEXT_BOX_END_PADDING),
+                                bottom = if (isMultiLine) (BUTTON_INTERACTIVE_TARGET_SIZE + 8.dp) else 0.dp,
                                 top = if (isMultiLine) TEXT_BOX_VERTICAL_PADDING else 0.dp
                             )
                             .heightIn(
-                                min = if (isMultiLine) 60.dp else BUTTON_TOUCH_TARGET_SIZE,
+                                min = if (isMultiLine) 60.dp else BUTTON_INTERACTIVE_TARGET_SIZE,
                                 max = MAX_TEXT_BOX_HEIGHT
                             ),
                         contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
@@ -250,7 +264,9 @@ private fun ActionButtons(
         IconButton(
             onClick = { onVoiceInput?.invoke() },
             enabled = onVoiceInput != null,
-            modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE)
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .size(BUTTON_VISUAL_SIZE)
         ) {
             Icon(
                 imageVector = Icons.Default.Mic,
@@ -274,7 +290,9 @@ private fun ActionButtons(
             if (generating) {
                 FilledIconButton(
                     onClick = onCancel,
-                    modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .size(BUTTON_VISUAL_SIZE),
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
@@ -290,7 +308,9 @@ private fun ActionButtons(
             } else {
                 FilledIconButton(
                     onClick = onSendMessage,
-                    modifier = Modifier.size(BUTTON_TOUCH_TARGET_SIZE),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .size(BUTTON_VISUAL_SIZE),
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = if (isTextNotBlank) {
