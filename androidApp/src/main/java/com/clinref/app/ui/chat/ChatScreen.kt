@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +50,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -123,6 +125,7 @@ fun ChatScreen(
     conversationId: String,
     onNavigateToHome: () -> Unit,
     onBack: () -> Unit,
+    onNavigateToSettings: (() -> Unit)? = null,
     viewModel: ChatViewModel = org.koin.compose.viewmodel.koinViewModel()
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
@@ -217,9 +220,9 @@ fun ChatScreen(
         }
     }
 
-    // Keep bottom turn visible when soft keyboard opens
+    // Keep bottom turn visible when soft keyboard opens (track animation height directly)
     val imeBottom = WindowInsets.ime.getBottom(density)
-    LaunchedEffect(imeBottom > 0) {
+    LaunchedEffect(imeBottom) {
         if (imeBottom > 0 && isFollowingBottom) {
             val count = listState.layoutInfo.totalItemsCount
             if (count > 0) {
@@ -265,6 +268,20 @@ fun ChatScreen(
                             contentDescription = "Back",
                             tint = MaterialTheme.colorScheme.onBackground
                         )
+                    }
+                },
+                actions = {
+                    if (onNavigateToSettings != null) {
+                        IconButton(
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.minimumInteractiveComponentSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "AI Orchestration Settings",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 },
                 scrollBehavior = scrollBehavior,
@@ -550,10 +567,10 @@ private fun ChatEmptyState(
         Spacer(modifier = Modifier.height(12.dp))
 
         val suggestions = listOf(
-            SuggestionItem("First-line asthma management in adults", Icons.Default.MedicalServices),
-            SuggestionItem("Anticoagulation dosing & duration for acute DVT", Icons.Default.Medication),
-            SuggestionItem("Blood pressure goals in diabetic patients", Icons.Default.CheckCircle),
-            SuggestionItem("Empiric antibiotic therapy for community-acquired pneumonia", Icons.Default.Science)
+            SuggestionItem("First-line asthma management in adults", Icons.Default.MedicalServices, "Pulmonology"),
+            SuggestionItem("Anticoagulation dosing & duration for acute DVT", Icons.Default.Medication, "Hematology"),
+            SuggestionItem("Blood pressure goals in diabetic patients", Icons.Default.CheckCircle, "Cardiology"),
+            SuggestionItem("Empiric antibiotic therapy for community-acquired pneumonia", Icons.Default.Science, "Infectious Disease")
         )
 
         Column(
@@ -577,15 +594,25 @@ private fun ChatEmptyState(
                             imageVector = item.icon,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = item.query,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.domain.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = item.query,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
             }
@@ -593,4 +620,4 @@ private fun ChatEmptyState(
     }
 }
 
-private data class SuggestionItem(val query: String, val icon: ImageVector)
+private data class SuggestionItem(val query: String, val icon: ImageVector, val domain: String)

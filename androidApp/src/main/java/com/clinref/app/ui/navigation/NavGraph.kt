@@ -186,7 +186,8 @@ fun NavGraph(
             ChatScreen(
                 conversationId = key.conversationId,
                 onNavigateToHome = { navigator.navigate(TocRoute) },
-                onBack = { navigator.goBack() }
+                onBack = { navigator.goBack() },
+                onNavigateToSettings = { navigator.navigate(AiSettingsRoute) }
             )
         }
     }
