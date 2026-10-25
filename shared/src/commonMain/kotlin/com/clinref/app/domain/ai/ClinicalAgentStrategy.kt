@@ -38,7 +38,7 @@ import com.clinref.shared.platform.PlatformLogger as Log
  * 4. Subgraph 2: Clinical Synthesis ([clinicalSynthesis])
  *    - Explicitly binds zero database tools (tools = emptyList()), mathematically preventing
  *      synthesis-phase hallucinated tool calls.
- *    - Injects structured PICO/SOAP directives, patient safety constraints, and verified evidence summary.
+ *    - Injects BLUF and 3-header point-of-care directives, patient safety constraints, and verified evidence summary.
  * 5. Dual Gate 2: Post-Synthesis Safety Gate ([nodeValidateSafety])
  *    - Evaluates final clinical answer against numbers, dosages, patient profile bounds, and graphic interpretation.
  *    - Targeted remediation loops back to evidence gathering if missing evidence, or back to
@@ -99,7 +99,7 @@ object ClinicalAgentStrategy {
 
         /**
          * Phase 3: In-Graph Safety Verification & Remediation.
-         * Active while evaluating Tier 1 and Tier 2 clinical safety checks.
+         * Active while evaluating Rules 2–4 (numerical fidelity, graphic tables, and patient profile bounds).
          */
         data class SafetyVerification(
             val evaluation: SafetyEvaluation,

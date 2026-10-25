@@ -907,7 +907,7 @@ def create_initial_state(
     """Create initial agent state for a new turn.
 
     patient_profile (optional dict with age/sex/conditions/medications/allergies/notes)
-    is wired into TurnContext so the deterministic Tier-1 patient bounds (renal & allergy)
+    is wired into TurnContext so the deterministic Rule 4 patient bounds (renal & allergy)
     can fire in-graph — parity with KoogAgentFactory.accumulator.setPatientProfile().
     """
     if isinstance(patient_profile, dict):

@@ -16,31 +16,37 @@ To prevent hallucinations and guarantee evidence traceability, ClinRef AI decoup
 flowchart TD
     UserQuery(["Clinician Question + Active Patient Profile"]) --> P1["Phase 1: Evidence Gathering (llm_with_tools)"]
     P1 <--> Tools["Database Retrieval Tools (6 Tools)"]
-    P1 --> InterceptCheck{"Attempted answer without tools?"}
-    InterceptCheck -- Yes --> PrematurePrompt["Inject Premature Interception Prompt"] --> P1
-    InterceptCheck -- No tools needed (Greeting) --> Greeting["Render Courteous Greeting"] --> Finish([Done])
+    P1 --> InterceptCheck{"Clinical assertion without tools?"}
+    InterceptCheck -- Yes (Premature) --> PrematurePrompt["Inject Premature Interception Prompt"] --> P1
+    InterceptCheck -- No tools needed (Greeting) --> GreetingBypass{"Phase-2 Synthesis Bypass"}
+    GreetingBypass -- Bypass active --> DeliverGreeting([Deliver Greeting Response Immediately]) --> Finish([Done])
     InterceptCheck -- Tools called --> Gate1{"Gate 1: Pre-Synthesis Evidence Gate"}
-    Gate1 -- Incomplete evidence --> P1
+    Gate1 -- Incomplete evidence (Only outlines/search) --> RemediationP1["Inject Evidence Gate Pause Prompt"] --> P1
     Gate1 -- Evidence gathered --> CompCheck{"Near Context Headroom Limit?"}
-    CompCheck -- Yes --> HistoryComp["Semantic History Compaction"] --> P2
+    CompCheck -- Yes (>85% of 128k) --> HistoryComp["Semantic History Compaction"] --> P2
     CompCheck -- No --> P2["Phase 2: Clinical Synthesis (llm_tool_free: ZERO tools in schema)"]
     P2 --> Gate2{"Gate 2: Post-Synthesis Safety Validator"}
     Gate2 -- "Passed (All clinical numbers match DB text & no contraindications)" --> FinalResponse([Deliver Verified Point-of-Care Answer])
-    Gate2 -- "Violations found (Unverified numbers / Allergy contraindication / Missing sections)" --> RetriesLeft{"Retries < Max Budget?"}
-    RetriesLeft -- Yes --> RemediationPrompt["Inject Targeted Safety Correction Prompt"] --> P2
-    RetriesLeft -- No --> SafetyBlock["Terminal Clinical Block Notice"] --> Finish
+    Gate2 -- "Violations found" --> RetriesLeft{"Retries < Max Budget (2)?"}
+    RetriesLeft -- Missing Evidence --> RemP1["Targeted Correction (Route to Phase 1)"] --> P1
+    RetriesLeft -- Unverified Quantities --> RemP2["Targeted Correction (Route to Phase 2)"] --> P2
+    RetriesLeft -- No (Exhausted) --> SafetyBlock["Terminal Clinical Block Notice"] --> Finish
 ```
 
 1. **Phase 1 (Evidence Gathering)**: The model is bound with 6 database retrieval tools. Its sole responsibility is to explore candidate topics, retrieve topic outlines, fetch target section text, and pull markdown dosing tables.
-2. **Dual Gate 1 (Pre-Synthesis Evidence Gate)**: Ensures the model did not stop at topic titles or outlines alone; clinical answers require full section text or graphic table content.
-3. **Phase 2 (Clinical Synthesis)**: An isolated model invocation with **zero database tools bound in its schema**. It is provided a structured synthesis directive containing the clinician's query, active patient profile contraindications, and an evidence summary of all retrieved section texts.
-4. **Dual Gate 2 (Post-Synthesis Intent-Aware Safety Gate)**: Deterministically validates the generated answer using strict regexes and set-intersection rules:
-   - **Rule 0**: Mandatory database tool execution.
-   - **Rule 1 (Quantity & Dose Verification)**: Every clinical number/unit (e.g., `500 mg`, `10-15 mg/kg/dose`, `eGFR < 30 mL/min/1.73m²`) must be verified against the exact retrieved database text.
-   - **Rule 2**: Normalization of range bounds (`5-10 mg`) and thousand separators (`1,200 mg` vs `1200 mg`).
-   - **Rule 3**: Exemption of structural non-clinical numbers (section IDs, years, numbered lists).
-   - **Rule 4 (Patient Profile Safety)**: Deterministic blocking of documented patient allergy contraindications (e.g., prescribing amoxicillin to a penicillin-allergic patient) and severe organ mismatches.
-5. **Remediation Loop**: If Gate 2 blocks the answer, a targeted remedial instruction prompt is injected into the context, allowing the model up to 2 self-healing retries before terminating with a patient-safety block.
+2. **Dual Gate 1 (Pre-Synthesis Evidence Gate)**: Ensures the model did not stop at topic titles or outlines alone; clinical answers require full section text or graphic table content before proceeding to synthesis.
+3. **Phase-2 Synthesis Bypass**: When the user's query is a non-clinical greeting or conversational question (e.g., "hello doctor", "good morning") and no database tools were called, the agent bypasses Phase 2 LLM synthesis entirely, avoiding an unnecessary second LLM call, reducing latency by 2–4 seconds, and eliminating redundant token costs.
+4. **Phase 2 (Clinical Synthesis)**: An isolated model invocation with **zero database tools bound in its schema**. It is provided a structured synthesis directive containing the clinician's query, active patient profile contraindications, and an evidence summary of all retrieved section texts.
+5. **Dual Gate 2 (Post-Synthesis Intent-Aware Safety Gate)**: Deterministically validates the generated answer using strict regexes and set-intersection rules:
+   - **Rule 0**: Mandatory database tool execution (short conversational answers without clinical quantities bypass).
+   - **Rule 1**: Mandatory section or table content retrieval (enforced at Gate 1).
+   - **Rule 2 (Numerical & Quantity Fidelity)**: Every clinical number/unit (e.g., `500 mg`, `10-15 mg/kg/dose`, `eGFR < 30 mL/min/1.73m²`) must match the exact retrieved database text character-for-character. Includes thousand-separator normalization (`1,200 mg` vs `1200 mg`), range bound verification (`5-10 mg`), and structural number exemptions (section IDs, years, numbered lists).
+   - **Rule 3 (Visual Graphic Prohibition)**: Rejects visual descriptions of flowchart diagrams or algorithms without corresponding table content.
+   - **Rule 4 (Patient Profile Safety Bounds)**: Deterministic blocking of documented patient allergy contraindications (e.g., prescribing amoxicillin to a penicillin-allergic patient) and organ function threshold mismatches (e.g., eGFR / CrCl cutoffs).
+6. **Remediation Loop**: If Gate 2 blocks the answer, a targeted remedial instruction prompt is injected into context with dual-target routing:
+   - If missing clinical evidence: routes back to Phase 1 (`RemediationTarget.PHASE_1_EVIDENCE`).
+   - If evidence is present but clinical quantities were unverified: routes back to Phase 2 (`RemediationTarget.PHASE_2_SYNTHESIS`).
+   - The model has up to 2 self-healing retries before terminating with a patient-safety block.
 
 ---
 
@@ -51,7 +57,7 @@ This section details every prompt template, system block, runtime feedback injec
 ---
 
 ### Prompt 1: Static Clinical Guidance (Base System Prompt)
-* **File Source**: [`SystemPrompt.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/SystemPrompt.kt#L24-L36) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L6-L26)
+* **File Source**: [`SystemPrompt.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/SystemPrompt.kt#L112-L138) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L5-L31)
 * **Execution Timing**: Sent at session initialization. Invariant across all conversation turns to maximize **Anthropic Prompt Caching** and **OpenAI Prefix Caching**.
 * **Full Verbatim Text**:
 
@@ -87,7 +93,7 @@ You operate in a two-phase cognitive architecture:
 ---
 
 ### Prompt 2: Dynamic Patient Context Block
-* **File Source**: [`PatientProfile.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/PatientProfile.kt#L14-L31) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L139-L146)
+* **File Source**: [`PatientProfile.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/PatientProfile.kt#L14-L31) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L42-L47)
 * **Execution Timing**: Appended dynamically to the system prompt when an active patient case is loaded. Separated from static guidance to prevent cache busting across different patients.
 * **Template Structure**:
 
@@ -123,7 +129,7 @@ PATIENT CONTEXT DIRECTIVE:
 ---
 
 ### Prompt 3: Premature Response Interception Prompt
-* **File Source**: [`SystemPrompt.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/SystemPrompt.kt#L93-L105) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L100-L113)
+* **File Source**: [`SystemPrompt.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/SystemPrompt.kt#L98-L110) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L133-L146)
 * **Execution Timing**: Triggered during Phase 1 if the LLM attempts to output a clinical response containing clinical terms/quantities without calling any database retrieval tools.
 * **Full Verbatim Text**:
 
@@ -144,7 +150,7 @@ MANDATORY CLINICAL DIRECTIVE:
 ---
 
 ### Prompt 4: Phase 2 Clinical Synthesis Directive
-* **File Source**: [`ClinicalAgentStrategy.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/ClinicalAgentStrategy.kt#L467-L518) / [`agent.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/agent.py#L182-L230)
+* **File Source**: [`ClinicalAgentStrategy.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/ClinicalAgentStrategy.kt#L485-L546) / [`agent.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/agent.py#L182-L230)
 * **Execution Timing**: Injected at Phase 2 (`llm_tool_free`). Precedes synthesis to bundle all retrieved evidence, enforce point-of-care structure, and ground all statements.
 * **Template Structure**:
 
@@ -183,15 +189,12 @@ CLINICAL INQUIRY:
 {userQuery}
 ```
 
-* **Conversational Bypass Branch** (if query is purely conversational/greeting like "hello doctor"):
-```text
-Please provide a helpful, courteous greeting to the clinician and offer clinical assistance.
-```
+* **Conversational Bypass Handling**: If the inquiry is non-clinical or a courteous greeting without tool calls, the agent activates the **Phase-2 Synthesis Bypass** and avoids this template and any second LLM invocation entirely.
 
 ---
 
 ### Prompt 5: Safety Remediation & Correction Prompt
-* **File Source**: [`SystemPrompt.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/SystemPrompt.kt#L44-L91) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L47-L98)
+* **File Source**: [`SystemPrompt.kt`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/shared/src/commonMain/kotlin/com/clinref/app/domain/ai/SystemPrompt.kt#L32-L96) / [`system_prompt.py`](file:///home/best8oy/Ongoing%20Projects/Uptodate_Viewer/python_prototype/system_prompt.py#L61-L131)
 * **Execution Timing**: Injected during Phase 2 when Gate 2 blocks an answer due to unverified clinical numbers or contraindication violations, or at Gate 1 when evidence retrieval is incomplete.
 * **Three Dynamic Branches**:
 
@@ -290,16 +293,21 @@ When reviewing or revising these prompts, the evaluating model must consider the
 
 1. **Parametric Hallucination vs. Evidence Grounding**:
    * *Tension*: Models with rich medical pre-training (e.g., Ministral, Llama-3, GPT-4o) frequently attempt to recite standard dosages from parametric memory (e.g., quoting "amoxicillin 500 mg TID" or "acetaminophen 325-650 mg q4-6h") instead of checking if that exact dosage appears in the retrieved section text.
-   * *Current Mitigations*: Premature response interception in Phase 1; hard string/regex quantity verification in Gate 2; Phase 2 prompt warning: `DO NOT invent any clinical numbers, dosages, or units not found in the retrieved evidence above`.
+   * *Current Mitigations*: Premature response interception in Phase 1; hard string/regex quantity verification in Gate 2; Phase 2 prompt warning: `Every clinical number, dosage, percentage, range, and lab threshold in your response must match an exact number and unit string inside <retrieved_evidence>`.
 2. **Citation Hallucination vs. Native UI Cards**:
    * *Tension*: LLMs have an overwhelming training bias to generate markdown links (e.g., `[UpToDate](Topic-123)`) or append "References:" at the end of responses. However, ClinRef's native Compose UI parses tool records from SQLite and renders interactive reference cards and section chips natively below the chat message. Manual markdown citations corrupt this UI and create dead links.
-   * *Current Mitigations*: Negative constraints in prompt: `DO NOT generate a "References", "Sources", "Citations", or bibliography section`.
-3. **PICO & SOAP Structure vs. Conciseness**:
-   * *Tension*: Point-of-care clinicians often need a 5-second answer (e.g., "What is the renal dose of apixaban for CrCl 25?"). Strict enforcement of PICO/SOAP can produce bloated essays if the prompt is not calibrated for point-of-care brevity.
-   * *Current Mitigations*: Directive to lead with a direct, actionable answer in the first 1-2 sentences, followed by 3 structured point-of-care bullets.
-4. **Tool Selection Cascade**:
+   * *Current Mitigations*: Negative constraints in prompt: `Write all topic and graphic names as plain text (never markdown links) and end your response immediately after the clinical content without any references or sources footer`.
+3. **Point-of-Care UX: BLUF & Category Format vs. Narrative Essays**:
+   * *Tension*: Point-of-care clinicians in emergency or acute outpatient settings require an actionable 5-second answer (e.g., "What is the renal dose of apixaban for CrCl 25?"). Traditional academic structures (like full PICO or SOAP write-ups) generate bloated, verbose narrative text unsuitable for rapid clinical bedside consultation.
+   * *Current Calibrations*: The prompt explicitly calibrates the response to:
+     1. **Bottom-Line Up Front (BLUF)**: 1–2 bolded sentences giving the immediate patient-tailored regimen.
+     2. **Three Mandatory Categorical Headers**:
+        - `**First-Line Regimen & Dosing**`
+        - `**Organ Function & Adjustments**`
+        - `**Contraindications & Critical Warnings**`
+4. **Tool Selection Cascade & Query Phrasing**:
    * *Tension*: Small models sometimes query `searchTopics` with full conversational patient sentences ("What should I give for a 65 year old with gout and CKD?") which yields 0 SQLite FTS results.
-   * *Current Mitigations*: Tool descriptions instruct models: `Avoid searching full patient sentences or lab measurements; search single medical term or core clinical concept`.
+   * *Current Mitigations*: Tool descriptions instruct models: `Never pass full sentences, patient ages, or lab values. Search 1-3 words max (e.g., 'metformin', 'atrial fibrillation')`.
 
 ---
 
@@ -315,6 +323,7 @@ I am providing you with the complete system prompt dossier and architectural spe
 - **Target Audience**: Practicing clinicians (physicians, pharmacists, residents) in acute and outpatient settings.
 - **Two-Phase Graph**:
   * Phase 1: Tool retrieval (`llm_with_tools`) -> Pre-Synthesis Evidence Gate.
+  * Phase-2 Synthesis Bypass: Conversational greetings without tool calls bypass Phase 2 entirely.
   * Phase 2: Isolated clinical synthesis (`llm_tool_free` with ZERO tools bound in its schema).
   * Gate 2: Deterministic post-synthesis validator verifying that every clinical quantity and dose matches the retrieved database section text exactly, and blocking documented patient contraindications/allergies.
 - **UI Mechanism**: The Compose Multiplatform UI automatically parses SQLite database tool calls and renders interactive reference cards, topic chips, and table sheets below the message. Manual bibliographies or markdown topic links generated by the model corrupt the UI.
@@ -330,9 +339,9 @@ Review the provided system prompt components, runtime feedback prompts, and tool
    - How can we more effectively instruct the model to suppress parametric medical memory and rely exclusively on retrieved section snippets without making the tone robotic or unhelpful?
    - How can we structure the Phase 2 Clinical Synthesis prompt so that the model quotes or closely aligns with the retrieved dosages and thresholds to pass deterministic quantity regex checks?
 
-3. **Point-of-Care UX & PICO/SOAP Calibration**:
-   - Does the current PICO/SOAP reasoning directive lead to overly academic, lengthy responses?
-   - How can we refine the point-of-care category output format to give physicians a 5-second actionable answer first, while maintaining clinical safety, organ function thresholds, and contraindications?
+3. **Point-of-Care UX & BLUF / Category Calibration**:
+   - Does the current BLUF + 3-header format provide optimal point-of-care utility for rapid bedside decisions?
+   - How can we calibrate the category output structure to ensure organ function cutoffs (eGFR/CrCl) and allergy cross-checks are highlighted without generating verbose essays?
 
 4. **Remediation & Self-Correction Optimization**:
    - Evaluate the 3 runtime feedback prompts (Missing sections, Contraindication violation, Unverified clinical quantities).
@@ -346,4 +355,3 @@ Review the provided system prompt components, runtime feedback prompts, and tool
      d) The **Tool Schema Descriptions** for the 6 database tools.
    - For each proposal, clearly explain the design rationale and behavioral improvements over the current implementation.
 ````
-

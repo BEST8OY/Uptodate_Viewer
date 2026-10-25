@@ -37,7 +37,7 @@ DEFAULT_HISTORY_COMPRESSION_THRESHOLD = 128000
 def collect_patient_profile() -> Optional[dict]:
     """Interactively collect an optional patient profile (parity with the Kotlin UI's PatientProfile editor).
 
-    Answers feed both the system prompt context and the deterministic Tier-1
+    Answers feed both the system prompt context and the deterministic Rule 4
     patient-bound safety checks (renal eGFR/CrCl + documented allergy cross-reactivity).
     """
     print("Patient profile (press Enter to skip a field — empty profile disables patient-bound checks):")

@@ -1614,7 +1614,7 @@ class TestReasoningTokenSanitizer:
 
 
 class TestPatientProfileSafetyBounds:
-    """Tier 1 programmatic patient profile bounds validation."""
+    """Rule 4 programmatic patient profile bounds validation."""
 
     def test_allergy_contraindication_blocks_amoxicillin_for_penicillin_allergy(self):
         profile = PatientProfile(allergies=["penicillin (anaphylaxis)"])
@@ -1878,14 +1878,14 @@ class TestPatientProfileSafetyBounds:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# System Prompt & Remediation Redesign (PICO, SOAP, Categories, Non-FTS)
+# System Prompt & Remediation Redesign (BLUF, Categories, Non-FTS)
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class TestSystemPromptArchitecture:
-    """Verifies PICO/SOAP directives, category output, and non-FTS remediation."""
+    """Verifies BLUF directive, category output, and non-FTS remediation."""
 
-    def test_system_prompt_pico_soap_category_output(self):
+    def test_system_prompt_bluf_category_output(self):
         context = extract_patient_context({
             "age": "65",
             "sex": "female",
@@ -1896,7 +1896,7 @@ class TestSystemPromptArchitecture:
         })
         prompt = build_system_prompt(patient_context=context)
 
-        # PICO & SOAP architecture
+        # BLUF & Category output architecture
         # Phase separation & closed-world grounding
         assert "PHASE SEPARATION & OPERATING MODES" in prompt
         assert "CLOSED-WORLD EVIDENCE & NUMERICAL FIDELITY" in prompt
