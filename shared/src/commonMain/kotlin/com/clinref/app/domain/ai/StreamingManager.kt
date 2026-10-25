@@ -1,6 +1,7 @@
 package com.clinref.app.domain.ai
 
 import com.clinref.app.data.GraphicContentResponse
+import com.clinref.app.data.RelatedTopicsResponse
 import com.clinref.app.data.SearchTopicSectionsResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
@@ -95,7 +96,9 @@ class StreamingManager {
     private val pendingTagBuffer = StringBuilder()
     private var inReasoningBlock = false
 
-    fun onToolCallStarting(toolName: String, args: String) {
+    private val knownTopicTitles = mutableMapOf<String, String>()
+
+    fun onToolCallStarting(toolName: String, args: String, callId: String = "") {
         stepCounter++
         activeToolCalls++
 
@@ -108,15 +111,10 @@ class StreamingManager {
         _reasoningText.value = ""
         _isReasoning.value = false
 
-        val stepId = "step_$stepCounter"
+        val stepId = callId.ifBlank { "step_$stepCounter" }
         val (title, detail) = getStepInfo(toolName, args)
 
-        // Complete any previously in-progress steps
-        _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
-            if (step.status == StepStatus.IN_PROGRESS) {
-                step.copy(status = StepStatus.COMPLETED)
-            } else step
-        } + OrchestrationStep(
+        _orchestrationSteps.value = _orchestrationSteps.value + OrchestrationStep(
             id = stepId,
             title = title,
             detail = detail,
@@ -137,7 +135,7 @@ class StreamingManager {
         _agentState.value = AgentState.ToolCallInProgress(toolName, args, stepCounter)
     }
 
-    fun onToolCallCompleted(toolName: String, resultText: String = "") {
+    fun onToolCallCompleted(toolName: String, resultText: String = "", callId: String = "") {
         activeToolCalls = (activeToolCalls - 1).coerceAtLeast(0)
 
         // Parse any discovered source titles or tables
@@ -145,7 +143,12 @@ class StreamingManager {
 
         // Mark the active step as completed
         _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
-            if (step.toolName == toolName && step.status == StepStatus.IN_PROGRESS) {
+            val matches = if (callId.isNotBlank()) {
+                step.id == callId
+            } else {
+                step.toolName == toolName && step.status == StepStatus.IN_PROGRESS
+            }
+            if (matches) {
                 val completionDetail = getCompletionDetail(toolName, resultText) ?: step.detail
                 step.copy(status = StepStatus.COMPLETED, detail = completionDetail)
             } else step
@@ -155,9 +158,44 @@ class StreamingManager {
         _toolProgress.value = ToolProgress(toolName, "Evaluating clinical evidence…")
     }
 
+    fun onSynthesisStarting() {
+        activeToolCalls = 0
+        // Complete any previously in-progress tool steps
+        _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
+            if (step.status == StepStatus.IN_PROGRESS) {
+                step.copy(status = StepStatus.COMPLETED)
+            } else step
+        }
+
+        val existingIndex = _orchestrationSteps.value.indexOfFirst { it.id == "step_synthesis" }
+        if (existingIndex >= 0) {
+            val updated = _orchestrationSteps.value.toMutableList()
+            updated[existingIndex] = updated[existingIndex].copy(
+                status = StepStatus.IN_PROGRESS,
+                detail = "Drafting evidence-grounded recommendations & BLUF"
+            )
+            _orchestrationSteps.value = updated
+        } else {
+            _orchestrationSteps.value = _orchestrationSteps.value + OrchestrationStep(
+                id = "step_synthesis",
+                title = "Synthesize Clinical Guidance",
+                detail = "Drafting evidence-grounded recommendations & BLUF",
+                status = StepStatus.IN_PROGRESS
+            )
+        }
+
+        _currentStatusText.value = "Synthesizing point-of-care guidance…"
+        _agentState.value = AgentState.WaitingForLlm(stepCounter)
+    }
+
     fun onWaitingForLlm() {
         if (activeToolCalls > 0) return
-        _currentStatusText.value = "Reasoning over clinical findings…"
+        val inSynthesis = _orchestrationSteps.value.any { it.id == "step_synthesis" && it.status == StepStatus.IN_PROGRESS }
+        if (inSynthesis) {
+            _currentStatusText.value = "Synthesizing point-of-care guidance…"
+        } else {
+            _currentStatusText.value = "Reasoning over clinical findings…"
+        }
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
     }
 
@@ -319,6 +357,7 @@ class StreamingManager {
         _toolProgress.value = null
         _orchestrationSteps.value = emptyList()
         _liveDiscoveredSources.value = emptyList()
+        knownTopicTitles.clear()
         _currentStatusText.value = "Initializing clinical core…"
         _agentState.value = AgentState.Idle
     }
@@ -333,24 +372,50 @@ class StreamingManager {
                     "Search Knowledge Base" to if (query.isNotBlank()) "Query: \"$query\"" else null
                 }
                 "searchTopicSections" -> {
+                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
+                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
                     val query = element?.get("query")?.jsonPrimitive?.content ?: ""
-                    "Search In-Topic Sections" to if (query.isNotBlank()) "Query: \"$query\"" else null
+                    val resolvedTitle = knownTopicTitles[topicId]
+                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
+                        "Searching \"$query\" in \"$resolvedTitle\""
+                    } else if (query.isNotBlank()) {
+                        "Query: \"$query\""
+                    } else null
+                    "Search In-Topic Sections" to detail
                 }
                 "getTopicOverview" -> {
                     val topicId = element?.get("topicId")?.jsonPrimitive?.content
                         ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
-                    "Examine Topic Overview" to if (topicId.isNotBlank()) "Topic ID: $topicId" else null
+                    val resolvedTitle = knownTopicTitles[topicId]
+                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
+                        "Overview: \"$resolvedTitle\""
+                    } else null
+                    "Examine Topic Overview" to detail
                 }
                 "getRelatedTopics" -> {
-                    "Expand Topic Pool" to "Retrieving related sub-topics"
+                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
+                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
+                    val resolvedTitle = knownTopicTitles[topicId]
+                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
+                        "Related topics for \"$resolvedTitle\""
+                    } else {
+                        "Retrieving related sub-topics"
+                    }
+                    "Expand Topic Pool" to detail
                 }
                 "getTopicSectionsText" -> {
-                    "Retrieve Clinical Evidence" to "Fetching evidence sections"
+                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
+                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
+                    val resolvedTitle = knownTopicTitles[topicId]
+                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
+                        "Fetching evidence from \"$resolvedTitle\""
+                    } else {
+                        "Fetching evidence sections"
+                    }
+                    "Retrieve Clinical Evidence" to detail
                 }
                 "getGraphicContent" -> {
-                    val graphicId = element?.get("graphicId")?.jsonPrimitive?.content
-                        ?: element?.get("graphic_id")?.jsonPrimitive?.content ?: ""
-                    "Load Reference Table" to if (graphicId.isNotBlank()) "Table ID: $graphicId" else null
+                    "Load Reference Table" to null
                 }
                 else -> toolName to null
             }
@@ -378,8 +443,10 @@ class StreamingManager {
                 "getTopicOverview" -> {
                     val res = json.decodeFromString<TopicOverviewResponse>(resultText)
                     val count = res.sections.size
-                    if (res.title.isNotBlank() && !AiJsonUtils.isNumericOnly(res.title)) {
-                        "Overview: \"${res.title}\" ($count sections)"
+                    val resolvedTitle = res.title.takeIf { it.isNotBlank() && !AiJsonUtils.isNumericOnly(it) }
+                        ?: knownTopicTitles[res.topicId]
+                    if (!resolvedTitle.isNullOrBlank()) {
+                        "Overview: \"$resolvedTitle\" ($count sections)"
                     } else {
                         "Topic overview loaded ($count sections)"
                     }
@@ -387,13 +454,20 @@ class StreamingManager {
                 "searchTopicSections" -> {
                     val res = json.decodeFromString<SearchTopicSectionsResponse>(resultText)
                     val count = res.matches.size
-                    if (count > 0) "$count matching sections found" else "No matching sections found"
+                    val resolvedTitle = knownTopicTitles[res.topicId]
+                    if (count > 0 && !resolvedTitle.isNullOrBlank()) {
+                        "$count matching sections in \"$resolvedTitle\""
+                    } else if (count > 0) {
+                        "$count matching sections found"
+                    } else "No matching sections found"
                 }
                 "getTopicSectionsText" -> {
                     val res = json.decodeFromString<TopicSectionsResponse>(resultText)
                     val count = res.sectionTitles.size
-                    if (res.topicTitle.isNotBlank() && !AiJsonUtils.isNumericOnly(res.topicTitle)) {
-                        "$count sections from \"${res.topicTitle}\""
+                    val resolvedTitle = res.topicTitle.takeIf { it.isNotBlank() && !AiJsonUtils.isNumericOnly(it) }
+                        ?: knownTopicTitles[res.topicId]
+                    if (!resolvedTitle.isNullOrBlank() && count > 0) {
+                        "$count sections from \"$resolvedTitle\""
                     } else if (count > 0) {
                         "$count sections retrieved"
                     } else null
@@ -414,17 +488,60 @@ class StreamingManager {
         try {
             val canonicalName = AiJsonUtils.normalizeToolName(toolName)
             when (canonicalName) {
+                "searchTopics" -> {
+                    val res = json.decodeFromString<SearchTopicsResponse>(resultText)
+                    for (item in res.results) {
+                        if (item.id.isNotBlank() && item.title.isNotBlank() && !AiJsonUtils.isNumericOnly(item.title)) {
+                            knownTopicTitles[item.id] = item.title
+                        }
+                    }
+                }
                 "getTopicOverview" -> {
                     val res = json.decodeFromString<TopicOverviewResponse>(resultText)
                     val topicId = res.topicId
                     val title = res.title
                     if (topicId.isNotBlank() && title.isNotBlank() && !AiJsonUtils.isNumericOnly(title)) {
+                        knownTopicTitles[topicId] = title
                         val current = _liveDiscoveredSources.value.toMutableList()
                         val existingIndex = current.indexOfFirst { it.topicId == topicId }
                         if (existingIndex >= 0) {
                             current[existingIndex] = current[existingIndex].copy(label = title, topicTitle = title)
                         } else {
                             current.add(SafetyValidator.TopicRef(topicId = topicId, label = title, topicTitle = title))
+                        }
+                        _liveDiscoveredSources.value = current
+                    }
+                }
+                "getRelatedTopics" -> {
+                    val res = json.decodeFromString<RelatedTopicsResponse>(resultText)
+                    for (item in res.relatedTopics) {
+                        if (item.id.isNotBlank() && item.title.isNotBlank() && !AiJsonUtils.isNumericOnly(item.title)) {
+                            knownTopicTitles[item.id] = item.title
+                        }
+                    }
+                }
+                "getTopicSectionsText" -> {
+                    val res = json.decodeFromString<TopicSectionsResponse>(resultText)
+                    val topicId = res.topicId
+                    val topicTitle = res.topicTitle
+                    if (topicId.isNotBlank() && topicTitle.isNotBlank() && !AiJsonUtils.isNumericOnly(topicTitle)) {
+                        knownTopicTitles[topicId] = topicTitle
+                    }
+                    if (res.sectionTitles.isNotEmpty() && topicTitle.isNotBlank()) {
+                        val current = _liveDiscoveredSources.value.toMutableList()
+                        for ((secId, secTitleVal) in res.sectionTitles) {
+                            val secTitle = AiJsonUtils.cleanSectionTitle(secTitleVal)
+                            val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
+                            if (secTitle.isNotBlank() && current.none { it.sectionId == cleanSecId && it.topicTitle == topicTitle }) {
+                                current.add(
+                                    SafetyValidator.TopicRef(
+                                        topicId = topicId,
+                                        sectionId = cleanSecId,
+                                        label = secTitle,
+                                        topicTitle = topicTitle
+                                    )
+                                )
+                            }
                         }
                         _liveDiscoveredSources.value = current
                     }
@@ -445,29 +562,6 @@ class StreamingManager {
                                         sectionId = cleanSecId,
                                         label = secTitle,
                                         topicTitle = ""
-                                    )
-                                )
-                            }
-                        }
-                        _liveDiscoveredSources.value = current
-                    }
-                }
-                "getTopicSectionsText" -> {
-                    val res = json.decodeFromString<TopicSectionsResponse>(resultText)
-                    val topicId = res.topicId
-                    val topicTitle = res.topicTitle
-                    if (res.sectionTitles.isNotEmpty() && topicTitle.isNotBlank()) {
-                        val current = _liveDiscoveredSources.value.toMutableList()
-                        for ((secId, secTitleVal) in res.sectionTitles) {
-                            val secTitle = AiJsonUtils.cleanSectionTitle(secTitleVal)
-                            val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
-                            if (secTitle.isNotBlank() && current.none { it.sectionId == cleanSecId && it.topicTitle == topicTitle }) {
-                                current.add(
-                                    SafetyValidator.TopicRef(
-                                        topicId = topicId,
-                                        sectionId = cleanSecId,
-                                        label = secTitle,
-                                        topicTitle = topicTitle
                                     )
                                 )
                             }

@@ -155,7 +155,8 @@ class KoogAgentFactory(
                 safetyValidator = safetyValidator,
                 accumulator = accumulator,
                 maxSafetyRetries = 2,
-                historyCompressionThreshold = config.historyCompressionThreshold
+                historyCompressionThreshold = config.historyCompressionThreshold,
+                onSynthesisStarting = { streamingManager.onSynthesisStarting() }
             ),
             toolRegistry = toolRegistry
         ) {
@@ -181,7 +182,7 @@ class KoogAgentFactory(
                     val argsStr = eventContext.toolArgs.toString()
                     Log.d(TAG, "Tool starting: ${eventContext.toolName} args=$argsStr")
                     accumulator.onToolCallStarting(callId, argsStr)
-                    streamingManager.onToolCallStarting(eventContext.toolName, argsStr)
+                    streamingManager.onToolCallStarting(eventContext.toolName, argsStr, callId)
                 }
 
                 onLLMStreamingFrameReceived { eventContext ->
@@ -213,7 +214,7 @@ class KoogAgentFactory(
                     val toolArgsStr = eventContext.toolArgs.toString()
                     Log.d(TAG, "Tool completed: ${eventContext.toolName} success=$success result=${resultText.take(200)}")
                     accumulator.onToolCallCompleted(callId, eventContext.toolName, resultText, success, toolArgsStr)
-                    streamingManager.onToolCallCompleted(eventContext.toolName, resultText)
+                    streamingManager.onToolCallCompleted(eventContext.toolName, resultText, callId)
                     streamingManager.onWaitingForLlm()
                 }
 

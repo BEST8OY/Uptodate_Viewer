@@ -126,13 +126,15 @@ object ClinicalAgentStrategy {
         safetyValidator: SafetyValidator = SafetyValidator(),
         accumulator: TurnContextAccumulator = TurnContextAccumulator(),
         maxSafetyRetries: Int = 2,
-        strategyName: String = STRATEGY_AUTONOMOUS
+        strategyName: String = STRATEGY_AUTONOMOUS,
+        onSynthesisStarting: (() -> Unit)? = null
     ): AIAgentGraphStrategy<String, String> = createAutonomous(
         tools = emptyList(),
         safetyValidator = safetyValidator,
         accumulator = accumulator,
         maxSafetyRetries = maxSafetyRetries,
-        strategyName = strategyName
+        strategyName = strategyName,
+        onSynthesisStarting = onSynthesisStarting
     )
 
     fun create(
@@ -141,14 +143,16 @@ object ClinicalAgentStrategy {
         accumulator: TurnContextAccumulator = TurnContextAccumulator(),
         maxSafetyRetries: Int = 2,
         strategyName: String = STRATEGY_AUTONOMOUS,
-        historyCompressionThreshold: Int = 128000
+        historyCompressionThreshold: Int = 128000,
+        onSynthesisStarting: (() -> Unit)? = null
     ): AIAgentGraphStrategy<String, String> = createAutonomous(
         tools = tools,
         safetyValidator = safetyValidator,
         accumulator = accumulator,
         maxSafetyRetries = maxSafetyRetries,
         strategyName = strategyName,
-        historyCompressionThreshold = historyCompressionThreshold
+        historyCompressionThreshold = historyCompressionThreshold,
+        onSynthesisStarting = onSynthesisStarting
     )
 
 
@@ -158,7 +162,8 @@ object ClinicalAgentStrategy {
         accumulator: TurnContextAccumulator = TurnContextAccumulator(),
         maxSafetyRetries: Int = 2,
         strategyName: String = STRATEGY_AUTONOMOUS,
-        historyCompressionThreshold: Int = 128000
+        historyCompressionThreshold: Int = 128000,
+        onSynthesisStarting: (() -> Unit)? = null
     ): AIAgentGraphStrategy<String, String> = strategy(strategyName) {
         var retryCount = 0
         var prematureInterceptions = 0
@@ -332,6 +337,7 @@ object ClinicalAgentStrategy {
             }
 
             val nodeFormatSynthesisPrompt by node<String, String>("format_synthesis") { pendingInput ->
+                onSynthesisStarting?.invoke()
                 val cleanInput = ReasoningTokenSanitizer.stripReasoning(pendingInput)
                 val turnContext = accumulator.buildTurnContext(cleanInput)
                 currentState = ClinicalState.ClinicalSynthesis(
