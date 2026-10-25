@@ -6,9 +6,12 @@ import ai.koog.agents.core.agent.config.AIAgentConfig
 import ai.koog.agents.core.tools.ToolRegistry
 import ai.koog.agents.chatMemory.feature.ChatMemory
 import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.agents.features.tokenizer.feature.MessageTokenizer
 import ai.koog.agents.features.tracing.feature.Tracing
 import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
 import ai.koog.prompt.dsl.prompt
+import ai.koog.prompt.tokenizer.SimpleRegexBasedTokenizer
+import ai.koog.prompt.executor.clients.anthropic.AnthropicCacheControl
 import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.shared.secure.SecurePreferences
@@ -82,12 +85,21 @@ class KoogAgentFactory(
             accumulator.setUserQuestion(userMessage)
         }
 
+        val isAnthropic = config.provider == AiProvider.ANTHROPIC
         val agentConfig = AIAgentConfig(
             prompt = prompt(
                 id = "chat",
                 params = providerParams
             ) {
-                system(SystemPrompt.build(patientProfile, config.provider))
+                // Static clinical directives eligible for provider-side KV prompt caching
+                val cache = if (isAnthropic) AnthropicCacheControl.Default else null
+                system(SystemPrompt.staticClinicalGuidance(config.provider), cache = cache)
+
+                // Dynamic patient profile context
+                val patientBlock = SystemPrompt.patientContextBlock(patientProfile)
+                if (patientBlock.isNotBlank()) {
+                    system(patientBlock)
+                }
             },
             model = model,
             // Node-level accounting: every strategy-node transfer consumes one
@@ -103,18 +115,29 @@ class KoogAgentFactory(
         val agent = AIAgent(
             promptExecutor = executor,
             agentConfig = agentConfig,
-            strategy = ClinicalAgentStrategy.createAutonomous(safetyValidator, accumulator),
+            strategy = ClinicalAgentStrategy.createAutonomous(
+                tools = medicalDatabaseTools.asToolList(),
+                safetyValidator = safetyValidator,
+                accumulator = accumulator,
+                maxSafetyRetries = 2,
+                historyCompressionThreshold = config.historyCompressionThreshold
+            ),
             toolRegistry = toolRegistry
         ) {
             install(ChatMemory) {
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
-                val windowSize = (config.historyCompressionThreshold / 500).coerceIn(5, 40)
+                val windowSize = (config.historyCompressionThreshold / 500).coerceIn(5, 300)
                 windowSize(windowSize)
             }
 
             install(Tracing.Feature) {
                 addMessageProcessor(AndroidTraceLogWriter(secureLogger = secureLogger))
+            }
+
+            install(MessageTokenizer.Feature) {
+                tokenizer = SimpleRegexBasedTokenizer()
+                enableCaching = true
             }
 
             handleEvents {
@@ -150,9 +173,7 @@ class KoogAgentFactory(
 
                 onToolCallCompleted { eventContext ->
                     val callId = eventContext.toolCallId ?: ""
-                    val resultText = (eventContext.toolResult as? ai.koog.serialization.JSONPrimitive)?.content
-                        ?: eventContext.toolResult?.toString()
-                        ?: ""
+                    val resultText = eventContext.toolResult?.toString() ?: ""
                     val success = eventContext.toolResult != null
                     val toolArgsStr = eventContext.toolArgs.toString()
                     Log.d(TAG, "Tool completed: ${eventContext.toolName} success=$success result=${resultText.take(200)}")

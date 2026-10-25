@@ -8,7 +8,6 @@ import ai.koog.utils.time.KoogClock
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,13 +26,13 @@ class ClinicalAgentStrategyTest {
         val strategy = ClinicalAgentStrategy.create()
         val nodeNames = strategy.metadata.nodesMap.values.map { it.name }.toSet()
 
-        assertTrue("Must contain nodeSendInput", nodeNames.any { it.contains("nodeSendInput") })
-        assertTrue("Must contain nodeExecuteTool", nodeNames.any { it.contains("nodeExecuteTool") })
-        assertTrue("Must contain nodeSendToolResult", nodeNames.any { it.contains("nodeSendToolResult") })
-        assertTrue("Must contain intercept_premature", nodeNames.contains("intercept_premature"))
+        assertTrue("Must contain evidence_gathering", nodeNames.contains("evidence_gathering"))
+        assertTrue("Must contain validate_evidence", nodeNames.contains("validate_evidence"))
+        assertTrue("Must contain compress_history", nodeNames.contains("compress_history"))
         assertTrue("Must contain clinical_synthesis", nodeNames.contains("clinical_synthesis"))
         assertTrue("Must contain validate_safety", nodeNames.contains("validate_safety"))
         assertTrue("Must contain build_remediation", nodeNames.contains("build_remediation"))
+        assertTrue("Must contain build_remediation_synthesis", nodeNames.contains("build_remediation_synthesis"))
         assertTrue("Must contain safety_block", nodeNames.contains("safety_block"))
     }
 
@@ -45,7 +44,7 @@ class ClinicalAgentStrategyTest {
 
         assertTrue("Strategy must have multiple directed edges", allEdges.isNotEmpty())
 
-        // Start node connects to LLM input
+        // Start node connects to evidence gathering
         assertTrue(
             "An edge must originate from startNode",
             strategy.nodeStart.edges.isNotEmpty()
@@ -55,78 +54,114 @@ class ClinicalAgentStrategyTest {
         val finishEdges = allEdges.filter { it.toNode == strategy.nodeFinish }
         assertTrue("At least one edge must target nodeFinish", finishEdges.isNotEmpty())
 
-        val sendInputNode = allNodes.first { it.name.contains("nodeSendInput") }
-        val remediateNode = allNodes.first { it.name == "build_remediation" }
-        val interceptNode = allNodes.first { it.name == "intercept_premature" }
+        val evidenceNode = allNodes.first { it.name == "evidence_gathering" }
+        val validateEvidenceNode = allNodes.first { it.name == "validate_evidence" }
+        val compressHistoryNode = allNodes.first { it.name == "compress_history" }
         val synthesisNode = allNodes.first { it.name == "clinical_synthesis" }
-        val validateNode = allNodes.first { it.name == "validate_safety" }
+        val validateSafetyNode = allNodes.first { it.name == "validate_safety" }
+        val remediateNode = allNodes.first { it.name == "build_remediation" }
+        val remediateSynthesisNode = allNodes.first { it.name == "build_remediation_synthesis" }
         val safetyBlockNode = allNodes.first { it.name == "safety_block" }
 
-        // Remediation must loop back to nodeSendInput
+        // Start connects to evidence gathering
         assertTrue(
-            "Remediation node must edge forwardTo nodeSendInput",
-            remediateNode.edges.any { it.toNode == sendInputNode }
+            "nodeStart must edge forwardTo evidence_gathering",
+            strategy.nodeStart.edges.any { it.toNode == evidenceNode }
         )
 
-        // Intercept premature node must loop back to nodeSendInput
+        // Evidence gathering forwards to validate_evidence
         assertTrue(
-            "intercept_premature node must edge forwardTo nodeSendInput",
-            interceptNode.edges.any { it.toNode == sendInputNode }
+            "evidence_gathering must edge forwardTo validate_evidence",
+            evidenceNode.edges.any { it.toNode == validateEvidenceNode }
         )
 
-        // Clinical synthesis node must edge forwardTo validate_safety
+        // Pre-synthesis validation connects to remediation, block, compression, and synthesis
         assertTrue(
-            "clinical_synthesis node must edge forwardTo validate_safety",
-            synthesisNode.edges.any { it.toNode == validateNode }
+            "validate_evidence must connect to build_remediation",
+            validateEvidenceNode.edges.any { it.toNode == remediateNode }
+        )
+        assertTrue(
+            "validate_evidence must connect to safety_block",
+            validateEvidenceNode.edges.any { it.toNode == safetyBlockNode }
+        )
+        assertTrue(
+            "validate_evidence must connect to compress_history",
+            validateEvidenceNode.edges.any { it.toNode == compressHistoryNode }
+        )
+        assertTrue(
+            "validate_evidence must connect to clinical_synthesis",
+            validateEvidenceNode.edges.any { it.toNode == synthesisNode }
         )
 
-        // Safety validation node must edge to finish, remediation, and safety_block
+        // History compression connects to clinical_synthesis
+        assertTrue(
+            "compress_history must edge forwardTo clinical_synthesis",
+            compressHistoryNode.edges.any { it.toNode == synthesisNode }
+        )
+
+        // Clinical synthesis forwards to validate_safety
+        assertTrue(
+            "clinical_synthesis must edge forwardTo validate_safety",
+            synthesisNode.edges.any { it.toNode == validateSafetyNode }
+        )
+
+        // Post-synthesis validation connects to finish, remediations, and safety_block
         assertTrue(
             "validate_safety must connect to nodeFinish",
-            validateNode.edges.any { it.toNode == strategy.nodeFinish }
+            validateSafetyNode.edges.any { it.toNode == strategy.nodeFinish }
         )
         assertTrue(
             "validate_safety must connect to build_remediation",
-            validateNode.edges.any { it.toNode == remediateNode }
+            validateSafetyNode.edges.any { it.toNode == remediateNode }
+        )
+        assertTrue(
+            "validate_safety must connect to build_remediation_synthesis",
+            validateSafetyNode.edges.any { it.toNode == remediateSynthesisNode }
         )
         assertTrue(
             "validate_safety must connect to safety_block",
-            validateNode.edges.any { it.toNode == safetyBlockNode }
+            validateSafetyNode.edges.any { it.toNode == safetyBlockNode }
         )
 
-        // LLM output routing connects to premature interception and synthesis
-        val sendToolResultNode = allNodes.first { it.name.contains("nodeSendToolResult") }
+        // Remediation loops
         assertTrue(
-            "nodeSendInput must connect to intercept_premature",
-            sendInputNode.edges.any { it.toNode == interceptNode }
+            "build_remediation must loop back to evidence_gathering",
+            remediateNode.edges.any { it.toNode == evidenceNode }
         )
         assertTrue(
-            "nodeSendInput must connect to clinical_synthesis",
-            sendInputNode.edges.any { it.toNode == synthesisNode }
+            "build_remediation_synthesis must loop back to clinical_synthesis",
+            remediateSynthesisNode.edges.any { it.toNode == synthesisNode }
         )
+
+        // Safety block connects to nodeFinish
         assertTrue(
-            "nodeSendToolResult must connect to intercept_premature",
-            sendToolResultNode.edges.any { it.toNode == interceptNode }
-        )
-        assertTrue(
-            "nodeSendToolResult must connect to clinical_synthesis",
-            sendToolResultNode.edges.any { it.toNode == synthesisNode }
+            "safety_block must edge forwardTo nodeFinish",
+            safetyBlockNode.edges.any { it.toNode == strategy.nodeFinish }
         )
     }
 
     @Test
     fun `phase 1 tool loop funnels through round boundary with forced safety exit`() {
         val strategy = ClinicalAgentStrategy.create()
-        val allNodes = strategy.metadata.nodesMap.values
-
         assertEquals("Tool round budget matches Python agent.max_tool_retries", 24, ClinicalAgentStrategy.MAX_TOOL_ROUNDS)
 
-        val boundaryNode = allNodes.firstOrNull { it.name == "tool_round_boundary" }
-        assertNotNull("Round boundary accounting node must exist", boundaryNode)
+        val evidenceSubgraph = strategy.metadata.nodesMap.values
+            .first { it.name == "evidence_gathering" } as ai.koog.agents.core.agent.entity.AIAgentSubgraphBase<*, *>
 
-        val executeNode = allNodes.first { it.name.contains("nodeExecuteTool") }
-        val sendToolResultNode = allNodes.first { it.name.contains("nodeSendToolResult") }
-        val validateNode = allNodes.first { it.name == "validate_safety" }
+        // Collect all reachable nodes within evidence_gathering subgraph
+        val subgraphNodes = mutableSetOf<ai.koog.agents.core.agent.entity.AIAgentNodeBase<*, *>>()
+        fun collect(node: ai.koog.agents.core.agent.entity.AIAgentNodeBase<*, *>) {
+            if (subgraphNodes.add(node)) {
+                node.edges.forEach { collect(it.toNode) }
+            }
+        }
+        collect(evidenceSubgraph.start)
+
+        val boundaryNode = subgraphNodes.firstOrNull { it.name == "tool_round_boundary" }
+        assertNotNull("Round boundary accounting node must exist in evidence_gathering", boundaryNode)
+
+        val executeNode = subgraphNodes.first { it.name.contains("nodeExecuteTool") }
+        val sendToolResultNode = subgraphNodes.first { it.name.contains("nodeSendToolResult") }
 
         // Every tool execution passes through the accounting boundary
         assertTrue(
@@ -140,10 +175,10 @@ class ClinicalAgentStrategyTest {
             boundaryNode!!.edges.any { it.toNode == sendToolResultNode }
         )
 
-        // When the budget is exhausted, the boundary bypasses the LLM and forces safety
+        // When the budget is exhausted, the boundary exits the subgraph to nodeFinish
         assertTrue(
-            "tool_round_boundary must force-exit into validate_safety at budget exhaustion",
-            boundaryNode.edges.any { it.toNode == validateNode }
+            "tool_round_boundary must exit to subgraph finish at budget exhaustion",
+            boundaryNode.edges.any { it.toNode == evidenceSubgraph.finish }
         )
     }
 
@@ -214,7 +249,8 @@ class ClinicalAgentStrategyTest {
             blockedReason = "Answer requires section or table content retrieval.",
             evidenceSummary = "No section text was successfully fetched in the prior turn."
         )
-        assertTrue(prompt.contains("REMEDIAL ACTION REQUIRED"))
+        assertTrue(prompt.contains("EVIDENCE GATE PAUSE"))
+        assertTrue(prompt.contains("MANDATORY NEXT STEP"))
         assertTrue(prompt.contains("getTopicSectionsText"))
     }
 
@@ -224,69 +260,11 @@ class ClinicalAgentStrategyTest {
             blockedReason = "Unverified clinical quantities found in response: 750 mg.",
             evidenceSummary = "Section [H1] (Dosing):\nCeftriaxone 1,000 mg IV daily."
         )
-        assertTrue(prompt.contains("REMEDIAL INSTRUCTIONS"))
-        assertTrue(prompt.contains("Correct or remove any unverified clinical quantities"))
+        assertTrue(prompt.contains("NUMERICAL VERIFICATION BLOCK"))
+        assertTrue(prompt.contains("rejected_quantities"))
+        assertTrue(prompt.contains("750 mg"))
     }
 
-    @Test
-    fun `context hygiene truncates only stale oversized search_topics results at the tool round boundary`() {
-        val oversized = "x".repeat(400)
-        val staleSearch = ToolResultPart(id = "call-1", tool = "search_topics", output = oversized)
-        val compactSearch = ToolResultPart(id = "call-2", tool = "search_topics", output = "tiny results")
-        val freshTable = ToolResultPart(id = "call-3", tool = "get_graphic_content", output = oversized)
-        val textPart = MessagePart.Text("plain text marker")
-
-        val history = Message.User(
-            parts = listOf(staleSearch, compactSearch, freshTable, textPart),
-            metaInfo = RequestMetaInfo(KoogClock.System.now()),
-            id = null
-        )
-
-        val compacted = ClinicalAgentStrategy.truncateStaleSearchResults(history) as Message.User
-
-        assertEquals(4, compacted.parts.size)
-        val truncated = compacted.parts[0] as ToolResultPart
-        // 250 kept chars + "... [truncated search results]" suffix
-        assertEquals(250 + "... [truncated search results]".length, truncated.output.length)
-        assertTrue(truncated.output.startsWith("x".repeat(250)))
-        // Truncation must not corrupt protocol-critical tool-result metadata
-        assertEquals("call-1", truncated.id)
-        assertEquals("search_topics", truncated.tool)
-        assertFalse(truncated.isError)
-        // Untouched instances are preserved verbatim (no accidental copies)
-        assertSame(compactSearch, compacted.parts[1])
-        assertSame(freshTable, compacted.parts[2])
-        assertSame(textPart, compacted.parts[3])
-    }
-
-    @Test
-    fun `context hygiene is a no-op for clean, small, or non-user messages`() {
-        val now = KoogClock.System.now()
-
-        // No oversized search part -> original instance returned untouched
-        val cleanUser = Message.User(
-            content = "clinical question",
-            metaInfo = RequestMetaInfo(now),
-            id = null
-        )
-        assertSame(cleanUser, ClinicalAgentStrategy.truncateStaleSearchResults(cleanUser))
-
-        // Oversized payload but wrong tool name -> no-op
-        val nonSearch = Message.User(
-            parts = listOf(ToolResultPart(id = "c", tool = "get_topic_sections_text", output = "y".repeat(500))),
-            metaInfo = RequestMetaInfo(now),
-            id = null
-        )
-        assertSame(nonSearch, ClinicalAgentStrategy.truncateStaleSearchResults(nonSearch))
-
-        // Assistant/System messages never carry compactable tool results
-        val assistant = Message.Assistant(
-            content = "assistant text",
-            metaInfo = ResponseMetaInfo(now),
-            id = null
-        )
-        assertSame(assistant, ClinicalAgentStrategy.truncateStaleSearchResults(assistant))
-    }
 
     @Test
     fun `premature interception condition logic respects tool calls and retrieved evidence`() {
@@ -540,8 +518,70 @@ class ClinicalAgentStrategyTest {
         )
         assertEquals("Section [S2] (Summary) from topic Topic A", withoutSnippet)
     }
+
+    @Test
+    fun `isNearTokenLimit detects accumulator approaching compression threshold`() {
+        val accumulator = TurnContextAccumulator()
+        // Threshold: 1000 tokens -> 85% is 850 tokens (~2,975 chars)
+
+        assertFalse(
+            "Empty accumulator must not be near token limit",
+            ClinicalAgentStrategy.isNearTokenLimit(accumulator, 1000)
+        )
+
+        accumulator.onToolCallCompleted(
+            toolCallId = "call-1",
+            toolName = "search_topics",
+            result = "Short search result",
+            success = true
+        )
+        assertFalse(
+            "Small tool call result must not trigger token limit",
+            ClinicalAgentStrategy.isNearTokenLimit(accumulator, 1000)
+        )
+
+        // 800 words * 1.1 = 880 tokens >= 850 tokens (85% of 1000)
+        accumulator.onToolCallCompleted(
+            toolCallId = "call-2",
+            toolName = "get_topic_sections_text",
+            result = "clinical evidence word ".repeat(267),
+            success = true
+        )
+        assertTrue(
+            "Accumulator with 800 words must trigger token limit for 1000 threshold",
+            ClinicalAgentStrategy.isNearTokenLimit(accumulator, 1000)
+        )
+    }
+
+    @Test
+    fun `estimatePromptTokens accurately weights text, tool results, and tool calls`() {
+        val now = KoogClock.System.now()
+        val text100Words = "word ".repeat(100)
+        val result200Words = "data ".repeat(200)
+        val args40Words = "arg ".repeat(40)
+
+        val userMsg = Message.User(
+            parts = listOf(
+                MessagePart.Text(text100Words),
+                MessagePart.Tool.Result(id = "r1", tool = "test", output = result200Words)
+            ),
+            metaInfo = RequestMetaInfo(now),
+            id = null
+        )
+
+        val assistantMsg = Message.Assistant(
+            parts = listOf(
+                MessagePart.Tool.Call(id = "c1", tool = "test", args = args40Words)
+            ),
+            metaInfo = ResponseMetaInfo(now),
+            id = null
+        )
+
+        val messages = listOf(userMsg, assistantMsg)
+        val estimatedTokens = ClinicalAgentStrategy.estimatePromptTokens(messages)
+
+        // userMsg: 300 words * 1.1 = 330 tokens; assistantMsg: 40 words * 1.1 = 44 tokens; Total = 374 tokens
+        assertEquals(374, estimatedTokens)
+    }
 }
 
-/** Shorthand import alias for the Koog tool-result part used by compaction tests. */
-private typealias Tool = ai.koog.prompt.message.MessagePart.Tool
-private typealias ToolResultPart = ai.koog.prompt.message.MessagePart.Tool.Result

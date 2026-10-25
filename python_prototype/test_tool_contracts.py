@@ -22,7 +22,6 @@ Tests:
    - Extra unexpected arguments (**kwargs)
 """
 
-import json
 from pathlib import Path
 import pytest
 
@@ -30,6 +29,16 @@ from database import ClinRefDatabase
 import tools
 
 DB_DIR = Path(__file__).parent.parent
+
+
+def to_model(cls, val):
+    if isinstance(val, cls):
+        return val
+    if isinstance(val, str):
+        return cls.model_validate_json(val)
+    if isinstance(val, dict):
+        return cls.model_validate(val)
+    return cls.model_validate(val)
 
 
 @pytest.fixture(scope="module")
@@ -80,17 +89,16 @@ class TestCamelCaseAndSnakeCaseAliases:
     ])
     def test_search_topics_parameter_aliases_invoke(self, payload):
         raw = tools.search_topics.invoke(payload)
-        data = json.loads(raw)
-        assert "results" in data, f"Missing 'results' in search_topics response: {data}"
-        assert len(data["results"]) > 0, f"Expected results for 'asthma' with payload {payload}"
-        assert data["query"] == "asthma"
+        data = to_model(tools.SearchTopicsResponse, raw)
+        assert len(data.results) > 0, f"Expected results for 'asthma' with payload {payload}"
+        assert data.query == "asthma"
 
     def test_search_topics_direct_func_call(self):
-        res1 = json.loads(tools.search_topics.func(search_query="gout"))
-        res2 = json.loads(tools.search_topics.func(queryText="gout"))
-        assert len(res1["results"]) > 0
-        assert len(res2["results"]) > 0
-        assert res1["results"][0]["id"] == res2["results"][0]["id"]
+        res1 = tools.search_topics.func(search_query="gout")
+        res2 = tools.search_topics.func(queryText="gout")
+        assert len(res1.results) > 0
+        assert len(res2.results) > 0
+        assert res1.results[0].id == res2.results[0].id
 
     # 2. get_topic_overview: topic_id and topicId (consolidated duplicates)
     @pytest.mark.parametrize("payload", [
@@ -100,11 +108,11 @@ class TestCamelCaseAndSnakeCaseAliases:
     ])
     def test_get_topic_overview_parameter_aliases_invoke(self, payload):
         raw = tools.get_topic_overview.invoke(payload)
-        data = json.loads(raw)
-        assert "error" not in data, f"Unexpected error in get_topic_overview: {data}"
-        assert data["topicId"] == "1"
-        assert len(data["sections"]) > 0
-        assert data["topicType"] == "article"
+        data = to_model(tools.TopicOverviewResponse, raw)
+        assert data.error is None, f"Unexpected error in get_topic_overview: {data}"
+        assert data.topicId == "1"
+        assert len(data.sections) > 0
+        assert data.topicType == "article"
 
     # 3. get_related_topics: topic_id and topicId
     @pytest.mark.parametrize("payload", [
@@ -114,10 +122,10 @@ class TestCamelCaseAndSnakeCaseAliases:
     ])
     def test_get_related_topics_parameter_aliases_invoke(self, payload):
         raw = tools.get_related_topics.invoke(payload)
-        data = json.loads(raw)
-        assert "error" not in data, f"Unexpected error in get_related_topics: {data}"
-        assert data["topicId"] == "1"
-        assert "relatedTopics" in data
+        data = to_model(tools.RelatedTopicsResponse, raw)
+        assert data.error is None, f"Unexpected error in get_related_topics: {data}"
+        assert data.topicId == "1"
+        assert hasattr(data, "relatedTopics")
 
     # 4. get_topic_sections_text: topic_id/topicId and section_ids/sectionIds
     @pytest.mark.parametrize("payload", [
@@ -130,11 +138,11 @@ class TestCamelCaseAndSnakeCaseAliases:
     ])
     def test_get_topic_sections_text_parameter_aliases_invoke(self, payload):
         raw = tools.get_topic_sections_text.invoke(payload)
-        data = json.loads(raw)
-        assert "error" not in data, f"Unexpected error in get_topic_sections_text: {data}"
-        assert data["topicId"] == "1"
-        assert "H1" in data["sectionTitles"]
-        assert len(data["markdown"]) > 0
+        data = to_model(tools.TopicSectionsResponse, raw)
+        assert data.error is None, f"Unexpected error in get_topic_sections_text: {data}"
+        assert data.topicId == "1"
+        assert "H1" in data.sectionTitles
+        assert len(data.markdown) > 0
 
     # 5. search_topic_sections: topic_id/topicId and query/queryText/search_query/searchQuery (+ q/keyword)
     @pytest.mark.parametrize("payload", [
@@ -148,11 +156,10 @@ class TestCamelCaseAndSnakeCaseAliases:
     ])
     def test_search_topic_sections_parameter_aliases_invoke(self, payload):
         raw = tools.search_topic_sections.invoke(payload)
-        data = json.loads(raw)
-        assert "error" not in data, f"Unexpected error in search_topic_sections: {data}"
-        assert data["topicId"] == "1"
-        assert "matches" in data
-        assert len(data["matches"]) > 0
+        data = to_model(tools.SearchTopicSectionsResponse, raw)
+        assert data.error is None, f"Unexpected error in search_topic_sections: {data}"
+        assert data.topicId == "1"
+        assert len(data.matches) > 0
 
     # 6. get_graphic_content: graphic_id and graphicId
     @pytest.mark.parametrize("payload", [
@@ -165,9 +172,10 @@ class TestCamelCaseAndSnakeCaseAliases:
     ])
     def test_get_graphic_content_parameter_aliases_invoke(self, payload):
         raw = tools.get_graphic_content.invoke(payload)
+        data = to_model(tools.GraphicContentResponse, raw)
         # 116392 is a table graphic in UpToDate
-        assert "### Graphic Table:" in raw
-        assert "error" not in raw.lower()
+        assert "### Graphic Table:" in (data.markdown or "")
+        assert data.error is None
 
     # Per-tool snake/camel alias equivalence through the raw LangChain function.
     # Replaces five near-identical per-tool `_direct_func_call` test bodies.
@@ -189,10 +197,10 @@ class TestCamelCaseAndSnakeCaseAliases:
     )
     def test_tool_alias_equivalence_direct_func_call(self, tool_name, snake_args, camel_args, keys):
         tool = getattr(tools, tool_name)
-        snake_res = json.loads(tool.func(**snake_args))
-        camel_res = json.loads(tool.func(**camel_args))
+        snake_res = tool.func(**snake_args)
+        camel_res = tool.func(**camel_args)
         for key in keys:
-            assert snake_res[key] == camel_res[key], \
+            assert getattr(snake_res, key) == getattr(camel_res, key), \
                 f"{tool_name}: snake_case {key} != camelCase {key}"
 
     def test_get_graphic_content_direct_func_call(self):
@@ -254,17 +262,17 @@ class TestSmartSectionResolutionCascades:
             "topicId": "1",
             "sectionIds": ["h1", "SUMMARY AND RECOMMENDATIONS", "- INTRODUCTION"]
         })
-        data = json.loads(raw_sections)
-        assert "error" not in data
-        assert len(data["sectionTitles"]) > 0
+        data = to_model(tools.TopicSectionsResponse, raw_sections)
+        assert data.error is None
+        assert len(data.sectionTitles) > 0
 
         # Test in get_topic_overview against topic 1
         raw_overview = tools.get_topic_overview.invoke({
             "topicId": "1"
         })
-        ov_data = json.loads(raw_overview)
-        assert "error" not in ov_data
-        assert len(ov_data["sections"]) > 0
+        ov_data = to_model(tools.TopicOverviewResponse, raw_overview)
+        assert ov_data.error is None
+        assert len(ov_data.sections) > 0
 
 
 class TestAdversarialEdgeCases:
@@ -277,14 +285,14 @@ class TestAdversarialEdgeCases:
             "extra_unexpected_key": "some_value",
             "another_param": 12345
         })
-        data = json.loads(raw)
-        assert len(data["results"]) > 0
+        data = to_model(tools.SearchTopicsResponse, raw)
+        assert len(data.results) > 0
 
         raw_overview = tools.get_topic_overview.invoke({
             "topicId": "1",
             "unknown_metadata": {"foo": "bar"}
         })
-        assert "error" not in json.loads(raw_overview)
+        assert to_model(tools.TopicOverviewResponse, raw_overview).error is None
 
     def test_none_values_handling(self):
         # When model passes null/None
@@ -292,12 +300,12 @@ class TestAdversarialEdgeCases:
             "topic_id": "1",
             "topicId": None,
         })
-        data = json.loads(raw)
-        assert "error" not in data
-        assert data["topicId"] == "1"
+        data = to_model(tools.TopicOverviewResponse, raw)
+        assert data.error is None
+        assert data.topicId == "1"
 
     def test_empty_string_topic_id(self):
         raw = tools.get_topic_overview.invoke({"topicId": ""})
-        data = json.loads(raw)
-        assert "error" in data
-        assert "Topic not found" in data["error"]
+        data = to_model(tools.TopicOverviewResponse, raw)
+        assert data.error is not None
+        assert "Topic not found" in data.error

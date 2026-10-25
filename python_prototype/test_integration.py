@@ -414,27 +414,24 @@ class TestRealDatabasePureSearchPipeline:
         import tools
         tools.init_tools(db)
 
-        res_json = tools.search_topics.invoke({"query": "atrial fibrillation"})
-        data = json.loads(res_json)
-        assert len(data["results"]) > 0, "Expected search results for 'atrial fibrillation'"
-        top_match = data["results"][0]
-        assert "id" in top_match and "title" in top_match
-        assert "outline" not in top_match, "search_topics should return candidate topics without embedded outline"
+        data = tools.search_topics.func(query="atrial fibrillation")
+        assert len(data.results) > 0, "Expected search results for 'atrial fibrillation'"
+        top_match = data.results[0]
+        assert top_match.id and top_match.title
+        assert not hasattr(top_match, "outline"), "search_topics should return candidate topics without embedded outline"
 
     @pytest.mark.parametrize("query", ["asthma", "gout", "apixaban", "pneumonia"])
     def test_search_topics_and_get_overview_pipeline(self, db, query):
         import tools
         tools.init_tools(db)
 
-        res_json = tools.search_topics.invoke({"query": query})
-        data = json.loads(res_json)
-        assert "results" in data
-        if data["results"]:
-            top_id = data["results"][0]["id"]
-            overview_json = tools.get_topic_overview.invoke({"topic_id": top_id})
-            overview_data = json.loads(overview_json)
-            assert "sections" in overview_data
-            assert "graphics" in overview_data
+        data = tools.search_topics.func(query=query)
+        assert hasattr(data, "results")
+        if data.results:
+            top_id = data.results[0].id
+            overview_data = tools.get_topic_overview.func(topic_id=top_id)
+            assert hasattr(overview_data, "sections")
+            assert hasattr(overview_data, "graphics")
 
 
 class TestDiverseHTMLHandling:
@@ -470,22 +467,18 @@ class TestCalculatorSupport:
     """Test calculator topic support and full-text fallback."""
 
     def test_search_topics_returns_calculator(self, db):
-        import json
         from tools import init_tools, search_topics
         init_tools(db)
-        res_str = search_topics.invoke({"query": "ascvd risk calculator"})
-        data = json.loads(res_str)
-        assert len(data["results"]) > 0
+        data = search_topics.func(query="ascvd risk calculator")
+        assert len(data.results) > 0
 
     def test_get_topic_sections_text_calculator_fallback(self, db):
-        import json
         from tools import init_tools, get_topic_sections_text
         init_tools(db)
-        res_str = get_topic_sections_text.invoke({"topic_id": "148929", "section_ids": ["FULL"]})
-        data = json.loads(res_str)
-        assert "topicTitle" in data
-        assert "=== Calculator:" in data["markdown"]
-        assert "Age" in data["markdown"] or "Inputs" in data["markdown"]
+        data = get_topic_sections_text.func(topic_id="148929", section_ids=["FULL"])
+        assert data.topicTitle
+        assert "=== Calculator:" in data.markdown
+        assert "Age" in data.markdown or "Inputs" in data.markdown
 
     def test_search_fts_multiword_query(self, db):
         """Verify that multi-word clinical queries find topics via non-FTS unidex.en.sqlite search."""
@@ -540,13 +533,11 @@ class TestCalculatorSupport:
 
     def test_get_topic_sections_text_empty_section_ids_defaults(self, db):
         """Calling get_topic_sections_text with empty section_ids returns default sections."""
-        import json
         from tools import init_tools, get_topic_sections_text
         init_tools(db)
-        res_str = get_topic_sections_text.invoke({"topic_id": "1", "section_ids": []})
-        data = json.loads(res_str)
-        assert len(data.get("markdown", "")) > 0
-        assert len(data.get("sectionTitles", {})) > 0
+        data = get_topic_sections_text.func(topic_id="1", section_ids=[])
+        assert len(data.markdown) > 0
+        assert len(data.sectionTitles) > 0
 
 
 class TestGetTopicOverviewIntegration:
@@ -557,55 +548,47 @@ class TestGetTopicOverviewIntegration:
         tools.init_tools(db)
 
         # Topic 1: Known medical narrative article
-        raw_res = tools.get_topic_overview.invoke({"topic_id": "1"})
-        data = json.loads(raw_res)
+        data = tools.get_topic_overview.func(topic_id="1")
 
-        assert "error" not in data
-        assert data["topicId"] == "1"
-        assert len(data["title"]) > 0
-        assert data["topicType"] == "article"
-        assert len(data["sections"]) >= 3
-        assert data["markdown"] == ""
+        assert data.error is None
+        assert data.topicId == "1"
+        assert len(data.title) > 0
+        assert data.topicType == "article"
+        assert len(data.sections) >= 3
+        assert data.markdown == ""
 
     def test_real_calculator_topic_overview(self, db):
         import tools
         tools.init_tools(db)
 
         # Topic 148929: AHA PREVENT Risk Calculator
-        raw_res = tools.get_topic_overview.invoke({"topic_id": "148929"})
-        data = json.loads(raw_res)
+        data = tools.get_topic_overview.func(topic_id="148929")
 
-        assert "error" not in data
-        assert data["topicId"] == "148929"
-        assert data["topicType"] == "calc"
-        assert len(data["sections"]) == 1
-        assert data["sections"][0]["id"] == "FULL"
-        assert "=== Calculator:" in data["markdown"]
+        assert data.error is None
+        assert data.topicId == "148929"
+        assert data.topicType == "calc"
+        assert len(data.sections) == 1
+        assert data.sections[0].id == "FULL"
+        assert "=== Calculator:" in data.markdown
 
     def test_overview_and_sections_retrieval_real_database(self, db):
         import tools
         tools.init_tools(db)
 
-        overview_res = json.loads(tools.get_topic_overview.invoke({
-            "topic_id": "1",
-        }))
-        assert len(overview_res["sections"]) >= 3
-        first_sid = overview_res["sections"][0]["id"]
+        overview_res = tools.get_topic_overview.func(topic_id="1")
+        assert len(overview_res.sections) >= 3
+        first_sid = overview_res.sections[0].id
 
         # Fetch section on demand
-        sec_res = json.loads(tools.get_topic_sections_text.invoke({
-            "topic_id": "1",
-            "section_ids": [first_sid],
-        }))
-        assert first_sid in sec_res["sectionTitles"]
-        assert f"=== Section: {first_sid} ===" in sec_res["markdown"]
+        sec_res = tools.get_topic_sections_text.func(topic_id="1", section_ids=[first_sid])
+        assert first_sid in sec_res.sectionTitles
+        assert f"=== Section: {first_sid} ===" in sec_res.markdown
 
     def test_nonexistent_topic_real_database(self, db):
         import tools
         tools.init_tools(db)
 
-        raw_res = tools.get_topic_overview.invoke({"topic_id": "99999999"})
-        data = json.loads(raw_res)
-        assert "error" in data
-        assert "Topic not found: 99999999" in data["error"]
+        data = tools.get_topic_overview.func(topic_id="99999999")
+        assert data.error is not None
+        assert "Topic not found: 99999999" in data.error
 

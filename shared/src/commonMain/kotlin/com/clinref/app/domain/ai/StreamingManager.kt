@@ -1,5 +1,10 @@
 package com.clinref.app.domain.ai
 
+import com.clinref.app.data.GraphicContentResponse
+import com.clinref.app.data.SearchTopicSectionsResponse
+import com.clinref.app.data.SearchTopicsResponse
+import com.clinref.app.data.TopicOverviewResponse
+import com.clinref.app.data.TopicSectionsResponse
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -321,7 +326,7 @@ class StreamingManager {
     private fun getStepInfo(toolName: String, args: String): Pair<String, String?> {
         return try {
             val canonicalName = AiJsonUtils.normalizeToolName(toolName)
-            val element = AiJsonUtils.parseAsJsonObject(args)
+            val element = json.parseToJsonElement(args) as? JsonObject
             when (canonicalName) {
                 "searchTopics" -> {
                     val query = element?.get("query")?.jsonPrimitive?.content ?: ""
@@ -358,53 +363,44 @@ class StreamingManager {
         if (resultText.isBlank()) return null
         return try {
             val canonicalName = AiJsonUtils.normalizeToolName(toolName)
-            val element = AiJsonUtils.parseAsJsonObject(resultText)
             when (canonicalName) {
                 "searchTopics" -> {
-                    if (element == null) return null
-                    val results = element["results"] as? kotlinx.serialization.json.JsonArray
-                    val count = results?.size ?: 0
+                    val res = json.decodeFromString<SearchTopicsResponse>(resultText)
+                    val count = res.results.size
                     if (count > 0) {
                         "$count candidate topics identified"
+                    } else if (res.message.startsWith("Auto-refined", ignoreCase = true)) {
+                        res.message
                     } else {
-                        val message = element["message"]?.jsonPrimitive?.contentOrNull
-                        if (!message.isNullOrBlank() && message.startsWith("Auto-refined", ignoreCase = true)) {
-                            message
-                        } else {
-                            "No topics found"
-                        }
+                        "No topics found"
                     }
                 }
                 "getTopicOverview" -> {
-                    val title = element?.get("title")?.jsonPrimitive?.content
-                        ?: element?.get("topic_title")?.jsonPrimitive?.content
-                    val count = (element?.get("sections") as? kotlinx.serialization.json.JsonArray)?.size
-                        ?: (element?.get("outline") as? kotlinx.serialization.json.JsonArray)?.size ?: 0
-                    if (!title.isNullOrBlank() && !AiJsonUtils.isNumericOnly(title)) {
-                        "Overview: \"$title\" ($count sections)"
+                    val res = json.decodeFromString<TopicOverviewResponse>(resultText)
+                    val count = res.sections.size
+                    if (res.title.isNotBlank() && !AiJsonUtils.isNumericOnly(res.title)) {
+                        "Overview: \"${res.title}\" ($count sections)"
                     } else {
                         "Topic overview loaded ($count sections)"
                     }
                 }
                 "searchTopicSections" -> {
-                    val matches = element?.get("matches") as? kotlinx.serialization.json.JsonArray
-                    val count = matches?.size ?: 0
+                    val res = json.decodeFromString<SearchTopicSectionsResponse>(resultText)
+                    val count = res.matches.size
                     if (count > 0) "$count matching sections found" else "No matching sections found"
                 }
                 "getTopicSectionsText" -> {
-                    val topicTitle = element?.get("topicTitle")?.jsonPrimitive?.content
-                    val sectionTitles = element?.get("sectionTitles") as? JsonObject
-                    val count = sectionTitles?.size ?: 0
-                    if (!topicTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(topicTitle)) {
-                        "$count sections from \"$topicTitle\""
+                    val res = json.decodeFromString<TopicSectionsResponse>(resultText)
+                    val count = res.sectionTitles.size
+                    if (res.topicTitle.isNotBlank() && !AiJsonUtils.isNumericOnly(res.topicTitle)) {
+                        "$count sections from \"${res.topicTitle}\""
                     } else if (count > 0) {
                         "$count sections retrieved"
                     } else null
                 }
                 "getGraphicContent" -> {
-                    val unquoted = AiJsonUtils.extractJsonString(resultText)
-                    val match = AiJsonUtils.GRAPHIC_TABLE_REGEX.find(unquoted)
-                    if (match != null) "Table: ${match.groupValues[1].trim()}" else "Table retrieved"
+                    val res = json.decodeFromString<GraphicContentResponse>(resultText)
+                    if (res.title.isNotBlank()) "Table: ${res.title}" else "Table retrieved"
                 }
                 else -> null
             }
@@ -417,13 +413,11 @@ class StreamingManager {
         if (resultText.isBlank()) return
         try {
             val canonicalName = AiJsonUtils.normalizeToolName(toolName)
-            val element = AiJsonUtils.parseAsJsonObject(resultText)
             when (canonicalName) {
                 "getTopicOverview" -> {
-                    if (element == null) return
-                    val topicId = element["topicId"]?.jsonPrimitive?.content
-                        ?: element["topic_id"]?.jsonPrimitive?.content ?: ""
-                    val title = element["title"]?.jsonPrimitive?.content ?: ""
+                    val res = json.decodeFromString<TopicOverviewResponse>(resultText)
+                    val topicId = res.topicId
+                    val title = res.title
                     if (topicId.isNotBlank() && title.isNotBlank() && !AiJsonUtils.isNumericOnly(title)) {
                         val current = _liveDiscoveredSources.value.toMutableList()
                         val existingIndex = current.indexOfFirst { it.topicId == topicId }
@@ -436,16 +430,13 @@ class StreamingManager {
                     }
                 }
                 "searchTopicSections" -> {
-                    if (element == null) return
-                    val topicId = element["topicId"]?.jsonPrimitive?.content
-                        ?: element["topic_id"]?.jsonPrimitive?.content ?: ""
-                    val matches = element["matches"] as? kotlinx.serialization.json.JsonArray
-                    if (matches != null && topicId.isNotBlank()) {
+                    val res = json.decodeFromString<SearchTopicSectionsResponse>(resultText)
+                    val topicId = res.topicId
+                    if (res.matches.isNotEmpty() && topicId.isNotBlank()) {
                         val current = _liveDiscoveredSources.value.toMutableList()
-                        for (item in matches) {
-                            val itemObj = item as? JsonObject ?: continue
-                            val secId = itemObj["sectionId"]?.jsonPrimitive?.content ?: continue
-                            val secTitle = AiJsonUtils.cleanSectionTitle(itemObj["sectionTitle"]?.jsonPrimitive?.content ?: "")
+                        for (item in res.matches) {
+                            val secId = item.sectionId
+                            val secTitle = AiJsonUtils.cleanSectionTitle(item.sectionTitle)
                             val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
                             if (secTitle.isNotBlank() && current.none { it.topicId == topicId && it.sectionId == cleanSecId }) {
                                 current.add(
@@ -462,15 +453,13 @@ class StreamingManager {
                     }
                 }
                 "getTopicSectionsText" -> {
-                    if (element == null) return
-                    val topicId = element["topicId"]?.jsonPrimitive?.content
-                        ?: element["topic_id"]?.jsonPrimitive?.content ?: ""
-                    val topicTitle = element["topicTitle"]?.jsonPrimitive?.content ?: ""
-                    val sectionTitles = element["sectionTitles"] as? JsonObject
-                    if (sectionTitles != null && topicTitle.isNotBlank()) {
+                    val res = json.decodeFromString<TopicSectionsResponse>(resultText)
+                    val topicId = res.topicId
+                    val topicTitle = res.topicTitle
+                    if (res.sectionTitles.isNotEmpty() && topicTitle.isNotBlank()) {
                         val current = _liveDiscoveredSources.value.toMutableList()
-                        for ((secId, secTitleObj) in sectionTitles) {
-                            val secTitle = AiJsonUtils.cleanSectionTitle(secTitleObj.jsonPrimitive.content)
+                        for ((secId, secTitleVal) in res.sectionTitles) {
+                            val secTitle = AiJsonUtils.cleanSectionTitle(secTitleVal)
                             val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
                             if (secTitle.isNotBlank() && current.none { it.sectionId == cleanSecId && it.topicTitle == topicTitle }) {
                                 current.add(
@@ -487,10 +476,9 @@ class StreamingManager {
                     }
                 }
                 "getGraphicContent" -> {
-                    val unquoted = AiJsonUtils.extractJsonString(resultText)
-                    val match = AiJsonUtils.GRAPHIC_TABLE_REGEX.find(unquoted)
-                    if (match != null) {
-                        val title = match.groupValues[1].trim()
+                    val res = json.decodeFromString<GraphicContentResponse>(resultText)
+                    val title = res.title.trim()
+                    if (title.isNotBlank()) {
                         val current = _liveDiscoveredSources.value.toMutableList()
                         if (current.none { it.label == title }) {
                             current.add(

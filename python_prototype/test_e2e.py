@@ -250,6 +250,7 @@ class TestRemediationLoopE2E:
                 "id": "call_1",
             }]
         )
+        resp_turn1b = AIMessage(content="Evidence retrieved.")
         # Turn 2: LLM produces invalid response with an invented statistic (99.4%)
         resp_turn2 = AIMessage(
             content="Evidence demonstrates a 99.4% efficacy rate across clinical trials."
@@ -259,7 +260,7 @@ class TestRemediationLoopE2E:
             content="Practice Changing Updates outline key clinical evidence and practice changes."
         )
 
-        mock_llm = ScriptedSequenceLLM([resp_turn1, resp_turn2, resp_turn3])
+        mock_llm = ScriptedSequenceLLM([resp_turn1, resp_turn1b, resp_turn2, resp_turn3])
         agent = create_clinical_agent(
             llm=mock_llm,
             tools=tool_list,
@@ -290,7 +291,9 @@ class TestRemediationLoopE2E:
         # 3. Intermediate messages include the SYSTEM NOTICE correction prompt
         messages = final_state["messages"]
         has_correction_msg = any(
-            isinstance(m, HumanMessage) and "SYSTEM NOTICE" in m.content and "clinical verification rules" in m.content
+            isinstance(m, HumanMessage)
+            and "SYSTEM NOTICE" in m.content
+            and ("clinical verification rules" in m.content or "NUMERICAL VERIFICATION BLOCK" in m.content)
             for m in messages
         )
         assert has_correction_msg is True
@@ -311,10 +314,11 @@ class TestRemediationLoopE2E:
                 "id": "call_1",
             }]
         )
+        resp_turn1b = AIMessage(content="Evidence retrieved.")
         resp_turn2 = AIMessage(content="Efficacy is 99.1%.")
         resp_turn3 = AIMessage(content="Still claiming 99.2% efficacy.")
 
-        mock_llm = ScriptedSequenceLLM([resp_turn1, resp_turn2, resp_turn3])
+        mock_llm = ScriptedSequenceLLM([resp_turn1, resp_turn1b, resp_turn2, resp_turn3])
         agent = create_clinical_agent(
             llm=mock_llm,
             tools=tool_list,
@@ -422,8 +426,8 @@ class TestM3GateRemediation:
 
     def test_singular_section_id_argument_yields_citations(self, db):
         """V6: LLM-issued singular `section_id` must be tracked into citations (was silently dropped)."""
-        outline = json.loads(tools.get_topic_overview.func(topic_id="3852"))
-        first_sid = next(s["id"] for s in outline["sections"] if s.get("id") and s["id"] != "FULL")
+        outline = tools.get_topic_overview.func(topic_id="3852")
+        first_sid = next(s.id for s in outline.sections if s.id and s.id != "FULL")
 
         resp_tool = AIMessage(
             content="",
@@ -470,12 +474,12 @@ class TestM3GateRemediation:
             content="",
             tool_calls=[{
                 "name": "get_topic_sections_text",
-                "args": {"topic_id": "3852", "section_ids": []},
+                "args": {"topic_id": "3852", "section_ids": ["H1"]},
                 "id": "call_sec_1",
             }],
         )
         resp_final = AIMessage(content="Prescribe amoxicillin for the pharyngitis.")
-        mock_llm = ScriptedSequenceLLM([resp_tool, resp_final])
+        mock_llm = ScriptedSequenceLLM([resp_tool, AIMessage(content="Evidence retrieved."), resp_final])
         agent = create_clinical_agent(
             llm=mock_llm,
             tools=[tools.get_topic_sections_text],
@@ -500,25 +504,25 @@ class TestM3GateRemediation:
 
     def test_graphic_id_prefix_variants_resolve(self, db):
         """V2: graphic_ / graphic_table_ prefixes (and Graphic- style) must normalize like Kotlin."""
-        ov = json.loads(tools.get_topic_overview.func(topic_id="3869"))
-        table_graphic_id = next(g["id"] for g in ov["graphics"] if g.get("isTable"))
+        ov = tools.get_topic_overview.func(topic_id="3869")
+        table_graphic_id = next(g.id for g in ov.graphics if g.isTable)
         for variant in (f"graphic_{table_graphic_id}", f"graphic_table_{table_graphic_id}",
                         f"Graphic-{table_graphic_id}", table_graphic_id, f"graphic-{table_graphic_id}"):
-            raw = tools.get_graphic_content.func(graphic_id=variant)
+            res = tools.get_graphic_content.func(graphic_id=variant)
+            raw = res.markdown if hasattr(res, "markdown") else str(res)
             assert raw.startswith("### Graphic Table:"), f"Variant '{variant}' failed: {raw[:120]}"
 
     def test_topic_overview_only_returns_table_graphics(self, db):
         """V4: The isTable/is_table key mismatch must not leak figures/algorithms into compound retrieval."""
-        ov = json.loads(tools.get_topic_overview.func(topic_id="3869"))
-        types = {g.get("type") for g in ov["graphics"]}
-        assert types <= {"graphic_table"}, f"Non-table graphics leaked into overview: {types}"
-        for g in ov["graphics"]:
-            assert g.get("isTable") is True, f"Missing isTable key on overview graphic {g.get('id')}"
+        ov = tools.get_topic_overview.func(topic_id="3869")
+        assert len(ov.graphics) > 0
+        for g in ov.graphics:
+            assert g.isTable is True, f"Missing isTable key on overview graphic {g.id}"
 
     def test_graphic_refs_follow_insertion_order_across_processes(self, db):
         """V5: GraphicRef ordering must be deterministic (set-iteration hash-seed bug was demonstrated)."""
-        ov = json.loads(tools.get_topic_overview.func(topic_id="3869"))
-        ids = [g["id"] for g in ov["graphics"] if g.get("isTable")]
+        ov = tools.get_topic_overview.func(topic_id="3869")
+        ids = [g.id for g in ov.graphics if g.isTable]
         assert len(ids) >= 2, "Fixture requires at least 2 table graphics"
         selected = ids[:3]
 
@@ -693,7 +697,10 @@ class TestPrematureInterceptionGraphE2E:
 
     def test_response_with_fetched_evidence_routes_to_validation_not_interception(self):
         """When fetched_sections has evidence, a direct text response routes to validation, never to interception."""
-        llm = ScriptedSequenceLLM([AIMessage(content="Based on retrieved guidelines, the dose is 5 mg twice daily.")])
+        llm = ScriptedSequenceLLM([
+            AIMessage(content="Retrieved evidence ready."),
+            AIMessage(content="Based on retrieved guidelines, the dose is 5 mg twice daily."),
+        ])
         agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test Prompt", max_premature_retries=2)
 
         tc = TurnContext()

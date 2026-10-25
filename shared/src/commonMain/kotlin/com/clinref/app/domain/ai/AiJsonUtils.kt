@@ -1,11 +1,10 @@
 package com.clinref.app.domain.ai
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Shared JSON unwrapping, regex compilation, and string sanitization utilities
+ * Shared JSON configuration and string sanitization utilities
  * for the AI domain layer (TurnContextAccumulator, StreamingManager).
  */
 object AiJsonUtils {
@@ -16,24 +15,13 @@ object AiJsonUtils {
         coerceInputValues = true
     }
 
-    val GRAPHIC_PREFIX_REGEX = Regex("(?i)^graphic-")
-    val GRAPHIC_TABLE_REGEX = Regex("""### Graphic Table:\s*(.+)""")
-    val WHITESPACE_REGEX = Regex("""\s+""")
-    private val DASH_PREFIX_CHARS = charArrayOf('-', '–', '—', ' ')
-    private val JSON_WRAPPER_REGEX = Regex("""^JSON(?:Literal|Primitive)\s*\((?:value|content)\s*=\s*(.*)\)$""", RegexOption.DOT_MATCHES_ALL)
-
     /**
      * Unwraps a string if it was serialized as an escaped JSON string primitive
-     * (e.g., "\"{\\\"key\\\":...}\"" from Koog string tool results) or wrapped in a class representation.
+     * (e.g., "\"{\\\"key\\\":...}\"" from Koog string tool results).
      */
     fun extractJsonString(raw: String): String {
         var trimmed = raw.trim()
         if (trimmed.isEmpty()) return ""
-
-        val wrapperMatch = JSON_WRAPPER_REGEX.find(trimmed)
-        if (wrapperMatch != null) {
-            trimmed = wrapperMatch.groupValues[1].trim()
-        }
 
         while (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length >= 2) {
             try {
@@ -55,34 +43,9 @@ object AiJsonUtils {
         return trimmed
     }
 
-    /**
-     * Parses a string into a [JsonObject], unboxing any layers of string primitive escaping.
-     */
-    fun parseAsJsonObject(raw: String): JsonObject? {
-        val cleaned = extractJsonString(raw)
-        if (cleaned.isEmpty()) return null
-        return try {
-            var element = json.parseToJsonElement(cleaned)
-            while (element is JsonPrimitive && element.isString) {
-                val inner = element.content.trim()
-                if (inner.startsWith("{")) {
-                    element = json.parseToJsonElement(inner)
-                } else break
-            }
-            element as? JsonObject
-        } catch (_: Exception) {
-            try {
-                val start = cleaned.indexOf('{')
-                val end = cleaned.lastIndexOf('}')
-                if (start >= 0 && end > start) {
-                    val substring = cleaned.substring(start, end + 1)
-                    json.parseToJsonElement(substring) as? JsonObject
-                } else null
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
+    val GRAPHIC_PREFIX_REGEX = Regex("(?i)^graphic-")
+    val GRAPHIC_TABLE_REGEX = Regex("""### Graphic Table:\s*(.+)""")
+    private val DASH_PREFIX_CHARS = charArrayOf('-', '–', '—', ' ')
 
     /**
      * Normalizes a graphic ID by stripping any leading 'graphic-' prefix.
@@ -130,8 +93,6 @@ object AiJsonUtils {
                 "section_id" -> "sectionId"
                 "section_ids" -> "sectionIds"
                 "graphic_id" -> "graphicId"
-                "answer_text" -> "answerText"
-                "no_data_found" -> "noDataFound"
                 "section_title" -> "sectionTitle"
                 else -> key
             }

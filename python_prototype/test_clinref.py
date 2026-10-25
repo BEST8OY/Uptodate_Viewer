@@ -689,33 +689,31 @@ class TestBatchSectionTitleParsing:
     """Tests for section title extraction from structured batch tool output."""
 
     def test_batch_tool_returns_json_with_titles(self):
-        """Verify batch tool returns JSON with topicTitle and sectionTitles."""
-        import json
-        result = json.dumps({
-            "topicTitle": "Atrial Fibrillation",
-            "sectionTitles": {"H1": "Dosing", "H2": "Monitoring"},
-            "markdown": "content"
-        })
-        data = json.loads(result)
-        assert data["topicTitle"] == "Atrial Fibrillation"
-        assert data["sectionTitles"]["H1"] == "Dosing"
-        assert data["sectionTitles"]["H2"] == "Monitoring"
+        """Verify batch tool returns TopicSectionsResponse with topicTitle and sectionTitles."""
+        from tools import TopicSectionsResponse
+        data = TopicSectionsResponse(
+            topicTitle="Atrial Fibrillation",
+            sectionTitles={"H1": "Dosing", "H2": "Monitoring"},
+            markdown="content",
+        )
+        assert data.topicTitle == "Atrial Fibrillation"
+        assert data.sectionTitles["H1"] == "Dosing"
+        assert data.sectionTitles["H2"] == "Monitoring"
 
     def test_agent_parses_batch_json_result(self):
-        """Verify agent extracts titles from batch JSON and stores them."""
-        import json
-        from safety_validator import TurnContext, FetchedSection
+        """Verify agent extracts titles from batch TopicSectionsResponse and stores them."""
+        from tools import TopicSectionsResponse
+        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
         tc = TurnContext()
-        # Simulate batch result parsing (as agent.py would)
-        batch_result = json.dumps({
-            "topicTitle": "Drug X",
-            "sectionTitles": {"H1": "Dosing", "H2": "Safety"},
-            "markdown": "content"
-        })
-        batch_data = json.loads(batch_result)
-        topic_id = "1"
-        tc.topic_titles[topic_id] = batch_data["topicTitle"]
-        tc.outline_sections[topic_id] = batch_data["sectionTitles"]
+        batch_data = TopicSectionsResponse(
+            topicId="1",
+            topicTitle="Drug X",
+            sectionTitles={"H1": "Dosing", "H2": "Safety"},
+            markdown="content",
+        )
+        topic_id = batch_data.topicId
+        tc.topic_titles[topic_id] = batch_data.topicTitle
+        tc.outline_sections[topic_id] = batch_data.sectionTitles
         # Simulate section tracking
         section_map = tc.outline_sections.get(topic_id, {})
         for sid in ["H1", "H2"]:
@@ -789,44 +787,40 @@ class TestSearchTopics:
 
     def test_empty_query(self):
         import tools
-        result = tools.search_topics.invoke({"query": ""})
-        data = json.loads(result)
-        assert "results" in data
-        assert data["results"] == []
+        result = tools.search_topics.func(query="")
+        assert hasattr(result, "results")
+        assert result.results == []
 
     def test_returns_results(self):
         import tools
         self.mock_db.search_topics.return_value = [{"id": "123", "title": "Aspirin"}]
         self.mock_db.get_suggestions.return_value = ["aspirin dose"]
-        result = tools.search_topics.invoke({"query": "aspirin"})
-        data = json.loads(result)
-        assert len(data["results"]) == 1
-        assert data["results"][0]["id"] == "123"
+        result = tools.search_topics.func(query="aspirin")
+        assert len(result.results) == 1
+        assert result.results[0].id == "123"
 
     def test_search_topics_returns_pure_candidate_results(self):
         import tools
         self.mock_db.search_topics.return_value = [{"id": "123", "title": "Aspirin"}]
         self.mock_db.get_suggestions.return_value = ["aspirin dose"]
-        result = tools.search_topics.invoke({"query": "aspirin"})
-        data = json.loads(result)
-        assert len(data["results"]) == 1
-        assert data["results"][0]["id"] == "123"
-        assert "outline" not in data["results"][0]
+        result = tools.search_topics.func(query="aspirin")
+        assert len(result.results) == 1
+        assert result.results[0].id == "123"
+        assert not hasattr(result.results[0], "outline")
 
     def test_no_results_returns_suggestions(self):
         import tools
         self.mock_db.search_topics.return_value = []
         self.mock_db.get_suggestions.return_value = ["aspirin", "ibuprofen"]
-        result = tools.search_topics.invoke({"query": "xyz"})
-        data = json.loads(result)
-        assert data["results"] == []
-        assert len(data["refine_with"]) == 2
+        result = tools.search_topics.func(query="xyz")
+        assert result.results == []
+        assert len(result.refine_with) == 2
 
     def test_strips_query(self):
         import tools
         self.mock_db.search_topics.return_value = []
         self.mock_db.get_suggestions.return_value = []
-        tools.search_topics.invoke({"query": "  aspirin  "})
+        tools.search_topics.func(query="  aspirin  ")
         self.mock_db.search_topics.assert_called_with("aspirin", limit=10)
 
 
@@ -841,32 +835,30 @@ class TestGetTopicSectionText:
     def test_topic_not_found(self):
         import tools
         self.mock_db.get_topic_body.return_value = None
-        result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "999", "section_ids": ["H1"]}
+        result = tools.get_topic_sections_text.func(
+            topic_id="999", section_ids=["H1"]
         )
-        assert "Topic not found" in result
+        assert "Topic not found" in (result.error or "")
 
     def test_section_not_found(self):
         import tools
         self.mock_db.get_topic_body.return_value = "<h2 id='H1'>Content</h2>"
         self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Intro</a>'
-        result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "123", "section_ids": ["H99"]}
+        result = tools.get_topic_sections_text.func(
+            topic_id="123", section_ids=["H99"]
         )
-        data = json.loads(result)
-        assert data.get("invalidSections") == ["H99"]
-        assert data.get("markdown") == ""
+        assert result.invalidSections == ["H99"]
+        assert result.markdown == ""
 
     def test_returns_markdown(self):
         import tools
         self.mock_db.get_topic_body.return_value = "<h2 id='H1'>Intro</h2><p>Dose is 5 mg.</p>"
         self.mock_db.get_topic_outline.return_value = '<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Intro</a>'
-        result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "123", "section_ids": ["H1"]}
+        result = tools.get_topic_sections_text.func(
+            topic_id="123", section_ids=["H1"]
         )
-        assert "5 mg" in result
-        data = json.loads(result)
-        assert data.get("topicId") == "123"
+        assert "5 mg" in result.markdown
+        assert result.topicId == "123"
 
     def test_no_token_cap_returns_sections_in_full(self):
         import tools
@@ -878,14 +870,13 @@ class TestGetTopicSectionText:
             '<a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Sec 2</a>'
         )
         # No token cap: sections come back whole.
-        result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "123", "section_ids": ["H1", "H2"]}
+        result = tools.get_topic_sections_text.func(
+            topic_id="123", section_ids=["H1", "H2"]
         )
-        data = json.loads(result)
-        assert "truncated" not in data
-        assert "omittedSections" not in data
-        assert set(data["sectionTitles"].keys()) == {"H1", "H2"}
-        md = data["markdown"]
+        assert result.truncated is None
+        assert not result.omittedSections
+        assert set(result.sectionTitles.keys()) == {"H1", "H2"}
+        md = result.markdown
         # converter rstrips trailing whitespace, so match the body run without the final space
         assert long_text_1.rstrip() in md
         assert long_text_2.rstrip() in md
@@ -900,15 +891,14 @@ class TestGetTopicSectionText:
             '<a href="appAction({&quot;section&quot;:&quot;H%d&quot;})">Sec %d</a>' % (i, i)
             for i in range(1, 12)
         )
-        result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "123", "section_ids": [f"H{i}" for i in range(1, 12)]}
+        result = tools.get_topic_sections_text.func(
+            topic_id="123", section_ids=[f"H{i}" for i in range(1, 12)]
         )
-        data = json.loads(result)
         # Count guard: at most 10 sections per call; the 11th is reported, never silently dropped
-        assert set(data["sectionTitles"].keys()) == {f"H{i}" for i in range(1, 11)}
-        assert data["omittedSections"] == ["H11"]
-        assert "truncated" not in data
-        assert "=== Section: H11 ===" not in data["markdown"]
+        assert set(result.sectionTitles.keys()) == {f"H{i}" for i in range(1, 11)}
+        assert result.omittedSections == ["H11"]
+        assert result.truncated is None
+        assert "=== Section: H11 ===" not in result.markdown
 
     def test_calculator_returns_full_text_without_cap(self):
         import tools
@@ -920,14 +910,13 @@ class TestGetTopicSectionText:
             "bodyHtml": "<p>" + ("Calculations " * 300) + "</p>",
             "outlineHtml": ""
         }
-        result = tools.get_topic_sections_text.invoke(
-            {"topic_id": "148929", "section_ids": ["FULL"]}
+        result = tools.get_topic_sections_text.func(
+            topic_id="148929", section_ids=["FULL"]
         )
-        data = json.loads(result)
         # No token cap: the whole calculator body is returned
-        assert "truncated" not in data
-        assert "[Content truncated due to token limit]" not in data["markdown"]
-        assert data["markdown"].count("Calculations") == 300
+        assert result.truncated is None
+        assert "[Content truncated due to token limit]" not in result.markdown
+        assert result.markdown.count("Calculations") == 300
 
 
 class TestGetGraphicContent:
@@ -941,24 +930,21 @@ class TestGetGraphicContent:
     def test_graphic_not_found(self):
         import tools
         self.mock_db.get_graphic_asset.return_value = None
-        result = tools.get_graphic_content.invoke({"graphic_id": "999"})
-        data = json.loads(result)
-        assert "error" in data
+        result = tools.get_graphic_content.func(graphic_id="999")
+        assert result.error is not None
 
     def test_non_table_type_blocked(self):
         import tools
         self.mock_db.get_graphic_asset.return_value = {"graphicInfo": {"subtype": "graphic_figure", "title": "Fig 1"}}
-        result = tools.get_graphic_content.invoke({"graphic_id": "123"})
-        data = json.loads(result)
-        assert "error" in data
-        assert "not a table" in data["error"]
+        result = tools.get_graphic_content.func(graphic_id="123")
+        assert result.error is not None
+        assert "not a table" in result.error
 
     def test_empty_content_blocked(self):
         import tools
         self.mock_db.get_graphic_asset.return_value = {"graphicInfo": {"subtype": "graphic_table", "title": "T"}, "imageHtml": ""}
-        result = tools.get_graphic_content.invoke({"graphic_id": "123"})
-        data = json.loads(result)
-        assert "error" in data
+        result = tools.get_graphic_content.func(graphic_id="123")
+        assert result.error is not None
 
     def test_table_content_returns_markdown(self):
         import tools
@@ -966,9 +952,9 @@ class TestGetGraphicContent:
             "graphicInfo": {"subtype": "graphic_table", "title": "Dosing Table"},
             "imageHtml": "<table><tr><th>Dose</th><th>Rate</th></tr><tr><td>5mg</td><td>2x/day</td></tr></table>",
         }
-        result = tools.get_graphic_content.invoke({"graphic_id": "123"})
-        assert "Dosing Table" in result
-        assert "| Dose | Rate |" in result
+        result = tools.get_graphic_content.func(graphic_id="123")
+        assert "Dosing Table" in result.title
+        assert "| Dose | Rate |" in result.markdown
 
     def test_strips_graphic_prefix(self):
         import tools
@@ -1006,6 +992,14 @@ class TestAgentGraph:
             system_prompt="You are a clinical assistant.",
         )
         assert graph is not None
+        assert "node_evidence_gathering" in graph.nodes
+        assert "node_clinical_synthesis" in graph.nodes
+        assert "execute_tools" in graph.nodes
+        assert "intercept_premature" in graph.nodes
+        assert "validate_evidence" in graph.nodes
+        assert "node_compress_history" in graph.nodes
+        assert "validate_safety" in graph.nodes
+        assert "safety_block" in graph.nodes
 
     def test_create_initial_state(self):
         from agent import create_initial_state
@@ -1024,13 +1018,15 @@ class TestAgentGraph:
             """Dummy."""
             return "ok"
 
-        # Just verify it doesn't crash with default params
+        # Just verify it doesn't crash with default params and creates subgraphs
         graph = create_clinical_agent(
             llm=MagicMock(),
             tools=[dummy_tool],
             system_prompt="test",
         )
         assert graph is not None
+        assert "node_evidence_gathering" in graph.nodes
+        assert "node_clinical_synthesis" in graph.nodes
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1123,7 +1119,7 @@ class TestAutoPopulateRefs:
     def test_skips_sections_with_empty_title(self):
         """Sections whose section_title is empty should be excluded from topic_refs."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
+        from safety_validator import TurnContext, FetchedSection, ToolCallRecord, ToolCallRecord
 
         ctx = TurnContext(
             fetched_sections=[
@@ -1155,7 +1151,7 @@ class TestAutoPopulateRefs:
     def test_strips_leading_dashes_from_section_title(self):
         """Sections with leading dashes should be stripped to clean labels."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext, FetchedSection
+        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
 
         ctx = TurnContext(
             fetched_sections=[
@@ -1181,7 +1177,7 @@ class TestAutoPopulateRefs:
     def test_resolves_section_title_from_outline_sections(self):
         """If fetched_section.section_title is empty, fallback to outline_sections."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext, FetchedSection
+        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
 
         ctx = TurnContext(
             fetched_sections=[
@@ -1252,14 +1248,12 @@ class TestSchemaParityAndSafetyBlock:
         mock_db.get_topic_title.return_value = "Test Topic"
         tools.init_tools(mock_db)
 
-        overview_str = tools.get_topic_overview.invoke({"topic_id": "123"})
-        data = json.loads(overview_str)
-        assert "topicType" in data
-        assert data["topicType"] == "article"
-        assert "relatedTopics" in data
-        assert "graphics" in data
-        if data["graphics"]:
-            assert data["graphics"][0].get("isTable") is True
+        data = tools.get_topic_overview.func(topic_id="123")
+        assert data.topicType == "article"
+        assert hasattr(data, "relatedTopics")
+        assert hasattr(data, "graphics")
+        if data.graphics:
+            assert data.graphics[0].isTable is True
 
     def test_get_related_topics_includes_canonical_camel_case_keys(self):
         import tools
@@ -1268,10 +1262,9 @@ class TestSchemaParityAndSafetyBlock:
         mock_db.get_topic_outline.return_value = "<p>Test</p>"
         tools.init_tools(mock_db)
 
-        related_str = tools.get_related_topics.invoke({"topic_id": "123"})
-        data = json.loads(related_str)
-        assert "relatedTopics" in data
-        assert "related_topics" in data
+        data = tools.get_related_topics.func(topic_id="123")
+        assert hasattr(data, "relatedTopics")
+        assert hasattr(data, "topicId")
 
     def test_validate_safety_emits_blocked_ai_message_when_retries_exhausted(self):
         from langchain_core.messages import AIMessage, HumanMessage
@@ -1352,7 +1345,7 @@ class TestSchemaParityAndSafetyBlock:
 
     def test_direct_text_answer_auto_populates_refs(self):
         from agent import create_clinical_agent
-        from safety_validator import TurnContext, FetchedSection
+        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
         from langchain_core.messages import AIMessage, HumanMessage
 
         class DirectTextLLM:
@@ -1364,6 +1357,14 @@ class TestSchemaParityAndSafetyBlock:
         llm = DirectTextLLM()
         agent = create_clinical_agent(llm=llm, tools=[], system_prompt="Test")
         tc = TurnContext()
+        tc.tool_calls.append(
+            ToolCallRecord(
+                tool_name="get_topic_sections_text",
+                arguments={"topic_id": "123", "section_ids": ["sec1"]},
+                result="Normal saline is indicated.",
+                success=True,
+            )
+        )
         tc.fetched_sections.append(
             FetchedSection(
                 topic_id="123",
@@ -1407,10 +1408,9 @@ class TestGetTopicOverview:
         self.mock_db.get_topic_body.return_value = None
         self.mock_db.get_topic_asset.return_value = None
 
-        result = tools.get_topic_overview.invoke({"topic_id": "999"})
-        data = json.loads(result)
-        assert "error" in data
-        assert "Topic not found: 999" in data["error"]
+        result = tools.get_topic_overview.func(topic_id="999")
+        assert result.error is not None
+        assert "Topic not found: 999" in result.error
 
     def test_bundles_outline_and_graphics(self):
         import tools
@@ -1430,17 +1430,15 @@ class TestGetTopicOverview:
         self.mock_db.get_topic_title.return_value = "Apixaban Therapy"
         self.mock_db.get_topic_asset.return_value = {"bodyHtml": "...", "outlineHtml": "..."}
 
-        result = tools.get_topic_overview.invoke({"topic_id": "123"})
-        data = json.loads(result)
+        result = tools.get_topic_overview.func(topic_id="123")
 
         # Schema & Invariants
-        assert data["topicId"] == "123"
-        assert data["topic_id"] == "123"
-        assert data["title"] == "Apixaban Therapy"
-        assert data["topicType"] == "article"
-        assert len(data["sections"]) == 3
-        assert len(data["graphics"]) == 1
-        assert data["markdown"] == ""
+        assert result.topicId == "123"
+        assert result.title == "Apixaban Therapy"
+        assert result.topicType == "article"
+        assert len(result.sections) == 3
+        assert len(result.graphics) == 1
+        assert result.markdown == ""
 
     def test_calculator_topic_handling(self):
         import tools
@@ -1453,14 +1451,13 @@ class TestGetTopicOverview:
             "outlineHtml": ""
         }
 
-        result = tools.get_topic_overview.invoke({"topic_id": "148929"})
-        data = json.loads(result)
+        result = tools.get_topic_overview.func(topic_id="148929")
 
-        assert data["topicType"] == "calc"
-        assert len(data["sections"]) == 1
-        assert data["sections"][0]["id"] == "FULL"
-        assert "=== Calculator: eGFR Calculator ===" in data["markdown"]
-        assert "GFR = 141" in data["markdown"]
+        assert result.topicType == "calc"
+        assert len(result.sections) == 1
+        assert result.sections[0].id == "FULL"
+        assert "=== Calculator: eGFR Calculator ===" in result.markdown
+        assert "GFR = 141" in result.markdown
 
     def test_smart_section_resolution_fallback(self):
         import tools
@@ -1477,22 +1474,22 @@ class TestGetTopicOverview:
         self.mock_db.get_topic_asset.return_value = {"bodyHtml": "...", "outlineHtml": "..."}
 
         # Case-insensitive section ID
-        res1 = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "123", "section_ids": ["h2"]}))
-        assert "H2" in res1["sectionTitles"]
-        assert "=== Section: H2 ===" in res1["markdown"]
+        res1 = tools.get_topic_sections_text.func(topic_id="123", section_ids=["h2"])
+        assert "H2" in res1.sectionTitles
+        assert "=== Section: H2 ===" in res1.markdown
 
         # Title match with stripped dash
-        res2 = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "123", "section_ids": ["Renal Impairment"]}))
-        assert "H2" in res2["sectionTitles"]
-        assert "=== Section: H2 ===" in res2["markdown"]
+        res2 = tools.get_topic_sections_text.func(topic_id="123", section_ids=["Renal Impairment"])
+        assert "H2" in res2.sectionTitles
+        assert "=== Section: H2 ===" in res2.markdown
 
         # Error envelope on nonexistent topic
         self.mock_db.get_topic_body.return_value = None
         self.mock_db.get_topic_outline.return_value = None
         self.mock_db.get_topic_asset.return_value = None
-        res3 = json.loads(tools.get_topic_sections_text.invoke({"topic_id": "999", "section_ids": ["H1"]}))
-        assert "error" in res3
-        assert "Topic not found: 999" in res3["error"]
+        res3 = tools.get_topic_sections_text.func(topic_id="999", section_ids=["H1"])
+        assert res3.error is not None
+        assert "Topic not found: 999" in res3.error
 
 
 class TestReasoningTokenSanitizer:
@@ -1900,12 +1897,10 @@ class TestSystemPromptArchitecture:
         prompt = build_system_prompt(patient_context=context)
 
         # PICO & SOAP architecture
-        assert "PICO" in prompt
-        assert "SOAP" in prompt
-        assert "Patient/Problem" in prompt
-        assert "Intervention" in prompt
-        assert "Comparison" in prompt
-        assert "Outcome" in prompt
+        # Phase separation & closed-world grounding
+        assert "PHASE SEPARATION & OPERATING MODES" in prompt
+        assert "CLOSED-WORLD EVIDENCE & NUMERICAL FIDELITY" in prompt
+        assert "BOTTOM-LINE UP FRONT (BLUF)" in prompt
 
         # Category outputs
         assert "First-Line Regimen & Dosing" in prompt
@@ -1942,7 +1937,8 @@ class TestSystemPromptArchitecture:
         )
         assert "search_topic_sections" not in prompt
         assert "searchTopicSections" not in prompt
-        assert "get_topic_overview" in prompt
+        assert "EVIDENCE GATE PAUSE" in prompt
+        assert "MANDATORY NEXT STEP" in prompt
         assert "get_topic_sections_text" in prompt
 
     def test_build_correction_prompt_non_fts_contraindication(self):
@@ -1952,10 +1948,11 @@ class TestSystemPromptArchitecture:
         )
         assert "search_topic_sections" not in prompt
         assert "searchTopicSections" not in prompt
-        assert "REMEDIAL INSTRUCTIONS" in prompt
-        assert "violated a documented patient safety constraint" in prompt
-        assert "get_topic_overview" in prompt
-        assert "get_topic_sections_text" in prompt
+        assert "PATIENT SAFETY BLOCK" in prompt
+        assert "CRITICAL LEXICAL RULE" in prompt
+        assert "MANDATORY SELF-CORRECTION INSTRUCTIONS" in prompt
+        assert "get_topic_overview(" not in prompt
+        assert "get_topic_sections_text(" not in prompt
 
     def test_build_correction_prompt_non_fts_unverified_quantities(self):
         prompt = build_correction_prompt(
@@ -1964,5 +1961,8 @@ class TestSystemPromptArchitecture:
         )
         assert "search_topic_sections" not in prompt
         assert "searchTopicSections" not in prompt
-        assert "get_topic_overview" in prompt
-        assert "get_topic_sections_text" in prompt
+        assert "NUMERICAL VERIFICATION BLOCK" in prompt
+        assert "rejected_quantities" in prompt
+        assert "750 mg" in prompt
+        assert "get_topic_overview(" not in prompt
+        assert "get_topic_sections_text(" not in prompt

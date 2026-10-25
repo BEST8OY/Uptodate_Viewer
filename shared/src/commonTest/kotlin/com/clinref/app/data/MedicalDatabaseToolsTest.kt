@@ -16,9 +16,6 @@ import com.clinref.app.data.tools.GetTopicOverviewTool
 import com.clinref.app.data.tools.GetTopicSectionsTextTool
 import com.clinref.app.data.tools.SearchTopicsTool
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -50,9 +47,8 @@ class MedicalDatabaseToolsTest {
 
     @Test
     fun `searchTopics empty query returns empty results`() {
-        val resultJson = tools.searchTopics("")
-        val obj = json.parseToJsonElement(resultJson).jsonObject
-        assertTrue(obj["results"]!!.jsonArray.isEmpty())
+        val res = tools.searchTopics("")
+        assertTrue(res.results.isEmpty())
     }
 
     @Test
@@ -62,15 +58,13 @@ class MedicalDatabaseToolsTest {
         )
         every { searchRepository.getSuggestions("aspirin") } returns listOf("aspirin dose")
 
-        val resultJson = tools.searchTopics("aspirin")
-        val obj = json.parseToJsonElement(resultJson).jsonObject
-        val results = obj["results"]!!.jsonArray
+        val res = tools.searchTopics("aspirin")
+        val results = res.results
         assertEquals(1, results.size)
 
-        val topMatch = results[0].jsonObject
-        assertEquals("123", topMatch["id"]!!.jsonPrimitive.content)
-        assertEquals("Aspirin Overview", topMatch["title"]!!.jsonPrimitive.content)
-        assertFalse(topMatch.containsKey("outline"))
+        val topMatch = results[0]
+        assertEquals("123", topMatch.id)
+        assertEquals("Aspirin Overview", topMatch.title)
     }
 
     @Test
@@ -81,11 +75,10 @@ class MedicalDatabaseToolsTest {
             SearchResult.Topic("Aspirin", "123")
         )
 
-        val resultJson = tools.searchTopics("asprn")
-        val obj = json.parseToJsonElement(resultJson).jsonObject
-        assertEquals("aspirin", obj["query"]!!.jsonPrimitive.content)
-        assertTrue(obj["message"]!!.jsonPrimitive.content.contains("Auto-refined"))
-        assertEquals(1, obj["results"]!!.jsonArray.size)
+        val res = tools.searchTopics("asprn")
+        assertEquals("aspirin", res.query)
+        assertTrue(res.message.contains("Auto-refined"))
+        assertEquals(1, res.results.size)
     }
 
     @Test
@@ -99,17 +92,16 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
         every { contentRepository.getTopicTitle("100") } returns "Topic 100"
 
-        val outlineJson = tools.getTopicOverview("100")
-        val obj = json.parseToJsonElement(outlineJson).jsonObject
+        val res = tools.getTopicOverview("100")
 
-        assertEquals("Topic 100", obj["title"]!!.jsonPrimitive.content)
-        assertEquals("article", obj["topicType"]!!.jsonPrimitive.content)
-        assertEquals(1, obj["sections"]!!.jsonArray.size)
+        assertEquals("Topic 100", res.title)
+        assertEquals("article", res.topicType)
+        assertEquals(1, res.sections.size)
         // Only graphic_table is included (111), graphic_figure (222) is filtered out
-        assertEquals(1, obj["graphics"]!!.jsonArray.size)
-        assertEquals("111", obj["graphics"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals(1, res.graphics.size)
+        assertEquals("111", res.graphics[0].id)
         // Legacy hyphen span stripped from title
-        assertEquals("Table A", obj["graphics"]!!.jsonArray[0].jsonObject["title"]!!.jsonPrimitive.content)
+        assertEquals("Table A", res.graphics[0].title)
     }
 
     @Test
@@ -117,13 +109,12 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("148929") } returns ContentRepository.TopicContent(outlineHtml = "", bodyHtml = "<div>Calculator Input</div>")
         every { contentRepository.getTopicTitle("148929") } returns "AHA PREVENT Calculator"
 
-        val outlineJson = tools.getTopicOverview("148929")
-        val obj = json.parseToJsonElement(outlineJson).jsonObject
+        val res = tools.getTopicOverview("148929")
 
-        assertEquals("calc", obj["topicType"]!!.jsonPrimitive.content)
-        val sections = obj["sections"]!!.jsonArray
+        assertEquals("calc", res.topicType)
+        val sections = res.sections
         assertEquals(1, sections.size)
-        assertEquals("FULL", sections[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("FULL", sections[0].id)
     }
 
     @Test
@@ -131,10 +122,9 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("148929") } returns ContentRepository.TopicContent(outlineHtml = "", bodyHtml = "<p>Age input and risk options</p>")
         every { contentRepository.getTopicTitle("148929") } returns "AHA PREVENT Calculator"
 
-        val resJson = tools.getTopicSectionsText("148929", listOf("FULL"))
-        val obj = json.parseToJsonElement(resJson).jsonObject
-        assertEquals("148929", obj["topicId"]!!.jsonPrimitive.content)
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val res = tools.getTopicSectionsText("148929", listOf("FULL"))
+        assertEquals("148929", res.topicId)
+        val md = res.markdown
 
         assertTrue(md.contains("=== Calculator: AHA PREVENT Calculator ==="))
         assertTrue(md.contains("Age input and risk options"))
@@ -152,10 +142,9 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("100") } returns "Topic 100"
 
-        val resJson = tools.getTopicSectionsText("100", listOf("H1"))
-        val obj = json.parseToJsonElement(resJson).jsonObject
-        assertEquals("100", obj["topicId"]!!.jsonPrimitive.content)
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val res = tools.getTopicSectionsText("100", listOf("H1"))
+        assertEquals("100", res.topicId)
+        val md = res.markdown
 
         assertTrue(md.contains("[related topic](Topic-999)"))
         // Footnote bracket [1, 2] should be stripped
@@ -173,7 +162,8 @@ class MedicalDatabaseToolsTest {
         )
         every { assetRepository.getGraphic("116392") } returns graphicData
 
-        val mdResult = tools.getGraphicContent("116392")
+        val res = tools.getGraphicContent("116392")
+        val mdResult = res.markdown
         assertTrue(mdResult.contains("### Graphic Table: Dosing Table"))
         assertTrue(mdResult.contains("| Drug | Dose |"))
         assertTrue(mdResult.contains("| Aspirin | 100 mg |"))
@@ -190,8 +180,9 @@ class MedicalDatabaseToolsTest {
         )
         every { assetRepository.getGraphic("999") } returns graphicData
 
-        val resJson = tools.getGraphicContent("999")
-        assertTrue(resJson.contains("not a table"))
+        val res = tools.getGraphicContent("999")
+        assertNotNull(res.error)
+        assertTrue(res.error!!.contains("not a table"))
     }
 
     @Test
@@ -215,8 +206,7 @@ class MedicalDatabaseToolsTest {
             SearchResult.Topic("Metformin Overview", "456")
         )
         val searchToolResult = tools.searchTopicsTool.execute(SearchTopicsTool.Args("metformin"))
-        val searchObj = json.parseToJsonElement(searchToolResult).jsonObject
-        assertEquals(1, searchObj["results"]!!.jsonArray.size)
+        assertEquals(1, searchToolResult.results.size)
 
         every { assetRepository.getGraphic("999") } returns GraphicData(
             id = "999",
@@ -225,7 +215,8 @@ class MedicalDatabaseToolsTest {
             subtype = "graphic_image"
         )
         val graphicResult = tools.getGraphicContentTool.execute(GetGraphicContentTool.Args("999"))
-        assertTrue(graphicResult.contains("not a table"))
+        assertNotNull(graphicResult.error)
+        assertTrue(graphicResult.error!!.contains("not a table"))
     }
 
     @Test
@@ -248,31 +239,30 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("200") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
         every { contentRepository.getTopicTitle("200") } returns "Topic 200"
 
-        val outlineJson = tools.getTopicOverview("200")
-        val obj = json.parseToJsonElement(outlineJson).jsonObject
-        val sections = obj["sections"]!!.jsonArray
+        val res = tools.getTopicOverview("200")
+        val sections = res.sections
 
         assertEquals(4, sections.size)
         // H1 is level 1, parent null
-        assertEquals("H1", sections[0].jsonObject["id"]!!.jsonPrimitive.content)
-        assertEquals(1, sections[0].jsonObject["level"]!!.jsonPrimitive.content.toInt())
-        assertTrue(sections[0].jsonObject["parentId"] == null || sections[0].jsonObject["parentId"] is kotlinx.serialization.json.JsonNull)
+        assertEquals("H1", sections[0].id)
+        assertEquals(1, sections[0].level)
+        assertNull(sections[0].parentId)
 
         // H2 is level 2, parent H1
-        assertEquals("H2", sections[1].jsonObject["id"]!!.jsonPrimitive.content)
-        assertEquals(2, sections[1].jsonObject["level"]!!.jsonPrimitive.content.toInt())
-        assertEquals("H1", sections[1].jsonObject["parentId"]!!.jsonPrimitive.content)
+        assertEquals("H2", sections[1].id)
+        assertEquals(2, sections[1].level)
+        assertEquals("H1", sections[1].parentId)
 
         // H3 is level 2, parent H1
-        assertEquals("H3", sections[2].jsonObject["id"]!!.jsonPrimitive.content)
-        assertEquals(2, sections[2].jsonObject["level"]!!.jsonPrimitive.content.toInt())
-        assertEquals("H1", sections[2].jsonObject["parentId"]!!.jsonPrimitive.content)
+        assertEquals("H3", sections[2].id)
+        assertEquals(2, sections[2].level)
+        assertEquals("H1", sections[2].parentId)
 
         // H4 is level 3, parent H3, legacy hyphen stripped
-        assertEquals("H4", sections[3].jsonObject["id"]!!.jsonPrimitive.content)
-        assertEquals("Drainage", sections[3].jsonObject["title"]!!.jsonPrimitive.content)
-        assertEquals(3, sections[3].jsonObject["level"]!!.jsonPrimitive.content.toInt())
-        assertEquals("H3", sections[3].jsonObject["parentId"]!!.jsonPrimitive.content)
+        assertEquals("H4", sections[3].id)
+        assertEquals("Drainage", sections[3].title)
+        assertEquals(3, sections[3].level)
+        assertEquals("H3", sections[3].parentId)
     }
 
     @Test
@@ -288,12 +278,11 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("300") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
         every { contentRepository.getTopicTitle("300") } returns "Topic 300"
 
-        val outlineJson = tools.getTopicOverview("300")
-        val obj = json.parseToJsonElement(outlineJson).jsonObject
-        val sections = obj["sections"]!!.jsonArray
+        val res = tools.getTopicOverview("300")
+        val sections = res.sections
 
         assertEquals(2, sections.size)
-        val ids = sections.map { it.jsonObject["id"]!!.jsonPrimitive.content }
+        val ids = sections.map { it.id }
         assertEquals(listOf("H1", "H_SR"), ids)
     }
 
@@ -301,10 +290,9 @@ class MedicalDatabaseToolsTest {
     fun `getTopicOverview returns error response for nonexistent topic`() {
         every { contentRepository.getTopicContent("nonexistent") } returns null
 
-        val resultJson = tools.getTopicOverview("nonexistent")
-        val obj = json.parseToJsonElement(resultJson).jsonObject
-        assertTrue(obj.containsKey("error"))
-        assertTrue(obj["error"]!!.jsonPrimitive.content.contains("Topic not found"))
+        val res = tools.getTopicOverview("nonexistent")
+        assertNotNull(res.error)
+        assertTrue(res.error!!.contains("Topic not found"))
     }
 
     @Test
@@ -331,9 +319,8 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("400") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("400") } returns "Topic 400"
 
-        val resJson = tools.getTopicSectionsText("400", listOf("H2"))
-        val obj = json.parseToJsonElement(resJson).jsonObject
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val res = tools.getTopicSectionsText("400", listOf("H2"))
+        val md = res.markdown
 
         // Treatment (H2) must include child H3 (Antibiotics with Vancomycin 15 to 20 mg/kg IV)
         assertTrue(md.contains("Infected wounds must be drained."))
@@ -354,12 +341,11 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("500") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("500") } returns "Topic 500"
 
-        val resJson = tools.getTopicSectionsText("500", listOf("Treatment and Management"))
-        val obj = json.parseToJsonElement(resJson).jsonObject
-        val sectionTitles = obj["sectionTitles"]!!.jsonObject
+        val res = tools.getTopicSectionsText("500", listOf("Treatment and Management"))
+        val sectionTitles = res.sectionTitles
 
         assertTrue(sectionTitles.containsKey("H_TREAT"))
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val md = res.markdown
         assertTrue(md.contains("=== Section: H_TREAT ==="))
         assertTrue(md.contains("Clinical management details."))
     }
@@ -378,9 +364,8 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("600") } returns ContentRepository.TopicContent(outlineHtml = "", bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("600") } returns "CrCl Calculator"
 
-        val resJson = tools.getTopicSectionsText("600", listOf("FULL"))
-        val obj = json.parseToJsonElement(resJson).jsonObject
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val res = tools.getTopicSectionsText("600", listOf("FULL"))
+        val md = res.markdown
 
         assertTrue(md.contains("Cockcroft-Gault formula"))
         assertFalse(md.contains("90210"))
@@ -402,14 +387,13 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
 
-        val searchJson = tools.searchTopicSections("700", "eGFR")
-        val obj = json.parseToJsonElement(searchJson).jsonObject
-        val matches = obj["matches"]!!.jsonArray
+        val res = tools.searchTopicSections("700", "eGFR")
+        val matches = res.matches
 
         assertEquals(1, matches.size)
-        assertEquals("H2", matches[0].jsonObject["sectionId"]!!.jsonPrimitive.content)
-        assertEquals("Renal Impairment", matches[0].jsonObject["sectionTitle"]!!.jsonPrimitive.content)
-        assertTrue(matches[0].jsonObject["snippet"]!!.jsonPrimitive.content.contains("reduce dose by 50%"))
+        assertEquals("H2", matches[0].sectionId)
+        assertEquals("Renal Impairment", matches[0].sectionTitle)
+        assertTrue(matches[0].snippet.contains("reduce dose by 50%"))
     }
 
     @Test
@@ -436,20 +420,20 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("6868") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("6868") } returns "The common cold in adults"
 
-        val obj = json.parseToJsonElement(tools.searchTopicSections("6868", "acetaminophen dosing")).jsonObject
-        val matches = obj["matches"]!!.jsonArray
+        val res = tools.searchTopicSections("6868", "acetaminophen dosing")
+        val matches = res.matches
 
         assertEquals(3, matches.size)
         // Score 3x titleHit + 1x bodyHit: title-only H0 (3) ranks above two-body-hit H1 (2),
         // then one-body-hit H2 (1); the keyword-free H3 section never matches.
-        assertEquals("H0", matches[0].jsonObject["sectionId"]!!.jsonPrimitive.content)
+        assertEquals("H0", matches[0].sectionId)
         // Title-only match falls back to the head-of-body snippet (no keyword window).
-        assertEquals("For adults and children.", matches[0].jsonObject["snippet"]!!.jsonPrimitive.content)
-        assertEquals("H1", matches[1].jsonObject["sectionId"]!!.jsonPrimitive.content)
+        assertEquals("For adults and children.", matches[0].snippet)
+        assertEquals("H1", matches[1].sectionId)
         // Snippet is cut around the earliest keyword occurrence in plain body text.
-        assertTrue(matches[1].jsonObject["snippet"]!!.jsonPrimitive.content.contains("Acetaminophen provides mild relief"))
-        assertEquals("H2", matches[2].jsonObject["sectionId"]!!.jsonPrimitive.content)
-        assertEquals("Found 3 matching sections.", obj["message"]!!.jsonPrimitive.content)
+        assertTrue(matches[1].snippet.contains("Acetaminophen provides mild relief"))
+        assertEquals("H2", matches[2].sectionId)
+        assertEquals("Found 3 matching sections.", res.message)
     }
 
     @Test
@@ -468,11 +452,11 @@ class MedicalDatabaseToolsTest {
         )
         every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
 
-        val obj = json.parseToJsonElement(tools.searchTopicSections("700", "dosing")).jsonObject
+        val res = tools.searchTopicSections("700", "dosing")
 
-        assertEquals(8, obj["matches"]!!.jsonArray.size)
+        assertEquals(8, res.matches.size)
         // Python counts the capped top_matches in the message, not every match found.
-        assertEquals("Found 8 matching sections.", obj["message"]!!.jsonPrimitive.content)
+        assertEquals("Found 8 matching sections.", res.message)
     }
 
     @Test
@@ -489,13 +473,13 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
 
-        val noHit = json.parseToJsonElement(tools.searchTopicSections("700", "unobtainium")).jsonObject
-        assertEquals(0, noHit["matches"]!!.jsonArray.size)
-        assertEquals("No matching sections found for 'unobtainium'.", noHit["message"]!!.jsonPrimitive.content)
+        val noHit = tools.searchTopicSections("700", "unobtainium")
+        assertEquals(0, noHit.matches.size)
+        assertEquals("No matching sections found for 'unobtainium'.", noHit.message)
 
         // Blank query does not touch the repository (python checks emptiness first).
-        val blank = json.parseToJsonElement(tools.searchTopicSections("700", "   ")).jsonObject
-        assertEquals("Topic ID and query must be non-empty.", blank["message"]!!.jsonPrimitive.content)
+        val blank = tools.searchTopicSections("700", "   ")
+        assertEquals("Topic ID and query must be non-empty.", blank.message)
     }
 
     @Test
@@ -517,17 +501,16 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
         every { contentRepository.getTopicTitle("100") } returns "Aspirin Therapy"
 
-        val resultJson = tools.getTopicOverview("100")
-        val obj = json.parseToJsonElement(resultJson).jsonObject
+        val res = tools.getTopicOverview("100")
 
         // Invariants
-        assertEquals("100", obj["topicId"]!!.jsonPrimitive.content)
-        assertEquals("Aspirin Therapy", obj["title"]!!.jsonPrimitive.content)
-        assertEquals("article", obj["topicType"]!!.jsonPrimitive.content)
-        assertEquals(3, obj["sections"]!!.jsonArray.size)
-        assertEquals(1, obj["graphics"]!!.jsonArray.size)
+        assertEquals("100", res.topicId)
+        assertEquals("Aspirin Therapy", res.title)
+        assertEquals("article", res.topicType)
+        assertEquals(3, res.sections.size)
+        assertEquals(1, res.graphics.size)
 
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val md = res.markdown
         assertEquals("", md)
     }
 
@@ -535,11 +518,10 @@ class MedicalDatabaseToolsTest {
     fun `getTopicOverview returns structured error for nonexistent topic`() {
         every { contentRepository.getTopicContent("nonexistent_999") } returns null
 
-        val resultJson = tools.getTopicOverview("nonexistent_999")
-        val obj = json.parseToJsonElement(resultJson).jsonObject
+        val res = tools.getTopicOverview("nonexistent_999")
 
-        assertTrue(obj.containsKey("error"))
-        assertEquals("Topic not found: nonexistent_999", obj["error"]!!.jsonPrimitive.content)
+        assertNotNull(res.error)
+        assertEquals("Topic not found: nonexistent_999", res.error)
     }
 
     @Test
@@ -562,19 +544,18 @@ class MedicalDatabaseToolsTest {
         every { contentRepository.getTopicTitle("200") } returns "Drug A"
 
         // No token cap: sections come back whole.
-        val resultJson = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"))
-        val obj = json.parseToJsonElement(resultJson).jsonObject
+        val res = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"))
 
-        assertTrue(!obj.containsKey("truncated"))
-        assertTrue(!obj.containsKey("omittedSections"))
-        val titles = obj["sectionTitles"]!!.jsonObject
+        assertNull(res.truncated)
+        assertNull(res.omittedSections)
+        val titles = res.sectionTitles
         assertTrue(titles.containsKey("H1"))
         assertTrue(titles.containsKey("H_RENAL"))
 
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val md = res.markdown
         // converter trims trailing whitespace, so match the body run without the final space
         assertTrue(md.contains(longText.trimEnd()))
-        assertTrue(!md.contains("[Section truncated due to token limit]"))
+        assertFalse(md.contains("[Section truncated due to token limit]"))
     }
 
     @Test
@@ -591,19 +572,18 @@ class MedicalDatabaseToolsTest {
         )
         every { contentRepository.getTopicTitle("300") } returns "Topic 300"
 
-        val resultJson = tools.getTopicSectionsText("300", (1..11).map { "H$it" })
-        val obj = json.parseToJsonElement(resultJson).jsonObject
+        val res = tools.getTopicSectionsText("300", (1..11).map { "H$it" })
 
         // Count guard: at most 10 sections per call; the 11th is reported, never silently dropped
-        val titles = obj["sectionTitles"]!!.jsonObject
+        val titles = res.sectionTitles
         (1..10).forEach { assertTrue(titles.containsKey("H$it")) }
-        assertTrue(!titles.containsKey("H11"))
-        assertTrue(!obj.containsKey("truncated"))
-        val omitted = obj["omittedSections"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertFalse(titles.containsKey("H11"))
+        assertNull(res.truncated)
+        val omitted = res.omittedSections
         assertEquals(listOf("H11"), omitted)
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val md = res.markdown
         assertTrue(md.contains("=== Section: H10 ==="))
-        assertTrue(!md.contains("=== Section: H11 ==="))
+        assertFalse(md.contains("=== Section: H11 ==="))
     }
 
     @Test
@@ -614,15 +594,14 @@ class MedicalDatabaseToolsTest {
         )
         every { contentRepository.getTopicTitle("148929") } returns "AHA PREVENT Calculator"
 
-        val resultJson = tools.getTopicOverview("148929")
-        val obj = json.parseToJsonElement(resultJson).jsonObject
+        val res = tools.getTopicOverview("148929")
 
-        assertEquals("calc", obj["topicType"]!!.jsonPrimitive.content)
-        val sections = obj["sections"]!!.jsonArray
+        assertEquals("calc", res.topicType)
+        val sections = res.sections
         assertEquals(1, sections.size)
-        assertEquals("FULL", sections[0].jsonObject["id"]!!.jsonPrimitive.content)
+        assertEquals("FULL", sections[0].id)
 
-        val md = obj["markdown"]!!.jsonPrimitive.content
+        val md = res.markdown
         assertTrue(md.contains("=== Calculator: AHA PREVENT Calculator ==="))
         assertTrue(md.contains("PREVENT Risk Calculator Inputs"))
     }
@@ -639,8 +618,7 @@ class MedicalDatabaseToolsTest {
         val res1 = tools.getTopicOverviewTool.execute(
             GetTopicOverviewTool.Args(topicId = "100")
         )
-        val obj1 = json.parseToJsonElement(res1).jsonObject
-        assertEquals("100", obj1["topicId"]!!.jsonPrimitive.content)
+        assertEquals("100", res1.topicId)
 
         // Test JSON argument deserialization parity
         val jsonArgs = """{"topic_id": "100"}"""

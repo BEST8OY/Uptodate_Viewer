@@ -1,19 +1,31 @@
-r"""LangGraph clinical retrieval agent — mirrors KoogAgentFactory.kt.
+r"""LangGraph clinical retrieval agent — mirrors KoogAgentFactory.kt & ClinicalAgentStrategy.kt.
 
-State graph:
-    nodeStart -> [LLM Request] <-> [Execute Tools] (tool loop)
-                          \-> [Safety Validate] -> [Self-Correction] or [Finish]
+Two-Phase Isolated Graph Architecture:
+  Phase 1: node_evidence_gathering (with retrieval tools) <-> execute_tools
+                                    |
+                                    v
+           validate_evidence (Dual Gate 1: Pre-Synthesis Evidence Gate)
+                                    |
+                                    v
+     [Near 128k token headroom?] -> node_compress_history
+                                    |
+                                    v
+  Phase 2: node_clinical_synthesis (ZERO database tools bound in model schema)
+                                    |
+                                    v
+           validate_safety (Dual Gate 2: Post-Synthesis Safety Gate) -> Finish or Targeted Remediation
 """
 
 import json
 import re
-from typing import Annotated, Callable, Optional, TypedDict, Union
+from typing import Annotated, Any, Callable, Optional, TypedDict, Union
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
+from reasoning_sanitizer import strip_reasoning
 from safety_validator import (
     FetchedSection,
     GraphicRef,
@@ -24,7 +36,6 @@ from safety_validator import (
     TurnContext,
     ValidationResult,
 )
-from reasoning_sanitizer import strip_reasoning
 from system_prompt import build_correction_prompt, build_premature_interception_prompt
 
 
@@ -44,59 +55,247 @@ def _build_tool_map(tools: list[BaseTool]) -> dict[str, Callable]:
     return {t.name: t for t in tools}
 
 
-def _is_logical_failure(result: str) -> bool:
-    r"""Detect tool results that executed fine but retrieved nothing.
+def estimate_tokens(text: str) -> int:
+    """Token estimation mirroring Koog SimpleRegexBasedTokenizer."""
+    if not text:
+        return 0
+    return len(re.findall(r"\w+|[^\w\s]", text))
 
-    Mirrors Kotlin TurnContextAccumulator.isLogicalFailure: plain-text
-    sentinels plus JSON error envelopes ({"error": "..."}), and batch
-    section responses where every requested ID was invalid.
+
+def estimate_messages_tokens(messages: list[BaseMessage]) -> int:
+    """Estimate total tokens across a list of LangChain messages."""
+    total = 0
+    for msg in messages:
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+        total += estimate_tokens(content)
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                total += estimate_tokens(tc.get("name", ""))
+                total += estimate_tokens(json.dumps(tc.get("args", {})))
+    return total
+
+
+def is_near_token_limit(messages: list[BaseMessage], threshold: int = 128000) -> bool:
+    """Evaluates whether message context exceeds 85% of active threshold."""
+    return estimate_messages_tokens(messages) >= int(threshold * 0.85)
+
+
+def compress_conversation_history(
+    messages: list[BaseMessage],
+    patient_profile: Optional[Union[PatientProfile, dict]] = None,
+) -> list[BaseMessage]:
+    """Semantic history compression preserving patient profile, allergies, and citations.
+
+    Mirrors Koog's native semantic history compression (nodeLLMCompressHistory).
+    Preserves:
+    - Patient Profile demographics / constraints
+    - Documented Allergies (never discarded or compressed away)
+    - Primary Clinical Inquiries
+    - Key Verified Topics & References
     """
-    trimmed = result.strip()
-    if trimmed.lower().startswith("topic not found"):
-        return True
-    if trimmed.lower() == "section not found.":
-        return True
-    if trimmed.startswith("{"):
-        try:
-            data = json.loads(trimmed)
-            if isinstance(data, dict):
-                if data.get("error"):
-                    return True
-                markdown = data.get("markdown")
-                invalid = data.get("invalidSections")
-                if markdown == "" and invalid:
-                    return True
-        except json.JSONDecodeError:
-            pass
-    return False
+    if len(messages) <= 2:
+        return list(messages)
+
+    sys_msgs = [m for m in messages if isinstance(m, SystemMessage)]
+    non_sys = [m for m in messages if not isinstance(m, SystemMessage)]
+
+    if len(non_sys) <= 2:
+        return list(messages)
+
+    older_msgs = non_sys[:-2]
+    recent_msgs = non_sys[-2:]
+
+    inquiries = []
+    topics_mentioned = set()
+    for m in older_msgs:
+        if isinstance(m, HumanMessage) and m.content:
+            text = str(m.content).strip()
+            if not text.startswith("SYSTEM NOTICE:"):
+                inquiries.append(text[:120])
+        elif isinstance(m, ToolMessage) and m.content:
+            try:
+                data = json.loads(m.content)
+                if isinstance(data, dict):
+                    if "topicTitle" in data and data["topicTitle"]:
+                        topics_mentioned.add(data["topicTitle"])
+                    elif "title" in data and data["title"]:
+                        topics_mentioned.add(data["title"])
+            except Exception:
+                pass
+
+    summary_lines = ["=== CONVERSATION HISTORY SUMMARY (TLDR) ==="]
+
+    profile_dict = patient_profile.model_dump() if hasattr(patient_profile, "model_dump") else (patient_profile or {})
+    if profile_dict:
+        demo_parts = []
+        if profile_dict.get("age"):
+            demo_parts.append(f"Age {profile_dict['age']}")
+        if profile_dict.get("sex"):
+            demo_parts.append(str(profile_dict['sex']))
+        if profile_dict.get("conditions"):
+            demo_parts.append(f"Conditions: {', '.join(profile_dict['conditions'])}")
+        if demo_parts:
+            summary_lines.append(f"Patient Demographics: {', '.join(demo_parts)}")
+
+        allergies = profile_dict.get("allergies", [])
+        if allergies:
+            alg_str = ", ".join(allergies) if isinstance(allergies, list) else str(allergies)
+            summary_lines.append(f"Documented Allergies: {alg_str} (STRICT CONTRAINDICATION)")
+
+        medications = profile_dict.get("medications", [])
+        if medications:
+            med_str = ", ".join(medications) if isinstance(medications, list) else str(medications)
+            summary_lines.append(f"Active Medications: {med_str}")
+
+        notes = profile_dict.get("notes")
+        if notes:
+            summary_lines.append(f"Clinical Notes & Renal Markers: {notes}")
+
+    if inquiries:
+        summary_lines.append("Prior Inquiries: " + "; ".join(inquiries[-4:]))
+
+    if topics_mentioned:
+        summary_lines.append("Verified Topics & References: " + ", ".join(sorted(topics_mentioned)[:5]))
+
+    summary_lines.append("===========================================")
+    summary_text = "\n".join(summary_lines)
+
+    compressed_human_msg = HumanMessage(content=summary_text)
+    return sys_msgs + [compressed_human_msg] + recent_msgs
+
+
+def _build_evidence_summary(sections: list[FetchedSection]) -> str:
+    """Evidence digest shared by validation and synthesis prompt assembly."""
+    evidence_lines = []
+    for sec in sections:
+        if sec.content_snippet:
+            evidence_lines.append(
+                f"Section [{sec.section_id}] ({sec.section_title}):\n{sec.content_snippet}"
+            )
+        else:
+            evidence_lines.append(
+                f"Section [{sec.section_id}] ({sec.section_title}) from topic {sec.topic_id}"
+            )
+    return "\n---\n".join(evidence_lines) if evidence_lines else "No section text was successfully fetched in the prior turn."
+
+
+def format_synthesis_prompt(pending_input: str, tc: TurnContext) -> str:
+    """Format synthesis directives injecting silent clinical triage, active patient profile
+    contraindications, and verified evidence summary. Parity with Kotlin ClinicalAgentStrategy.formatSynthesisPrompt.
+    """
+    if SafetyValidator.is_non_clinical_response(tc) and not tc.fetched_sections:
+        if pending_input.strip():
+            return f"Please provide a helpful, courteous greeting or non-clinical response addressing: {pending_input}"
+        else:
+            return "Please provide a helpful, courteous greeting to the clinician and offer clinical assistance."
+
+    if pending_input.startswith("SYSTEM NOTICE"):
+        return pending_input
+
+    patient_block = ""
+    patient_profile = tc.patient_profile
+    if patient_profile:
+        from system_prompt import extract_patient_context
+        patient_dict = patient_profile.model_dump() if hasattr(patient_profile, "model_dump") else patient_profile
+        patient_block = extract_patient_context(patient_dict) or ""
+
+    patient_profile_section = patient_block if patient_block.strip() else "No active patient profile or documented contraindications."
+    evidence_summary = _build_evidence_summary(tc.fetched_sections)
+
+    lines = [
+        "CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK MODE — NO TOOLS ACTIVE):",
+        "Synthesize a definitive, point-of-care clinical response for the inquiry below using ONLY the `<retrieved_evidence>` block and `<patient_profile>` constraints.\n",
+        "<patient_profile>",
+        patient_profile_section,
+        "</patient_profile>\n",
+        "<retrieved_evidence>",
+        evidence_summary,
+        "</retrieved_evidence>\n",
+        "MANDATORY SYNTHESIS & VERIFICATION RULES:",
+        "1. SILENT CLINICAL TRIAGE: Before writing, verify the candidate regimen against `<patient_profile>` allergies, renal markers (eGFR/CrCl), hepatic status, and active medications.",
+        "2. ALLERGY EXCLUSION: If a first-line drug or drug class conflicts with a documented patient allergy in `<patient_profile>`, select a safe alternative from `<retrieved_evidence>`. Do NOT recommend or name the contraindicated drug as an option.",
+        "3. VERBATIM QUANTITY MATCHING: Every clinical number, dosage, percentage, range, and lab threshold in your response must match an exact number and unit string inside `<retrieved_evidence>` (or echo the patient's own documented profile values). Do NOT convert units (e.g., g to mg) or calculate weight-multiplied doses not explicitly written in the text. If a number is absent from `<retrieved_evidence>`, write \"not specified in retrieved sections.\"",
+        "4. POINT-OF-CARE STRUCTURE:",
+        "   - Lead with a 1–2 sentence **bolded Bottom-Line Up Front (BLUF)** giving the exact patient-tailored regimen.",
+        "   - Follow with concise bullet points under these three exact headers:",
+        "     * **First-Line Regimen & Dosing**",
+        "     * **Organ Function & Adjustments**",
+        "     * **Contraindications & Critical Warnings**",
+        "   - Write plain text only (no markdown links, no reference/source lists at the end).",
+    ]
+
+    if pending_input and not pending_input.startswith("CLINICAL SYNTHESIS DIRECTIVE"):
+        lines.append("")
+        lines.append("CLINICAL INQUIRY:")
+        lines.append(pending_input)
+
+    return "\n".join(lines)
 
 
 def create_clinical_agent(
-    llm,
-    tools: list[BaseTool],
-    system_prompt: str,
-    callbacks: list = None,
+    llm: Any = None,
+    tools: Optional[list[BaseTool]] = None,
+    system_prompt: str = "",
+    callbacks: Optional[list] = None,
     max_tool_retries: int = 24,
     max_safety_retries: int = 2,
     max_premature_retries: int = 2,
+    llm_with_tools: Any = None,
+    llm_tool_free: Any = None,
+    history_compression_threshold: int = 128000,
 ):
-    """Create the clinical retrieval agent graph.
+    """Create the phase-isolated clinical retrieval agent graph.
 
     Args:
-        llm: LangChain chat model with bound tools
+        llm: Base LangChain chat model used to derive tool-bound and tool-free models if not passed individually
         tools: List of tool functions
         system_prompt: System prompt text
         callbacks: List of callback handlers (e.g., TokenTracker)
-        max_tool_retries: Max execute_tools rounds before routing to validation
-            instead of looping further (default 24, mirrors Kotlin's cap)
+        max_tool_retries: Max execute_tools rounds before routing to validation (default 24)
         max_safety_retries: Max self-correction retries (default 2)
         max_premature_retries: Max premature interception retries before routing to safety validation (default 2)
+        llm_with_tools: LangChain chat model with tools bound (Phase 1: Evidence Gathering)
+        llm_tool_free: LangChain chat model with zero tools bound (Phase 2: Clinical Synthesis)
+        history_compression_threshold: Token threshold for semantic history compression (default 128000)
     """
+    if tools is None:
+        tools = []
+
+    if llm_with_tools is None:
+        if llm is not None:
+            if tools and hasattr(llm, "bind_tools"):
+                try:
+                    llm_with_tools = llm.bind_tools(tools)
+                except Exception:
+                    llm_with_tools = llm
+            else:
+                llm_with_tools = llm
+        else:
+            raise ValueError("Either llm or llm_with_tools must be provided")
+
+    if llm_tool_free is None:
+        llm_tool_free = llm if llm is not None else llm_with_tools
+
     tool_map = _build_tool_map(tools)
     effective_premature_retries = min(max_premature_retries, max_safety_retries) if max_safety_retries == 0 else max_premature_retries
 
-    def should_continue(state: AgentState) -> str:
-        """Route: tool calls -> execute_tools, premature text -> intercept_premature, text -> validate_safety."""
+    def _extract_final_answer(state: AgentState, tc: TurnContext) -> str:
+        """Resolve the turn's final answer from the last plain-text AI message."""
+        for msg in reversed(state["messages"]):
+            if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                return strip_reasoning(msg.content)
+        return ""
+
+    # ── Phase 1: Evidence Gathering ────────────────────────────────────
+
+    def node_evidence_gathering(state: AgentState) -> dict:
+        """Phase 1: Evidence Gathering using llm_with_tools."""
+        config = {"callbacks": callbacks} if callbacks else {}
+        response = llm_with_tools.invoke(state["messages"], config=config)
+        return {"messages": [response]}
+
+    def route_after_evidence_gathering(state: AgentState) -> str:
+        """Route from evidence gathering: tool_calls -> execute_tools, premature -> intercept_premature, else -> validate_evidence."""
         last_message = state["messages"][-1]
         if isinstance(last_message, AIMessage) and last_message.tool_calls:
             return "execute_tools"
@@ -116,37 +315,20 @@ def create_clinical_agent(
             if state.get("premature_retries", 0) < effective_premature_retries:
                 return "intercept_premature"
 
-        return "validate_safety"
+        return "validate_evidence"
 
-    def after_tools(state: AgentState) -> str:
-        """Route after tool execution: check retry budget, compact history, return to LLM."""
-        if state.get("tool_rounds", 0) >= max_tool_retries:
-            return "validate_safety"
-
-        tc = TurnContext(**state["turn_context"])
-
-        # Context Hygiene: Truncate older search_topics result messages in history if sections were fetched
-        if len(tc.fetched_sections) > 0 and len(state["messages"]) > 4:
-            new_msgs = list(state["messages"])
-            for idx, msg in enumerate(new_msgs):
-                if isinstance(msg, ToolMessage) and getattr(msg, "name", "") == "search_topics":
-                    if len(msg.content) > 300:
-                        msg.content = msg.content[:250] + "... [truncated search results]"
-            state["messages"] = new_msgs
-
-        return "llm"
-
-    def call_llm(state: AgentState) -> dict:
-        """Invoke LLM with conversation history."""
-        config = {"callbacks": callbacks} if callbacks else {}
-        response = llm.invoke(state["messages"], config=config)
-        return {"messages": [response]}
+    def intercept_premature(state: AgentState) -> dict:
+        """Intercept premature response before tools were executed on clinical inquiry."""
+        current_retries = state.get("premature_retries", 0) + 1
+        prompt = build_premature_interception_prompt(str(current_retries))
+        return {
+            "messages": [HumanMessage(content=prompt)],
+            "premature_retries": current_retries,
+        }
 
     def execute_tools(state: AgentState) -> dict:
-        """Execute tool calls manually (mirrors Kotlin ToolRegistry pattern).
-
-        Deduplicates calls: if the same tool+args was already executed in this
-        turn, returns the cached result instead of re-executing.
+        """Execute requested tool calls with deduplication, strongly-typed Pydantic serialization,
+        and direct attribute reading.
         """
         last_message = state["messages"][-1]
         tc = TurnContext(**state["turn_context"])
@@ -187,18 +369,37 @@ def create_clinical_agent(
             if tool is None:
                 result_content = json.dumps({"error": f"Unknown tool: {name}"})
                 success = False
+                raw = None
             else:
                 success = True
                 try:
                     raw = tool.invoke(args)
-                    result_content = raw if isinstance(raw, str) else json.dumps(raw)
+                    if hasattr(raw, "model_dump_json"):
+                        result_content = raw.model_dump_json()
+                    elif isinstance(raw, str):
+                        result_content = raw
+                    else:
+                        try:
+                            result_content = json.dumps(raw)
+                        except TypeError:
+                            result_content = str(raw)
                 except Exception as e:
                     result_content = json.dumps({"error": str(e)})
                     success = False
+                    raw = None
 
-            # Logical failure: tool ran but retrieved nothing usable
-            if success and _is_logical_failure(result_content):
-                success = False
+            # Tool success evaluation without obsolete _is_logical_failure helper
+            if success and raw is not None:
+                has_error = bool(getattr(raw, "error", None))
+                if not has_error and isinstance(raw, dict):
+                    has_error = bool(raw.get("error"))
+                is_empty_sections = (
+                    name == "get_topic_sections_text"
+                    and not getattr(raw, "markdown", (raw.get("markdown") if isinstance(raw, dict) else ""))
+                    and bool(getattr(raw, "invalid_sections", getattr(raw, "invalidSections", (raw.get("invalidSections") if isinstance(raw, dict) else []))))
+                )
+                if has_error or is_empty_sections:
+                    success = False
 
             tc.tool_calls[-1].success = success
             tc.tool_calls[-1].result = result_content
@@ -206,99 +407,92 @@ def create_clinical_agent(
 
             # Track candidate topic titles from search_topics
             if name == "search_topics":
-                try:
-                    search_data = json.loads(result_content)
-                    for item in search_data.get("results", []):
-                        tid = str(item.get("id", "")).strip()
-                        title = str(item.get("title", "")).strip()
-                        if tid and title and not title.isdigit():
-                            tc.topic_titles[tid] = title
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                results = getattr(raw, "results", None)
+                if results is None and isinstance(raw, dict):
+                    results = raw.get("results", [])
+                for item in (results or []):
+                    tid = str(getattr(item, "id", item.get("id") if isinstance(item, dict) else "")).strip()
+                    title = str(getattr(item, "title", item.get("title") if isinstance(item, dict) else "")).strip()
+                    if tid and title and not title.isdigit():
+                        tc.topic_titles[tid] = title
 
             # Track related topic titles
             if name == "get_related_topics":
-                try:
-                    rel_data = json.loads(result_content)
-                    for item in rel_data.get("relatedTopics", rel_data.get("related_topics", [])):
-                        tid = str(item.get("id", item.get("topicId", ""))).strip()
-                        title = str(item.get("title", "")).strip()
-                        if tid and title and not title.isdigit():
-                            tc.topic_titles[tid] = title
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                rel_topics = getattr(raw, "relatedTopics", getattr(raw, "related_topics", None))
+                if rel_topics is None and isinstance(raw, dict):
+                    rel_topics = raw.get("relatedTopics", raw.get("related_topics", []))
+                for item in (rel_topics or []):
+                    tid = str(getattr(item, "id", item.get("id", item.get("topicId")) if isinstance(item, dict) else "")).strip()
+                    title = str(getattr(item, "title", item.get("title") if isinstance(item, dict) else "")).strip()
+                    if tid and title and not title.isdigit():
+                        tc.topic_titles[tid] = title
 
             # Track topic overview bundling
             if name in ("get_topic_overview", "getTopicOverview"):
-                try:
-                    overview_data = json.loads(result_content)
-                    topic_id = str(
-                        overview_data.get("topicId", overview_data.get("topic_id", args.get("topic_id", args.get("topicId", ""))))
-                    ).strip()
-                    topic_title = overview_data.get("title", overview_data.get("topicTitle", overview_data.get("topic_title", "")))
-                    if topic_id and topic_title and not str(topic_title).isdigit():
-                        tc.topic_titles[topic_id] = topic_title
+                topic_id = str(
+                    getattr(raw, "topicId", getattr(raw, "topic_id", (raw.get("topicId", raw.get("topic_id")) if isinstance(raw, dict) else args.get("topic_id", args.get("topicId", "")))))
+                ).strip()
+                topic_title = str(
+                    getattr(raw, "title", getattr(raw, "topic_title", (raw.get("title", raw.get("topic_title")) if isinstance(raw, dict) else "")))
+                ).strip()
+                if not topic_id:
+                    topic_id = str(args.get("topic_id", args.get("topicId", ""))).strip()
+                if topic_id and topic_title and not topic_title.isdigit():
+                    tc.topic_titles[topic_id] = topic_title
 
-                    # Outline sections
-                    sections = overview_data.get("sections", overview_data.get("outline", []))
-                    if topic_id and sections:
-                        tc.outline_sections[topic_id] = {
-                            s["id"]: s["title"].lstrip("-–— ") for s in sections if s.get("id")
-                        }
+                # Outline sections
+                sections = getattr(raw, "sections", (raw.get("sections", raw.get("outline", [])) if isinstance(raw, dict) else []))
+                if topic_id and sections:
+                    tc.outline_sections[topic_id] = {
+                        str(getattr(s, "id", s.get("id") if isinstance(s, dict) else "")): str(getattr(s, "title", s.get("title") if isinstance(s, dict) else "")).lstrip("-–— ")
+                        for s in sections
+                        if (getattr(s, "id", None) or (isinstance(s, dict) and s.get("id")))
+                    }
 
-                    # Graphics mapping
-                    graphics = overview_data.get("graphics", [])
-                    for g in graphics:
-                        gid = str(g.get("id", "")).strip()
-                        if gid:
-                            tc.graphic_to_topic[gid] = topic_id
-                            clean_gid = re.sub(r"(?i)^graphic-", "", gid)
-                            tc.graphic_to_topic[clean_gid] = topic_id
-                            g_title = g.get("title", "")
-                            if g_title:
-                                tc.graphic_titles[gid] = g_title
-                                tc.graphic_titles[clean_gid] = g_title
+                # Graphics mapping
+                graphics = getattr(raw, "graphics", (raw.get("graphics", []) if isinstance(raw, dict) else []))
+                for g in (graphics or []):
+                    gid = str(getattr(g, "id", g.get("id") if isinstance(g, dict) else "")).strip()
+                    if gid:
+                        tc.graphic_to_topic[gid] = topic_id
+                        clean_gid = re.sub(r"(?i)^graphic-", "", gid)
+                        tc.graphic_to_topic[clean_gid] = topic_id
+                        g_title = getattr(g, "title", g.get("title") if isinstance(g, dict) else "")
+                        if g_title:
+                            tc.graphic_titles[gid] = str(g_title)
+                            tc.graphic_titles[clean_gid] = str(g_title)
 
-                    # Calculator topic evidence
-                    if overview_data.get("topicType") == "calc" or overview_data.get("topic_type") == "calc":
-                        full_md = overview_data.get("markdown", "")
-                        tc.fetched_sections.append(
-                            FetchedSection(
-                                topic_id=topic_id,
-                                topic_title=tc.topic_titles.get(topic_id, topic_title),
-                                section_id="FULL",
-                                section_title="Calculator Tool Content",
-                                content_snippet=full_md[:2000],
-                            )
+                # Calculator topic evidence
+                topic_type = getattr(raw, "topicType", getattr(raw, "topic_type", (raw.get("topicType", raw.get("topic_type")) if isinstance(raw, dict) else "")))
+                if topic_type == "calc":
+                    full_md = getattr(raw, "markdown", (raw.get("markdown", "") if isinstance(raw, dict) else ""))
+                    tc.fetched_sections.append(
+                        FetchedSection(
+                            topic_id=topic_id,
+                            topic_title=tc.topic_titles.get(topic_id, topic_title),
+                            section_id="FULL",
+                            section_title="Calculator Tool Content",
+                            content_snippet=full_md[:2000],
                         )
-                except (json.JSONDecodeError, AttributeError, TypeError):
-                    pass
+                    )
 
-            # Track topic titles and section titles from outline
             # Batch section tracking
             if name == "get_topic_sections_text":
-                topic_id = str(args.get("topic_id", args.get("topicId", ""))).strip()
-                # Parse structured JSON result from batch tool
-                try:
-                    batch_data = json.loads(result_content)
-                    resp_tid = str(batch_data.get("topicId", "")).strip()
-                    if resp_tid:
-                        topic_id = resp_tid
-                    topic_title = batch_data.get("topicTitle", "")
-                    raw_section_titles = batch_data.get("sectionTitles", {})
-                    section_titles = (
-                        {k: v.lstrip("-–— ") for k, v in raw_section_titles.items()}
-                        if isinstance(raw_section_titles, dict)
-                        else {}
-                    )
-                    if topic_id and topic_title and not str(topic_title).isdigit():
-                        tc.topic_titles[topic_id] = topic_title
-                    if topic_id and section_titles:
-                        tc.outline_sections[topic_id] = section_titles
-                except (json.JSONDecodeError, TypeError):
-                    section_titles = {}
+                resp_tid = str(getattr(raw, "topicId", getattr(raw, "topic_id", (raw.get("topicId", raw.get("topic_id")) if isinstance(raw, dict) else "")))).strip()
+                topic_id = resp_tid or str(args.get("topic_id", args.get("topicId", ""))).strip()
+                topic_title = getattr(raw, "topicTitle", getattr(raw, "topic_title", (raw.get("topicTitle", raw.get("topic_title")) if isinstance(raw, dict) else "")))
+                raw_section_titles = getattr(raw, "sectionTitles", getattr(raw, "section_titles", (raw.get("sectionTitles", raw.get("section_titles")) if isinstance(raw, dict) else {})))
+                section_titles = (
+                    {str(k): str(v).lstrip("-–— ") for k, v in raw_section_titles.items()}
+                    if isinstance(raw_section_titles, dict)
+                    else {}
+                )
+                if topic_id and topic_title and not str(topic_title).isdigit():
+                    tc.topic_titles[topic_id] = str(topic_title)
+                if topic_id and section_titles:
+                    tc.outline_sections[topic_id] = section_titles
 
-                # If topic title is still missing or all digits, resolve from DB
+                # DB title fallback if still missing or numeric
                 if topic_id and (topic_id not in tc.topic_titles or str(tc.topic_titles[topic_id]).isdigit()):
                     try:
                         from tools import _db
@@ -308,9 +502,8 @@ def create_clinical_agent(
                                 tc.topic_titles[topic_id] = db_title
                     except Exception:
                         pass
-                # Use stored outline sections for titles (fallback to parsed data)
+
                 section_map = tc.outline_sections.get(topic_id, section_titles)
-                # Accept singular alias forms too (parity with Kotlin accumulator: sectionId/section_id)
                 section_ids = (
                     args.get("section_ids") or args.get("sectionIds")
                     or args.get("section_id") or args.get("sectionId") or []
@@ -328,19 +521,21 @@ def create_clinical_agent(
                         )
                     )
 
-            # Track graphic IDs and titles
+            # Graphic tracking
             if name == "get_graphic_content":
                 graphic_id = str(args.get("graphic_id", args.get("graphicId", ""))).strip()
                 if graphic_id:
                     clean_gid = re.sub(r"(?i)^graphic-", "", graphic_id)
-                    if clean_gid not in tc.graphic_ids:  # insertion-ordered, dedup across remediation turns
+                    if clean_gid not in tc.graphic_ids:
                         tc.graphic_ids.append(clean_gid)
-                    # Extract title from result: "### Graphic Table: {title}\n\n{markdown}"
-                    m = re.match(r"### Graphic Table:\s*(.+)", result_content)
-                    if m:
-                        title = m.group(1).strip()
-                        tc.graphic_titles[graphic_id] = title
-                        tc.graphic_titles[clean_gid] = title
+                    title = getattr(raw, "title", (raw.get("title") if isinstance(raw, dict) else ""))
+                    if not title:
+                        m = re.match(r"### Graphic Table:\s*(.+)", result_content)
+                        if m:
+                            title = m.group(1).strip()
+                    if title:
+                        tc.graphic_titles[graphic_id] = str(title)
+                        tc.graphic_titles[clean_gid] = str(title)
 
             new_messages.append(
                 ToolMessage(content=result_content, tool_call_id=tool_call_id)
@@ -353,15 +548,149 @@ def create_clinical_agent(
             "tool_rounds": state.get("tool_rounds", 0) + 1,
         }
 
-    def _extract_final_answer(state: AgentState, tc: TurnContext) -> str:
-        """Resolve the turn's final answer from the last plain-text AI message."""
-        for msg in reversed(state["messages"]):
-            if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-                return strip_reasoning(msg.content)
-        return ""
+    def route_after_execute_tools(state: AgentState) -> str:
+        """Route after tool execution: check round budget, proceed to evidence validation or loop."""
+        if state.get("tool_rounds", 0) >= max_tool_retries:
+            return "validate_evidence"
+        return "node_evidence_gathering"
+
+    # ── Dual Gate 1: Pre-Synthesis Evidence Gate ───────────────────────
+
+    def validate_evidence(state: AgentState) -> dict:
+        """Dual Gate 1: Pre-Synthesis Evidence Validation Gate.
+        Checks Rule 0 (tool execution) & Rule 1 (fetched sections or table graphics).
+        """
+        tc = TurnContext(**state["turn_context"])
+        answer = _extract_final_answer(state, tc)
+        clean_text = strip_reasoning(answer)
+        tc.answer = clean_text
+        tc.user_question = state.get("user_question", "")
+
+        is_greeting = SafetyValidator.is_non_clinical_response(tc)
+        has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
+        has_tools = len(tc.tool_calls) > 0
+
+        if is_greeting and not has_tools and not has_evidence:
+            return {
+                "validation_result": ValidationResult(passed=True, warnings=[]).model_dump(),
+                "turn_context": tc.model_dump(),
+            }
+
+        if not has_tools or not has_evidence:
+            blocked_reason = (
+                "Clinical recommendations require database verification. No database tools were executed."
+                if not has_tools
+                else "Answer requires section or table content retrieval. Only topic outlines or searches were performed."
+            )
+            if state["retry_count"] >= max_safety_retries:
+                blocked_msg = AIMessage(
+                    content=f"Clinical Response Verification Blocked: {blocked_reason}"
+                )
+                return {
+                    "messages": [blocked_msg],
+                    "validation_result": ValidationResult(passed=False, blocked_reason=blocked_reason, warnings=[]).model_dump(),
+                    "turn_context": tc.model_dump(),
+                }
+            else:
+                evidence_summary = _build_evidence_summary(tc.fetched_sections)
+                tc.answer = ""
+                tc.structured_topic_refs = []
+                tc.structured_graphic_refs = []
+                correction_msg = HumanMessage(
+                    content=build_correction_prompt(blocked_reason, evidence_summary)
+                )
+                return {
+                    "messages": [correction_msg],
+                    "retry_count": state["retry_count"] + 1,
+                    "turn_context": tc.model_dump(),
+                    "validation_result": ValidationResult(passed=False, blocked_reason=blocked_reason, warnings=[]).model_dump(),
+                }
+
+        return {
+            "validation_result": ValidationResult(passed=True, warnings=[]).model_dump(),
+            "turn_context": tc.model_dump(),
+        }
+
+    def route_after_validate_evidence(state: AgentState) -> str:
+        """Route from Dual Gate 1: loop back to evidence gathering, terminal block, or proceed to synthesis."""
+        val = state.get("validation_result") or {}
+        if not val.get("passed"):
+            last_msg = state["messages"][-1]
+            if isinstance(last_msg, AIMessage) and last_msg.content.startswith("Clinical Response Verification Blocked:"):
+                return "safety_block"
+            return "node_evidence_gathering"
+
+        # Check token headroom before clinical synthesis
+        if is_near_token_limit(state["messages"], threshold=history_compression_threshold):
+            return "node_compress_history"
+        return "node_clinical_synthesis"
+
+    # ── History Compression ───────────────────────────────────────────
+
+    def node_compress_history(state: AgentState) -> dict:
+        """Perform semantic history compression preserving patient profile and citations."""
+        tc = TurnContext(**state["turn_context"])
+        non_sys = [m for m in state["messages"] if not isinstance(m, SystemMessage)]
+        if len(non_sys) <= 2:
+            return {}
+
+        older_msgs = non_sys[:-2]
+        compressed_messages = compress_conversation_history(
+            state["messages"],
+            patient_profile=tc.patient_profile,
+        )
+        summary_message = next(
+            (m for m in compressed_messages if isinstance(m, HumanMessage) and "CONVERSATION HISTORY SUMMARY" in str(m.content)),
+            None,
+        )
+        if not summary_message:
+            return {}
+
+        return {"messages": [RemoveMessage(id=m.id) for m in older_msgs if getattr(m, "id", None)] + [summary_message]}
+
+    # ── Phase 2: Clinical Synthesis ────────────────────────────────────
+
+    def node_clinical_synthesis(state: AgentState) -> dict:
+        """Phase 2: Clinical Synthesis using llm_tool_free (zero tools bound in model schema)."""
+        tc = TurnContext(**state["turn_context"])
+        last_message = state["messages"][-1]
+        is_remediation = isinstance(last_message, HumanMessage) and str(last_message.content).startswith("SYSTEM NOTICE:")
+
+        pending_text = ""
+        if is_remediation:
+            pending_text = str(last_message.content)
+        else:
+            for msg in reversed(state["messages"]):
+                if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                    pending_text = strip_reasoning(msg.content)
+                    break
+
+        is_greeting = (
+            SafetyValidator.is_non_clinical_response(tc)
+            and not tc.fetched_sections
+            and not tc.tool_calls
+        )
+
+        # Non-clinical greeting already rendered
+        if is_greeting and pending_text and not is_remediation:
+            return {}
+
+        synthesis_prompt = format_synthesis_prompt(pending_text, tc)
+        config = {"callbacks": callbacks} if callbacks else {}
+        if is_remediation:
+            synthesis_messages = list(state["messages"])
+        else:
+            synthesis_messages = list(state["messages"]) + [HumanMessage(content=synthesis_prompt)]
+        response = llm_tool_free.invoke(synthesis_messages, config=config)
+        raw_content = response.content if isinstance(response, AIMessage) else (response if isinstance(response, str) else "")
+        clean_content = strip_reasoning(raw_content if isinstance(raw_content, str) else "")
+        synth_msg = AIMessage(content=clean_content)
+        return {"messages": [synth_msg]}
+
+    # ── Dual Gate 2: Post-Synthesis Safety Gate ────────────────────────
 
     def validate_safety(state: AgentState) -> dict:
-        """Run safety validation on the final answer."""
+        """Dual Gate 2: Post-Synthesis Safety Validation Gate."""
         tc = TurnContext(**state["turn_context"])
         answer = _extract_final_answer(state, tc)
 
@@ -377,22 +706,24 @@ def create_clinical_agent(
         # Auto-populate refs from retrieved evidence
         _auto_populate_refs(tc)
 
-        validator = SafetyValidator()
-        validation = validator.validate(tc)
+        has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
+        if not answer.strip():
+            # Blank-answer guard mirroring Kotlin ClinicalAgentStrategy.evaluateSafetyTurn
+            validation = ValidationResult(
+                passed=False,
+                warnings=[],
+                blocked_reason=(
+                    "No final clinical answer was synthesized; render the gathered evidence"
+                    if has_evidence
+                    else "No clinical response was generated. Evidence retrieval is required."
+                ),
+            )
+        else:
+            validator = SafetyValidator()
+            validation = validator.validate(tc)
 
         if not validation.passed and state["retry_count"] < max_safety_retries:
-            # Build evidence summary for correction turn
-            evidence_lines = []
-            for sec in tc.fetched_sections:
-                if sec.content_snippet:
-                    evidence_lines.append(
-                        f"Section [{sec.section_id}] ({sec.section_title}):\n{sec.content_snippet}"
-                    )
-                else:
-                    evidence_lines.append(
-                        f"Section [{sec.section_id}] ({sec.section_title}) from topic {sec.topic_id}"
-                    )
-            evidence_summary = "\n---\n".join(evidence_lines) if evidence_lines else "No section text was successfully fetched in the prior turn."
+            evidence_summary = _build_evidence_summary(tc.fetched_sections)
 
             # Reset answer state for correction turn (mirrors Kotlin prepareForCorrection)
             tc.answer = ""
@@ -409,7 +740,6 @@ def create_clinical_agent(
                 "validation_result": validation.model_dump(),
             }
 
-        # Terminal state: if validation blocked after max retries, emit blocked message (mirrors Kotlin nodeSafetyBlock)
         if not validation.passed:
             blocked_msg = AIMessage(
                 content=f"Clinical Response Verification Blocked: {validation.blocked_reason}"
@@ -425,50 +755,72 @@ def create_clinical_agent(
             "turn_context": tc.model_dump(),
         }
 
-    def check_validation_next(state: AgentState) -> str:
-        """Route after validation: retry or finish."""
-        last = state["messages"][-1]
-        if isinstance(last, HumanMessage) and "SYSTEM NOTICE" in last.content:
-            return "llm"
-        return END
+    def route_after_validate_safety(state: AgentState) -> str:
+        """Route from Dual Gate 2: finish, terminal safety block, or targeted remediation."""
+        val = state.get("validation_result") or {}
+        if val.get("passed"):
+            return END
 
-    def intercept_premature(state: AgentState) -> dict:
-        """Intercept premature response before tools were executed on clinical inquiry.
+        last_msg = state["messages"][-1]
+        if isinstance(last_msg, AIMessage) and str(last_msg.content).startswith("Clinical Response Verification Blocked:"):
+            return "safety_block"
 
-        Injects interception prompt directive and returns to LLM (mirrors Kotlin nodeInterceptPremature).
-        """
-        current_retries = state.get("premature_retries", 0) + 1
-        prompt = build_premature_interception_prompt(str(current_retries))
-        return {
-            "messages": [HumanMessage(content=prompt)],
-            "premature_retries": current_retries,
-        }
+        # Targeted remediation: check if evidence is present
+        tc = TurnContext(**state["turn_context"])
+        has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
+        if not has_evidence:
+            return "node_evidence_gathering"  # Phase 1 Remediation
+        else:
+            return "node_clinical_synthesis"  # Phase 2 Remediation
 
-    # ── Build the graph ────────────────────────────────────────────────
+    def safety_block(state: AgentState) -> dict:
+        """Terminal safety block node ensuring blocked message is the final message."""
+        last_msg = state["messages"][-1]
+        if isinstance(last_msg, AIMessage) and str(last_msg.content).startswith("Clinical Response Verification Blocked:"):
+            return {"messages": [last_msg]}
+        blocked_reason = state.get("validation_result", {}).get("blocked_reason") or "Safety verification blocked."
+        return {"messages": [AIMessage(content=f"Clinical Response Verification Blocked: {blocked_reason}")]}
+
+    # ── Build the Graph Topology ───────────────────────────────────────
 
     workflow = StateGraph(AgentState)
 
-    workflow.add_node("llm", call_llm)
+    workflow.add_node("node_evidence_gathering", node_evidence_gathering)
     workflow.add_node("execute_tools", execute_tools)
     workflow.add_node("intercept_premature", intercept_premature)
+    workflow.add_node("validate_evidence", validate_evidence)
+    workflow.add_node("node_compress_history", node_compress_history)
+    workflow.add_node("node_clinical_synthesis", node_clinical_synthesis)
     workflow.add_node("validate_safety", validate_safety)
+    workflow.add_node("safety_block", safety_block)
 
-    workflow.set_entry_point("llm")
+    workflow.set_entry_point("node_evidence_gathering")
 
-    workflow.add_conditional_edges("llm", should_continue, {
+    workflow.add_conditional_edges("node_evidence_gathering", route_after_evidence_gathering, {
         "execute_tools": "execute_tools",
         "intercept_premature": "intercept_premature",
-        "validate_safety": "validate_safety",
+        "validate_evidence": "validate_evidence",
     })
-    workflow.add_edge("intercept_premature", "llm")
-    workflow.add_conditional_edges("execute_tools", after_tools, {
-        "llm": "llm",
-        "validate_safety": "validate_safety",
+    workflow.add_edge("intercept_premature", "node_evidence_gathering")
+    workflow.add_conditional_edges("execute_tools", route_after_execute_tools, {
+        "node_evidence_gathering": "node_evidence_gathering",
+        "validate_evidence": "validate_evidence",
     })
-    workflow.add_conditional_edges("validate_safety", check_validation_next, {
-        "llm": "llm",
+    workflow.add_conditional_edges("validate_evidence", route_after_validate_evidence, {
+        "node_evidence_gathering": "node_evidence_gathering",
+        "safety_block": "safety_block",
+        "node_compress_history": "node_compress_history",
+        "node_clinical_synthesis": "node_clinical_synthesis",
+    })
+    workflow.add_edge("node_compress_history", "node_clinical_synthesis")
+    workflow.add_edge("node_clinical_synthesis", "validate_safety")
+    workflow.add_conditional_edges("validate_safety", route_after_validate_safety, {
         END: END,
+        "safety_block": "safety_block",
+        "node_evidence_gathering": "node_evidence_gathering",
+        "node_clinical_synthesis": "node_clinical_synthesis",
     })
+    workflow.add_edge("safety_block", END)
 
     return workflow.compile()
 
@@ -479,7 +831,6 @@ def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
     Rebuilds both lists from scratch so repeated submissions stay idempotent
     (mirrors Kotlin's replace-on-parse semantics).
     """
-    # Build topic refs from fetched sections
     topic_refs: list[TopicRef] = []
     seen_topics = set()
     for sec in tc.fetched_sections:
@@ -512,7 +863,6 @@ def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
             )
         )
 
-    # Ensure parent topics for graphic tables are attributed
     for gid in tc.graphic_ids:
         clean_gid = re.sub(r"(?i)^graphic-", "", gid)
         parent_topic_id = tc.graphic_to_topic.get(gid) or tc.graphic_to_topic.get(clean_gid)
@@ -539,7 +889,6 @@ def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
 
     tc.structured_topic_refs = topic_refs
 
-    # Build graphic refs from fetched graphic IDs
     tc.structured_graphic_refs = [
         GraphicRef(
             graphic_id=gid,

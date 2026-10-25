@@ -75,6 +75,6 @@ class OllamaProvider(
     }
 
     override fun getAvailableModels(): List<String> {
-        return listOf("llama3.2", "mistral", "phi3")
+        return listOf("llama3.2", "mistral", "phi3", "qwen3.6:27b", "qwen3.8:27b")
     }
 }

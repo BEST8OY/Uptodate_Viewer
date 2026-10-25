@@ -16,21 +16,18 @@ sealed class ProviderSettings {
     @Serializable
     @SerialName("Google")
     data class Google(
-        override val temperature: Float = 0.7f,
-        override val maxTokens: Int = 8192,
+        override val temperature: Float = 0.15f,
+        override val maxTokens: Int = 16384,
         val includeThoughts: Boolean = false,
         val thinkingBudget: Int? = null,        // Gemini 2.0: token limit for reasoning
-        val thinkingLevel: String? = null,      // Gemini 3.0: "low" or "high"
-        val topP: Double? = null,
-        val topK: Int? = null
+        val thinkingLevel: String? = null       // Gemini 3.0: "low" or "high"
     ) : ProviderSettings()
 
     @Serializable
     @SerialName("OpenAI")
     data class OpenAI(
-        override val temperature: Float = 1.0f,
+        override val temperature: Float = 0.15f,
         override val maxTokens: Int = 16384,
-        val topP: Double? = null,
         val frequencyPenalty: Double? = null,
         val presencePenalty: Double? = null,
         val reasoningEffort: String? = null,      // "low", "medium", "high"
@@ -40,10 +37,8 @@ sealed class ProviderSettings {
     @Serializable
     @SerialName("Anthropic")
     data class Anthropic(
-        override val temperature: Float = 1.0f,
-        override val maxTokens: Int = 8192,
-        val topP: Double? = null,
-        val topK: Int? = null,
+        override val temperature: Float = 0.15f,
+        override val maxTokens: Int = 16384,
         val enableThinking: Boolean = false,
         val thinkingBudget: Int? = null
     ) : ProviderSettings()
@@ -51,9 +46,8 @@ sealed class ProviderSettings {
     @Serializable
     @SerialName("MistralAI")
     data class MistralAI(
-        override val temperature: Float = 0.7f,
-        override val maxTokens: Int = 8192,
-        val topP: Double? = null,
+        override val temperature: Float = 0.15f,
+        override val maxTokens: Int = 16384,
         val frequencyPenalty: Double? = null,
         val presencePenalty: Double? = null,
         val safePrompt: Boolean? = null
@@ -62,10 +56,8 @@ sealed class ProviderSettings {
     @Serializable
     @SerialName("OpenRouter")
     data class OpenRouter(
-        override val temperature: Float = 1.0f,
-        override val maxTokens: Int = 8192,
-        val topP: Double? = null,
-        val topK: Int? = null,
+        override val temperature: Float = 0.15f,
+        override val maxTokens: Int = 16384,
         val frequencyPenalty: Double? = null,
         val presencePenalty: Double? = null,
         val repetitionPenalty: Double? = null,
@@ -76,10 +68,8 @@ sealed class ProviderSettings {
     @Serializable
     @SerialName("Ollama")
     data class Ollama(
-        override val temperature: Float = 0.8f,
+        override val temperature: Float = 0.15f,
         override val maxTokens: Int = 4096,
-        val topP: Double? = null,
-        val topK: Int? = null,
         val numCtx: Int? = null                 // Context window size
     ) : ProviderSettings()
 }

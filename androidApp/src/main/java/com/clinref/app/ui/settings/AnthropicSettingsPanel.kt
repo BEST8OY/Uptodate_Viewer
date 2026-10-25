@@ -29,29 +29,6 @@ fun AnthropicSettingsPanel(
     ProviderSettingsHeader("Anthropic Settings")
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // Top P
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Top P", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    String.format("%.2f", settings.topP ?: 1.0),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            Slider(
-                value = (settings.topP ?: 1.0).toFloat(),
-                onValueChange = { onUpdate(settings.copy(topP = it.toDouble())) },
-                valueRange = 0f..1f,
-                steps = 9,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
         // Extended Thinking Toggle (currently disabled pending Koog library update)
         Row(
             modifier = Modifier.fillMaxWidth(),

@@ -22,6 +22,16 @@ load_dotenv()
 from database import ClinRefDatabase
 from html_parser import extract_outline_sections
 from safety_validator import CONVERSATIONAL_USER_REGEX, PatientProfile, SafetyValidator, TurnContext
+from system_prompt import build_system_prompt, extract_patient_context
+from tools import init_tools
+
+# ---------------------------------------------------------------------------
+# Standardized Clinical Constants (Milestone 6 Parity)
+# ---------------------------------------------------------------------------
+DEFAULT_TEMPERATURE = 0.15
+DEFAULT_MAX_OUTPUT_TOKENS_CLOUD = 16384
+DEFAULT_MAX_OUTPUT_TOKENS_OLLAMA = 4096
+DEFAULT_HISTORY_COMPRESSION_THRESHOLD = 128000
 
 
 def collect_patient_profile() -> Optional[dict]:
@@ -60,19 +70,6 @@ def is_conversational_query(query: str) -> bool:
     """Zero-LLM upstream intent classifier for basic greetings and help requests."""
     clean = query.strip().lower()
     return bool(CONVERSATIONAL_USER_REGEX.match(clean)) and len(clean) < 40
-from system_prompt import build_system_prompt, extract_patient_context
-from tools import init_tools
-
-
-def _extract_answer_from_tool_result(content: str) -> str:
-    """Extract answer text from a terminal tool's SUBMITTED JSON result."""
-    try:
-        data = json.loads(content)
-        if data.get("status") == "SUBMITTED" and "answer" in data:
-            return data["answer"]
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return ""
 
 
 def _build_references_section(validation_result: dict) -> str:
@@ -109,6 +106,7 @@ def _build_references_section(validation_result: dict) -> str:
 
     return "\n\n" + "\n".join(refs_lines) if refs_lines else ""
 
+
 # Provider -> environment variable mapping
 _API_KEY_ENV = {
     "openai": "OPENAI_API_KEY",
@@ -130,25 +128,63 @@ def resolve_api_key(provider: str, api_key: str = None) -> str | None:
     return os.environ.get("OPENAI_API_KEY")
 
 
-def create_llm(provider: str, model: str = None, api_key: str = None):
-    """Create a LangChain chat model for the specified provider."""
+def create_llm(
+    provider: str,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: float = DEFAULT_TEMPERATURE,
+    max_tokens: Optional[int] = None,
+):
+    """Create a LangChain chat model with standardized clinical defaults.
+
+    Applies temperature=0.15 and max_tokens=16384 (cloud) / 4096 (Ollama).
+    Onerous/unsupported top_p and top_k parameters are omitted.
+    """
+    if max_tokens is None:
+        max_tokens = DEFAULT_MAX_OUTPUT_TOKENS_OLLAMA if provider == "ollama" else DEFAULT_MAX_OUTPUT_TOKENS_CLOUD
+
     if provider == "openai":
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model or "gpt-4o", api_key=api_key)
+        return ChatOpenAI(
+            model=model or "gpt-4o",
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     elif provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model or "claude-sonnet-4-20250514", api_key=api_key)
+        return ChatAnthropic(
+            model=model or "claude-sonnet-4-20250514",
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     elif provider == "mistral":
         from langchain_mistralai import ChatMistralAI
-        return ChatMistralAI(model=model or "mistral-large-latest", api_key=api_key)
+        return ChatMistralAI(
+            model=model or "mistral-large-latest",
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     elif provider == "ollama":
         from langchain_community.chat_models import ChatOllama
-        return ChatOllama(model=model or "llama3.2", base_url="http://localhost:11434")
+        return ChatOllama(
+            model=model or "llama3.2",
+            base_url="http://localhost:11434",
+            temperature=temperature,
+            num_predict=max_tokens,
+        )
     else:
         # Use litellm for other providers (google, openrouter, etc.)
         from langchain_community.chat_models import ChatLiteLLM
         model_name = model or f"{provider}/gpt-4o"
-        return ChatLiteLLM(model=model_name, api_key=api_key)
+        return ChatLiteLLM(
+            model=model_name,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
 
 def run_interactive(provider: str, model: str, db_path: str):
@@ -161,13 +197,26 @@ def run_interactive(provider: str, model: str, db_path: str):
         provider=provider,
     )
     api_key = resolve_api_key(provider)
-    llm = create_llm(provider, model, api_key)
+    llm = create_llm(provider, model, api_key, temperature=DEFAULT_TEMPERATURE)
     llm_with_tools = llm.bind_tools(tools)
 
-    from agent import create_clinical_agent, create_initial_state
+    from agent import (
+        compress_conversation_history,
+        create_clinical_agent,
+        create_initial_state,
+        is_near_token_limit,
+    )
     from token_tracker import TokenTracker
     token_tracker = TokenTracker()
-    agent = create_clinical_agent(llm_with_tools, tools, system_prompt, callbacks=[token_tracker])
+    agent = create_clinical_agent(
+        llm=llm,
+        tools=tools,
+        system_prompt=system_prompt,
+        callbacks=[token_tracker],
+        llm_with_tools=llm_with_tools,
+        llm_tool_free=llm,
+        history_compression_threshold=DEFAULT_HISTORY_COMPRESSION_THRESHOLD,
+    )
 
     print(f"ClinRef Prototype — Provider: {provider}, Model: {model or 'default'}")
     print("Type your clinical question, or 'quit' to exit.\n")
@@ -185,7 +234,7 @@ def run_interactive(provider: str, model: str, db_path: str):
             print("Goodbye.")
             break
 
-        # Build initial state with full conversation history
+        # Build initial state with conversation history
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
         turn_context = TurnContext(
             patient_profile=PatientProfile(**patient_profile) if patient_profile else None
@@ -213,31 +262,38 @@ def run_interactive(provider: str, model: str, db_path: str):
 
         for event in agent.stream(initial_state, config=config, stream_mode="updates"):
             for node_name, node_output in event.items():
+                if not node_output or not isinstance(node_output, dict):
+                    continue
                 messages = node_output.get("messages", [])
 
-                if node_name == "llm":
+                if node_name == "node_evidence_gathering":
                     for msg in messages:
                         if hasattr(msg, "tool_calls") and msg.tool_calls:
                             for tc in msg.tool_calls:
                                 print(f"  LLM -> tool_call: {tc['name']}({json.dumps(tc['args'], ensure_ascii=False)})")
                         elif hasattr(msg, "content") and msg.content:
-                            # Final text response — print below tool flow
                             answer = msg.content
 
                 elif node_name == "execute_tools":
                     for msg in messages:
                         if hasattr(msg, "content"):
                             content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
-                            # Extract answer from terminal tool result
-                            if not answer:
-                                answer = _extract_answer_from_tool_result(content)
-                            # Show truncated result
                             preview = content[:120].replace("\n", " ")
                             if len(content) > 120:
                                 preview += "..."
                             print(f"  Tool -> {preview}")
 
-                elif node_name == "validate_safety":
+                elif node_name == "node_clinical_synthesis":
+                    for msg in messages:
+                        if hasattr(msg, "content") and msg.content:
+                            answer = msg.content
+
+                elif node_name == "validate_evidence":
+                    val = node_output.get("validation_result")
+                    if val and not val.get("passed"):
+                        print(f"  Evidence Gate: Needs evidence ({val.get('blocked_reason')})")
+
+                elif node_name in ("validate_safety", "safety_block"):
                     for msg in messages:
                         if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
                             answer = msg.content
@@ -257,7 +313,6 @@ def run_interactive(provider: str, model: str, db_path: str):
             if not answer.startswith("Clinical Response Verification Blocked:"):
                 answer = f"Clinical Response Verification Blocked: {blocked_reason}"
         else:
-            # Append references section to answer
             answer += _build_references_section(validation_result)
 
         # Show final answer
@@ -266,14 +321,17 @@ def run_interactive(provider: str, model: str, db_path: str):
         # Show token usage
         token_tracker.print_summary()
 
-        # Update conversation history (as message objects for the next turn)
+        # Update conversation history
         from langchain_core.messages import AIMessage
         conversation_history.append(HumanMessage(content=user_input))
         conversation_history.append(AIMessage(content=answer))
 
-        # Keep history manageable (last 10 exchanges)
-        if len(conversation_history) > 20:
-            conversation_history = conversation_history[-20:]
+        # Semantic history compression when approaching 128k threshold
+        if is_near_token_limit(conversation_history, DEFAULT_HISTORY_COMPRESSION_THRESHOLD):
+            conversation_history = compress_conversation_history(
+                conversation_history,
+                patient_profile=patient_profile,
+            )
 
     db.close()
 
@@ -295,13 +353,24 @@ def run_single_query(query: str, provider: str, model: str, db_path: str, patien
         provider=provider,
     )
     api_key = resolve_api_key(provider)
-    llm = create_llm(provider, model, api_key)
+    llm = create_llm(provider, model, api_key, temperature=DEFAULT_TEMPERATURE)
     llm_with_tools = llm.bind_tools(tools)
 
-    from agent import create_clinical_agent, create_initial_state
+    from agent import (
+        create_clinical_agent,
+        create_initial_state,
+    )
     from token_tracker import TokenTracker
     token_tracker = TokenTracker()
-    agent = create_clinical_agent(llm_with_tools, tools, system_prompt, callbacks=[token_tracker])
+    agent = create_clinical_agent(
+        llm=llm,
+        tools=tools,
+        system_prompt=system_prompt,
+        callbacks=[token_tracker],
+        llm_with_tools=llm_with_tools,
+        llm_tool_free=llm,
+        history_compression_threshold=DEFAULT_HISTORY_COMPRESSION_THRESHOLD,
+    )
 
     initial_state = create_initial_state(query, system_prompt, patient_profile=patient_profile)
 
@@ -312,9 +381,11 @@ def run_single_query(query: str, provider: str, model: str, db_path: str, patien
 
     for event in agent.stream(initial_state, config=config, stream_mode="updates"):
         for node_name, node_output in event.items():
+            if not node_output or not isinstance(node_output, dict):
+                continue
             messages = node_output.get("messages", [])
 
-            if node_name == "llm":
+            if node_name == "node_evidence_gathering":
                 for msg in messages:
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         for tc in msg.tool_calls:
@@ -326,15 +397,22 @@ def run_single_query(query: str, provider: str, model: str, db_path: str, patien
                 for msg in messages:
                     if hasattr(msg, "content"):
                         content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
-                        # Extract answer from terminal tool result
-                        if not answer:
-                            answer = _extract_answer_from_tool_result(content)
                         preview = content[:120].replace("\n", " ")
                         if len(content) > 120:
                             preview += "..."
                         print(f"  Tool -> {preview}")
 
-            elif node_name == "validate_safety":
+            elif node_name == "node_clinical_synthesis":
+                for msg in messages:
+                    if hasattr(msg, "content") and msg.content:
+                        answer = msg.content
+
+            elif node_name == "validate_evidence":
+                val = node_output.get("validation_result")
+                if val and not val.get("passed"):
+                    print(f"  Evidence Gate: {val.get('blocked_reason')}")
+
+            elif node_name in ("validate_safety", "safety_block"):
                 for msg in messages:
                     if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
                         answer = msg.content
@@ -349,14 +427,11 @@ def run_single_query(query: str, provider: str, model: str, db_path: str, patien
         if not answer.startswith("Clinical Response Verification Blocked:"):
             answer = f"Clinical Response Verification Blocked: {blocked_reason}"
     else:
-        # Append references section to answer
         answer += _build_references_section(validation_result)
 
     print(f"\n{answer}")
 
-    # Show token usage
     token_tracker.print_summary()
-
     db.close()
 
 
@@ -434,7 +509,6 @@ def run_tests(db_path: str):
     print("  No-section block: PASS")
 
     print("\nAll tests passed!")
-
     db.close()
 
 

@@ -633,16 +633,12 @@ class TurnContextAccumulatorTest {
         val rawArgs = mapOf(
             "topic_id" to "123",
             "section_ids" to "[\"s1\"]",
-            "graphic_id" to "g1",
-            "answer_text" to "text",
-            "no_data_found" to "false"
+            "graphic_id" to "g1"
         )
         val normalized = AiJsonUtils.normalizeArgs(rawArgs)
         assertEquals("123", normalized["topicId"])
         assertEquals("[\"s1\"]", normalized["sectionIds"])
         assertEquals("g1", normalized["graphicId"])
-        assertEquals("text", normalized["answerText"])
-        assertEquals("false", normalized["noDataFound"])
     }
 
     @Test
@@ -795,21 +791,6 @@ class TurnContextAccumulatorTest {
         assertEquals("Treatment", fetchedSec?.sectionTitle)
     }
 
-    @Test
-    fun `AiJsonUtils parseAsJsonObject unwraps JSONPrimitive class wrappers and escaped quotes`() {
-        val wrapped = """JSONPrimitive(content="{\"query\":\"TSH\",\"results\":[{\"id\":\"7891\",\"title\":\"Laboratory assessment\"}]}")"""
-        val parsed = AiJsonUtils.parseAsJsonObject(wrapped)
-        assertNotNull(parsed)
-        val results = parsed?.get("results") as? kotlinx.serialization.json.JsonArray
-        assertNotNull(results)
-        assertEquals(1, results?.size)
-
-        val doubleEscaped = """"{\"query\":\"TSH\",\"results\":[{\"id\":\"7891\",\"title\":\"Laboratory assessment\"}]}""""
-        val parsedDouble = AiJsonUtils.parseAsJsonObject(doubleEscaped)
-        assertNotNull(parsedDouble)
-        val resultsDouble = parsedDouble?.get("results") as? kotlinx.serialization.json.JsonArray
-        assertEquals(1, resultsDouble?.size)
-    }
 
     @Test
     fun `onToolCallCompleted parses getTopicOverview outline and getTopicSectionsText content`() {

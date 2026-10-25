@@ -9,11 +9,11 @@ Mirrors Kotlin MedicalDatabaseTools — 6 tools:
 6. get_graphic_content — Table data as markdown (or error for non-table)
 """
 
-import json
 import re
-from typing import Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from database import ClinRefDatabase
 from html_parser import (
@@ -32,6 +32,168 @@ _db: Optional[ClinRefDatabase] = None
 MAX_SECTIONS_PER_CALL = 10
 
 
+# ---------------------------------------------------------------------------
+# Pydantic Response Models (1:1 with Kotlin MedicalDatabaseResponses.kt)
+# ---------------------------------------------------------------------------
+
+
+class SearchResultTopicItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    id: str
+    title: str
+    type: str = "topic"
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+class SearchTopicsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    query: str = ""
+    results: List[SearchResultTopicItem] = Field(default_factory=list)
+    refine_with: List[str] = Field(default_factory=list)
+    message: str = ""
+    error: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+SearchTopicsResult = SearchTopicsResponse
+
+
+class OutlineSectionItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    id: str
+    title: str
+    level: int = 1
+    parentId: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+class OutlineGraphicItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    id: str
+    title: str
+    isTable: bool = True
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+class RelatedTopicItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    id: str
+    title: str
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+class TopicOverviewResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    topicId: str = Field(default="", alias="topic_id")
+    title: str = Field(default="", alias="topic_title")
+    topicType: str = Field(default="article", alias="topic_type")
+    sections: List[OutlineSectionItem] = Field(default_factory=list, alias="outline")
+    graphics: List[OutlineGraphicItem] = Field(default_factory=list)
+    relatedTopics: List[RelatedTopicItem] = Field(default_factory=list, alias="related_topics")
+    markdown: str = ""
+    error: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+TopicOverviewResult = TopicOverviewResponse
+
+
+class RelatedTopicsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    topicId: str = Field(default="", alias="topic_id")
+    relatedTopics: List[RelatedTopicItem] = Field(default_factory=list, alias="related_topics")
+    error: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+RelatedTopicsResult = RelatedTopicsResponse
+
+
+class TopicSectionsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    topicId: str = Field(default="", alias="topic_id")
+    topicTitle: str = Field(default="", alias="topic_title")
+    sectionTitles: Dict[str, str] = Field(default_factory=dict, alias="section_titles")
+    markdown: str = ""
+    invalid_sections: Optional[List[str]] = Field(default_factory=list, alias="invalidSections")
+    omitted_sections: Optional[List[str]] = Field(default_factory=list, alias="omittedSections")
+    truncated: Optional[bool] = None
+    error: Optional[str] = None
+
+    @computed_field
+    def invalidSections(self) -> Optional[List[str]]:
+        return self.invalid_sections
+
+    @computed_field
+    def omittedSections(self) -> Optional[List[str]]:
+        return self.omitted_sections
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+TopicSectionsResult = TopicSectionsResponse
+
+
+class GraphicContentResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    graphicId: str = Field(default="", alias="graphic_id")
+    title: str = ""
+    markdown: str = ""
+    error: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+GraphicContentResult = GraphicContentResponse
+
+
+class SectionSearchResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    sectionId: str = Field(..., alias="section_id")
+    sectionTitle: str = Field(..., alias="section_title")
+    level: int = 1
+    snippet: str
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+class SearchTopicSectionsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    topicId: str = Field(default="", alias="topic_id")
+    query: str = ""
+    matches: List[SectionSearchResult] = Field(default_factory=list)
+    message: str = ""
+    error: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.model_dump_json()
+
+
+SearchTopicSectionsResult = SearchTopicSectionsResponse
+
+
+# ---------------------------------------------------------------------------
+# Tool Initialization & Helper Functions
+# ---------------------------------------------------------------------------
+
+
 def init_tools(db: ClinRefDatabase) -> list:
     """Initialize tools with a database instance. Returns tool list."""
     global _db
@@ -44,9 +206,6 @@ def init_tools(db: ClinRefDatabase) -> list:
         get_topic_sections_text,
         get_graphic_content,
     ]
-
-
-
 
 
 def resolve_section_ids(requested_ids: list[str], id_to_title: dict[str, str]) -> tuple[list[str], list[str]]:
@@ -96,28 +255,34 @@ def resolve_section_ids(requested_ids: list[str], id_to_title: dict[str, str]) -
     return valid_ids, invalid_ids
 
 
+# ---------------------------------------------------------------------------
+# Retrieval Tools
+# ---------------------------------------------------------------------------
+
+
 @tool
 def get_topic_overview(
     topic_id: str = "",
     topicId: Optional[str] = None,
     **kwargs,
-) -> str:
-    """Retrieve the topic outline hierarchy, table graphics, and related topics in a single round-trip.
+) -> TopicOverviewResponse:
+    """Step 2 after search_topics: Retrieve the complete section outline hierarchy (sectionIds and titles), available graphic_table metadata (graphicIds), and related topics for a topicId.
 
-    Bundles outline metadata (section IDs and titles), table graphics, and related topics (or full calculator content).
-    Inspect the outline hierarchy to select relevant section IDs for the patient presentation,
-    then fetch their content with get_topic_sections_text.
+    Note: Standard clinical topics return outline titles only—you MUST subsequently call get_topic_sections_text to read actual clinical text. (Medical calculator topics return full markdown content directly).
+
+    Args:
+        topic_id: Exact numeric topic ID string returned by search_topics or get_related_topics (e.g., '12345').
     """
     if _db is None:
-        return json.dumps({"error": "Database not initialized"})
+        return TopicOverviewResponse(error="Database not initialized")
 
     effective_topic_id = topic_id or topicId or kwargs.get("topicId") or kwargs.get("topic_id") or ""
     clean_topic_id = str(effective_topic_id).strip()
     if not clean_topic_id:
-        return json.dumps({"error": "Topic not found: "})
+        return TopicOverviewResponse(error="Topic not found: ")
 
     if ClinRefDatabase._extract_numeric_id(clean_topic_id) is None:
-        return json.dumps({"error": f"Topic not found: {clean_topic_id}"})
+        return TopicOverviewResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
     body_html = _db.get_topic_body(clean_topic_id)
     outline_html = _db.get_topic_outline(clean_topic_id)
@@ -126,7 +291,7 @@ def get_topic_overview(
         asset = None
 
     if not body_html and not outline_html and not asset:
-        return json.dumps({"error": f"Topic not found: {clean_topic_id}"})
+        return TopicOverviewResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
     title_val = _db.get_topic_title(clean_topic_id)
     title = title_val if isinstance(title_val, str) and title_val else clean_topic_id
@@ -139,46 +304,49 @@ def get_topic_overview(
         calc_markdown = html_to_markdown(calc_body)
         header = f"=== Calculator: {title} ==="
         full_md = f"{header}\n{calc_markdown}"
-        return json.dumps({
-            "topicId": clean_topic_id,
-            "topic_id": clean_topic_id,
-            "title": title,
-            "topicTitle": title,
-            "topic_title": title,
-            "topicType": "calc",
-            "topic_type": "calc",
-            "outline": [{"id": "FULL", "title": "Calculator Tool Content", "level": 1}],
-            "sections": [{"id": "FULL", "title": "Calculator Tool Content", "level": 1}],
-            "graphics": [],
-            "relatedTopics": [],
-            "related_topics": [],
-            "markdown": full_md,
-        }, indent=2, ensure_ascii=False)
+        return TopicOverviewResponse(
+            topicId=clean_topic_id,
+            title=title,
+            topicType="calc",
+            sections=[OutlineSectionItem(id="FULL", title="Calculator Tool Content", level=1)],
+            graphics=[],
+            relatedTopics=[],
+            markdown=full_md,
+        )
 
-    outline_sections = extract_outline_sections(outline_html or "")
-    graphics = extract_graphics_from_outline(outline_html or "")
-    # NOTE: the parser emits snake_case `is_table`; do not probe camelCase only (parity with Kotlin `isTable`)
-    table_graphics = [g for g in graphics if g.get("is_table", g.get("isTable", True))]
-    for g in table_graphics:
-        g["isTable"] = True
-    related = extract_related_topics(outline_html or "")
+    raw_outline_sections = extract_outline_sections(outline_html or "")
+    sections = [
+        OutlineSectionItem(
+            id=s["id"],
+            title=s["title"],
+            level=s.get("level", 1),
+            parentId=s.get("parentId"),
+        )
+        for s in raw_outline_sections
+        if s.get("id")
+    ]
+    raw_graphics = extract_graphics_from_outline(outline_html or "")
+    table_graphics = [
+        OutlineGraphicItem(id=g["id"], title=g.get("title", ""), isTable=True)
+        for g in raw_graphics
+        if g.get("is_table", g.get("isTable", True)) and g.get("id")
+    ]
+    raw_related = extract_related_topics(outline_html or "")
+    related = [
+        RelatedTopicItem(id=r["id"], title=r.get("title", ""))
+        for r in raw_related
+        if r.get("id")
+    ]
 
-    return json.dumps({
-        "topicId": clean_topic_id,
-        "topic_id": clean_topic_id,
-        "title": title,
-        "topicTitle": title,
-        "topic_title": title,
-        "topicType": topic_type,
-        "topic_type": topic_type,
-        "outline": outline_sections,
-        "sections": outline_sections,
-        "graphics": table_graphics,
-        "relatedTopics": related,
-        "related_topics": related,
-        "markdown": "",
-    }, indent=2, ensure_ascii=False)
-
+    return TopicOverviewResponse(
+        topicId=clean_topic_id,
+        title=title,
+        topicType=topic_type,
+        sections=sections,
+        graphics=table_graphics,
+        relatedTopics=related,
+        markdown="",
+    )
 
 
 @tool
@@ -191,17 +359,16 @@ def search_topics(
     queryText: Optional[str] = None,
     searchQuery: Optional[str] = None,
     **kwargs,
-) -> str:
-    """Search medical topics by focused core keywords (e.g., 'apixaban', 'asthma', 'gout').
+) -> SearchTopicsResponse:
+    """Search the UpToDate index by a single medical condition, syndrome, or drug name (1–3 words max, e.g., 'apixaban', 'acute gout', 'community acquired pneumonia').
 
-    Returns matching candidate topics ({id, title}) and 'refine_with' suggestions.
-    For multi-concept questions, execute separate searches per concept.
-    Avoid searching full patient sentences or lab measurements.
+    Returns candidate {id, title} pairs and refine_with keywords. For multi-condition or multi-drug queries, invoke multiple search_topics calls in parallel. Never pass full sentences, patient ages, or lab values.
 
-    Returns: {query, results: [{id, title}], refine_with: [suggested queries], message}
+    Args:
+        query: Core clinical entity or generic drug name (1–3 words, e.g., 'metformin', 'atrial fibrillation'). Do not include boolean operators, patient demographics, or punctuation.
     """
     if _db is None:
-        return json.dumps({"error": "Database not initialized"})
+        return SearchTopicsResponse(error="Database not initialized")
 
     effective_query = (
         query
@@ -222,12 +389,12 @@ def search_topics(
     )
     clean_query = str(effective_query).strip()
     if not clean_query:
-        return json.dumps({
-            "query": "",
-            "results": [],
-            "refine_with": [],
-            "message": "",
-        })
+        return SearchTopicsResponse(
+            query="",
+            results=[],
+            refine_with=[],
+            message="",
+        )
 
     results = _db.search_topics(clean_query, limit=10)
     suggestions = _db.get_suggestions(clean_query, limit=20)
@@ -249,22 +416,25 @@ def search_topics(
             if not suggestions
             else f"No results for '{query}'. Try one of the 'refine_with' suggestions."
         )
-        return json.dumps({
-            "query": query,
-            "results": [],
-            "refine_with": suggestions,
-            "message": message,
-        })
+        return SearchTopicsResponse(
+            query=query,
+            results=[],
+            refine_with=suggestions,
+            message=message,
+        )
 
     # Pure candidate topics list
-    formatted_results = [{"id": r["id"], "title": r["title"]} for r in results]
+    formatted_results = [
+        SearchResultTopicItem(id=r["id"], title=r["title"])
+        for r in results
+    ]
 
-    return json.dumps({
-        "query": clean_query,
-        "results": formatted_results,
-        "refine_with": suggestions,
-        "message": "Success",
-    })
+    return SearchTopicsResponse(
+        query=clean_query,
+        results=formatted_results,
+        refine_with=suggestions,
+        message="Success",
+    )
 
 
 @tool
@@ -272,15 +442,21 @@ def get_related_topics(
     topic_id: str = "",
     topicId: Optional[str] = None,
     **kwargs,
-) -> str:
-    """Get related topic IDs and titles for a topic. Use this to build a candidate pool before fetching sections."""
+) -> RelatedTopicsResponse:
+    """Retrieve cross-referenced topic IDs and titles linked to a primary topicId.
+
+    Use when a general disease topic links out to a dedicated drug-dosing or special-population sub-topic. Follow with get_topic_overview and get_topic_sections_text on the target topic.
+
+    Args:
+        topic_id: Exact numeric topic ID string from search_topics or get_topic_overview.
+    """
     if _db is None:
-        return json.dumps({"error": "Database not initialized"})
+        return RelatedTopicsResponse(error="Database not initialized")
 
     effective_topic_id = topic_id or topicId or kwargs.get("topic_id") or kwargs.get("topicId") or ""
     clean_id = str(effective_topic_id).strip()
     if not clean_id or ClinRefDatabase._extract_numeric_id(clean_id) is None:
-        return json.dumps({"error": f"Topic not found: {clean_id}"})
+        return RelatedTopicsResponse(topicId=clean_id, error=f"Topic not found: {clean_id}")
 
     outline_html = _db.get_topic_outline(clean_id)
     if not outline_html:
@@ -288,19 +464,22 @@ def get_related_topics(
         # empty pool instead of an error (mirrors Kotlin getRelatedTopics).
         asset = _db.get_topic_asset(clean_id) if hasattr(_db, "get_topic_asset") else None
         if asset is not None and isinstance(asset, dict):
-            return json.dumps({
-                "topicId": clean_id,
-                "relatedTopics": [],
-                "related_topics": [],
-            }, indent=2)
-        return json.dumps({"error": f"Topic not found: {clean_id}"})
+            return RelatedTopicsResponse(
+                topicId=clean_id,
+                relatedTopics=[],
+            )
+        return RelatedTopicsResponse(topicId=clean_id, error=f"Topic not found: {clean_id}")
 
-    related = extract_related_topics(outline_html)
-    return json.dumps({
-        "topicId": clean_id,
-        "relatedTopics": related,
-        "related_topics": related,
-    }, indent=2)
+    raw_related = extract_related_topics(outline_html)
+    related = [
+        RelatedTopicItem(id=r["id"], title=r.get("title", ""))
+        for r in raw_related
+        if r.get("id")
+    ]
+    return RelatedTopicsResponse(
+        topicId=clean_id,
+        relatedTopics=related,
+    )
 
 
 @tool
@@ -310,17 +489,22 @@ def get_topic_sections_text(
     topicId: Optional[str] = None,
     sectionIds: Optional[Union[list[str], str]] = None,
     **kwargs,
-) -> str:
-    """Retrieve up to 10 sections from the same topic in a single call, each returned
-    in full (no token cap). Requested section IDs beyond 10 are returned in
-    omittedSections."""
+) -> TopicSectionsResponse:
+    """Step 3 (Mandatory for clinical answers): Retrieve full, unredacted clinical text for up to 10 sectionIds within a single topicId.
+
+    Select sections covering dosing, first-line and alternative regimens (especially if patient allergies exist), and renal/hepatic adjustments. Up to 10 sections are returned in full; extras are listed in omittedSections.
+
+    Args:
+        topic_id: Exact numeric topic ID string.
+        section_ids: Array of 1 to 10 section ID strings copied from get_topic_overview or search_topic_sections (e.g., ['H12', 'H15']).
+    """
     if _db is None:
-        return json.dumps({"error": "Database not initialized"})
+        return TopicSectionsResponse(error="Database not initialized")
 
     effective_topic_id = topic_id or topicId or kwargs.get("topic_id") or kwargs.get("topicId") or ""
     clean_topic_id = str(effective_topic_id).strip()
     if not clean_topic_id or ClinRefDatabase._extract_numeric_id(clean_topic_id) is None:
-        return json.dumps({"error": f"Topic not found: {clean_topic_id}"})
+        return TopicSectionsResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
     raw_sids = (
         section_ids
@@ -343,7 +527,7 @@ def get_topic_sections_text(
         asset = None
 
     if not body_html:
-        return json.dumps({"error": f"Topic not found: {clean_topic_id}"})
+        return TopicSectionsResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
     title_val = _db.get_topic_title(clean_topic_id)
     topic_title = title_val if isinstance(title_val, str) and title_val else clean_topic_id
@@ -356,31 +540,29 @@ def get_topic_sections_text(
         markdown = html_to_markdown(body_html)
         header = f"=== Calculator: {topic_title} ===" if t_type == "calc" else "=== Section: FULL ==="
         full_text = f"{header}\n{markdown}"
-        resp = {
-            "topicId": clean_topic_id,
-            "topicTitle": topic_title,
-            "topic_type": t_type,
-            "sectionTitles": {"FULL": topic_title},
-            "markdown": full_text,
-        }
-        return json.dumps(resp, indent=2, ensure_ascii=False)
+        return TopicSectionsResponse(
+            topicId=clean_topic_id,
+            topicTitle=topic_title,
+            sectionTitles={"FULL": topic_title},
+            markdown=full_text,
+        )
 
     # Build section ID -> title map from outline
-    outline_sections = extract_outline_sections(outline_html or "")
-    id_to_title = {s["id"]: s["title"] for s in outline_sections}
+    raw_outline_sections = extract_outline_sections(outline_html or "")
+    id_to_title = {s["id"]: s["title"] for s in raw_outline_sections if s.get("id")}
 
     # Validate & smart-resolve section IDs (exact ID, case-insensitive ID, or title match)
     target_sids = raw_sids if raw_sids else list(id_to_title.keys())[:3]
     valid_ids, invalid_ids = resolve_section_ids(target_sids, id_to_title)
 
     if not valid_ids and invalid_ids:
-        return json.dumps({
-            "topicId": clean_topic_id,
-            "topicTitle": topic_title,
-            "sectionTitles": {},
-            "markdown": "",
-            "invalidSections": invalid_ids,
-        })
+        return TopicSectionsResponse(
+            topicId=clean_topic_id,
+            topicTitle=topic_title,
+            sectionTitles={},
+            markdown="",
+            invalidSections=invalid_ids,
+        )
 
     sections_md = []
     section_titles = {}
@@ -404,18 +586,14 @@ def get_topic_sections_text(
         sections_md.append(sec_entry)
         section_titles[section_id] = title
 
-    result = {
-        "topicId": clean_topic_id,
-        "topicTitle": topic_title,
-        "sectionTitles": section_titles,
-        "markdown": "\n\n".join(sections_md),
-    }
-    if invalid_ids:
-        result["invalidSections"] = invalid_ids
-    if omitted_sections:
-        result["omittedSections"] = omitted_sections
-
-    return json.dumps(result, indent=2, ensure_ascii=False)
+    return TopicSectionsResponse(
+        topicId=clean_topic_id,
+        topicTitle=topic_title,
+        sectionTitles=section_titles,
+        markdown="\n\n".join(sections_md),
+        invalidSections=invalid_ids,
+        omittedSections=omitted_sections,
+    )
 
 
 @tool
@@ -430,14 +608,17 @@ def search_topic_sections(
     queryText: Optional[str] = None,
     searchQuery: Optional[str] = None,
     **kwargs,
-) -> str:
-    """Search sections within a specific topic by keywords (e.g., 'dosing', 'pregnancy', 'renal').
+) -> SearchTopicSectionsResponse:
+    """Perform a targeted keyword search inside a single known topicId to locate specific section IDs and text snippets (e.g., 'renal', 'dosing', 'pregnancy', 'penicillin allergy').
 
-    Returns matching section IDs, titles, hierarchy level, and content snippets.
-    Use for long topics to pinpoint exact section IDs before fetching full text.
+    Use this on large topics when get_topic_overview has dozens of sections and you need to pinpoint exact sectionIds before calling get_topic_sections_text.
+
+    Args:
+        topic_id: Exact numeric topic ID string.
+        query: 1–2 clinical keywords to locate within the topic (e.g., 'renal dose', 'contraindications').
     """
     if _db is None:
-        return json.dumps({"error": "Database not initialized"})
+        return SearchTopicSectionsResponse(error="Database not initialized")
 
     effective_topic_id = topic_id or topicId or kwargs.get("topic_id") or kwargs.get("topicId") or ""
     clean_topic_id = str(effective_topic_id).strip()
@@ -462,45 +643,47 @@ def search_topic_sections(
     clean_query = str(effective_query).strip()
 
     if not clean_topic_id or not clean_query:
-        return json.dumps({
-            "topicId": clean_topic_id,
-            "query": clean_query,
-            "matches": [],
-            "message": "Topic ID and query must be non-empty."
-        })
+        return SearchTopicSectionsResponse(
+            topicId=clean_topic_id,
+            query=clean_query,
+            matches=[],
+            message="Topic ID and query must be non-empty.",
+        )
 
     if ClinRefDatabase._extract_numeric_id(clean_topic_id) is None:
-        return json.dumps({
-            "topicId": clean_topic_id,
-            "query": clean_query,
-            "matches": [],
-            "message": f"Topic {clean_topic_id} not found."
-        })
+        return SearchTopicSectionsResponse(
+            topicId=clean_topic_id,
+            query=clean_query,
+            matches=[],
+            error=f"Topic not found: {clean_topic_id}",
+            message=f"Topic {clean_topic_id} not found.",
+        )
 
     asset = _db.get_topic_asset(clean_topic_id)
     if not asset:
-        return json.dumps({
-            "topicId": clean_topic_id,
-            "query": clean_query,
-            "matches": [],
-            "message": f"Topic {clean_topic_id} not found."
-        })
+        return SearchTopicSectionsResponse(
+            topicId=clean_topic_id,
+            query=clean_query,
+            matches=[],
+            error=f"Topic not found: {clean_topic_id}",
+            message=f"Topic {clean_topic_id} not found.",
+        )
 
     body_html = asset.get("bodyHtml", "")
     outline_html = asset.get("outlineHtml", "")
-    sections = extract_outline_sections(outline_html or "")
-    if not sections:
-        return json.dumps({
-            "topicId": clean_topic_id,
-            "query": clean_query,
-            "matches": [],
-            "message": "No sections found in topic outline."
-        })
+    raw_sections = extract_outline_sections(outline_html or "")
+    if not raw_sections:
+        return SearchTopicSectionsResponse(
+            topicId=clean_topic_id,
+            query=clean_query,
+            matches=[],
+            message="No sections found in topic outline.",
+        )
 
     keywords = [k.lower() for k in clean_query.split() if k]
-    matches = []
+    scored = []
 
-    for s in sections:
+    for s in raw_sections:
         sid = s["id"]
         title = s["title"]
         sec_html = extract_section_html(body_html, outline_html or "", sid) or ""
@@ -529,23 +712,25 @@ def search_topic_sections(
             else:
                 snippet = sec_text[:150] + ("..." if len(sec_text) > 150 else "")
 
-            matches.append({
-                "sectionId": sid,
-                "sectionTitle": title,
-                "level": s.get("level", 1),
-                "snippet": snippet,
-                "score": title_hits * 3 + text_hits
+            scored.append({
+                "item": SectionSearchResult(
+                    sectionId=sid,
+                    sectionTitle=title,
+                    level=s.get("level", 1),
+                    snippet=snippet,
+                ),
+                "score": title_hits * 3 + text_hits,
             })
 
-    matches.sort(key=lambda m: m["score"], reverse=True)
-    top_matches = [{k: v for k, v in m.items() if k != "score"} for m in matches[:8]]
+    scored.sort(key=lambda m: m["score"], reverse=True)
+    top_matches = [m["item"] for m in scored[:8]]
 
-    return json.dumps({
-        "topicId": clean_topic_id,
-        "query": clean_query,
-        "matches": top_matches,
-        "message": f"Found {len(top_matches)} matching sections." if top_matches else f"No matching sections found for '{clean_query}'."
-    })
+    return SearchTopicSectionsResponse(
+        topicId=clean_topic_id,
+        query=clean_query,
+        matches=top_matches,
+        message=f"Found {len(top_matches)} matching sections." if top_matches else f"No matching sections found for '{clean_query}'.",
+    )
 
 
 @tool
@@ -553,13 +738,16 @@ def get_graphic_content(
     graphic_id: str = "",
     graphicId: Optional[str] = None,
     **kwargs,
-) -> str:
-    """Retrieve graphic content for a graphic of type 'graphic_table' as formatted Markdown.
+) -> GraphicContentResponse:
+    """Retrieve full structured Markdown table content (e.g., empirical antibiotic tables, renal dosing adjustment tables, staging criteria) for an item whose type is 'graphic_table' in get_topic_overview.
 
-    Do NOT call for non-table graphics (figures, images, algorithms) as visual details cannot be analyzed.
+    Only call for 'graphic_table' items; skip figures, flowcharts, and images.
+
+    Args:
+        graphic_id: Exact graphic ID string from get_topic_overview for a 'graphic_table' item (e.g., 'Graphic-12345' or '12345').
     """
     if _db is None:
-        return json.dumps({"error": "Database not initialized"})
+        return GraphicContentResponse(error="Database not initialized")
 
     effective_graphic_id = graphic_id or graphicId or kwargs.get("graphic_id") or kwargs.get("graphicId") or ""
     clean_id = str(effective_graphic_id).strip()
@@ -569,18 +757,25 @@ def get_graphic_content(
 
     asset = _db.get_graphic_asset(raw_id) or (None if raw_id == clean_id else _db.get_graphic_asset(clean_id))
     if not asset:
-        return json.dumps({"error": f"Graphic {clean_id} not found"})
+        return GraphicContentResponse(graphicId=clean_id, error=f"Graphic {clean_id} not found")
 
     graphic_info = asset.get("graphicInfo", {})
     subtype = graphic_info.get("subtype", "")
     if subtype and subtype not in ("graphic_table", "table"):
-        return json.dumps({"error": f"Graphic {clean_id} is of type '{subtype}', not a table. Only table content is retrievable."})
+        return GraphicContentResponse(
+            graphicId=clean_id,
+            error=f"Graphic {clean_id} is of type '{subtype}', not a table. Only table content is retrievable.",
+        )
 
     table_html = asset.get("imageHtml", "")
     if not table_html:
-        return json.dumps({"error": f"Graphic {clean_id} has empty content"})
+        return GraphicContentResponse(graphicId=clean_id, error=f"Graphic {clean_id} has empty content")
 
     title = graphic_info.get("displayName") or graphic_info.get("title") or raw_id
     markdown = table_to_markdown(table_html)
-    return f"### Graphic Table: {title}\n\n{markdown}"
-
+    full_markdown = f"### Graphic Table: {title}\n\n{markdown}"
+    return GraphicContentResponse(
+        graphicId=clean_id,
+        title=title,
+        markdown=full_markdown,
+    )

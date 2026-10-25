@@ -67,10 +67,8 @@ class OpenRouterProvider(
         val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
         return OpenRouterParams(
-            temperature = if (settings.topP != null) null else temperature,
+            temperature = temperature,
             maxTokens = settings.maxTokens,
-            topP = settings.topP,
-            topK = settings.topK,
             frequencyPenalty = settings.frequencyPenalty,
             presencePenalty = settings.presencePenalty,
             repetitionPenalty = settings.repetitionPenalty,

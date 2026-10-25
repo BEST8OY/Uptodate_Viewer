@@ -2,6 +2,7 @@ package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.KoogHttpClient
 import ai.koog.prompt.executor.clients.ConnectionTimeoutConfig
+import ai.koog.prompt.executor.clients.anthropic.AnthropicCacheControl
 import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
 import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
@@ -63,15 +64,13 @@ class AnthropicProvider(
 
     override fun createParams(config: AiConfiguration): LLMParams {
         val settings = config.providerSettings as? ProviderSettings.Anthropic
-            ?: return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
         val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
         return AnthropicParams(
-            temperature = if (settings.topP != null) null else temperature,
-            maxTokens = settings.maxTokens,
-            topP = settings.topP,
-            topK = settings.topK,
-            thinking = null
+            temperature = temperature,
+            maxTokens = settings?.maxTokens ?: config.maxTokens,
+            thinking = null,
+            cacheControl = AnthropicCacheControl.Default
         )
     }
 

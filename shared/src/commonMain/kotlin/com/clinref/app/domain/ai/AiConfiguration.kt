@@ -8,7 +8,7 @@ data class AiConfiguration(
     val baseUrl: String = "",
     val model: String = "",
     val providerSettings: ProviderSettings = ProviderSettings.OpenAI(),
-    val historyCompressionThreshold: Int = 8000,
+    val historyCompressionThreshold: Int = 128000,
     val isConfigured: Boolean = false
 ) {
     // Convenience accessors for common settings

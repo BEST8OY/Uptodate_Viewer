@@ -63,10 +63,8 @@ class GoogleProvider(
         val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
         return GoogleParams(
-            temperature = if (settings.topP != null) null else temperature,
+            temperature = temperature,
             maxTokens = settings.maxTokens,
-            topP = settings.topP,
-            topK = settings.topK,
             thinkingConfig = if (settings.includeThoughts) {
                 GoogleThinkingConfig(
                     includeThoughts = true,

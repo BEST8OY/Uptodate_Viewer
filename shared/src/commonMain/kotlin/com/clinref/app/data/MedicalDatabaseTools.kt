@@ -3,7 +3,6 @@ package com.clinref.app.data
 import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private const val TAG = "MedTools"
@@ -89,10 +88,10 @@ class MedicalDatabaseTools(
         )
     }
 
-    fun searchTopics(query: String): String {
+    fun searchTopics(query: String): SearchTopicsResponse {
         val cleanQuery = query.trim()
         if (cleanQuery.isEmpty()) {
-            return json.encodeToString(SearchTopicsResponse())
+            return SearchTopicsResponse()
         }
 
         val searchResults = searchRepository.searchTopics(cleanQuery)
@@ -105,13 +104,11 @@ class MedicalDatabaseTools(
                 val retryResults = searchRepository.searchTopics(suggestion)
                 val retryMapped = formatSearchResults(retryResults)
                 if (retryMapped.isNotEmpty()) {
-                    return json.encodeToString(
-                        SearchTopicsResponse(
-                            query = suggestion,
-                            results = retryMapped,
-                            refine_with = suggestions.filter { it != suggestion },
-                            message = "Auto-refined from '$cleanQuery' to '$suggestion'"
-                        )
+                    return SearchTopicsResponse(
+                        query = suggestion,
+                        results = retryMapped,
+                        refine_with = suggestions.filter { it != suggestion },
+                        message = "Auto-refined from '$cleanQuery' to '$suggestion'"
                     )
                 }
             }
@@ -122,24 +119,20 @@ class MedicalDatabaseTools(
             } else {
                 "No results for '$cleanQuery'. Try one of the 'refine_with' suggestions."
             }
-            return json.encodeToString(
-                SearchTopicsResponse(
-                    query = cleanQuery,
-                    results = emptyList(),
-                    refine_with = allSuggestions,
-                    message = msg
-                )
+            return SearchTopicsResponse(
+                query = cleanQuery,
+                results = emptyList(),
+                refine_with = allSuggestions,
+                message = msg
             )
         }
 
         val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-        return json.encodeToString(
-            SearchTopicsResponse(
-                query = cleanQuery,
-                results = results,
-                refine_with = allSuggestions,
-                message = "Success"
-            )
+        return SearchTopicsResponse(
+            query = cleanQuery,
+            results = results,
+            refine_with = allSuggestions,
+            message = "Success"
         )
     }
 
@@ -153,10 +146,10 @@ class MedicalDatabaseTools(
         }
     }
 
-    fun getTopicOverview(topicId: String): String {
+    fun getTopicOverview(topicId: String): TopicOverviewResponse {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
+            ?: return TopicOverviewResponse(topicId = cleanTopicId, error = "Topic not found: $cleanTopicId")
 
         val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
         val topicTitles = mutableMapOf<String, String>()
@@ -169,16 +162,14 @@ class MedicalDatabaseTools(
             }
             val header = "=== Calculator: $title ==="
             val fullMd = "$header\n$calcMarkdown"
-            return json.encodeToString(
-                TopicOverviewResponse(
-                    topicId = cleanTopicId,
-                    title = title,
-                    topicType = "calc",
-                    sections = listOf(OutlineSectionItem(id = "FULL", title = "Calculator Tool Content", level = 1)),
-                    graphics = emptyList(),
-                    relatedTopics = emptyList(),
-                    markdown = fullMd
-                )
+            return TopicOverviewResponse(
+                topicId = cleanTopicId,
+                title = title,
+                topicType = "calc",
+                sections = listOf(OutlineSectionItem(id = "FULL", title = "Calculator Tool Content", level = 1)),
+                graphics = emptyList(),
+                relatedTopics = emptyList(),
+                markdown = fullMd
             )
         }
 
@@ -193,47 +184,41 @@ class MedicalDatabaseTools(
             RelatedTopicItem(id = rt.id, title = rt.title)
         }
 
-        return json.encodeToString(
-            TopicOverviewResponse(
-                topicId = cleanTopicId,
-                title = title,
-                topicType = "article",
-                sections = sectionsList,
-                graphics = graphicsList,
-                relatedTopics = relatedList,
-                markdown = ""
-            )
+        return TopicOverviewResponse(
+            topicId = cleanTopicId,
+            title = title,
+            topicType = "article",
+            sections = sectionsList,
+            graphics = graphicsList,
+            relatedTopics = relatedList,
+            markdown = ""
         )
     }
 
-    fun getRelatedTopics(topicId: String): String {
+    fun getRelatedTopics(topicId: String): RelatedTopicsResponse {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
+            ?: return RelatedTopicsResponse(topicId = cleanTopicId, error = "Topic not found: $cleanTopicId")
         if (content.outlineHtml.isBlank()) {
-            return json.encodeToString(
-                RelatedTopicsResponse(
-                    topicId = cleanTopicId,
-                    relatedTopics = emptyList()
-                )
+            return RelatedTopicsResponse(
+                topicId = cleanTopicId,
+                relatedTopics = emptyList()
             )
         }
         val outline = parseOutline(content.outlineHtml)
         val relatedList = outline.relatedTopics.map { rt ->
             RelatedTopicItem(id = rt.id, title = rt.title)
         }
-        return json.encodeToString(
-            RelatedTopicsResponse(
-                topicId = cleanTopicId,
-                relatedTopics = relatedList
-            )
+        return RelatedTopicsResponse(
+            topicId = cleanTopicId,
+            relatedTopics = relatedList
         )
     }
 
-    fun getTopicSectionsText(topicId: String, sectionIds: List<String>): String {
+    fun getTopicSectionsText(topicId: String, sectionIds: List<String>): TopicSectionsResponse {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
+            ?: return TopicSectionsResponse(topicId = cleanTopicId, topicTitle = "", markdown = "", error = "Topic not found: $cleanTopicId")
 
         val topicTitle = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
         val topicTitles = mutableMapOf<String, String>()
@@ -251,13 +236,11 @@ class MedicalDatabaseTools(
             }
             val header = if (isCalc) "=== Calculator: $topicTitle ===" else "=== Section: FULL ==="
             val fullText = "$header\n$markdown"
-            return json.encodeToString(
-                TopicSectionsResponse(
-                    topicId = cleanTopicId,
-                    topicTitle = topicTitle,
-                    sectionTitles = mapOf("FULL" to topicTitle),
-                    markdown = fullText
-                )
+            return TopicSectionsResponse(
+                topicId = cleanTopicId,
+                topicTitle = topicTitle,
+                sectionTitles = mapOf("FULL" to topicTitle),
+                markdown = fullText
             )
         }
 
@@ -304,14 +287,12 @@ class MedicalDatabaseTools(
         }
 
         if (validIds.isEmpty() && invalidIds.isNotEmpty()) {
-            return json.encodeToString(
-                TopicSectionsResponse(
-                    topicId = cleanTopicId,
-                    topicTitle = topicTitle,
-                    sectionTitles = emptyMap(),
-                    markdown = "",
-                    invalidSections = invalidIds
-                )
+            return TopicSectionsResponse(
+                topicId = cleanTopicId,
+                topicTitle = topicTitle,
+                sectionTitles = emptyMap(),
+                markdown = "",
+                invalidSections = invalidIds
             )
         }
 
@@ -343,38 +324,44 @@ class MedicalDatabaseTools(
             sectionTitles[sectionId] = title
         }
 
-        return json.encodeToString(
-            TopicSectionsResponse(
-                topicId = cleanTopicId,
-                topicTitle = topicTitle,
-                sectionTitles = sectionTitles,
-                markdown = sectionsMd.joinToString("\n\n"),
-                invalidSections = invalidIds.ifEmpty { null },
-                omittedSections = omittedSections.ifEmpty { null }
-            )
+        return TopicSectionsResponse(
+            topicId = cleanTopicId,
+            topicTitle = topicTitle,
+            sectionTitles = sectionTitles,
+            markdown = sectionsMd.joinToString("\n\n"),
+            invalidSections = invalidIds.ifEmpty { null },
+            omittedSections = omittedSections.ifEmpty { null }
         )
     }
 
-    fun getGraphicContent(graphicId: String): String {
+    fun getGraphicContent(graphicId: String): GraphicContentResponse {
         val cleanId = graphicId.trim()
         val rawGraphicId = cleanId.replace(Regex("(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)"), "")
 
         val graphicData = assetRepository.getGraphic(rawGraphicId)
             ?: (if (rawGraphicId != cleanId) assetRepository.getGraphic(cleanId) else null)
-            ?: return json.encodeToString(ToolErrorResponse("Graphic $cleanId not found"))
+            ?: return GraphicContentResponse(graphicId = cleanId, error = "Graphic $cleanId not found")
 
         if (graphicData.subtype.isNotEmpty() && !graphicData.isTable) {
-            return json.encodeToString(ToolErrorResponse("Graphic $cleanId is of type '${graphicData.subtype}', not a table. Only table content is retrievable."))
+            return GraphicContentResponse(
+                graphicId = cleanId,
+                error = "Graphic $cleanId is of type '${graphicData.subtype}', not a table. Only table content is retrievable."
+            )
         }
 
         val imageHtml = graphicData.imageHtml
         if (imageHtml.isBlank()) {
-            return json.encodeToString(ToolErrorResponse("Graphic $cleanId has empty content"))
+            return GraphicContentResponse(graphicId = cleanId, error = "Graphic $cleanId has empty content")
         }
 
         val markdown = htmlToMarkdown(imageHtml)
         val title = graphicData.title.ifEmpty { rawGraphicId }
-        return "### Graphic Table: $title\n\n$markdown"
+        val fullMarkdown = "### Graphic Table: $title\n\n$markdown"
+        return GraphicContentResponse(
+            graphicId = cleanId,
+            title = title,
+            markdown = fullMarkdown
+        )
     }
 
     /**
@@ -388,42 +375,36 @@ class MedicalDatabaseTools(
      * (score = titleHits*3 + textHits); the top 8 are returned, snippets are cut from the
      * earliest keyword occurrence in the plain-tag-stripped body text.
      */
-    fun searchTopicSections(topicId: String, query: String): String {
+    fun searchTopicSections(topicId: String, query: String): SearchTopicSectionsResponse {
         val cleanTopicId = topicId.trim()
         val cleanQuery = query.trim()
 
         val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return json.encodeToString(ToolErrorResponse("Topic not found: $cleanTopicId"))
+            ?: return SearchTopicSectionsResponse(topicId = cleanTopicId, query = cleanQuery, error = "Topic not found: $cleanTopicId")
 
         if (cleanQuery.isEmpty()) {
-            return json.encodeToString(
-                SearchTopicSectionsResponse(
-                    topicId = cleanTopicId,
-                    query = cleanQuery,
-                    message = "Topic ID and query must be non-empty."
-                )
+            return SearchTopicSectionsResponse(
+                topicId = cleanTopicId,
+                query = cleanQuery,
+                message = "Topic ID and query must be non-empty."
             )
         }
 
         val outline = parseOutline(content.outlineHtml)
         if (outline.sections.isEmpty()) {
-            return json.encodeToString(
-                SearchTopicSectionsResponse(
-                    topicId = cleanTopicId,
-                    query = cleanQuery,
-                    message = "No sections found in topic outline."
-                )
+            return SearchTopicSectionsResponse(
+                topicId = cleanTopicId,
+                query = cleanQuery,
+                message = "No sections found in topic outline."
             )
         }
 
         val keywords = cleanQuery.lowercase().split(WHITESPACE_REGEX).filter { it.isNotBlank() }
         if (keywords.isEmpty()) {
-            return json.encodeToString(
-                SearchTopicSectionsResponse(
-                    topicId = cleanTopicId,
-                    query = cleanQuery,
-                    message = "Topic ID and query must be non-empty."
-                )
+            return SearchTopicSectionsResponse(
+                topicId = cleanTopicId,
+                query = cleanQuery,
+                message = "Topic ID and query must be non-empty."
             )
         }
 
@@ -477,17 +458,15 @@ class MedicalDatabaseTools(
         scored.sortByDescending { it.score }
         val topMatches = scored.take(8).map { it.result }
 
-        return json.encodeToString(
-            SearchTopicSectionsResponse(
-                topicId = cleanTopicId,
-                query = cleanQuery,
-                matches = topMatches,
-                message = if (topMatches.isNotEmpty()) {
-                    "Found ${topMatches.size} matching sections."
-                } else {
-                    "No matching sections found for '$cleanQuery'."
-                }
-            )
+        return SearchTopicSectionsResponse(
+            topicId = cleanTopicId,
+            query = cleanQuery,
+            matches = topMatches,
+            message = if (topMatches.isNotEmpty()) {
+                "Found ${topMatches.size} matching sections."
+            } else {
+                "No matching sections found for '$cleanQuery'."
+            }
         )
     }
 

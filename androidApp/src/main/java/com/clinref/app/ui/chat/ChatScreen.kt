@@ -166,6 +166,7 @@ fun ChatScreen(
     }
     var activeGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
     var inArticleGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
+    val isOverlayActive = activeArticle != null || activeGraphicId != null
 
     val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
         activeArticle = ArticleSheetRequest(topicId, sectionId)
@@ -220,10 +221,10 @@ fun ChatScreen(
         }
     }
 
-    // Keep bottom turn visible when soft keyboard opens (track animation height directly)
+    // Keep bottom turn visible when soft keyboard opens for chat input (ignore overlay keyboards)
     val imeBottom = WindowInsets.ime.getBottom(density)
-    LaunchedEffect(imeBottom) {
-        if (imeBottom > 0 && isFollowingBottom) {
+    LaunchedEffect(imeBottom, isOverlayActive) {
+        if (!isOverlayActive && imeBottom > 0 && isFollowingBottom) {
             val count = listState.layoutInfo.totalItemsCount
             if (count > 0) {
                 listState.scrollToItem(count - 1)
@@ -295,7 +296,7 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
+                .then(if (!isOverlayActive) Modifier.imePadding() else Modifier)
                 .background(MaterialTheme.colorScheme.background)
         ) {
             if (messages.isEmpty() && !isLoadingOlder) {

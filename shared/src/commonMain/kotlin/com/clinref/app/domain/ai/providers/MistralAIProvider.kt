@@ -76,9 +76,8 @@ class MistralAIProvider(
         val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
         return OpenAIChatParams(
-            temperature = if (settings.topP != null) null else temperature,
+            temperature = temperature,
             maxTokens = settings.maxTokens,
-            topP = settings.topP,
             frequencyPenalty = settings.frequencyPenalty,
             presencePenalty = settings.presencePenalty
         )

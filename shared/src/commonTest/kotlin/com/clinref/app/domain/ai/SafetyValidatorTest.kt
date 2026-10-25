@@ -752,7 +752,7 @@ class SafetyValidatorTest {
     // ══════════════════════════════════════════════════════════════════
 
     @Test
-    fun `system prompt build includes PICO, SOAP, and point-of-care category output directives`() {
+    fun `system prompt build includes BLUF, closed-world grounding, and point-of-care category output directives`() {
         val profile = PatientProfile(
             age = "65",
             sex = "female",
@@ -763,13 +763,10 @@ class SafetyValidatorTest {
         )
         val prompt = SystemPrompt.build(profile, AiProvider.GOOGLE)
 
-        // PICO & SOAP architecture
-        assertTrue(prompt.contains("PICO"))
-        assertTrue(prompt.contains("SOAP"))
-        assertTrue(prompt.contains("Patient/Problem"))
-        assertTrue(prompt.contains("Intervention"))
-        assertTrue(prompt.contains("Comparison"))
-        assertTrue(prompt.contains("Outcome"))
+        // Phase separation & closed-world grounding
+        assertTrue(prompt.contains("PHASE SEPARATION & OPERATING MODES"))
+        assertTrue(prompt.contains("CLOSED-WORLD EVIDENCE & NUMERICAL FIDELITY"))
+        assertTrue(prompt.contains("BOTTOM-LINE UP FRONT (BLUF)"))
 
         // Point-of-care category output structure
         assertTrue(prompt.contains("First-Line Regimen & Dosing"))
@@ -787,33 +784,38 @@ class SafetyValidatorTest {
 
     @Test
     fun `system prompt buildCorrectionPrompt uses non-FTS tools and handles contraindication`() {
-        // Missing sections branch
+        // Missing sections branch (Gate 1 — Phase 1 tools active)
         val missingPrompt = SystemPrompt.buildCorrectionPrompt(
             blockedReason = "Answer requires section or table content retrieval.",
             evidenceSummary = "No section text was successfully fetched in the prior turn."
         )
         assertFalse(missingPrompt.contains("searchTopicSections"))
-        assertTrue(missingPrompt.contains("getTopicOverview"))
+        assertTrue(missingPrompt.contains("EVIDENCE GATE PAUSE"))
+        assertTrue(missingPrompt.contains("MANDATORY NEXT STEP"))
         assertTrue(missingPrompt.contains("getTopicSectionsText"))
 
-        // Contraindication branch
+        // Contraindication branch (Gate 2 — Phase 2 tool-free)
         val contraPrompt = SystemPrompt.buildCorrectionPrompt(
             blockedReason = "Documented patient allergy contraindication: amoxicillin recommended for penicillin allergy",
             evidenceSummary = "Section [H1]: Amoxicillin 500 mg TID."
         )
         assertFalse(contraPrompt.contains("searchTopicSections"))
-        assertTrue(contraPrompt.contains("REMEDIAL INSTRUCTIONS"))
-        assertTrue(contraPrompt.contains("violated a documented patient safety constraint"))
-        assertTrue(contraPrompt.contains("getTopicOverview"))
-        assertTrue(contraPrompt.contains("getTopicSectionsText"))
+        assertTrue(contraPrompt.contains("PATIENT SAFETY BLOCK"))
+        assertTrue(contraPrompt.contains("CRITICAL LEXICAL RULE"))
+        assertTrue(contraPrompt.contains("MANDATORY SELF-CORRECTION INSTRUCTIONS"))
+        assertFalse("Tool-free Phase 2 prompt must not command getTopicOverview", contraPrompt.contains("getTopicOverview("))
+        assertFalse("Tool-free Phase 2 prompt must not command getTopicSectionsText", contraPrompt.contains("getTopicSectionsText("))
 
-        // Unverified quantities branch
+        // Unverified quantities branch (Gate 2 — Phase 2 tool-free)
         val unverifiedPrompt = SystemPrompt.buildCorrectionPrompt(
             blockedReason = "Unverified clinical quantities found in response: 750 mg.",
             evidenceSummary = "Section [H1]: 500 mg."
         )
         assertFalse(unverifiedPrompt.contains("searchTopicSections"))
-        assertTrue(unverifiedPrompt.contains("getTopicOverview"))
-        assertTrue(unverifiedPrompt.contains("getTopicSectionsText"))
+        assertTrue(unverifiedPrompt.contains("NUMERICAL VERIFICATION BLOCK"))
+        assertTrue(unverifiedPrompt.contains("rejected_quantities"))
+        assertTrue(unverifiedPrompt.contains("750 mg"))
+        assertFalse("Tool-free Phase 2 prompt must not command getTopicOverview", unverifiedPrompt.contains("getTopicOverview("))
+        assertFalse("Tool-free Phase 2 prompt must not command getTopicSectionsText", unverifiedPrompt.contains("getTopicSectionsText("))
     }
 }
