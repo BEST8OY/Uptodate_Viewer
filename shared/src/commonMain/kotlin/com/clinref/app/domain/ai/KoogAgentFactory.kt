@@ -49,6 +49,41 @@ class KoogAgentFactory(
 
     private fun getProvider(provider: AiProvider): AiProviderFactory? = providers[provider]
 
+    suspend fun testConnection(config: AiConfiguration): Result<Unit> {
+        val apiKey = securePreferences.getApiKey(config.provider)
+        if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) {
+            return Result.failure(IllegalStateException("API key is not configured for ${config.provider.displayName}"))
+        }
+
+        val providerFactory = getProvider(config.provider)
+            ?: return Result.failure(IllegalStateException("Unsupported provider: ${config.provider.displayName}"))
+
+        val cacheKey = "${config.provider}_${apiKey.hashCode()}_${config.baseUrl}"
+        val executor = executorCache[cacheKey] ?: run {
+            val created = providerFactory.createExecutor(config, apiKey)
+                ?: return Result.failure(IllegalStateException("Failed to initialize client for ${config.provider.displayName}"))
+            executorCache[cacheKey] = created
+            created
+        }
+        val model = providerFactory.resolveModel(config)
+        val providerParams = providerFactory.createParams(config)
+
+        return try {
+            val pingPrompt = prompt(id = "test-connection-ping", params = providerParams) {
+                user("ping")
+            }
+            executor.execute(
+                prompt = pingPrompt,
+                model = model,
+                tools = emptyList()
+            )
+            Result.success(Unit)
+        } catch (e: Throwable) {
+            val rootCause = e.cause ?: e
+            Result.failure(rootCause)
+        }
+    }
+
     suspend fun createAgent(
         config: AiConfiguration,
         conversationId: String,

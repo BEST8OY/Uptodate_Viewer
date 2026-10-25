@@ -68,12 +68,14 @@ class DatabaseManager(
 
     fun getConnection(dbName: String): SQLiteConnection {
         val dir = dbDirectory ?: throw IllegalStateException("Database directory not configured")
-        return connections.getOrPut(dbName) {
-            val dbPath = fileSystem.joinPath(dir, dbName)
-            if (!fileSystem.exists(dbPath)) {
-                throw IllegalStateException("Database file not found: $dbName at $dbPath")
+        return synchronized(connections) {
+            connections.getOrPut(dbName) {
+                val dbPath = fileSystem.joinPath(dir, dbName)
+                if (!fileSystem.exists(dbPath)) {
+                    throw IllegalStateException("Database file not found: $dbName at $dbPath")
+                }
+                driver.open(dbPath)
             }
-            driver.open(dbPath)
         }
     }
 
@@ -84,9 +86,11 @@ class DatabaseManager(
     fun getQfDb(): SQLiteConnection = getConnection("utdqf.sqlite")
 
     fun closeAll() {
-        connections.values.forEach {
-            try { it.close() } catch (_: Exception) {}
+        synchronized(connections) {
+            connections.values.forEach {
+                try { it.close() } catch (_: Exception) {}
+            }
+            connections.clear()
         }
-        connections.clear()
     }
 }

@@ -112,46 +112,17 @@ class SettingsViewModel(
                 securePreferences.saveApiKey(config.provider, _apiKey.value)
 
                 val testConfig = config.copy(isConfigured = true)
-                val testStreamingManager = StreamingManager()
-
-                val agent: AIAgent<String, String>?
-                try {
-                    agent = koogAgentFactory.createAgent(
-                        config = testConfig,
-                        conversationId = "test-connection",
-                        patientProfile = PatientProfile(),
-                        streamingManager = testStreamingManager
-                    )?.first
-                } catch (e: Throwable) {
-                    val rootCause = e.cause ?: e
-                    _testResult.value = TestResult.Error(
-                        "Failed to create agent: ${rootCause.message ?: rootCause::class.simpleName}"
-                    )
-                    return@launch
+                val result = reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
+                    koogAgentFactory.testConnection(testConfig)
                 }
 
-                if (agent == null) {
-                    _testResult.value = TestResult.Error("Could not create agent. Check your API key and settings.")
-                    return@launch
-                }
-
-                val result = try {
-                    reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
-                        agent.run("Say 'Connection successful' in exactly those words.")
+                _testResult.value = result.fold(
+                    onSuccess = { TestResult.Success },
+                    onFailure = { err ->
+                        val rootCause = err.cause ?: err
+                        TestResult.Error("Connection failed: ${rootCause.message ?: rootCause::class.simpleName}")
                     }
-                } catch (e: Throwable) {
-                    val rootCause = e.cause ?: e
-                    _testResult.value = TestResult.Error(
-                        "Request failed: ${rootCause.message ?: rootCause::class.simpleName}"
-                    )
-                    return@launch
-                }
-
-                _testResult.value = if (result.contains("Connection successful", ignoreCase = true)) {
-                    TestResult.Success
-                } else {
-                    TestResult.Error("Unexpected response: ${result.take(200)}")
-                }
+                )
             } catch (e: Throwable) {
                 val rootCause = e.cause ?: e
                 _testResult.value = TestResult.Error(

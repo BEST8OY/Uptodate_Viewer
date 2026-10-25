@@ -28,31 +28,25 @@ class AssetDao(
     fun getGraphicJson(graphicId: String): Map<String, Any?>? {
         return try {
             val db = dbManager.getAssetsDb()
-            db.useQueryFirstOrNull(
+            val payload = db.useQueryFirstOrNull(
                 "SELECT payload FROM graphic_asset WHERE id = ?",
                 bind = { it.bindText(1, graphicId) }
-            ) { stmt ->
-                val payload = stmt.getBlob(0)
-                val payloadStr = ZstdUtil.decodePayload(payload)
+            ) { stmt -> stmt.getBlob(0) } ?: return null
 
-                try {
-                    val decoded = json.decodeFromString<GraphicPayload>(payloadStr)
+            val payloadStr = ZstdUtil.decodePayload(payload)
+            val decoded = json.decodeFromString<GraphicPayload>(payloadStr)
+            mapOf(
+                "graphicInfo" to decoded.graphicInfo?.let { info ->
                     mapOf(
-                        "graphicInfo" to decoded.graphicInfo?.let { info ->
-                            mapOf(
-                                "displayName" to info.displayName,
-                                "type" to info.type,
-                                "subtype" to info.subtype,
-                            )
-                        },
-                        "imageHtml" to decoded.imageHtml,
-                        "base64Image" to decoded.base64Image,
-                        "movieUrl" to decoded.movieUrl,
+                        "displayName" to info.displayName,
+                        "type" to info.type,
+                        "subtype" to info.subtype,
                     )
-                } catch (_: Exception) {
-                    null
-                }
-            }
+                },
+                "imageHtml" to decoded.imageHtml,
+                "base64Image" to decoded.base64Image,
+                "movieUrl" to decoded.movieUrl,
+            )
         } catch (_: Exception) {
             null
         }

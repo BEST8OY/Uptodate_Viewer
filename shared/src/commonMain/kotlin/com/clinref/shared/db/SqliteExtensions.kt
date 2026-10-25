@@ -11,7 +11,7 @@ inline fun <T> SQLiteConnection.useQuery(
     sql: String,
     bind: (SQLiteStatement) -> Unit = {},
     transform: (SQLiteStatement) -> T
-): List<T> {
+): List<T> = synchronized(this) {
     val stmt = prepare(sql)
     return try {
         bind(stmt)
@@ -33,7 +33,7 @@ inline fun <T> SQLiteConnection.useQueryFirstOrNull(
     sql: String,
     bind: (SQLiteStatement) -> Unit = {},
     transform: (SQLiteStatement) -> T
-): T? {
+): T? = synchronized(this) {
     val stmt = prepare(sql)
     return try {
         bind(stmt)
@@ -50,7 +50,7 @@ inline fun <T> SQLiteConnection.useQueryFirstOrNull(
 inline fun SQLiteConnection.useExecute(
     sql: String,
     bind: (SQLiteStatement) -> Unit = {}
-) {
+): Unit = synchronized(this) {
     val stmt = prepare(sql)
     try {
         bind(stmt)

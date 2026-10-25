@@ -29,15 +29,14 @@ class ContentDao(
         val numericId = extractNumericId(topicId) ?: return null
         return try {
             val db = dbManager.getAssetsDb()
-            db.useQueryFirstOrNull(
+            val payloadBlob = db.useQueryFirstOrNull(
                 "SELECT payload FROM topic_asset WHERE id = ? LIMIT 1",
                 bind = { it.bindText(1, numericId.toString()) }
-            ) { stmt ->
-                val payloadBlob = stmt.getBlob(0)
-                val payloadStr = ZstdUtil.decodePayload(payloadBlob)
-                val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
-                extractTitleFromJson(jsonObj)
-            }
+            ) { stmt -> stmt.getBlob(0) } ?: return null
+
+            val payloadStr = ZstdUtil.decodePayload(payloadBlob)
+            val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
+            extractTitleFromJson(jsonObj)
         } catch (_: Exception) {
             null
         }
@@ -71,21 +70,20 @@ class ContentDao(
         val numericId = extractNumericId(topicId) ?: return null
         return try {
             val db = dbManager.getAssetsDb()
-            db.useQueryFirstOrNull(
+            val payloadBlob = db.useQueryFirstOrNull(
                 "SELECT payload FROM topic_asset WHERE id = ? LIMIT 1",
                 bind = { it.bindText(1, numericId.toString()) }
-            ) { stmt ->
-                val payloadBlob = stmt.getBlob(0)
-                val payloadStr = ZstdUtil.decodePayload(payloadBlob)
-                val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
+            ) { stmt -> stmt.getBlob(0) } ?: return null
 
-                TopicContent(
-                    bodyHtml = jsonObj.string("bodyHtml"),
-                    outlineHtml = jsonObj.string("outlineHtml"),
-                    contributors = jsonObj.contributors("contributors"),
-                    title = extractTitleFromJson(jsonObj) ?: ""
-                )
-            }
+            val payloadStr = ZstdUtil.decodePayload(payloadBlob)
+            val jsonObj = json.parseToJsonElement(payloadStr).jsonObject
+
+            TopicContent(
+                bodyHtml = jsonObj.string("bodyHtml"),
+                outlineHtml = jsonObj.string("outlineHtml"),
+                contributors = jsonObj.contributors("contributors"),
+                title = extractTitleFromJson(jsonObj) ?: ""
+            )
         } catch (_: Exception) {
             null
         }

@@ -321,6 +321,16 @@ object ClinicalAgentStrategy {
             name = "clinical_synthesis",
             tools = emptyList()
         ) {
+            val isGreetingBypass: (String) -> Boolean = { input ->
+                val clean = ReasoningTokenSanitizer.stripReasoning(input)
+                val context = accumulator.buildTurnContext(clean)
+                SafetyValidator.isNonClinicalResponse(context) &&
+                    context.fetchedSections.isEmpty() &&
+                    context.toolCalls.isEmpty() &&
+                    clean.isNotBlank() &&
+                    !clean.startsWith("SYSTEM NOTICE")
+            }
+
             val nodeFormatSynthesisPrompt by node<String, String>("format_synthesis") { pendingInput ->
                 val cleanInput = ReasoningTokenSanitizer.stripReasoning(pendingInput)
                 val turnContext = accumulator.buildTurnContext(cleanInput)
@@ -342,7 +352,15 @@ object ClinicalAgentStrategy {
                 ReasoningTokenSanitizer.stripReasoning(rawText)
             }
 
-            edge(nodeStart forwardTo nodeFormatSynthesisPrompt)
+            edge(
+                (nodeStart forwardTo nodeFinish)
+                    onCondition { isGreetingBypass(it) }
+                    transformed { ReasoningTokenSanitizer.stripReasoning(it) }
+            )
+            edge(
+                (nodeStart forwardTo nodeFormatSynthesisPrompt)
+                    onCondition { !isGreetingBypass(it) }
+            )
             edge(nodeFormatSynthesisPrompt forwardTo synthesisLLM)
             edge(synthesisLLM forwardTo nodeStripReasoning onTextMessage { true })
             edge(nodeStripReasoning forwardTo nodeFinish)
