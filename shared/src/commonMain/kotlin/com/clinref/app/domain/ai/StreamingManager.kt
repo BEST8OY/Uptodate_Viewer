@@ -1,7 +1,6 @@
 package com.clinref.app.domain.ai
 
 import com.clinref.app.data.GraphicContentResponse
-import com.clinref.app.data.RelatedTopicsResponse
 import com.clinref.app.data.SearchTopicSectionsResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
@@ -125,7 +124,6 @@ class StreamingManager {
         val description = when (toolName) {
             "searchTopics" -> "Searching medical topics…"
             "getTopicOverview" -> "Retrieving topic overview & core evidence…"
-            "getRelatedTopics" -> "Finding related clinical topics…"
             "getTopicSectionsText" -> "Retrieving evidence sections…"
             "getGraphicContent" -> "Loading clinical reference table…"
             else -> "Executing $toolName…"
@@ -392,17 +390,6 @@ class StreamingManager {
                     } else null
                     "Examine Topic Overview" to detail
                 }
-                "getRelatedTopics" -> {
-                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
-                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
-                    val resolvedTitle = knownTopicTitles[topicId]
-                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
-                        "Related topics for \"$resolvedTitle\""
-                    } else {
-                        "Retrieving related sub-topics"
-                    }
-                    "Expand Topic Pool" to detail
-                }
                 "getTopicSectionsText" -> {
                     val topicId = element?.get("topicId")?.jsonPrimitive?.content
                         ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
@@ -510,14 +497,6 @@ class StreamingManager {
                             current.add(SafetyValidator.TopicRef(topicId = topicId, label = title, topicTitle = title))
                         }
                         _liveDiscoveredSources.value = current
-                    }
-                }
-                "getRelatedTopics" -> {
-                    val res = json.decodeFromString<RelatedTopicsResponse>(resultText)
-                    for (item in res.relatedTopics) {
-                        if (item.id.isNotBlank() && item.title.isNotBlank() && !AiJsonUtils.isNumericOnly(item.title)) {
-                            knownTopicTitles[item.id] = item.title
-                        }
                     }
                 }
                 "getTopicSectionsText" -> {

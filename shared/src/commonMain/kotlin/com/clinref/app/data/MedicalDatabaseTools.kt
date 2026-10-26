@@ -10,6 +10,11 @@ private const val TAG = "MedTools"
 // Maximum sections returned per getTopicSectionsText call; extras land in omittedSections
 private const val MAX_SECTIONS_PER_CALL = 10
 
+// SearchTopics result budget: hits returned, refine terms offered, and auto-refine retries.
+private const val MAX_SEARCH_RESULTS = 8
+private const val MAX_REFINE_SUGGESTIONS = 20
+private const val MAX_REFINE_RETRIES = 5
+
 class MedicalDatabaseTools(
     private val searchRepository: SearchRepository,
     private val contentRepository: ContentRepository,
@@ -19,7 +24,6 @@ class MedicalDatabaseTools(
     val getTopicOverviewTool by lazy { com.clinref.app.data.tools.GetTopicOverviewTool(this) }
     val searchTopicsTool by lazy { com.clinref.app.data.tools.SearchTopicsTool(this) }
     val searchTopicSectionsTool by lazy { com.clinref.app.data.tools.SearchTopicSectionsTool(this) }
-    val getRelatedTopicsTool by lazy { com.clinref.app.data.tools.GetRelatedTopicsTool(this) }
     val getTopicSectionsTextTool by lazy { com.clinref.app.data.tools.GetTopicSectionsTextTool(this) }
     val getGraphicContentTool by lazy { com.clinref.app.data.tools.GetGraphicContentTool(this) }
 
@@ -27,7 +31,6 @@ class MedicalDatabaseTools(
         getTopicOverviewTool,
         searchTopicsTool,
         searchTopicSectionsTool,
-        getRelatedTopicsTool,
         getTopicSectionsTextTool,
         getGraphicContentTool
     )
@@ -60,14 +63,6 @@ class MedicalDatabaseTools(
             """<(?:td|div|p)\b[^>]*(?:id=["']sdi\d+["']|class=["'][^"']*sdiTable[^"']*["'])[^>]*>.*?</(?:td|div|p)>""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
         )
-        private val GRAPHIC_TYPE_REGEX = Regex(
-            """type(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
-            setOf(RegexOption.IGNORE_CASE)
-        )
-        private val GRAPHIC_SUBTYPE_REGEX = Regex(
-            """subtype(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
-            setOf(RegexOption.IGNORE_CASE)
-        )
         private val GRAPHIC_ID_REGEX = Regex(
             """(?<![a-zA-Z])(?:id|graphicId)(?:&quot;|"):\s*(?:&quot;|")([a-zA-Z0-9_-]+)(?:&quot;|")""",
             setOf(RegexOption.IGNORE_CASE)
@@ -95,44 +90,36 @@ class MedicalDatabaseTools(
         }
 
         val searchResults = searchRepository.searchTopics(cleanQuery)
-        val results = formatSearchResults(searchResults)
-
-        // Auto-retry: if primary query returns no results, try available suggestions internally
-        if (results.isEmpty()) {
-            val suggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-            for (suggestion in suggestions.take(5)) {
-                val retryResults = searchRepository.searchTopics(suggestion)
-                val retryMapped = formatSearchResults(retryResults)
-                if (retryMapped.isNotEmpty()) {
-                    return SearchTopicsResponse(
-                        query = suggestion,
-                        results = retryMapped,
-                        refine_with = suggestions.filter { it != suggestion },
-                        message = "Auto-refined from '$cleanQuery' to '$suggestion'"
-                    )
-                }
-            }
-            // Still no results after auto-retry
-            val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
-            val msg = if (allSuggestions.isEmpty()) {
-                "No topic match and no suggestions available for '$cleanQuery'."
-            } else {
-                "No results for '$cleanQuery'. Try one of the 'refine_with' suggestions."
-            }
-            return SearchTopicsResponse(
-                query = cleanQuery,
-                results = emptyList(),
-                refine_with = allSuggestions,
-                message = msg
-            )
+        val results = formatSearchResults(searchResults).take(MAX_SEARCH_RESULTS)
+        if (results.isNotEmpty()) {
+            return SearchTopicsResponse(query = cleanQuery, results = results, message = "Success")
         }
 
-        val allSuggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(20)
+        // No direct hit: consult the typeahead vocabulary once, then retry its best terms.
+        val suggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(MAX_REFINE_SUGGESTIONS)
+        for (suggestion in suggestions.take(MAX_REFINE_RETRIES)) {
+            val retry = formatSearchResults(searchRepository.searchTopics(suggestion)).take(MAX_SEARCH_RESULTS)
+            if (retry.isNotEmpty()) {
+                return SearchTopicsResponse(
+                    query = suggestion,
+                    results = retry,
+                    refine_with = suggestions.filter { it != suggestion },
+                    message = "Auto-refined from '$cleanQuery' to '$suggestion'.",
+                    autoRefined = true,
+                    refinedQuery = suggestion
+                )
+            }
+        }
+
         return SearchTopicsResponse(
             query = cleanQuery,
-            results = results,
-            refine_with = allSuggestions,
-            message = "Success"
+            results = emptyList(),
+            refine_with = suggestions,
+            message = if (suggestions.isEmpty()) {
+                "No topic match and no suggestions available for '$cleanQuery'."
+            } else {
+                "No results for '$cleanQuery'. Retry with one of the 'refine_with' terms."
+            }
         )
     }
 
@@ -146,90 +133,63 @@ class MedicalDatabaseTools(
         }
     }
 
+    /**
+     * Compound outline bundle. Section ids come from the outline HTML; the graphic and
+     * related-topic inventories come from the payload's structured JSON, which is the only
+     * place a graphic's `subtype` (table vs. picture vs. algorithm) is recorded.
+     */
     fun getTopicOverview(topicId: String): TopicOverviewResponse {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
             ?: return TopicOverviewResponse(topicId = cleanTopicId, error = "Topic not found: $cleanTopicId")
 
-        val title = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
-        val topicTitles = mutableMapOf<String, String>()
-        topicTitles[cleanTopicId] = title
+        val title = contentTitle(content, cleanTopicId)
+        val topicType = content.topicType.ifEmpty { if (content.outlineHtml.isBlank()) "calc" else "medical" }
 
-        val isCalc = content.outlineHtml.isBlank()
-        if (isCalc) {
+        if (topicType == "calc") {
             val calcMarkdown = htmlToMarkdown(content.bodyHtml) { tid ->
-                topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
+                contentRepository.getTopicTitle(tid) ?: tid
             }
-            val header = "=== Calculator: $title ==="
-            val fullMd = "$header\n$calcMarkdown"
             return TopicOverviewResponse(
                 topicId = cleanTopicId,
                 title = title,
                 topicType = "calc",
                 sections = listOf(OutlineSectionItem(id = "FULL", title = "Calculator Tool Content", level = 1)),
-                graphics = emptyList(),
-                relatedTopics = emptyList(),
-                markdown = fullMd
+                markdown = "=== Calculator: $title ===\n$calcMarkdown"
             )
-        }
-
-        val outline = parseOutline(content.outlineHtml)
-        val sectionsList = outline.sections.map {
-            OutlineSectionItem(id = it.id, title = it.title, level = it.level, parentId = it.parentId)
-        }
-        val graphicsList = outline.graphics.filter { it.isTable }.map { g ->
-            OutlineGraphicItem(id = g.id, title = g.title, isTable = true)
-        }
-        val relatedList = outline.relatedTopics.map { rt ->
-            RelatedTopicItem(id = rt.id, title = rt.title)
         }
 
         return TopicOverviewResponse(
             topicId = cleanTopicId,
             title = title,
-            topicType = "article",
-            sections = sectionsList,
-            graphics = graphicsList,
-            relatedTopics = relatedList,
+            topicType = topicType,
+            sections = parseOutlineSections(content.outlineHtml).map {
+                OutlineSectionItem(id = it.id, title = it.title, level = it.level, parentId = it.parentId)
+            },
+            graphics = content.graphics.filter { it.isTable }.map { OutlineGraphicItem(id = it.id, title = it.title) },
+            relatedTopics = content.relatedTopics.map { RelatedTopicItem(id = it.id, title = it.title) },
             markdown = ""
         )
     }
 
-    fun getRelatedTopics(topicId: String): RelatedTopicsResponse {
-        val cleanTopicId = topicId.trim()
-        val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return RelatedTopicsResponse(topicId = cleanTopicId, error = "Topic not found: $cleanTopicId")
-        if (content.outlineHtml.isBlank()) {
-            return RelatedTopicsResponse(
-                topicId = cleanTopicId,
-                relatedTopics = emptyList()
-            )
-        }
-        val outline = parseOutline(content.outlineHtml)
-        val relatedList = outline.relatedTopics.map { rt ->
-            RelatedTopicItem(id = rt.id, title = rt.title)
-        }
-        return RelatedTopicsResponse(
-            topicId = cleanTopicId,
-            relatedTopics = relatedList
-        )
-    }
+    private fun contentTitle(content: ContentRepository.TopicContent, topicId: String): String =
+        content.title.ifEmpty { contentRepository.getTopicTitle(topicId) ?: topicId }
 
     fun getTopicSectionsText(topicId: String, sectionIds: List<String>): TopicSectionsResponse {
         val cleanTopicId = topicId.trim()
         val content = contentRepository.getTopicContent(cleanTopicId)
             ?: return TopicSectionsResponse(topicId = cleanTopicId, topicTitle = "", markdown = "", error = "Topic not found: $cleanTopicId")
 
-        val topicTitle = contentRepository.getTopicTitle(cleanTopicId) ?: cleanTopicId
+        val topicTitle = contentTitle(content, cleanTopicId)
         val topicTitles = mutableMapOf<String, String>()
         topicTitles[cleanTopicId] = topicTitle
 
         // Build section ID -> title map from parsed outline
-        val outline = parseOutline(content.outlineHtml)
-        val idToTitle = outline.sections.associate { it.id to it.title }
+        val sections = parseOutlineSections(content.outlineHtml)
+        val idToTitle = sections.associate { it.id to it.title }
 
         val cleanUpper = sectionIds.map { it.trim().uppercase() }
-        val isCalc = content.outlineHtml.isBlank()
+        val isCalc = content.topicType == "calc" || content.outlineHtml.isBlank()
         if (idToTitle.isEmpty() || isCalc || cleanUpper.contains("FULL") || cleanUpper.contains("ALL")) {
             val markdown = htmlToMarkdown(content.bodyHtml) { tid ->
                 topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
@@ -244,11 +204,17 @@ class MedicalDatabaseTools(
             )
         }
 
-        val targetRequests = if (sectionIds.isEmpty()) {
-            idToTitle.keys.take(3).toList()
-        } else {
-            sectionIds
+        if (sectionIds.isEmpty()) {
+            return TopicSectionsResponse(
+                topicId = cleanTopicId,
+                topicTitle = topicTitle,
+                sectionTitles = emptyMap(),
+                markdown = "",
+                error = "sectionIds cannot be empty. Specify 1 to 10 section IDs from getTopicOverview."
+            )
         }
+
+        val targetRequests = sectionIds
 
         // Validate & smart-resolve section IDs (supports exact ID, case-insensitive ID, or matching section title)
         val validIds = mutableListOf<String>()
@@ -310,7 +276,7 @@ class MedicalDatabaseTools(
             }
 
             val title = idToTitle[sectionId] ?: ""
-            val sectionHtml = extractSectionHtml(content.bodyHtml, outline.sections, sectionId)
+            val sectionHtml = extractSectionHtml(content.bodyHtml, sections, sectionId)
             val secMarkdown = if (sectionHtml != null) {
                 htmlToMarkdown(sectionHtml) { tid ->
                     topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
@@ -390,8 +356,8 @@ class MedicalDatabaseTools(
             )
         }
 
-        val outline = parseOutline(content.outlineHtml)
-        if (outline.sections.isEmpty()) {
+        val sections = parseOutlineSections(content.outlineHtml)
+        if (sections.isEmpty()) {
             return SearchTopicSectionsResponse(
                 topicId = cleanTopicId,
                 query = cleanQuery,
@@ -410,8 +376,8 @@ class MedicalDatabaseTools(
 
         val scored = mutableListOf<ScoredMatch>()
 
-        for (section in outline.sections) {
-            val sectionHtml = extractSectionHtml(content.bodyHtml, outline.sections, section.id) ?: continue
+        for (section in sections) {
+            val sectionHtml = extractSectionHtml(content.bodyHtml, sections, section.id) ?: continue
             val sectionText = STRIP_TAGS_REGEX.replace(sectionHtml, " ")
                 .replace(WHITESPACE_REGEX, " ")
                 .trim()
@@ -482,27 +448,13 @@ class MedicalDatabaseTools(
         val parentId: String? = null
     )
 
-    private data class ParsedGraphic(
-        val id: String,
-        val title: String,
-        val isTable: Boolean
-    )
-
-    private data class ParsedRelatedTopic(
-        val id: String,
-        val title: String
-    )
-
-    private data class OutlineResult(
-        val sections: List<ParsedSection>,
-        val graphics: List<ParsedGraphic>,
-        val relatedTopics: List<ParsedRelatedTopic>
-    )
-
-    private fun parseOutline(outlineHtml: String): OutlineResult {
-        if (outlineHtml.isBlank()) {
-            return OutlineResult(emptyList(), emptyList(), emptyList())
-        }
+    /**
+     * Section entries of `outlineHtml`, depth-first, deduplicated. Graphics and related
+     * topics are read from the payload JSON instead — the outline hrefs carry no subtype,
+     * so an outline-derived graphic inventory cannot tell a table from a photograph.
+     */
+    private fun parseOutlineSections(outlineHtml: String): List<ParsedSection> {
+        if (outlineHtml.isBlank()) return emptyList()
 
         val tagEventRegex = Regex(
             """(<ul\b[^>]*>|</ul\b>|<li\b[^>]*>|<a\s+[^>]*href=['"][^'"]*['"][^>]*>.*?</a>)""",
@@ -515,81 +467,40 @@ class MedicalDatabaseTools(
 
         val rawSections = mutableListOf<ParsedSection>()
         val rawSectionIsSr = mutableListOf<Boolean>()
-        val graphics = mutableListOf<ParsedGraphic>()
-        val related = mutableListOf<ParsedRelatedTopic>()
-
-        val seenGraphicIds = mutableSetOf<String>()
-        val seenRelatedIds = mutableSetOf<String>()
 
         for (m in tagEventRegex.findAll(outlineHtml)) {
             val token = m.groupValues[1]
             val lower = token.lowercase()
             when {
-                lower.startsWith("<ul") -> {
-                    depth++
-                }
-                lower.startsWith("</ul") -> {
-                    depth = maxOf(0, depth - 1)
-                }
-                lower.startsWith("<li") -> {
-                    inSrButton = token.contains("sr-button", ignoreCase = true)
-                }
+                lower.startsWith("<ul") -> depth++
+                lower.startsWith("</ul") -> depth = maxOf(0, depth - 1)
+                lower.startsWith("<li") -> inSrButton = token.contains("sr-button", ignoreCase = true)
                 lower.startsWith("<a") -> {
                     val aMatch = A_TAG_REGEX.matchEntire(token) ?: continue
-                    val href = aMatch.groupValues[1]
-                    val rawText = aMatch.groupValues[2]
-                    val cleanTitle = cleanOutlineTitle(rawText)
+                    val sectionMatch = SECTION_REGEX.find(aMatch.groupValues[1]) ?: continue
+                    val cleanTitle = cleanOutlineTitle(aMatch.groupValues[2])
                     if (cleanTitle.isEmpty()) continue
 
-                    val sectionMatch = SECTION_REGEX.find(href)
-                    val typeMatch = GRAPHIC_TYPE_REGEX.find(href)
-                    val isGraphic = typeMatch != null && typeMatch.groupValues[1].equals("graphic", ignoreCase = true)
-
-                    when {
-                        isGraphic -> {
-                            val id = GRAPHIC_ID_REGEX.find(href)?.groupValues?.get(1) ?: ""
-                            val subtype = GRAPHIC_SUBTYPE_REGEX.find(href)?.groupValues?.get(1) ?: ""
-                            if (id.isNotEmpty() && seenGraphicIds.add(id)) {
-                                val isTable = subtype.equals("graphic_table", ignoreCase = true) || subtype.equals("table", ignoreCase = true)
-                                graphics.add(ParsedGraphic(id = id, title = cleanTitle, isTable = isTable))
-                            }
-                        }
-                        sectionMatch != null -> {
-                            val sid = sectionMatch.groupValues[1]
-                            val level = maxOf(1, depth)
-                            val parentId = if (level > 1) parents[level - 1] else null
-                            parents[level] = sid
-                            rawSections.add(ParsedSection(id = sid, title = cleanTitle, level = level, parentId = parentId))
-                            rawSectionIsSr.add(inSrButton)
-                        }
-                        else -> {
-                            val id = GRAPHIC_ID_REGEX.find(href)?.groupValues?.get(1) ?: ""
-                            if (id.isNotEmpty() && seenRelatedIds.add(id)) {
-                                related.add(ParsedRelatedTopic(id = id, title = cleanTitle))
-                            }
-                        }
-                    }
+                    val sid = sectionMatch.groupValues[1]
+                    val level = maxOf(1, depth)
+                    val parentId = if (level > 1) parents[level - 1] else null
+                    parents[level] = sid
+                    rawSections.add(ParsedSection(id = sid, title = cleanTitle, level = level, parentId = parentId))
+                    rawSectionIsSr.add(inSrButton)
                 }
             }
         }
 
-        // Deduplicate sections: if an ID is present in non-sr, skip the sr-button duplicate in favor of in-flow section
+        // A section rendered both in-flow and as an sr-button shortcut keeps the in-flow entry.
         val nonSrIds = rawSections.filterIndexed { idx, _ -> !rawSectionIsSr[idx] }.map { it.id }.toSet()
         val sections = mutableListOf<ParsedSection>()
         val seenSectionIds = mutableSetOf<String>()
-
         for (i in rawSections.indices) {
             val sec = rawSections[i]
-            val isSr = rawSectionIsSr[i]
-            if (isSr && sec.id in nonSrIds) {
-                continue
-            }
-            if (seenSectionIds.add(sec.id)) {
-                sections.add(sec)
-            }
+            if (rawSectionIsSr[i] && sec.id in nonSrIds) continue
+            if (seenSectionIds.add(sec.id)) sections.add(sec)
         }
-
-        return OutlineResult(sections, graphics, related)
+        return sections
     }
 
     private fun cleanOutlineTitle(html: String): String {

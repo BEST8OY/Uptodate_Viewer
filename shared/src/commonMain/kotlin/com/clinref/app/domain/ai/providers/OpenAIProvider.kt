@@ -60,7 +60,8 @@ class OpenAIProvider(
     override fun createParams(config: AiConfiguration): LLMParams {
         val settings = config.providerSettings as? ProviderSettings.OpenAI
             ?: return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
-        val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
+        val hasReasoning = settings.reasoningEffort != null && settings.reasoningEffort.lowercase() !in listOf("none", "")
+        val temperature = if (hasReasoning) null else (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
         return OpenAIChatParams(
             temperature = temperature,

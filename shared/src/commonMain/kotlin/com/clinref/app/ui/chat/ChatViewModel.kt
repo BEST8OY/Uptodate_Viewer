@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiJsonUtils
+import com.clinref.app.domain.ai.ClinicalAgentStrategy
 import com.clinref.app.domain.ai.ClinicalSource
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.PatientProfile
@@ -13,7 +14,6 @@ import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
-import com.clinref.app.domain.ai.TurnContextAccumulator
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import com.clinref.shared.secure.SecurePreferences
@@ -260,20 +260,21 @@ class ChatViewModel(
 
             generationJob = viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    var lastAccumulator: TurnContextAccumulator? = null
                     val result = reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
-                        val (agent, accumulator) = koogAgentFactory.createAgent(
+                        // The accumulator is created and wired into the agent (tool callbacks,
+                        // patient profile, question) inside createAgent and must outlive this
+                        // local scope; the ViewModel itself never reads it afterwards.
+                        val (agent, _) = koogAgentFactory.createAgent(
                             config = config,
                             conversationId = conversationId,
                             patientProfile = patientProfile,
                             streamingManager = streamingManager,
                             userMessage = trimmed
                         ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                        lastAccumulator = accumulator
                         agent.run(trimmed, conversationId)
                     }
                     withContext(Dispatchers.Main) {
-                        handleAgentResult(conversationId, pendingAssistantId, result, lastAccumulator)
+                        handleAgentResult(conversationId, pendingAssistantId, result)
                     }
                 } catch (e: CancellationException) {
                     if (userCancelled) throw e
@@ -340,13 +341,12 @@ class ChatViewModel(
     private suspend fun handleAgentResult(
         conversationId: String,
         messageId: String,
-        result: String,
-        accumulator: TurnContextAccumulator?
+        result: String
     ) {
         val cleanResult = ReasoningTokenSanitizer.stripReasoning(result)
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
-                if (state.validation.passed && !cleanResult.startsWith("Clinical Response Verification Blocked:")) {
+                if (state.validation.passed && !cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
                     saveSuccessfulMessage(
                         conversationId, messageId, cleanResult, state.validation, state.tokenUsage
                     )
@@ -357,10 +357,10 @@ class ChatViewModel(
                         SecureLogger.Level.WARN, "ChatViewModel",
                         "Safety blocked: $blockedReason."
                     )
-                    val content = if (cleanResult.startsWith("Clinical Response Verification Blocked:")) {
+                    val content = if (cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
                         cleanResult
                     } else {
-                        "Clinical Response Verification Blocked: $blockedReason"
+                        "${ClinicalAgentStrategy.BLOCKED_MARKER}$blockedReason"
                     }
                     val blockedMsg = MessageEntity(
                         id = messageId,

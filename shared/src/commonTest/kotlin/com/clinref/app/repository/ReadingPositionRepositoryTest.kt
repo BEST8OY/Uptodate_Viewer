@@ -41,10 +41,10 @@ class ReadingPositionRepositoryTest {
     fun `save is visible immediately before it is flushed`() = runTest {
         val repo = ReadingPositionRepository(database.readingPositionDao(), backgroundScope, flushDelayMs = 60_000L)
 
-        repo.save("123", pos())
+        repo.save("immediate-topic", pos())
 
-        assertEquals(pos(), repo.get("123"))
-        assertNull(database.readingPositionDao().get("123"))
+        assertEquals(pos(), repo.get("immediate-topic"))
+        assertNull(database.readingPositionDao().get("immediate-topic"))
     }
 
     @Test

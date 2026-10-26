@@ -20,7 +20,6 @@ from html_parser import (
     table_to_markdown,
 )
 from safety_validator import (
-    CLINICAL_QUANTITY_REGEX,
     FetchedSection,
     SafetyValidator,
     ToolCallRecord,
@@ -532,12 +531,13 @@ class TestCalculatorSupport:
         assert final_state["premature_retries"] >= 1
 
     def test_get_topic_sections_text_empty_section_ids_defaults(self, db):
-        """Calling get_topic_sections_text with empty section_ids returns default sections."""
+        """Calling get_topic_sections_text with empty section_ids returns an in-band error (Change 4)."""
         from tools import init_tools, get_topic_sections_text
         init_tools(db)
         data = get_topic_sections_text.func(topic_id="1", section_ids=[])
-        assert len(data.markdown) > 0
-        assert len(data.sectionTitles) > 0
+        assert data.error is not None
+        assert "sectionIds cannot be empty" in data.error
+        assert data.markdown == ""
 
 
 class TestGetTopicOverviewIntegration:
@@ -553,7 +553,8 @@ class TestGetTopicOverviewIntegration:
         assert data.error is None
         assert data.topicId == "1"
         assert len(data.title) > 0
-        assert data.topicType == "article"
+        # topicType comes from the payload's topicInfo.type, not a content-shape guess
+        assert data.topicType in {"medical", "drug", "narrative"}
         assert len(data.sections) >= 3
         assert data.markdown == ""
 

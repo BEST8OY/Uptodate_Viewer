@@ -71,7 +71,7 @@ class TurnContextAccumulatorTest {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Patient profile wiring (SafetyValidator Rule 4 integration)
+    // Patient profile wiring
     // ══════════════════════════════════════════════════════════════════
 
     @Test
@@ -85,20 +85,6 @@ class TurnContextAccumulatorTest {
         accumulator.setPatientProfile(profile)
         val ctx = accumulator.buildTurnContext("Prescribe amoxicillin.")
         assertEquals(profile, ctx.patientProfile)
-    }
-
-    @Test
-    fun `rule 4 engages when profile is wired through accumulator`() {
-        accumulator.setPatientProfile(
-            PatientProfile(allergies = listOf("penicillin (anaphylaxis)"))
-        )
-        accumulator.onToolCallStarting("call-1", "{}")
-        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", "content", true)
-
-        val validator = SafetyValidator()
-        val result = validator.validate(accumulator.buildTurnContext("Prescribe amoxicillin."))
-        assertFalse("Documented penicillin allergy must block amoxicillin via the wired profile", result.passed)
-        assertTrue(result.blockedReason?.contains("allergy contraindication", ignoreCase = true) == true)
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -573,27 +559,6 @@ class TurnContextAccumulatorTest {
     }
 
     @Test
-    fun `prepareForCorrection preserves evidence across remediation turn`() {
-        accumulator.onToolCallStarting("call-1", """{"topicId":"1","sectionIds":["s1"]}""")
-        accumulator.onToolCallCompleted(
-            "call-1", "getTopicSectionsText",
-            """{"topicTitle":"Topic 1","sectionTitles":{"s1":"Dosing"},"markdown":"Dose is 10 mg"}""",
-            true
-        )
-        val initialCtx = accumulator.buildTurnContext("Old bad answer with 999 mg")
-        assertEquals("Old bad answer with 999 mg", initialCtx.answer)
-        assertEquals(1, initialCtx.topicRefs.size)
-
-        // Prepare for correction
-        accumulator.prepareForCorrection()
-
-        // Turn 2 text answer with preserved evidence
-        val correctedCtx = accumulator.buildTurnContext("Corrected answer with 10 mg")
-        assertEquals("Corrected answer with 10 mg", correctedCtx.answer)
-        assertEquals(1, correctedCtx.topicRefs.size)
-    }
-
-    @Test
     fun `supports snake_case tool name dispatching`() {
         accumulator.onToolCallStarting("call-1", """{"query":"gout"}""")
         accumulator.onToolCallCompleted(
@@ -625,7 +590,6 @@ class TurnContextAccumulatorTest {
     @Test
     fun `AiJsonUtils normalizes tool names and arguments to canonical forms`() {
         assertEquals("searchTopics", AiJsonUtils.normalizeToolName("search_topics"))
-        assertEquals("getRelatedTopics", AiJsonUtils.normalizeToolName("get_related_topics"))
         assertEquals("getTopicSectionsText", AiJsonUtils.normalizeToolName("get_topic_sections_text"))
         assertEquals("getGraphicContent", AiJsonUtils.normalizeToolName("get_graphic_content"))
         assertEquals("customTool", AiJsonUtils.normalizeToolName("customTool"))
@@ -735,9 +699,6 @@ class TurnContextAccumulatorTest {
         val overviewArgs = json.decodeFromString<com.clinref.app.data.tools.GetTopicOverviewTool.Args>("""{"topic_id":"123"}""")
         assertEquals("123", overviewArgs.topicId)
 
-        val relatedArgs = json.decodeFromString<com.clinref.app.data.tools.GetRelatedTopicsTool.Args>("""{"topic_id":"123"}""")
-        assertEquals("123", relatedArgs.topicId)
-
         val sectionsArgs = json.decodeFromString<com.clinref.app.data.tools.GetTopicSectionsTextTool.Args>("""{"topic_id":"123","section_ids":["H1","H2"]}""")
         assertEquals("123", sectionsArgs.topicId)
         assertEquals(listOf("H1", "H2"), sectionsArgs.sectionIds)
@@ -846,6 +807,69 @@ class TurnContextAccumulatorTest {
         assertEquals("100", tc.topicRefs[0].topicId)
         assertEquals("H_SR", tc.topicRefs[0].sectionId)
         assertEquals("Summary & Recommendations", tc.topicRefs[0].label)
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Overview + section accumulation through the real tool-call path
+    // ══════════════════════════════════════════════════════════════════
+
+    @Test
+    fun `overview call records its outline but no evidence until a section or table is fetched`() {
+        val overview = """{"topicId":"1","title":"Drug X","sections":[{"id":"H1","title":"Dosing"}],
+            |"graphics":[{"id":"G1","title":"Renal dosing table","isTable":true}]}""".trimMargin()
+
+        accumulator.onToolCallStarting("call-1", """{"topicId":"1"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", overview, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals("1", ctx.toolCalls.single().arguments["topicId"])
+        assertTrue("An outline is not evidence", ctx.fetchedSections.isEmpty())
+        assertTrue("An offered table is not evidence until fetched", ctx.graphicRefs.isEmpty())
+        assertFalse(accumulator.hasEvidence)
+
+        // Fetching that same table turns it into accumulated evidence attributed to topic 1.
+        accumulator.onToolCallStarting("call-2", """{"graphicId":"G1"}""")
+        accumulator.onToolCallCompleted(
+            "call-2", "getGraphicContent",
+            """{"graphicId":"G1","title":"Renal dosing table","markdown":"### Graphic Table: Renal dosing table\n\n| eGFR | Dose |"}""",
+            true
+        )
+
+        val afterFetch = accumulator.buildTurnContext("answer")
+        assertEquals(listOf("G1"), afterFetch.graphicRefs.map { it.graphicId })
+        assertEquals("Renal dosing table", afterFetch.graphicRefs.single().label)
+        assertEquals("1", afterFetch.graphicRefs.single().topicId)
+        assertTrue(accumulator.hasEvidence)
+    }
+
+    @Test
+    fun `section fetch is recorded once per tool and args pair`() {
+        val args = """{"topicId":"1","sectionIds":["H1"]}"""
+        val result = """{"topicId":"1","topicTitle":"Drug X","sectionTitles":{"H1":"Dosing"},"markdown":"Give 500 mg daily."}"""
+
+        accumulator.onToolCallStarting("call-1", args)
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", result, true)
+        accumulator.onToolCallStarting("call-2", args)
+        accumulator.onToolCallCompleted("call-2", "getTopicSectionsText", result, true)
+        accumulator.onToolCallStarting("call-3", """{"topicId":"1","sectionIds":["H2"]}""")
+        accumulator.onToolCallCompleted("call-3", "getTopicSectionsText", result, true)
+
+        val ctx = accumulator.buildTurnContext("Give 500 mg daily.")
+        assertEquals("Identical tool+args records must dedup", 2, ctx.toolCalls.size)
+        assertEquals("Dosing", ctx.fetchedSections.first().sectionTitle)
+        assertEquals("Drug X", ctx.fetchedSections.first().topicTitle)
+    }
+
+    @Test
+    fun `failed overview is recorded as a logical failure and yields no evidence`() {
+        accumulator.onToolCallStarting("call-1", """{"topicId":"9999"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", """{"error":"Topic not found: 9999"}""", true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.toolCalls.size)
+        assertFalse(ctx.toolCalls[0].success)
+        assertTrue(ctx.fetchedSections.isEmpty())
+        assertFalse(accumulator.hasEvidence)
     }
 }
 

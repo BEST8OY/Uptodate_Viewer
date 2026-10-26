@@ -13,20 +13,19 @@ data class PatientProfile(
 ) {
     fun toSystemBlock(): String {
         if (this == PatientProfile()) return ""
-        val parts = mutableListOf<String>()
-        if (age.isNotBlank()) parts.add("- Age: $age")
-        if (sex.isNotBlank()) parts.add("- Sex: $sex")
-        if (conditions.isNotEmpty()) parts.add("- Conditions: ${conditions.joinToString(", ")}")
-        if (medications.isNotEmpty()) parts.add("- Medications: ${medications.joinToString(", ")}")
-        if (allergies.isNotEmpty()) parts.add("- Allergies: ${allergies.joinToString(", ")}")
-        if (notes.isNotBlank()) parts.add("- Notes: $notes")
-        return """
-        ## Active Patient Profile
-        ${parts.joinToString("\n")}
-
-        PATIENT CONTEXT DIRECTIVE:
-        - Cross-reference all clinical recommendations against this patient's age, conditions, and active medications.
-        - Actively highlight relevant dose adjustments (e.g., renal/hepatic), precautions, or potential drug-drug interactions.
-        """.trimIndent()
+        val parts = buildList {
+            if (age.isNotBlank()) add("- Age: $age")
+            if (sex.isNotBlank()) add("- Sex: $sex")
+            if (conditions.isNotEmpty()) add("- Conditions: ${conditions.joinToString(", ")}")
+            if (medications.isNotEmpty()) add("- Medications: ${medications.joinToString(", ")}")
+            if (allergies.isNotEmpty()) add("- Allergies: ${allergies.joinToString(", ")}")
+            if (notes.isNotBlank()) add("- Notes: $notes")
+        }
+        return buildString {
+            appendLine("## Active Patient Profile")
+            parts.forEach { appendLine(it) }
+            appendLine()
+            append("Adjust every recommendation for this patient's age, organ function, active medications, and documented allergies.")
+        }
     }
 }

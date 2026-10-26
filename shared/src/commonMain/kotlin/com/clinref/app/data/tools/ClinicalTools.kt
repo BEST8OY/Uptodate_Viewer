@@ -7,7 +7,6 @@ import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.serialization.typeToken
 import com.clinref.app.data.GraphicContentResponse
 import com.clinref.app.data.MedicalDatabaseTools
-import com.clinref.app.data.RelatedTopicsResponse
 import com.clinref.app.data.SearchTopicSectionsResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
@@ -15,7 +14,6 @@ import com.clinref.app.data.TopicSectionsResponse
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNames
-
 /**
  * Native strongly-typed class-based Koog tools for clinical database access.
  * Zero reflection at runtime; full compile-time type safety for arguments and response schemas.
@@ -34,7 +32,7 @@ class GetTopicOverviewTool(
 ) {
     @Serializable
     data class Args(
-        @property:LLMDescription("Exact numeric topic ID string returned by searchTopics or getRelatedTopics (e.g., '12345').")
+        @property:LLMDescription("Exact numeric topic ID string returned by searchTopics (e.g., '12345').")
         @JsonNames("topic_id", "topicId")
         val topicId: String
     )
@@ -69,32 +67,6 @@ class SearchTopicsTool(
 
     override suspend fun execute(args: Args): SearchTopicsResponse =
         databaseTools.searchTopics(args.query)
-}
-
-class GetRelatedTopicsTool(
-    private val databaseTools: MedicalDatabaseTools
-) : Tool<GetRelatedTopicsTool.Args, RelatedTopicsResponse>(
-    argsType = typeToken<Args>(),
-    resultType = typeToken<RelatedTopicsResponse>(),
-    name = "getRelatedTopics",
-    description = "Retrieve cross-referenced topic IDs and titles linked to a primary topicId. " +
-        "Use when a general disease topic links out to a dedicated drug-dosing or special-population sub-topic. " +
-        "Follow with getTopicOverview and getTopicSectionsText on the target topic."
-) {
-    @Serializable
-    data class Args(
-        @property:LLMDescription("Exact numeric topic ID string from searchTopics or getTopicOverview.")
-        @JsonNames("topic_id")
-        val topicId: String
-    )
-
-    override suspend fun execute(args: Args): RelatedTopicsResponse {
-        val cleanTopicId = args.topicId.trim()
-        if (cleanTopicId.isEmpty()) {
-            return RelatedTopicsResponse(error = "topicId cannot be blank for getRelatedTopics.")
-        }
-        return databaseTools.getRelatedTopics(cleanTopicId)
-    }
 }
 
 class GetTopicSectionsTextTool(

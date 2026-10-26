@@ -104,18 +104,6 @@ class AdversarialInputFuzzTest {
     }
 
     @Test
-    fun `getRelatedTopics returns clean error envelope for hostile topic ids`() {
-        for (id in hostileIds) {
-            val res = tools.getRelatedTopics(id)
-            assertNotNull("Must be an error envelope for id: '$id'", res.error)
-            assertTrue(
-                "Error must say topic not found for id '$id', got: ${res.error}",
-                res.error!!.startsWith("Topic not found")
-            )
-        }
-    }
-
-    @Test
     fun `searchTopicSections returns clean error envelope for hostile topic ids`() {
         for (id in hostileIds) {
             val res = tools.searchTopicSections(id, "dose")

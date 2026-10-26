@@ -117,6 +117,12 @@ dependencies {
     add("kspDesktop", libs.room3.compiler)
 }
 
+tasks.withType<Test>().configureEach {
+    extensions.findByType<JacocoTaskExtension>()?.let {
+        it.isEnabled = false
+    }
+}
+
 tasks.register<JacocoReport>("jacocoDesktopTestReport") {
     dependsOn(tasks.named("desktopTest"))
     group = "Reporting"

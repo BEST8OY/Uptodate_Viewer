@@ -26,17 +26,36 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from reasoning_sanitizer import strip_reasoning
+from router import (
+    CANNED_SMALL_TALK_REPLY,
+    small_talk,
+)
 from safety_validator import (
     FetchedSection,
     GraphicRef,
+    NO_SECTIONS_BLOCKED_REASON,
+    NO_TOOLS_BLOCKED_REASON,
     PatientProfile,
     SafetyValidator,
     ToolCallRecord,
     TopicRef,
     TurnContext,
     ValidationResult,
+    Violation,
 )
-from system_prompt import build_correction_prompt, build_premature_interception_prompt
+from system_prompt import (
+    SYNTHESIS_CONTRACT,
+    build_correction_prompt,
+    build_evidence_gate_pause_prompt,
+    build_premature_interception_prompt,
+    build_revision_prompt,
+)
+
+
+# How many times a turn may be sent back to retrieval because its draft stated values that
+# were never retrieved. One escalation distinguishes "forgot to fetch the drug topic" from
+# "will not stop inventing"; more would just multiply token cost on a slowly converging model.
+MAX_EVIDENCE_ESCALATIONS = 1
 
 
 class AgentState(TypedDict):
@@ -44,7 +63,9 @@ class AgentState(TypedDict):
     system_prompt: str
     turn_context: dict  # Serialized TurnContext
     user_question: str  # Original user question for number validation
-    retry_count: int
+    gate1_retries: int  # Gate 1 evidence retries (Change 9 budget split)
+    gate2_revisions: int  # Gate 2 revision rounds (Change 9 budget split)
+    gate2_escalations: int  # Gate 2 -> Phase 1 escalations (fresh evidence round)
     validation_result: Optional[dict]
     tool_rounds: int  # Number of execute_tools passes this turn
     premature_retries: int  # Number of premature interception retries
@@ -164,72 +185,89 @@ def compress_conversation_history(
     return sys_msgs + [compressed_human_msg] + recent_msgs
 
 
+def extract_section_text_from_markdown(full_markdown: str, section_id: str) -> str:
+    """Extract section markdown under '=== Section: {section_id} ==='. Parity with Kotlin extractSectionText."""
+    if section_id.upper() == "FULL":
+        return full_markdown.strip()
+    header_pattern = f"=== Section: {section_id} ==="
+    start_index = full_markdown.find(header_pattern)
+    if start_index == -1:
+        return full_markdown.strip()
+    text_start = start_index + len(header_pattern)
+    next_header_index = full_markdown.find("=== Section: ", text_start)
+    if next_header_index != -1:
+        return full_markdown[text_start:next_header_index].strip()
+    return full_markdown[text_start:].strip()
+
+
+BLOCKED_MARKER = "Clinical Response Verification Blocked: "
+
+
+def format_terminal_blocked_message(blocked_reason: str) -> str:
+    """Terminal message when the safety budget is exhausted.
+
+    The leading marker is what post-run detection keys on, so it stays stable; the body tells
+    the clinician what to do next instead of quoting the rule that fired.
+    """
+    return (
+        f"{BLOCKED_MARKER}{blocked_reason}\n\n"
+        "The drafted answer is withheld because these values are not in the sections retrieved for this question.\n"
+        "The retrieved sections are attached below as references — review them directly, or rephrase the question "
+        "to name the drug whose dose you need."
+    )
+
+
 def _build_evidence_summary(sections: list[FetchedSection]) -> str:
     """Evidence digest shared by validation and synthesis prompt assembly."""
     evidence_lines = []
     for sec in sections:
+        # Render the resolved topic title (collected from tool metadata during evidence gathering),
+        # falling back to the bare topic id only when the title is missing — parity with Kotlin
+        # evidenceSummaryFrom ("... from topic ${sec.topicTitle}").
+        display_topic = sec.topic_title if sec.topic_title else sec.topic_id
         if sec.content_snippet:
             evidence_lines.append(
                 f"Section [{sec.section_id}] ({sec.section_title}):\n{sec.content_snippet}"
             )
         else:
             evidence_lines.append(
-                f"Section [{sec.section_id}] ({sec.section_title}) from topic {sec.topic_id}"
+                f"Section [{sec.section_id}] ({sec.section_title}) from topic {display_topic}"
             )
     return "\n---\n".join(evidence_lines) if evidence_lines else "No section text was successfully fetched in the prior turn."
 
 
 def format_synthesis_prompt(pending_input: str, tc: TurnContext) -> str:
-    """Format synthesis directives injecting silent clinical triage, active patient profile
-    contraindications, and verified evidence summary. Parity with Kotlin ClinicalAgentStrategy.formatSynthesisPrompt.
-    """
-    if SafetyValidator.is_non_clinical_response(tc) and not tc.fetched_sections:
-        if pending_input.strip():
-            return f"Please provide a helpful, courteous greeting or non-clinical response addressing: {pending_input}"
-        else:
-            return "Please provide a helpful, courteous greeting to the clinician and offer clinical assistance."
+    """Format the closed-book synthesis directive: evidence digest plus output contract.
 
-    if pending_input.startswith("SYSTEM NOTICE"):
+    The patient profile is deliberately not repeated here — it is a persistent system
+    message that survives the Phase-1 session rewrite. Parity with Kotlin
+    ClinicalAgentStrategy.formatSynthesisPrompt.
+    """
+    if pending_input and pending_input.startswith("SYSTEM NOTICE"):
         return pending_input
 
-    patient_block = ""
-    patient_profile = tc.patient_profile
-    if patient_profile:
-        from system_prompt import extract_patient_context
-        patient_dict = patient_profile.model_dump() if hasattr(patient_profile, "model_dump") else patient_profile
-        patient_block = extract_patient_context(patient_dict) or ""
-
-    patient_profile_section = patient_block if patient_block.strip() else "No active patient profile or documented contraindications."
     evidence_summary = _build_evidence_summary(tc.fetched_sections)
+    user_question = pending_input if pending_input and not pending_input.startswith("CLINICAL SYNTHESIS DIRECTIVE") else tc.user_question
 
-    lines = [
-        "CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK MODE — NO TOOLS ACTIVE):",
-        "Synthesize a definitive, point-of-care clinical response for the inquiry below using ONLY the `<retrieved_evidence>` block and `<patient_profile>` constraints.\n",
-        "<patient_profile>",
-        patient_profile_section,
-        "</patient_profile>\n",
-        "<retrieved_evidence>",
-        evidence_summary,
-        "</retrieved_evidence>\n",
-        "MANDATORY SYNTHESIS & VERIFICATION RULES:",
-        "1. SILENT CLINICAL TRIAGE: Before writing, verify the candidate regimen against `<patient_profile>` allergies, renal markers (eGFR/CrCl), hepatic status, and active medications.",
-        "2. ALLERGY EXCLUSION: If a first-line drug or drug class conflicts with a documented patient allergy in `<patient_profile>`, select a safe alternative from `<retrieved_evidence>`. Do NOT recommend or name the contraindicated drug as an option.",
-        "3. VERBATIM QUANTITY MATCHING: Every clinical number, dosage, percentage, range, and lab threshold in your response must match an exact number and unit string inside `<retrieved_evidence>` (or echo the patient's own documented profile values). Do NOT convert units (e.g., g to mg) or calculate weight-multiplied doses not explicitly written in the text. If a number is absent from `<retrieved_evidence>`, write \"not specified in retrieved sections.\"",
-        "4. POINT-OF-CARE STRUCTURE:",
-        "   - Lead with a 1–2 sentence **bolded Bottom-Line Up Front (BLUF)** giving the exact patient-tailored regimen.",
-        "   - Follow with concise bullet points under these three exact headers:",
-        "     * **First-Line Regimen & Dosing**",
-        "     * **Organ Function & Adjustments**",
-        "     * **Contraindications & Critical Warnings**",
-        "   - Write plain text only (no markdown links, no reference/source lists at the end).",
-    ]
+    return f"""CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK — NO TOOLS ACTIVE)
 
-    if pending_input and not pending_input.startswith("CLINICAL SYNTHESIS DIRECTIVE"):
-        lines.append("")
-        lines.append("CLINICAL INQUIRY:")
-        lines.append(pending_input)
+<retrieved_evidence>
+{evidence_summary}
+</retrieved_evidence>
 
-    return "\n".join(lines)
+{SYNTHESIS_CONTRACT}
+
+CLINICAL INQUIRY:
+{user_question}"""
+
+
+def _tool_key(raw_name: str) -> str:
+    """Canonical tool key: ignores snake_case vs camelCase (mirrors Kotlin normalizeToolName).
+
+    Tool bookkeeping must never depend on how a name was spelled: the LangChain registry may
+    expose either form, and comparing raw strings silently drops evidence when it changes.
+    """
+    return re.sub(r"[^a-z0-9]", "", (raw_name or "").lower())
 
 
 def create_clinical_agent(
@@ -288,6 +326,16 @@ def create_clinical_agent(
 
     # ── Phase 1: Evidence Gathering ────────────────────────────────────
 
+    def node_small_talk_reply(state: AgentState) -> dict:
+        """Small-talk path: returns the canned greeting with no LLM call."""
+        return {"messages": [AIMessage(content=CANNED_SMALL_TALK_REPLY)]}
+
+    def route_after_question(state: AgentState) -> str:
+        """Conditional entry point: route on the QUESTION at entry (never on the answer)."""
+        if small_talk(str(state.get("user_question", ""))):
+            return "small_talk_reply"
+        return "node_evidence_gathering"
+
     def node_evidence_gathering(state: AgentState) -> dict:
         """Phase 1: Evidence Gathering using llm_with_tools."""
         config = {"callbacks": callbacks} if callbacks else {}
@@ -295,32 +343,22 @@ def create_clinical_agent(
         return {"messages": [response]}
 
     def route_after_evidence_gathering(state: AgentState) -> str:
-        """Route from evidence gathering: tool_calls -> execute_tools, premature -> intercept_premature, else -> validate_evidence."""
+        """Route from evidence gathering: tool_calls -> execute_tools, else gate the turn."""
         last_message = state["messages"][-1]
         if isinstance(last_message, AIMessage) and last_message.tool_calls:
             return "execute_tools"
 
-        tc = TurnContext(**state["turn_context"])
-        raw_text = last_message.content if isinstance(last_message, AIMessage) and last_message.content else ""
-        clean_text = strip_reasoning(raw_text)
-        tc.answer = clean_text
-        tc.user_question = state.get("user_question", "")
-
-        is_conversational = SafetyValidator.is_non_clinical_response(tc)
-        has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
-        has_tools = len(tc.tool_calls) > 0
-
-        # Phase 1 premature interception: clinical response generated before any tools or evidence
-        if not is_conversational and not has_tools and not has_evidence:
-            if state.get("premature_retries", 0) < effective_premature_retries:
-                return "intercept_premature"
+        tc_dict = state.get("turn_context") or {}
+        has_evidence = bool(tc_dict.get("fetched_sections")) or bool(tc_dict.get("graphic_ids"))
+        if not has_evidence and state.get("premature_retries", 0) < effective_premature_retries:
+            return "intercept_premature"
 
         return "validate_evidence"
 
     def intercept_premature(state: AgentState) -> dict:
         """Intercept premature response before tools were executed on clinical inquiry."""
         current_retries = state.get("premature_retries", 0) + 1
-        prompt = build_premature_interception_prompt(str(current_retries))
+        prompt = build_premature_interception_prompt()
         return {
             "messages": [HumanMessage(content=prompt)],
             "premature_retries": current_retries,
@@ -394,7 +432,7 @@ def create_clinical_agent(
                 if not has_error and isinstance(raw, dict):
                     has_error = bool(raw.get("error"))
                 is_empty_sections = (
-                    name == "get_topic_sections_text"
+                    _tool_key(name) == "gettopicsectionstext"
                     and not getattr(raw, "markdown", (raw.get("markdown") if isinstance(raw, dict) else ""))
                     and bool(getattr(raw, "invalid_sections", getattr(raw, "invalidSections", (raw.get("invalidSections") if isinstance(raw, dict) else []))))
                 )
@@ -405,8 +443,8 @@ def create_clinical_agent(
             tc.tool_calls[-1].result = result_content
             tc.tool_results.append(result_content)
 
-            # Track candidate topic titles from search_topics
-            if name == "search_topics":
+            # Track candidate topic titles from searchTopics
+            if _tool_key(name) == "searchtopics":
                 results = getattr(raw, "results", None)
                 if results is None and isinstance(raw, dict):
                     results = raw.get("results", [])
@@ -416,19 +454,11 @@ def create_clinical_agent(
                     if tid and title and not title.isdigit():
                         tc.topic_titles[tid] = title
 
-            # Track related topic titles
-            if name == "get_related_topics":
-                rel_topics = getattr(raw, "relatedTopics", getattr(raw, "related_topics", None))
-                if rel_topics is None and isinstance(raw, dict):
-                    rel_topics = raw.get("relatedTopics", raw.get("related_topics", []))
-                for item in (rel_topics or []):
-                    tid = str(getattr(item, "id", item.get("id", item.get("topicId")) if isinstance(item, dict) else "")).strip()
-                    title = str(getattr(item, "title", item.get("title") if isinstance(item, dict) else "")).strip()
-                    if tid and title and not title.isdigit():
-                        tc.topic_titles[tid] = title
+            # Related topic titles arrive inside the overview payload; they are navigation
+            # candidates, not evidence, so they are not recorded as citation titles.
 
             # Track topic overview bundling
-            if name in ("get_topic_overview", "getTopicOverview"):
+            if _tool_key(name) == "gettopicoverview":
                 topic_id = str(
                     getattr(raw, "topicId", getattr(raw, "topic_id", (raw.get("topicId", raw.get("topic_id")) if isinstance(raw, dict) else args.get("topic_id", args.get("topicId", "")))))
                 ).strip()
@@ -462,9 +492,10 @@ def create_clinical_agent(
                             tc.graphic_titles[gid] = str(g_title)
                             tc.graphic_titles[clean_gid] = str(g_title)
 
-                # Calculator topic evidence
+                # Calculator topic evidence — only a SUCCESSFUL overview carries the
+                # calculator's full markdown as evidence (successful-entry requirement).
                 topic_type = getattr(raw, "topicType", getattr(raw, "topic_type", (raw.get("topicType", raw.get("topic_type")) if isinstance(raw, dict) else "")))
-                if topic_type == "calc":
+                if topic_type == "calc" and success:
                     full_md = getattr(raw, "markdown", (raw.get("markdown", "") if isinstance(raw, dict) else ""))
                     tc.fetched_sections.append(
                         FetchedSection(
@@ -477,7 +508,7 @@ def create_clinical_agent(
                     )
 
             # Batch section tracking
-            if name == "get_topic_sections_text":
+            if _tool_key(name) == "gettopicsectionstext":
                 resp_tid = str(getattr(raw, "topicId", getattr(raw, "topic_id", (raw.get("topicId", raw.get("topic_id")) if isinstance(raw, dict) else "")))).strip()
                 topic_id = resp_tid or str(args.get("topic_id", args.get("topicId", ""))).strip()
                 topic_title = getattr(raw, "topicTitle", getattr(raw, "topic_title", (raw.get("topicTitle", raw.get("topic_title")) if isinstance(raw, dict) else "")))
@@ -510,19 +541,25 @@ def create_clinical_agent(
                 )
                 if isinstance(section_ids, str):
                     section_ids = [section_ids]
-                for sid in section_ids:
-                    tc.fetched_sections.append(
-                        FetchedSection(
-                            topic_id=topic_id,
-                            topic_title=tc.topic_titles.get(topic_id, ""),
-                            section_id=sid,
-                            section_title=section_map.get(sid, "").lstrip("-–— "),
-                            content_snippet=result_content[:2000],
+                raw_markdown = getattr(raw, "markdown", (raw.get("markdown", "") if isinstance(raw, dict) else ""))
+                # Only a SUCCESSFUL batch call records fetched sections (successful-entry
+                # requirement for the Phase-1 text-exit rule); failed/invalid fetches are
+                # excluded from the evidence ledger.
+                if success:
+                    for sid in section_ids:
+                        snippet = extract_section_text_from_markdown(raw_markdown, sid)
+                        tc.fetched_sections.append(
+                            FetchedSection(
+                                topic_id=topic_id,
+                                topic_title=tc.topic_titles.get(topic_id, ""),
+                                section_id=sid,
+                                section_title=section_map.get(sid, "").lstrip("-–— "),
+                                content_snippet=snippet if snippet else result_content[:2000],
+                            )
                         )
-                    )
 
-            # Graphic tracking
-            if name == "get_graphic_content":
+            # Graphic tracking — only a SUCCESSFUL fetch adds the table to the evidence ledger
+            if _tool_key(name) == "getgraphiccontent" and success:
                 graphic_id = str(args.get("graphic_id", args.get("graphicId", ""))).strip()
                 if graphic_id:
                     clean_gid = re.sub(r"(?i)^graphic-", "", graphic_id)
@@ -556,59 +593,61 @@ def create_clinical_agent(
 
     # ── Dual Gate 1: Pre-Synthesis Evidence Gate ───────────────────────
 
+    def _evidence_summary_or_placeholder(tc: TurnContext) -> str:
+        """Phase-1 remediation evidence digest; "Nothing has been retrieved yet." when empty."""
+        if tc.fetched_sections:
+            return _build_evidence_summary(tc.fetched_sections)
+        return "Nothing has been retrieved yet."
+
     def validate_evidence(state: AgentState) -> dict:
-        """Dual Gate 1: Pre-Synthesis Evidence Validation Gate.
-        Checks Rule 0 (tool execution) & Rule 1 (fetched sections or table graphics).
-        """
+        """Dual Gate 1: Pre-Synthesis Evidence Validation Gate."""
         tc = TurnContext(**state["turn_context"])
         answer = _extract_final_answer(state, tc)
         clean_text = strip_reasoning(answer)
         tc.answer = clean_text
         tc.user_question = state.get("user_question", "")
 
-        is_greeting = SafetyValidator.is_non_clinical_response(tc)
         has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
         has_tools = len(tc.tool_calls) > 0
 
-        if is_greeting and not has_tools and not has_evidence:
+        violations: list[Violation] = []
+        if not has_tools:
+            violations.append(Violation.of("NO_TOOLS", NO_TOOLS_BLOCKED_REASON))
+        elif not has_evidence:
+            violations.append(Violation.of("NO_SECTIONS", NO_SECTIONS_BLOCKED_REASON))
+
+        if not violations:
             return {
                 "validation_result": ValidationResult(passed=True, warnings=[]).model_dump(),
                 "turn_context": tc.model_dump(),
             }
 
-        if not has_tools or not has_evidence:
-            blocked_reason = (
-                "Clinical recommendations require database verification. No database tools were executed."
-                if not has_tools
-                else "Answer requires section or table content retrieval. Only topic outlines or searches were performed."
-            )
-            if state["retry_count"] >= max_safety_retries:
-                blocked_msg = AIMessage(
-                    content=f"Clinical Response Verification Blocked: {blocked_reason}"
-                )
-                return {
-                    "messages": [blocked_msg],
-                    "validation_result": ValidationResult(passed=False, blocked_reason=blocked_reason, warnings=[]).model_dump(),
-                    "turn_context": tc.model_dump(),
-                }
-            else:
-                evidence_summary = _build_evidence_summary(tc.fetched_sections)
-                tc.answer = ""
-                tc.structured_topic_refs = []
-                tc.structured_graphic_refs = []
-                correction_msg = HumanMessage(
-                    content=build_correction_prompt(blocked_reason, evidence_summary)
-                )
-                return {
-                    "messages": [correction_msg],
-                    "retry_count": state["retry_count"] + 1,
-                    "turn_context": tc.model_dump(),
-                    "validation_result": ValidationResult(passed=False, blocked_reason=blocked_reason, warnings=[]).model_dump(),
-                }
+        blocked_reason = " | ".join(v.detail for v in violations)
 
+        if state.get("gate1_retries", 0) >= max_safety_retries:
+            blocked_text = format_terminal_blocked_message(blocked_reason)
+            blocked_msg = AIMessage(content=blocked_text)
+            return {
+                "messages": [blocked_msg],
+                "validation_result": ValidationResult(
+                    passed=False, blocked_reason=blocked_reason, warnings=[], violations=violations
+                ).model_dump(),
+                "turn_context": tc.model_dump(),
+            }
+        evidence_summary = _evidence_summary_or_placeholder(tc)
+        tc.answer = ""
+        tc.structured_topic_refs = []
+        tc.structured_graphic_refs = []
+        correction_msg = HumanMessage(
+            content=build_evidence_gate_pause_prompt(evidence_summary)
+        )
         return {
-            "validation_result": ValidationResult(passed=True, warnings=[]).model_dump(),
+            "messages": [correction_msg],
+            "gate1_retries": state.get("gate1_retries", 0) + 1,
             "turn_context": tc.model_dump(),
+            "validation_result": ValidationResult(
+                passed=False, blocked_reason=blocked_reason, warnings=[], violations=violations
+            ).model_dump(),
         }
 
     def route_after_validate_evidence(state: AgentState) -> str:
@@ -616,7 +655,7 @@ def create_clinical_agent(
         val = state.get("validation_result") or {}
         if not val.get("passed"):
             last_msg = state["messages"][-1]
-            if isinstance(last_msg, AIMessage) and last_msg.content.startswith("Clinical Response Verification Blocked:"):
+            if isinstance(last_msg, AIMessage) and str(last_msg.content).startswith(BLOCKED_MARKER):
                 return "safety_block"
             return "node_evidence_gathering"
 
@@ -651,36 +690,46 @@ def create_clinical_agent(
     # ── Phase 2: Clinical Synthesis ────────────────────────────────────
 
     def node_clinical_synthesis(state: AgentState) -> dict:
-        """Phase 2: Clinical Synthesis using llm_tool_free (zero tools bound in model schema)."""
+        """Phase 2: Clinical Synthesis using llm_tool_free (zero tools bound in model schema).
+
+        Change-1: the answer-side greeting bypass is deleted — this node is ALWAYS the
+        clinical synthesis directive and its inquiry is the ORIGINAL user question
+        (never the discarded Phase-1 draft). Remediation turns keep the loose
+        "SYSTEM NOTICE" passthrough (mirrors Kotlin's !clean.startsWith("SYSTEM NOTICE"))
+        so every correction-prompt variant routes as remediation — the em-dash headers
+        emitted by the correction templates ("SYSTEM NOTICE — EVIDENCE GATE PAUSE",
+        "— SAFETY REVISION") do not use the colon form that only
+        build_premature_interception_prompt writes ("SYSTEM NOTICE: ...").
+        """
         tc = TurnContext(**state["turn_context"])
         last_message = state["messages"][-1]
-        is_remediation = isinstance(last_message, HumanMessage) and str(last_message.content).startswith("SYSTEM NOTICE:")
+        is_remediation = isinstance(last_message, HumanMessage) and str(last_message.content).startswith("SYSTEM NOTICE")
 
-        pending_text = ""
-        if is_remediation:
-            pending_text = str(last_message.content)
-        else:
-            for msg in reversed(state["messages"]):
-                if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-                    pending_text = strip_reasoning(msg.content)
-                    break
-
-        is_greeting = (
-            SafetyValidator.is_non_clinical_response(tc)
-            and not tc.fetched_sections
-            and not tc.tool_calls
-        )
-
-        # Non-clinical greeting already rendered
-        if is_greeting and pending_text and not is_remediation:
-            return {}
-
-        synthesis_prompt = format_synthesis_prompt(pending_text, tc)
-        config = {"callbacks": callbacks} if callbacks else {}
         if is_remediation:
             synthesis_messages = list(state["messages"])
         else:
-            synthesis_messages = list(state["messages"]) + [HumanMessage(content=synthesis_prompt)]
+            synthesis_prompt = format_synthesis_prompt(str(state.get("user_question", "")), tc)
+            # Prior conversation history is everything before the current turn's user question
+            current_user_question = str(state.get("user_question", "")).strip()
+            turn_start_idx = None
+            for i in range(len(state["messages"]) - 1, -1, -1):
+                m = state["messages"][i]
+                if isinstance(m, HumanMessage) and str(m.content).strip() == current_user_question:
+                    turn_start_idx = i
+                    break
+
+            if turn_start_idx is not None:
+                prior_history = [
+                    m for m in state["messages"][:turn_start_idx]
+                    if isinstance(m, (SystemMessage, HumanMessage)) or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
+                ]
+            else:
+                sys_msg = next((m for m in state["messages"] if isinstance(m, SystemMessage)), None)
+                prior_history = [sys_msg] if sys_msg else []
+
+            synthesis_messages = prior_history + [HumanMessage(content=synthesis_prompt)]
+
+        config = {"callbacks": callbacks} if callbacks else {}
         response = llm_tool_free.invoke(synthesis_messages, config=config)
         raw_content = response.content if isinstance(response, AIMessage) else (response if isinstance(response, str) else "")
         clean_content = strip_reasoning(raw_content if isinstance(raw_content, str) else "")
@@ -708,21 +757,26 @@ def create_clinical_agent(
 
         has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
         if not answer.strip():
-            # Blank-answer guard mirroring Kotlin ClinicalAgentStrategy.evaluateSafetyTurn
+            # Blank-answer guard mirroring Kotlin ClinicalAgentStrategy.evaluateSafetyTurn,
+            # now a typed violation so remediation can target the right phase.
+            detail = (
+                "No final clinical answer was synthesized; render the gathered evidence"
+                if has_evidence
+                else "No clinical response was generated. Evidence retrieval is required."
+            )
             validation = ValidationResult(
                 passed=False,
                 warnings=[],
-                blocked_reason=(
-                    "No final clinical answer was synthesized; render the gathered evidence"
-                    if has_evidence
-                    else "No clinical response was generated. Evidence retrieval is required."
-                ),
+                blocked_reason=detail,
+                violations=[
+                    Violation.of("BLANK_WITH_EVIDENCE" if has_evidence else "BLANK_NO_EVIDENCE", detail)
+                ],
             )
         else:
             validator = SafetyValidator()
             validation = validator.validate(tc)
 
-        if not validation.passed and state["retry_count"] < max_safety_retries:
+        if not validation.passed and state.get("gate2_revisions", 0) < max_safety_retries:
             evidence_summary = _build_evidence_summary(tc.fetched_sections)
 
             # Reset answer state for correction turn (mirrors Kotlin prepareForCorrection)
@@ -730,20 +784,42 @@ def create_clinical_agent(
             tc.structured_topic_refs = []
             tc.structured_graphic_refs = []
 
-            correction_msg = HumanMessage(
-                content=build_correction_prompt(validation.blocked_reason or "", evidence_summary)
+            violations = list(getattr(validation, "violations", None) or [])
+
+            # A quantity failure that survived one tool-free revision means the value was never
+            # retrieved. Retrying without tools can only paraphrase it again, so hand tools back
+            # and name the values — but only while the escalation budget lasts.
+            unverified = next((v for v in violations if v.code == "UNVERIFIED_QTY"), None)
+            escalated = unverified is not None and state.get("gate2_revisions", 0) >= 1
+            if escalated and state.get("gate2_escalations", 0) < MAX_EVIDENCE_ESCALATIONS:
+                violations = [Violation.of("UNRETRIEVED_DOSES", unverified.detail)]
+                validation = ValidationResult(
+                    passed=False,
+                    warnings=[],
+                    blocked_reason=unverified.detail,
+                    violations=violations,
+                )
+
+            correction_content = build_correction_prompt(
+                violations=violations,
+                evidence_summary=evidence_summary,
+                draft=answer,
             )
+
+            correction_msg = HumanMessage(content=correction_content)
             return {
                 "messages": [correction_msg],
-                "retry_count": state["retry_count"] + 1,
+                # Escalation is a fresh evidence round, so the new draft earns its own
+                # revision budget — otherwise the escalated attempt has no chance to be repaired.
+                "gate2_revisions": 0 if escalated else state.get("gate2_revisions", 0) + 1,
+                "gate2_escalations": state.get("gate2_escalations", 0) + (1 if escalated else 0),
                 "turn_context": tc.model_dump(),
                 "validation_result": validation.model_dump(),
             }
 
         if not validation.passed:
-            blocked_msg = AIMessage(
-                content=f"Clinical Response Verification Blocked: {validation.blocked_reason}"
-            )
+            blocked_text = format_terminal_blocked_message(validation.blocked_reason or "")
+            blocked_msg = AIMessage(content=blocked_text)
             return {
                 "messages": [blocked_msg],
                 "validation_result": validation.model_dump(),
@@ -762,29 +838,29 @@ def create_clinical_agent(
             return END
 
         last_msg = state["messages"][-1]
-        if isinstance(last_msg, AIMessage) and str(last_msg.content).startswith("Clinical Response Verification Blocked:"):
+        if isinstance(last_msg, AIMessage) and str(last_msg.content).startswith(BLOCKED_MARKER):
             return "safety_block"
 
-        # Targeted remediation: check if evidence is present
-        tc = TurnContext(**state["turn_context"])
-        has_evidence = len(tc.fetched_sections) > 0 or len(tc.graphic_ids) > 0
-        if not has_evidence:
-            return "node_evidence_gathering"  # Phase 1 Remediation
-        else:
-            return "node_clinical_synthesis"  # Phase 2 Remediation
+        violations = val.get("violations") or []
+        if any(v.get("target") == "phase1" for v in violations):
+            return "node_evidence_gathering"
+        return "node_clinical_synthesis"
 
     def safety_block(state: AgentState) -> dict:
-        """Terminal safety block node ensuring blocked message is the final message."""
+        """Terminal safety block node ensuring the blocked message is the final message."""
         last_msg = state["messages"][-1]
-        if isinstance(last_msg, AIMessage) and str(last_msg.content).startswith("Clinical Response Verification Blocked:"):
-            return {"messages": [last_msg]}
+        if isinstance(last_msg, AIMessage) and str(last_msg.content):
+            content = str(last_msg.content)
+            if content.startswith(BLOCKED_MARKER):
+                return {"messages": [last_msg]}
         blocked_reason = state.get("validation_result", {}).get("blocked_reason") or "Safety verification blocked."
-        return {"messages": [AIMessage(content=f"Clinical Response Verification Blocked: {blocked_reason}")]}
+        return {"messages": [AIMessage(content=format_terminal_blocked_message(blocked_reason))]}
 
     # ── Build the Graph Topology ───────────────────────────────────────
 
     workflow = StateGraph(AgentState)
 
+    workflow.add_node("small_talk_reply", node_small_talk_reply)
     workflow.add_node("node_evidence_gathering", node_evidence_gathering)
     workflow.add_node("execute_tools", execute_tools)
     workflow.add_node("intercept_premature", intercept_premature)
@@ -794,7 +870,12 @@ def create_clinical_agent(
     workflow.add_node("validate_safety", validate_safety)
     workflow.add_node("safety_block", safety_block)
 
-    workflow.set_entry_point("node_evidence_gathering")
+    # Greetings and small talk route to small_talk_reply; clinical questions enter evidence gathering.
+    workflow.set_conditional_entry_point(route_after_question, {
+        "small_talk_reply": "small_talk_reply",
+        "node_evidence_gathering": "node_evidence_gathering",
+    })
+    workflow.add_edge("small_talk_reply", END)
 
     workflow.add_conditional_edges("node_evidence_gathering", route_after_evidence_gathering, {
         "execute_tools": "execute_tools",
@@ -907,8 +988,8 @@ def create_initial_state(
     """Create initial agent state for a new turn.
 
     patient_profile (optional dict with age/sex/conditions/medications/allergies/notes)
-    is wired into TurnContext so the deterministic Rule 4 patient bounds (renal & allergy)
-    can fire in-graph — parity with KoogAgentFactory.accumulator.setPatientProfile().
+    is wired into TurnContext so patient-stated values join the evidence corpus (restating
+    them is not an invented quantity) — parity with KoogAgentFactory.accumulator.setPatientProfile().
     """
     if isinstance(patient_profile, dict):
         patient_profile = PatientProfile(**patient_profile) if patient_profile else None
@@ -920,7 +1001,9 @@ def create_initial_state(
         "system_prompt": system_prompt,
         "turn_context": TurnContext(patient_profile=patient_profile).model_dump(),
         "user_question": user_message,
-        "retry_count": 0,
+        "gate1_retries": 0,
+        "gate2_revisions": 0,
+        "gate2_escalations": 0,
         "validation_result": None,
         "tool_rounds": 0,
         "premature_retries": 0,

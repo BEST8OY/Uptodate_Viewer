@@ -11,7 +11,6 @@ import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import com.clinref.app.data.tools.GetGraphicContentTool
-import com.clinref.app.data.tools.GetRelatedTopicsTool
 import com.clinref.app.data.tools.GetTopicOverviewTool
 import com.clinref.app.data.tools.GetTopicSectionsTextTool
 import com.clinref.app.data.tools.SearchTopicsTool
@@ -82,26 +81,37 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicOverview parses outline html into sections and table graphics and sets topicType article`() {
+    fun `getTopicOverview takes sections from the outline and graphics from the payload JSON`() {
         val outlineHtml = """
-            <a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a>
-            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;111&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_table&quot;}]})"><span class="legacyTopicViewHyphen">- </span>Table A</a>
-            <a href="appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;222&quot;,&quot;type&quot;:&quot;graphic&quot;,&quot;subtype&quot;:&quot;graphic_figure&quot;}]})">Figure B</a>
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})"><span class="legacyTopicViewHyphen">- </span>Renal Dosage Adjustment</a></li>
+            </ul>
         """.trimIndent()
 
-        every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = "")
+        every { contentRepository.getTopicContent("100") } returns ContentRepository.TopicContent(
+            outlineHtml = outlineHtml,
+            bodyHtml = "",
+            topicType = "medical",
+            graphics = listOf(
+                ContentDao.GraphicMeta("111", "Table A", "graphic_table"),
+                ContentDao.GraphicMeta("222", "Figure B", "graphic_figure")
+            ),
+            relatedTopics = listOf(ContentDao.TopicMeta("300", "Related Topic"))
+        )
         every { contentRepository.getTopicTitle("100") } returns "Topic 100"
 
         val res = tools.getTopicOverview("100")
 
         assertEquals("Topic 100", res.title)
-        assertEquals("article", res.topicType)
-        assertEquals(1, res.sections.size)
-        // Only graphic_table is included (111), graphic_figure (222) is filtered out
-        assertEquals(1, res.graphics.size)
-        assertEquals("111", res.graphics[0].id)
-        // Legacy hyphen span stripped from title
+        assertEquals("medical", res.topicType)
+        assertEquals(listOf("H1", "H2"), res.sections.map { it.id })
+        // Legacy hyphen span stripped from the outline title
+        assertEquals("Renal Dosage Adjustment", res.sections[1].title)
+        // Only graphic_table survives; figures are not retrievable content
+        assertEquals(listOf("111"), res.graphics.map { it.id })
         assertEquals("Table A", res.graphics[0].title)
+        assertEquals(listOf("300"), res.relatedTopics.map { it.id })
     }
 
     @Test
@@ -186,16 +196,16 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `asToolList returns 6 class-based tools with expected names`() {
+    fun `asToolList returns the 5 class-based retrieval tools`() {
         val toolList = tools.asToolList()
-        assertEquals(6, toolList.size)
+        assertEquals(5, toolList.size)
         val names = toolList.map { it.name }.toSet()
         assertTrue(names.contains("getTopicOverview"))
         assertTrue(names.contains("searchTopics"))
         assertTrue(names.contains("searchTopicSections"))
-        assertTrue(names.contains("getRelatedTopics"))
         assertTrue(names.contains("getTopicSectionsText"))
         assertTrue(names.contains("getGraphicContent"))
+        assertFalse(names.contains("getTopicBrief"))
         assertFalse(names.contains("getTopicOutline"))
         assertFalse(names.contains("submitClinicalAnswer"))
     }
@@ -506,9 +516,9 @@ class MedicalDatabaseToolsTest {
         // Invariants
         assertEquals("100", res.topicId)
         assertEquals("Aspirin Therapy", res.title)
-        assertEquals("article", res.topicType)
+        assertEquals("medical", res.topicType)
         assertEquals(3, res.sections.size)
-        assertEquals(1, res.graphics.size)
+        assertEquals(0, res.graphics.size)
 
         val md = res.markdown
         assertEquals("", md)

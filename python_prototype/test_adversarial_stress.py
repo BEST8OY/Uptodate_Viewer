@@ -67,7 +67,7 @@ class TestDirectiveComplianceNoFsearch:
         assert not hasattr(db, "search"), "ClinRefDatabase still has search property connecting to fsearch.db!"
 
     def test_all_tools_work_when_fsearch_is_unreadable(self, db):
-        """Make fsearch.db completely unreadable (chmod 000). All 6 tools must function 100% normally."""
+        """Make fsearch.db completely unreadable (chmod 000). All 5 tools must function 100% normally."""
         fsearch_path = DB_DIR / "fsearch.db"
         if not fsearch_path.exists():
             pytest.skip("fsearch.db not present")
@@ -92,10 +92,6 @@ class TestDirectiveComplianceNoFsearch:
             # 4. search_topic_sections
             res5 = to_dict(tools.search_topic_sections.invoke({"topic_id": "1", "query": "dosing"}))
             assert "matches" in res5, "search_topic_sections failed when fsearch.db was chmod 000!"
-
-            # 5. get_related_topics
-            res6 = to_dict(tools.get_related_topics.invoke({"topic_id": "1"}))
-            assert "relatedTopics" in res6, "get_related_topics failed when fsearch.db was chmod 000!"
 
             # 6. get_graphic_content (table)
             res7 = tools.get_graphic_content.invoke({"graphic_id": "116392"})
@@ -163,11 +159,6 @@ class TestAdversarialInputsAndSQLInjection:
         assert "error" in res, f"Expected error for sections text '{bad_id}', got: {res}"
 
     @pytest.mark.parametrize("bad_id", MALFORMED_IDS)
-    def test_related_topics_rejects_malformed_ids(self, bad_id):
-        res = to_dict(tools.get_related_topics.invoke({"topic_id": bad_id}))
-        assert "error" in res, f"Expected error for related topics '{bad_id}', got: {res}"
-
-    @pytest.mark.parametrize("bad_id", MALFORMED_IDS)
     def test_search_topic_sections_rejects_malformed_ids(self, bad_id):
         res = to_dict(tools.search_topic_sections.invoke({"topic_id": bad_id, "query": "dosing"}))
         assert len(res.get("matches", [])) == 0, f"Expected no matches for bad topic ID '{bad_id}'"
@@ -233,8 +224,8 @@ class TestConcurrencyAndThreadSafety:
                         r = to_dict(tools.search_topics.invoke({"query": "asthma"}))
                         assert len(r.get("results", [])) > 0
                     elif op == 3:
-                        r = to_dict(tools.get_related_topics.invoke({"topic_id": "1"}))
-                        assert "relatedTopics" in r
+                        r = to_dict(tools.get_topic_overview.invoke({"topic_id": "9999"}))
+                        assert r.get("topicType") == "drug"
                     elif op == 4:
                         r = to_dict(tools.get_topic_sections_text.invoke({"topic_id": "1", "section_ids": ["Summary"]}))
                         assert r.get("topicId") == "1"

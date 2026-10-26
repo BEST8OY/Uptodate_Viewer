@@ -21,7 +21,7 @@
 ### Build & Test Commands
 
 ```bash
-# Desktop tests & compilation check (primary local verification command — 273 tests in ~13s)
+# Desktop tests & compilation check (primary local verification command — 308 tests in ~12s)
 ./gradlew :shared:desktopTest --stacktrace
 
 # Run Desktop diagnostic verifier & app (queries root SQLite DBs, all 10 ViewModels, Room 3)
@@ -52,9 +52,11 @@
 ### Python Prototype (`python_prototype/`)
 > **Important**: Run these commands **ONLY** when you have modified `.py` files inside `python_prototype/`.
 ```bash
-uv run pytest test_clinref.py        # Run 151 unit tests (ONLY when python_prototype/ code was modified)
+uv run pytest test_clinref.py        # Run 187 unit tests (ONLY when python_prototype/ code was modified)
 uv run pytest test_integration.py   # Run 58 integration tests against root SQLite DBs (ONLY when python_prototype/ code was modified)
+uv run pytest                       # Full suite: 421 tests (unit + integration + e2e + contracts + adversarial)
 uv run python run.py                 # Run interactive CLI agent
+uv run python eval_prompt.py          # Score prompt conformance over eval_cases.jsonl (needs an API key)
 ```
 
 ### Kotlin Unit Tests
@@ -64,22 +66,23 @@ uv run python run.py                 # Run interactive CLI agent
 - `ui/conversations/ConversationListViewModelTest.kt`: Pinning, unread status, search filtering, multi-selection.
 - `ui/history/HistoryViewModelTest.kt` & `ui/favorites/FavoritesViewModelTest.kt`: StateFlow WhileSubscribed flow collection and DAO operations.
 - `data/local/AppDatabaseTest.kt`: Room 3 in-memory database, ConversationDao, MessageDao (cascade deletes), HistoryDao, FavoriteDao.
-- `data/MedicalDatabaseToolsTest.kt`: Speculative outline bundling, link parsing, footnote bracket removal, graphic table markdown.
-- `domain/ai/SafetyValidatorTest.kt`: Intent-aware rules, compound slashed units (`5 u/x`, `0.5 mcg/kg/min`), thousand-separator comma normalization (`1,200 mg` vs `1200 mg`).
+- `data/MedicalDatabaseToolsTest.kt`: Outline section parsing, payload-derived graphic/related-topic inventories, link parsing, footnote bracket removal, graphic table markdown.
+- `domain/ai/SafetyValidatorTest.kt`: Evidence gating (outline alone is not evidence), quantity notation equivalence (`5-10 mg` vs `5 to 10 mg`, `1,200 mg` vs `1200 mg`, `5%` vs `5 percent`, `µg` vs `mcg`), compound slashed units (`5 u/x`, `0.5 mcg/kg/min`), patient-profile restatement.
 - `domain/ai/TurnContextAccumulatorTest.kt`: Tool call deduplication, outline title dash stripping (`-Antiplatelet` -> `Antiplatelet`), ref auto-population.
 
-See [`docs/testing.md`](docs/testing.md) for the complete testing strategy, test inventory, fakes architecture, and roadmap.
+See [`docs/ai-system-prompts-and-pipelines.md`](docs/ai-system-prompts-and-pipelines.md) for the prompt/validator/tool contract reference.
 
 ## Architectural Parity & Design Precedence (Kotlin & Python)
 > **Design Precedence**: `python_prototype/` serves as an algorithm verification testbed and reference implementation. Algorithmic tool flow, safety regexes, and validation criteria should align, but **architectural parity must NEVER compromise idiomatic Kotlin, Jetpack Compose M3 Expressive, Room 3, Navigation 3, or Koin architecture**. When superior multiplatform UX or cleaner software engineering warrants divergence (e.g., rich UI models, navigation scoping, native DI), prioritize Kotlin/CMP architecture.
 
-1. **Pure 3-Stage Pipeline**: `searchTopics` / `search_topics` returns candidate topics `[{id, title}]`; `getTopicOverview` / `get_topic_overview` retrieves the compound bundle (section outline, table graphics, related topics, `topicType`, full markdown for calculators).
+1. **Lean Retrieval Pipeline (5 tools)**: `searchTopics` returns candidate topics `[{id, title}]`; `getTopicOverview` retrieves the compound bundle (section outline, `graphic_table` inventory, related topics, `topicType`, full markdown for calculators); `getTopicSectionsText` returns section text; `searchTopicSections` locates a section inside a long article; `getGraphicContent` returns table markdown. A separate `getRelatedTopics` tool is deliberately NOT exposed — related topics already arrive inside the overview bundle.
 2. **Intent-Aware Safety Validation**: Non-clinical greetings bypass tool requirements. Answers containing clinical numbers/units (`CLINICAL_QUANTITY_REGEX`) require tool verification; unverified quantities trigger a hard block for self-correction.
-3. **Number & Quantity Normalization**: Range bounds (`5-10 mg`) and thousand separators (`1,200 mg` vs `1200 mg`) are normalized during text verification. Structural numbers (section IDs, years, list steps) are exempted.
-4. **HTML & Link Sanitization**: `javascript:appAction(...)` JSON link payloads convert to `[Text](Topic-ID)` / `[Text](Graphic-ID)`. Footnote citation brackets (`[1]`, `[1, 2]`) are stripped.
-5. **Reference Navigation Intent**: In `ClinicalReferencesSection`, tapping the parent topic card navigates to the root of the article (`sectionId = null`), while tapping a sub-section chip navigates to that specific section (`sectionId = sec.sectionId`).
-6. **Canonical Tool Response Identity**: Retrieval tool responses (`TopicSectionsResponse` / `get_topic_sections_text`) must explicitly include `topicId` alongside `topicTitle` to prevent fragile title-matching heuristics or stale parent associations.
-7. **Synthetic Section Normalization**: Full-article and calculator queries use `"FULL"` as an internal section sentinel. `"FULL"` must always be normalized to `""` in reference models (`TopicRef`, `ClinicalSource`) so reader navigation directs to the root article rather than looking for a nonexistent `#FULL` DOM anchor.
+3. **Number & Quantity Normalization**: Quantities are extracted as canonical `<number> <unit>` tokens from both the answer and the evidence corpus, then compared by set membership. Normalizations: both range bounds (`5-10 mg` ≡ `5 to 10 mg`), thousand separators (`1,200 mg` ≡ `1200 mg`), trailing zeros (`2.0 mg` ≡ `2 mg`), `%` ≡ `percent`, `µg`/`μg`/`ug` ≡ `mcg`, singular/plural durations. Units outside the clinical vocabulary are not quantities. The evidence corpus also includes the user question and the active patient profile, so restating a patient-stated value is not flagged.
+4. **DB-Grounded Metadata**: `topicType` comes from the payload's `topicInfo.type` (`drug` / `medical` / `calc` / `narrative`), never from content-shape guesses. Table graphics come from the payload's structured `relatedGraphics` inventory (`subtype == "graphic_table"`), never from `outlineHtml` — outline hrefs carry no subtype, so an outline-derived inventory cannot tell a table from a photograph. The two Lexidrug appendix tables (`57469`, `116421`) are filtered as boilerplate.
+5. **HTML & Link Sanitization**: `javascript:appAction(...)` JSON link payloads convert to `[Text](Topic-ID)` / `[Text](Graphic-ID)`. Footnote citation brackets (`[1]`, `[1, 2]`) are stripped.
+6. **Reference Navigation Intent**: In `ClinicalReferencesSection`, tapping the parent topic card navigates to the root of the article (`sectionId = null`), while tapping a sub-section chip navigates to that specific section (`sectionId = sec.sectionId`).
+7. **Canonical Tool Response Identity**: Retrieval tool responses (`TopicSectionsResponse` / `get_topic_sections_text`) must explicitly include `topicId` alongside `topicTitle` to prevent fragile title-matching heuristics or stale parent associations.
+8. **Synthetic Section Normalization**: Full-article and calculator queries use `"FULL"` as an internal section sentinel. `"FULL"` must always be normalized to `""` in reference models (`TopicRef`, `ClinicalSource`) so reader navigation directs to the root article rather than looking for a nonexistent `#FULL` DOM anchor.
 
 ## Known Quirks
 - **Koog Duplicate Classes**: `utils-android` must remain excluded in Gradle configurations; `utils-jvm` is used instead.

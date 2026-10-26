@@ -1,25 +1,22 @@
 """LangChain tools for medical database access.
 
-Mirrors Kotlin MedicalDatabaseTools — 6 tools:
-1. get_topic_overview — Compound bundle: sections, table graphics, related topics (+ calculator markdown)
-2. search_topics — unidex curated topic search
-3. get_related_topics — Related topic IDs + titles for candidate pool
-4. get_topic_sections_text — Batch section retrieval
-5. search_topic_sections — In-topic keyword section locator
-6. get_graphic_content — Table data as markdown (or error for non-table)
+Mirrors Kotlin MedicalDatabaseTools — 5 tools:
+1. search_topics — unidex curated topic search
+2. get_topic_overview — Outline sections + table graphics + related topics (+ calculator markdown)
+3. get_topic_sections_text — Batch section retrieval
+4. search_topic_sections — In-topic keyword section locator
+5. get_graphic_content — Table data as markdown (or error for non-table)
 """
 
 import re
 from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.tools import tool
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field
 
 from database import ClinRefDatabase
 from html_parser import (
-    extract_graphics_from_outline,
     extract_outline_sections,
-    extract_related_topics,
     extract_section_html,
     html_to_markdown,
     table_to_markdown,
@@ -53,7 +50,17 @@ class SearchTopicsResponse(BaseModel):
     results: List[SearchResultTopicItem] = Field(default_factory=list)
     refine_with: List[str] = Field(default_factory=list)
     message: str = ""
+    autoRefined: bool = Field(default=False, alias="auto_refined")
+    refinedQuery: Optional[str] = Field(default=None, alias="refined_query")
     error: Optional[str] = None
+
+    @property
+    def auto_refined(self) -> bool:
+        return self.autoRefined
+
+    @property
+    def refined_query(self) -> Optional[str]:
+        return self.refinedQuery
 
     def __str__(self) -> str:
         return self.model_dump_json()
@@ -96,7 +103,7 @@ class TopicOverviewResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
     topicId: str = Field(default="", alias="topic_id")
     title: str = Field(default="", alias="topic_title")
-    topicType: str = Field(default="article", alias="topic_type")
+    topicType: str = Field(default="", alias="topic_type")
     sections: List[OutlineSectionItem] = Field(default_factory=list, alias="outline")
     graphics: List[OutlineGraphicItem] = Field(default_factory=list)
     relatedTopics: List[RelatedTopicItem] = Field(default_factory=list, alias="related_topics")
@@ -110,37 +117,31 @@ class TopicOverviewResponse(BaseModel):
 TopicOverviewResult = TopicOverviewResponse
 
 
-class RelatedTopicsResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
-    topicId: str = Field(default="", alias="topic_id")
-    relatedTopics: List[RelatedTopicItem] = Field(default_factory=list, alias="related_topics")
-    error: Optional[str] = None
-
-    def __str__(self) -> str:
-        return self.model_dump_json()
-
-
-RelatedTopicsResult = RelatedTopicsResponse
-
-
 class TopicSectionsResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
     topicId: str = Field(default="", alias="topic_id")
     topicTitle: str = Field(default="", alias="topic_title")
     sectionTitles: Dict[str, str] = Field(default_factory=dict, alias="section_titles")
     markdown: str = ""
-    invalid_sections: Optional[List[str]] = Field(default_factory=list, alias="invalidSections")
-    omitted_sections: Optional[List[str]] = Field(default_factory=list, alias="omittedSections")
+    # Serialized JSON must contain exactly ONE key per field, in camelCase (matching Kotlin
+    # kotlinx.serialization output). The old snake_case pydantic field names + camelCase
+    # @computed_field shims emitted the same payload twice under both keys, polluting the
+    # Rule-2 verification corpus. camelCase is the pydantic field name (dumped verbatim by
+    # model_dump_json); `alias` keeps snake_case dict input valid and the snake_case
+    # properties below preserve the old attribute names for internal Python consumers.
+    invalidSections: Optional[List[str]] = Field(default_factory=list, alias="invalid_sections")
+    omittedSections: Optional[List[str]] = Field(default_factory=list, alias="omitted_sections")
     truncated: Optional[bool] = None
     error: Optional[str] = None
 
-    @computed_field
-    def invalidSections(self) -> Optional[List[str]]:
-        return self.invalid_sections
+    @property
+    def invalid_sections(self) -> Optional[List[str]]:
+        """snake_case attribute kept for internal Python consumers (agent.py tool-result triage)."""
+        return self.invalidSections
 
-    @computed_field
-    def omittedSections(self) -> Optional[List[str]]:
-        return self.omitted_sections
+    @property
+    def omitted_sections(self) -> Optional[List[str]]:
+        return self.omittedSections
 
     def __str__(self) -> str:
         return self.model_dump_json()
@@ -194,17 +195,31 @@ SearchTopicSectionsResult = SearchTopicSectionsResponse
 # ---------------------------------------------------------------------------
 
 
+# The model is prompted with camelCase tool names (one prompt text for both stacks), so the
+# LangChain registry must expose the same names even though the functions are snake_case.
+_CAMEL_TOOL_NAMES = {
+    "search_topics": "searchTopics",
+    "get_topic_overview": "getTopicOverview",
+    "get_topic_sections_text": "getTopicSectionsText",
+    "search_topic_sections": "searchTopicSections",
+    "get_graphic_content": "getGraphicContent",
+}
+
+
 def init_tools(db: ClinRefDatabase) -> list:
-    """Initialize tools with a database instance. Returns tool list."""
+    """Initialize tools with a database instance. Returns tool list under camelCase names."""
     global _db
     _db = db
-    return [
+    tool_list = [
         get_topic_overview,
         search_topics,
         search_topic_sections,
-        get_related_topics,
         get_topic_sections_text,
         get_graphic_content,
+    ]
+    return [
+        t.model_copy(update={"name": _CAMEL_TOOL_NAMES[t.name]}) if t.name in _CAMEL_TOOL_NAMES else t
+        for t in tool_list
     ]
 
 
@@ -266,12 +281,12 @@ def get_topic_overview(
     topicId: Optional[str] = None,
     **kwargs,
 ) -> TopicOverviewResponse:
-    """Step 2 after search_topics: Retrieve the complete section outline hierarchy (sectionIds and titles), available graphic_table metadata (graphicIds), and related topics for a topicId.
+    """Step 2 after search_topics: Retrieve the section outline hierarchy (sectionIds and titles) plus the topic's table graphics and related topics.
 
     Note: Standard clinical topics return outline titles only—you MUST subsequently call get_topic_sections_text to read actual clinical text. (Medical calculator topics return full markdown content directly).
 
     Args:
-        topic_id: Exact numeric topic ID string returned by search_topics or get_related_topics (e.g., '12345').
+        topic_id: Exact numeric topic ID string returned by search_topics (e.g., '12345').
     """
     if _db is None:
         return TopicOverviewResponse(error="Database not initialized")
@@ -284,37 +299,26 @@ def get_topic_overview(
     if ClinRefDatabase._extract_numeric_id(clean_topic_id) is None:
         return TopicOverviewResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
-    body_html = _db.get_topic_body(clean_topic_id)
-    outline_html = _db.get_topic_outline(clean_topic_id)
-    asset = _db.get_topic_asset(clean_topic_id) if hasattr(_db, "get_topic_asset") else None
-    if asset is not None and not isinstance(asset, dict):
-        asset = None
-
-    if not body_html and not outline_html and not asset:
+    # One decompression of the payload serves body, outline, type, graphics, and related topics.
+    asset = _db.get_topic_asset(clean_topic_id)
+    if not isinstance(asset, dict):
         return TopicOverviewResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
     title_val = _db.get_topic_title(clean_topic_id)
     title = title_val if isinstance(title_val, str) and title_val else clean_topic_id
+    topic_type = ClinRefDatabase.get_topic_type(asset)
+    outline_html = asset.get("outlineHtml") or ""
 
-    topic_type = ClinRefDatabase.get_topic_type(asset) if asset else ("calc" if not outline_html else "article")
-
-    # Calculator topic handling
     if topic_type == "calc" or not outline_html:
-        calc_body = body_html or (asset.get("bodyHtml", "") if asset else "")
-        calc_markdown = html_to_markdown(calc_body)
-        header = f"=== Calculator: {title} ==="
-        full_md = f"{header}\n{calc_markdown}"
+        calc_markdown = html_to_markdown(asset.get("bodyHtml") or "")
         return TopicOverviewResponse(
             topicId=clean_topic_id,
             title=title,
             topicType="calc",
             sections=[OutlineSectionItem(id="FULL", title="Calculator Tool Content", level=1)],
-            graphics=[],
-            relatedTopics=[],
-            markdown=full_md,
+            markdown=f"=== Calculator: {title} ===\n{calc_markdown}",
         )
 
-    raw_outline_sections = extract_outline_sections(outline_html or "")
     sections = [
         OutlineSectionItem(
             id=s["id"],
@@ -322,20 +326,21 @@ def get_topic_overview(
             level=s.get("level", 1),
             parentId=s.get("parentId"),
         )
-        for s in raw_outline_sections
+        for s in extract_outline_sections(outline_html)
         if s.get("id")
     ]
-    raw_graphics = extract_graphics_from_outline(outline_html or "")
+
+    # The payload's structured inventory is the only place a graphic's subtype is recorded;
+    # outline hrefs carry no subtype, so an outline-derived list cannot tell a table from a photo.
     table_graphics = [
-        OutlineGraphicItem(id=g["id"], title=g.get("title", ""), isTable=True)
-        for g in raw_graphics
-        if g.get("is_table", g.get("isTable", True)) and g.get("id")
+        OutlineGraphicItem(id=str(info["id"]), title=str(info.get("displayName") or info["id"]), isTable=True)
+        for info in _iter_graphic_infos(asset)
+        if info.get("subtype") == "graphic_table" and info.get("id")
     ]
-    raw_related = extract_related_topics(outline_html or "")
     related = [
-        RelatedTopicItem(id=r["id"], title=r.get("title", ""))
-        for r in raw_related
-        if r.get("id")
+        RelatedTopicItem(id=str(t["id"]), title=str(t.get("title") or t["id"]))
+        for t in _iter_related_topics(asset)
+        if t.get("id") and not t.get("hideInResults")
     ]
 
     return TopicOverviewResponse(
@@ -347,6 +352,30 @@ def get_topic_overview(
         relatedTopics=related,
         markdown="",
     )
+
+
+# Lexidrug appendix tables attached to nearly every drug topic — reference boilerplate,
+# never dosing content (mirrors Kotlin ContentDao.BOILERPLATE_GRAPHIC_IDS).
+BOILERPLATE_GRAPHIC_IDS = frozenset({"57469", "116421"})
+
+
+def _iter_graphic_infos(asset: dict):
+    """Yield every retrievable `graphicInfo` object from a payload's `relatedGraphics` groups."""
+    for group in asset.get("relatedGraphics") or []:
+        for entry in (group or {}).get("graphics") or []:
+            info = (entry or {}).get("graphicInfo")
+            if not isinstance(info, dict) or info.get("hideInResults"):
+                continue
+            if str(info.get("id")) in BOILERPLATE_GRAPHIC_IDS:
+                continue
+            yield info
+
+
+def _iter_related_topics(asset: dict):
+    """Yield every topic object from a payload's `relatedTopics` block."""
+    for topic in ((asset.get("relatedTopics") or {}).get("topics") or []):
+        if isinstance(topic, dict):
+            yield topic
 
 
 @tool
@@ -396,89 +425,38 @@ def search_topics(
             message="",
         )
 
-    results = _db.search_topics(clean_query, limit=10)
-    suggestions = _db.get_suggestions(clean_query, limit=20)
-
-    # Auto-retry: if primary query returns no results, try available suggestions internally (up to top 5)
-    if not results and suggestions:
-        for suggestion in suggestions[:5]:
-            retry_results = _db.search_topics(suggestion, limit=10)
-            if retry_results:
-                remaining_suggestions = [s for s in suggestions if s != suggestion]
-                results = retry_results
-                suggestions = remaining_suggestions
-                clean_query = suggestion
-                break
-
-    if not results:
-        message = (
-            f"No topic match and no suggestions available for '{query}'."
-            if not suggestions
-            else f"No results for '{query}'. Try one of the 'refine_with' suggestions."
-        )
+    results = _db.search_topics(clean_query, limit=8)
+    if results:
         return SearchTopicsResponse(
-            query=query,
-            results=[],
-            refine_with=suggestions,
-            message=message,
+            query=clean_query,
+            results=[SearchResultTopicItem(id=r["id"], title=r["title"]) for r in results][:8],
+            message="Success",
         )
 
-    # Pure candidate topics list
-    formatted_results = [
-        SearchResultTopicItem(id=r["id"], title=r["title"])
-        for r in results
-    ]
+    # No direct hit: consult the typeahead vocabulary once, then retry its best terms.
+    suggestions = _db.get_suggestions(clean_query, limit=20)
+    for suggestion in suggestions[:5]:
+        retry_results = _db.search_topics(suggestion, limit=8)
+        if retry_results:
+            return SearchTopicsResponse(
+                query=suggestion,
+                results=[SearchResultTopicItem(id=r["id"], title=r["title"]) for r in retry_results][:8],
+                refine_with=[s for s in suggestions if s != suggestion],
+                message=f"Auto-refined from '{clean_query}' to '{suggestion}'",
+                autoRefined=True,
+                refinedQuery=suggestion,
+            )
 
+    message = (
+        f"No topic match and no suggestions available for '{clean_query}'."
+        if not suggestions
+        else f"No results for '{clean_query}'. Retry with one of the 'refine_with' terms."
+    )
     return SearchTopicsResponse(
         query=clean_query,
-        results=formatted_results,
+        results=[],
         refine_with=suggestions,
-        message="Success",
-    )
-
-
-@tool
-def get_related_topics(
-    topic_id: str = "",
-    topicId: Optional[str] = None,
-    **kwargs,
-) -> RelatedTopicsResponse:
-    """Retrieve cross-referenced topic IDs and titles linked to a primary topicId.
-
-    Use when a general disease topic links out to a dedicated drug-dosing or special-population sub-topic. Follow with get_topic_overview and get_topic_sections_text on the target topic.
-
-    Args:
-        topic_id: Exact numeric topic ID string from search_topics or get_topic_overview.
-    """
-    if _db is None:
-        return RelatedTopicsResponse(error="Database not initialized")
-
-    effective_topic_id = topic_id or topicId or kwargs.get("topic_id") or kwargs.get("topicId") or ""
-    clean_id = str(effective_topic_id).strip()
-    if not clean_id or ClinRefDatabase._extract_numeric_id(clean_id) is None:
-        return RelatedTopicsResponse(topicId=clean_id, error=f"Topic not found: {clean_id}")
-
-    outline_html = _db.get_topic_outline(clean_id)
-    if not outline_html:
-        # Calculator topics have no outlineHtml but do exist — return an
-        # empty pool instead of an error (mirrors Kotlin getRelatedTopics).
-        asset = _db.get_topic_asset(clean_id) if hasattr(_db, "get_topic_asset") else None
-        if asset is not None and isinstance(asset, dict):
-            return RelatedTopicsResponse(
-                topicId=clean_id,
-                relatedTopics=[],
-            )
-        return RelatedTopicsResponse(topicId=clean_id, error=f"Topic not found: {clean_id}")
-
-    raw_related = extract_related_topics(outline_html)
-    related = [
-        RelatedTopicItem(id=r["id"], title=r.get("title", ""))
-        for r in raw_related
-        if r.get("id")
-    ]
-    return RelatedTopicsResponse(
-        topicId=clean_id,
-        relatedTopics=related,
+        message=message,
     )
 
 
@@ -488,6 +466,8 @@ def get_topic_sections_text(
     section_ids: Optional[Union[list[str], str]] = None,
     topicId: Optional[str] = None,
     sectionIds: Optional[Union[list[str], str]] = None,
+    section_id: Optional[Union[list[str], str]] = None,
+    sectionId: Optional[Union[list[str], str]] = None,
     **kwargs,
 ) -> TopicSectionsResponse:
     """Step 3 (Mandatory for clinical answers): Retrieve full, unredacted clinical text for up to 10 sectionIds within a single topicId.
@@ -512,7 +492,21 @@ def get_topic_sections_text(
         else (
             sectionIds
             if sectionIds is not None
-            else kwargs.get("section_ids", kwargs.get("sectionIds", []))
+            else (
+                section_id
+                if section_id is not None
+                else (
+                    sectionId
+                    if sectionId is not None
+                    else (
+                        kwargs.get("section_ids")
+                        or kwargs.get("sectionIds")
+                        or kwargs.get("section_id")
+                        or kwargs.get("sectionId")
+                        or []
+                    )
+                )
+            )
         )
     )
     if isinstance(raw_sids, str):
@@ -520,19 +514,20 @@ def get_topic_sections_text(
     elif raw_sids is None:
         raw_sids = []
 
-    body_html = _db.get_topic_body(clean_topic_id)
-    outline_html = _db.get_topic_outline(clean_topic_id)
-    asset = _db.get_topic_asset(clean_topic_id) if (not outline_html and hasattr(_db, "get_topic_asset")) else None
-    if asset is not None and not isinstance(asset, dict):
-        asset = None
+    # One decompression serves body, outline, and the declared topic type.
+    asset = _db.get_topic_asset(clean_topic_id)
+    if not isinstance(asset, dict):
+        return TopicSectionsResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
+    body_html = asset.get("bodyHtml") or ""
+    outline_html = asset.get("outlineHtml") or ""
     if not body_html:
         return TopicSectionsResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
     title_val = _db.get_topic_title(clean_topic_id)
     topic_title = title_val if isinstance(title_val, str) and title_val else clean_topic_id
 
-    t_type = ClinRefDatabase.get_topic_type(asset) if asset else ("calc" if not outline_html else "article")
+    t_type = ClinRefDatabase.get_topic_type(asset)
     clean_sids = [sid.strip().upper() for sid in raw_sids if isinstance(sid, str)]
 
     # Explicit handling for calculator topic type or full text requests
@@ -547,13 +542,21 @@ def get_topic_sections_text(
             markdown=full_text,
         )
 
+    if not raw_sids:
+        return TopicSectionsResponse(
+            topicId=clean_topic_id,
+            topicTitle=topic_title,
+            sectionTitles={},
+            markdown="",
+            error="sectionIds cannot be empty. Specify 1 to 10 section IDs from get_topic_overview.",
+        )
+
     # Build section ID -> title map from outline
     raw_outline_sections = extract_outline_sections(outline_html or "")
     id_to_title = {s["id"]: s["title"] for s in raw_outline_sections if s.get("id")}
 
     # Validate & smart-resolve section IDs (exact ID, case-insensitive ID, or title match)
-    target_sids = raw_sids if raw_sids else list(id_to_title.keys())[:3]
-    valid_ids, invalid_ids = resolve_section_ids(target_sids, id_to_title)
+    valid_ids, invalid_ids = resolve_section_ids(raw_sids, id_to_title)
 
     if not valid_ids and invalid_ids:
         return TopicSectionsResponse(

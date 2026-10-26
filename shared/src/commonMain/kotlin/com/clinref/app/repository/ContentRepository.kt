@@ -12,9 +12,11 @@ class ContentRepository(
     data class TopicContent(
         val bodyHtml: String,
         val outlineHtml: String = "",
-        val relatedGraphics: List<Map<String, Any?>> = emptyList(),
-        val contributors: List<ContributorGroup>? = null,
-        val title: String = ""
+        val title: String = "",
+        val topicType: String = "",
+        val graphics: List<ContentDao.GraphicMeta> = emptyList(),
+        val relatedTopics: List<ContentDao.TopicMeta> = emptyList(),
+        val contributors: List<ContributorGroup>? = null
     )
 
     private val topicSectionTitlesCache = ConcurrentHashMap<String, Map<String, String>>()
@@ -33,9 +35,11 @@ class ContentRepository(
         return TopicContent(
             bodyHtml = content.bodyHtml,
             outlineHtml = content.outlineHtml,
-            relatedGraphics = content.relatedGraphics,
-            contributors = content.contributors,
-            title = content.title
+            title = content.title,
+            topicType = content.topicType,
+            graphics = content.graphics,
+            relatedTopics = content.relatedTopics,
+            contributors = content.contributors
         )
     }
 

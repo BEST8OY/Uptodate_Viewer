@@ -2,7 +2,6 @@ package com.clinref.app.domain.ai
 
 import com.clinref.shared.platform.PlatformLogger as Log
 import com.clinref.app.data.GraphicContentResponse
-import com.clinref.app.data.RelatedTopicsResponse
 import com.clinref.app.data.SearchTopicSectionsResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
@@ -58,14 +57,6 @@ class TurnContextAccumulator(
         lastTopicId = ""
     }
 
-    /**
-     * Prepares this accumulator for a self-healing remediation turn by preserving
-     * all accumulated evidence (sections, graphics, titles).
-     */
-    fun prepareForCorrection() {
-        // Evidence is preserved; next turn's answer text will be validated directly
-    }
-
     fun setUserQuestion(question: String) {
         userQuestion = question
     }
@@ -78,13 +69,10 @@ class TurnContextAccumulator(
 
     val fetchedSectionsCount: Int get() = fetchedSections.size
     val graphicCount: Int get() = graphicIds.size
-    val hasFetchedSections: Boolean get() = fetchedSections.isNotEmpty()
     val hasEvidence: Boolean get() = fetchedSections.isNotEmpty() || graphicIds.isNotEmpty()
-    val hasToolCalls: Boolean get() = toolCalls.isNotEmpty()
 
     fun getToolCalls(): List<SafetyValidator.ToolCallRecord> = toolCalls.toList()
     fun getFetchedSections(): List<SafetyValidator.FetchedSection> = fetchedSections.toList()
-    fun getGraphicIds(): Set<String> = graphicIds.toSet()
 
     fun onToolCallStarting(toolCallId: String, args: String) {
         if (toolCallId.isNotBlank()) {
@@ -134,7 +122,6 @@ class TurnContextAccumulator(
             when (canonicalName) {
                 "getTopicOverview" -> parseTopicOverviewResult(parsedArgs, result)
                 "searchTopics" -> parseSearchResults(result)
-                "getRelatedTopics" -> parseRelatedTopicsResult(result)
                 "searchTopicSections" -> parseSearchTopicSectionsResult(parsedArgs, result)
                 "getTopicSectionsText" -> parseBatchSectionResult(parsedArgs, result)
                 "getGraphicContent" -> parseGraphicResult(parsedArgs, result)
@@ -142,7 +129,10 @@ class TurnContextAccumulator(
         }
     }
 
-    fun buildTurnContext(answer: String, profile: PatientProfile? = null): SafetyValidator.TurnContext {
+    /** The question that opened this turn, as supplied by the caller. */
+    val question: String get() = userQuestion
+
+    fun buildTurnContext(answer: String): SafetyValidator.TurnContext {
         val cleanAnswer = ReasoningTokenSanitizer.stripReasoning(answer)
 
         // Populate topicTitle and sectionTitle on fetched sections from accumulated state or resolvers
@@ -202,30 +192,8 @@ class TurnContextAccumulator(
             userQuestion = userQuestion,
             topicRefs = finalTopicRefs,
             graphicRefs = autoGraphicRefs,
-            patientProfile = profile ?: this.patientProfile
+            patientProfile = patientProfile
         )
-    }
-
-    /**
-     * Create a snapshot for a correction turn: preserves fetched evidence
-     * (sections, graphics, titles) but resets answer state and tool tracking
-     * so the correction turn doesn't accumulate duplicate tool calls.
-     */
-    fun snapshotForCorrection(): TurnContextAccumulator {
-        val snapshot = TurnContextAccumulator(topicTitleResolver, sectionTitleResolver)
-        snapshot.userQuestion = this.userQuestion
-        snapshot.patientProfile = this.patientProfile
-        snapshot.fetchedSections.addAll(this.fetchedSections)
-        snapshot.graphicIds.addAll(this.graphicIds)
-        snapshot.graphicTitles.putAll(this.graphicTitles)
-        snapshot.topicTitles.putAll(this.topicTitles)
-        snapshot.outlineSections.putAll(this.outlineSections)
-        snapshot.graphicToTopic.putAll(this.graphicToTopic)
-        snapshot.lastTopicId = this.lastTopicId
-        // Copy tool calls and results as evidence (read-only, won't re-execute)
-        snapshot.toolCalls.addAll(this.toolCalls)
-        snapshot.toolResults.addAll(this.toolResults)
-        return snapshot
     }
 
     private fun resolveTopicTitle(topicId: String, candidateTitle: String? = null): String {
@@ -290,20 +258,6 @@ class TurnContextAccumulator(
             }
         } catch (e: Exception) {
             Log.w(TAG, "parseSearchResults: ${e.message}")
-        }
-    }
-
-    private fun parseRelatedTopicsResult(result: String) {
-        try {
-            val unquoted = AiJsonUtils.extractJsonString(result)
-            val res = json.decodeFromString<RelatedTopicsResponse>(unquoted)
-            for (item in res.relatedTopics) {
-                if (AiJsonUtils.isValidTopicTitle(item.title)) {
-                    topicTitles[item.id] = item.title
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "parseRelatedTopicsResult: ${e.message}")
         }
     }
 
@@ -420,10 +374,24 @@ class TurnContextAccumulator(
                         topicTitle = finalTopicTitle,
                         sectionId = sectionId,
                         sectionTitle = resolvedTitle,
-                        contentSnippet = fullMarkdown.take(2000)
+                        contentSnippet = extractSectionText(fullMarkdown, sectionId)
                     )
                 )
             }
+        }
+    }
+
+    private fun extractSectionText(fullMarkdown: String, sectionId: String): String {
+        if (sectionId.equals("FULL", ignoreCase = true)) return fullMarkdown.trim()
+        val headerPattern = "=== Section: $sectionId ==="
+        val startIndex = fullMarkdown.indexOf(headerPattern)
+        if (startIndex == -1) return fullMarkdown.trim()
+        val textStart = startIndex + headerPattern.length
+        val nextHeaderIndex = fullMarkdown.indexOf("=== Section: ", textStart)
+        return if (nextHeaderIndex != -1) {
+            fullMarkdown.substring(textStart, nextHeaderIndex).trim()
+        } else {
+            fullMarkdown.substring(textStart).trim()
         }
     }
 
@@ -506,7 +474,7 @@ class TurnContextAccumulator(
                         topicTitle = finalTopicTitle,
                         sectionId = "FULL",
                         sectionTitle = "Calculator Tool Content",
-                        contentSnippet = res.markdown.take(2000)
+                        contentSnippet = res.markdown.trim()
                     )
                 )
             }

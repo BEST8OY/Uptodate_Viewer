@@ -329,11 +329,15 @@ class ClinRefDatabase:
 
     @staticmethod
     def get_topic_type(asset: dict) -> str:
-        """Returns 'calc' for calculators, 'article' for narrative medical/drug topics."""
-        topic_info = asset.get("topicInfo", {})
-        if topic_info.get("type") == "calc" or not asset.get("outlineHtml"):
-            return "calc"
-        return "article"
+        """The payload's own `topicInfo.type`: 'calc', 'drug', 'medical', or 'narrative'.
+
+        Falls back to content shape only when the payload omits it.
+        """
+        topic_info = asset.get("topicInfo") or {}
+        declared = topic_info.get("type")
+        if isinstance(declared, str) and declared:
+            return declared
+        return "calc" if not asset.get("outlineHtml") else "medical"
 
     def get_topic_overview_data(self, topic_id: str) -> Optional[dict]:
         """Load topic asset, outline, body, and canonical title in a single pass.

@@ -83,27 +83,26 @@ class ReasoningTokenSanitizerTest {
     }
 
     @Test
-    fun `prevents conversational query false positives in SafetyValidator`() {
+    fun `greeting without tools is a NO_TOOLS violation no matter how the answer reads`() {
+        // Change 1/2: the former isNonClinicalResponse bypass is deleted — a soap-safe
+        // small-talk draft with zero tool calls NEVER passes Rule 0 (the entry router
+        // owns small talk; the validator only ever sees clinical-graph turns).
         val validator = SafetyValidator()
-        // User says hello, model thinks with numbers and %
+        // Model thinks with numbers/% and then writes a pure greeting.
         val rawLlmAnswer = "<thought>Friendly greeting. 100% confidence. No dosing needed.</thought>Hello! How can I assist you today?"
 
-        // Without sanitization: 100% causes isNonClinicalResponse to return false, blocking the greeting
-        val rawContext = SafetyValidator.TurnContext(
-            toolCalls = emptyList(),
-            answer = rawLlmAnswer,
-            userQuestion = "Hello"
-        )
-        val rawResult = validator.validate(rawContext)
-        assertFalse("Raw greeting with % in thought is blocked", rawResult.passed)
+        val cleanAnswer = ReasoningTokenSanitizer.stripReasoning(rawLlmAnswer)
+        assertEquals("Hello! How can I assist you today?", cleanAnswer)
 
-        // With sanitization: passes Rule 0
-        val cleanContext = SafetyValidator.TurnContext(
-            toolCalls = emptyList(),
-            answer = ReasoningTokenSanitizer.stripReasoning(rawLlmAnswer),
-            userQuestion = "Hello"
+        val cleanResult = validator.validate(
+            SafetyValidator.TurnContext(
+                toolCalls = emptyList(),
+                answer = cleanAnswer,
+                userQuestion = "Hello"
+            )
         )
-        val cleanResult = validator.validate(cleanContext)
-        assertTrue("Sanitized greeting passes Rule 0", cleanResult.passed)
+        assertFalse("Non-clinical replies no longer bypass Rule 0", cleanResult.passed)
+        assertEquals(ViolationCodes.NO_TOOLS, cleanResult.violations.single().code)
+        assertEquals(SafetyValidator.NO_TOOLS_REASON, cleanResult.blockedReason)
     }
 }

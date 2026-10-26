@@ -24,6 +24,10 @@ data class SearchTopicsResponse(
     val results: List<SearchResultTopicItem> = emptyList(),
     val refine_with: List<String> = emptyList(),
     val message: String = "",
+    @JsonNames("auto_refined", "autoRefined")
+    val autoRefined: Boolean = false,
+    @JsonNames("refined_query", "refinedQuery")
+    val refinedQuery: String? = null,
     val error: String? = null
 )
 
@@ -49,7 +53,7 @@ data class OutlineGraphicItem(
 )
 
 /**
- * Related topic item in getTopicOverview and getRelatedTopics.
+ * Related topic item in getTopicOverview.
  */
 @Serializable
 data class RelatedTopicItem(
@@ -59,6 +63,9 @@ data class RelatedTopicItem(
 
 /**
  * Strongly-typed compound bundle for getTopicOverview.
+ *
+ * [topicType] is the payload's declared `topicInfo.type` — `drug`, `medical`, `calc`, or
+ * `narrative` — so the model can pick section names that exist for that content class.
  */
 @Serializable
 data class TopicOverviewResponse(
@@ -67,25 +74,13 @@ data class TopicOverviewResponse(
     @JsonNames("topic_title", "title")
     val title: String = "",
     @JsonNames("topic_type", "topicType")
-    val topicType: String = "article",
+    val topicType: String = "",
     @JsonNames("outline", "sections")
     val sections: List<OutlineSectionItem> = emptyList(),
     val graphics: List<OutlineGraphicItem> = emptyList(),
     @JsonNames("related_topics", "relatedTopics")
     val relatedTopics: List<RelatedTopicItem> = emptyList(),
     val markdown: String = "",
-    val error: String? = null
-)
-
-/**
- * Strongly-typed result for getRelatedTopics.
- */
-@Serializable
-data class RelatedTopicsResponse(
-    @JsonNames("topic_id", "topicId")
-    val topicId: String = "",
-    @JsonNames("related_topics", "relatedTopics")
-    val relatedTopics: List<RelatedTopicItem> = emptyList(),
     val error: String? = null
 )
 

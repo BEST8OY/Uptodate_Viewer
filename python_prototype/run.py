@@ -21,7 +21,7 @@ load_dotenv()
 
 from database import ClinRefDatabase
 from html_parser import extract_outline_sections
-from safety_validator import CONVERSATIONAL_USER_REGEX, PatientProfile, SafetyValidator, TurnContext
+from safety_validator import PatientProfile, SafetyValidator, TurnContext
 from system_prompt import build_system_prompt, extract_patient_context
 from tools import init_tools
 
@@ -37,10 +37,10 @@ DEFAULT_HISTORY_COMPRESSION_THRESHOLD = 128000
 def collect_patient_profile() -> Optional[dict]:
     """Interactively collect an optional patient profile (parity with the Kotlin UI's PatientProfile editor).
 
-    Answers feed both the system prompt context and the deterministic Rule 4
-    patient-bound safety checks (renal eGFR/CrCl + documented allergy cross-reactivity).
+    Answers feed both the system prompt context and the evidence corpus, so values the
+    clinician supplies are never flagged as invented quantities.
     """
-    print("Patient profile (press Enter to skip a field — empty profile disables patient-bound checks):")
+    print("Patient profile (press Enter to skip a field — an empty profile disables patient context):")
     try:
         age = input("  Age: ").strip()
         sex = input("  Sex: ").strip()
@@ -64,12 +64,6 @@ def collect_patient_profile() -> Optional[dict]:
     if notes:
         profile["notes"] = notes
     return profile or None
-
-
-def is_conversational_query(query: str) -> bool:
-    """Zero-LLM upstream intent classifier for basic greetings and help requests."""
-    clean = query.strip().lower()
-    return bool(CONVERSATIONAL_USER_REGEX.match(clean)) and len(clean) < 40
 
 
 def _build_references_section(validation_result: dict) -> str:
@@ -194,7 +188,6 @@ def run_interactive(provider: str, model: str, db_path: str):
     patient_profile = collect_patient_profile()
     system_prompt = build_system_prompt(
         patient_context=extract_patient_context(patient_profile),
-        provider=provider,
     )
     api_key = resolve_api_key(provider)
     llm = create_llm(provider, model, api_key, temperature=DEFAULT_TEMPERATURE)
@@ -248,7 +241,9 @@ def run_interactive(provider: str, model: str, db_path: str):
             "system_prompt": system_prompt,
             "turn_context": turn_context,
             "user_question": user_input,
-            "retry_count": 0,
+            "gate1_retries": 0,
+            "gate2_revisions": 0,
+            "gate2_escalations": 0,
             "validation_result": None,
             "tool_rounds": 0,
             "premature_retries": 0,
@@ -266,7 +261,12 @@ def run_interactive(provider: str, model: str, db_path: str):
                     continue
                 messages = node_output.get("messages", [])
 
-                if node_name == "node_evidence_gathering":
+                if node_name == "small_talk_reply":
+                    for msg in messages:
+                        if hasattr(msg, "content") and msg.content:
+                            answer = msg.content
+
+                elif node_name == "node_evidence_gathering":
                     for msg in messages:
                         if hasattr(msg, "tool_calls") and msg.tool_calls:
                             for tc in msg.tool_calls:
@@ -308,8 +308,9 @@ def run_interactive(provider: str, model: str, db_path: str):
                             for w in val["warnings"]:
                                 print(f"    Warning: {w}")
 
-        if validation_result and not validation_result.get("passed"):
-            blocked_reason = validation_result.get("blocked_reason") or "Output quarantined by safety rules."
+        # Wrap on a blocked reason
+        if validation_result and not validation_result.get("passed") and validation_result.get("blocked_reason"):
+            blocked_reason = validation_result["blocked_reason"]
             if not answer.startswith("Clinical Response Verification Blocked:"):
                 answer = f"Clinical Response Verification Blocked: {blocked_reason}"
         else:
@@ -338,19 +339,12 @@ def run_interactive(provider: str, model: str, db_path: str):
 
 def run_single_query(query: str, provider: str, model: str, db_path: str, patient_profile: Optional[dict] = None):
     """Run a single query and print the result with streaming flow."""
-    # Zero-LLM Fast Path for basic conversational inputs
-    if is_conversational_query(query):
-        print(f"Query: {query}\n")
-        print("ClinRef: Hello! I am your clinical reference assistant. How can I help you with medical topics or drug dosing today?\n")
-        return
-
     db = ClinRefDatabase(db_dir=Path(db_path))
     tools = init_tools(db)
     if patient_profile is None and sys.stdin.isatty():
         patient_profile = collect_patient_profile()
     system_prompt = build_system_prompt(
         patient_context=extract_patient_context(patient_profile),
-        provider=provider,
     )
     api_key = resolve_api_key(provider)
     llm = create_llm(provider, model, api_key, temperature=DEFAULT_TEMPERATURE)
@@ -385,7 +379,12 @@ def run_single_query(query: str, provider: str, model: str, db_path: str, patien
                 continue
             messages = node_output.get("messages", [])
 
-            if node_name == "node_evidence_gathering":
+            if node_name == "small_talk_reply":
+                for msg in messages:
+                    if hasattr(msg, "content") and msg.content:
+                        answer = msg.content
+
+            elif node_name == "node_evidence_gathering":
                 for msg in messages:
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         for tc in msg.tool_calls:
@@ -422,8 +421,9 @@ def run_single_query(query: str, provider: str, model: str, db_path: str, patien
                     status = "PASSED" if val.get("passed") else "BLOCKED"
                     print(f"  Validation: {status}")
 
-    if validation_result and not validation_result.get("passed"):
-        blocked_reason = validation_result.get("blocked_reason") or "Output quarantined by safety rules."
+    # Wrap on a blocked reason
+    if validation_result and not validation_result.get("passed") and validation_result.get("blocked_reason"):
+        blocked_reason = validation_result["blocked_reason"]
         if not answer.startswith("Clinical Response Verification Blocked:"):
             answer = f"Clinical Response Verification Blocked: {blocked_reason}"
     else:
@@ -487,11 +487,13 @@ def run_tests(db_path: str):
     assert "Clinical recommendations require database verification" in result.blocked_reason
     print("  No-tool-calls block (clinical): PASS")
 
-    # Test no-tool-calls passes (conversational response)
+    # Test no-tool-calls blocks greetings too (Rule 0 never bypasses; Change 1 moves
+    # greetings to the entry router, so the validator has no answer-side bypass left)
     ctx = TurnContext(answer="Hello!", user_question="hello")
     result = validator.validate(ctx)
-    assert result.passed
-    print("  No-tool-calls passes (conversational): PASS")
+    assert not result.passed
+    assert "No database tools were executed" in result.blocked_reason
+    print("  No-tool-calls block (greeting): PASS")
 
     # Test no-section block
     from safety_validator import ToolCallRecord

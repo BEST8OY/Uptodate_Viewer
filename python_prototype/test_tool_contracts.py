@@ -5,7 +5,6 @@ Tests:
 2. camelCase & snake_case aliases across all 6 tools via both `tool.invoke()` and direct call `tool.func(...)`:
    - search_topics: query, search_query, query_text, queryText, searchQuery
    - get_topic_overview: topic_id/topicId
-   - get_related_topics: topic_id, topicId
    - get_topic_sections_text: topic_id/topicId and section_ids/sectionIds (as list and single string)
    - search_topic_sections: topic_id/topicId and query/queryText/search_query/searchQuery
    - get_graphic_content: graphic_id, graphicId (with and without 'graphic-' prefix)
@@ -53,23 +52,23 @@ def setup_tools(db):
     tools.init_tools(db)
 
 
-class TestSixToolPreservation:
-    """Empirical verification that all 6 tools exist, are properly registered, and mirror Kotlin."""
+class TestToolPreservation:
+    """Empirical verification that all 5 tools exist, are properly registered, and mirror Kotlin."""
 
     def test_tool_count_and_identity(self, db):
         tool_list = tools.init_tools(db)
-        assert len(tool_list) == 6, f"Expected exactly 6 tools, found {len(tool_list)}"
+        assert len(tool_list) == 5, f"Expected exactly 5 tools, found {len(tool_list)}"
 
         expected_names = {
-            "get_topic_overview",
-            "search_topics",
-            "search_topic_sections",
-            "get_related_topics",
-            "get_topic_sections_text",
-            "get_graphic_content",
+            "getTopicOverview",
+            "searchTopics",
+            "searchTopicSections",
+            "getTopicSectionsText",
+            "getGraphicContent",
         }
         actual_names = {t.name for t in tool_list}
         assert "get_topic_outline" not in actual_names
+        assert "get_topic_brief" not in actual_names
         assert actual_names == expected_names, f"Tool name mismatch: {actual_names} vs {expected_names}"
 
 
@@ -112,20 +111,7 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert data.error is None, f"Unexpected error in get_topic_overview: {data}"
         assert data.topicId == "1"
         assert len(data.sections) > 0
-        assert data.topicType == "article"
-
-    # 3. get_related_topics: topic_id and topicId
-    @pytest.mark.parametrize("payload", [
-        {"topic_id": "1"},
-        {"topicId": "1"},
-        {"topic_id": "1", "topicId": "1"},
-    ])
-    def test_get_related_topics_parameter_aliases_invoke(self, payload):
-        raw = tools.get_related_topics.invoke(payload)
-        data = to_model(tools.RelatedTopicsResponse, raw)
-        assert data.error is None, f"Unexpected error in get_related_topics: {data}"
-        assert data.topicId == "1"
-        assert hasattr(data, "relatedTopics")
+        assert data.topicType in {"medical", "drug", "narrative"}
 
     # 4. get_topic_sections_text: topic_id/topicId and section_ids/sectionIds
     @pytest.mark.parametrize("payload", [
@@ -184,7 +170,6 @@ class TestCamelCaseAndSnakeCaseAliases:
         [
             ("search_topics", {"search_query": "gout"}, {"queryText": "gout"}, ["results"]),
             ("get_topic_overview", {"topic_id": "1"}, {"topicId": "1"}, ["title", "sections"]),
-            ("get_related_topics", {"topic_id": "1"}, {"topicId": "1"}, ["relatedTopics"]),
             ("get_topic_sections_text",
              {"topic_id": "1", "section_ids": ["H1"]},
              {"topicId": "1", "sectionIds": ["H1"]},

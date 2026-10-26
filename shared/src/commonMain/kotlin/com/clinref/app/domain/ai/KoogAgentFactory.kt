@@ -14,6 +14,8 @@ import ai.koog.prompt.tokenizer.SimpleRegexBasedTokenizer
 import ai.koog.prompt.executor.clients.anthropic.AnthropicCacheControl
 import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.MedicalDatabaseTools
+import com.clinref.app.data.TopicOverviewResponse
+import com.clinref.app.data.TopicSectionsResponse
 import com.clinref.shared.secure.SecurePreferences
 import com.clinref.app.domain.ai.providers.AiProviderFactory
 import com.clinref.app.domain.ai.providers.AnthropicProvider
@@ -113,8 +115,8 @@ class KoogAgentFactory(
             topicTitleResolver = { tid -> medicalDatabaseTools.getTopicTitle(tid) },
             sectionTitleResolver = { tid, sid -> medicalDatabaseTools.getSectionTitle(tid, sid) }
         )
-        // Deliver the patient profile to the accumulator so SafetyValidator Rule 4
-        // (deterministic renal & allergy bounds) can engage in-graph — the system prompt alone is advisory.
+        // Deliver the patient profile to the accumulator so it joins the evidence corpus
+        // (a restated profile value is not an invented quantity) and reaches the synthesis turn.
         accumulator.setPatientProfile(patientProfile)
         if (userMessage.isNotBlank()) {
             accumulator.setUserQuestion(userMessage)
@@ -128,7 +130,7 @@ class KoogAgentFactory(
             ) {
                 // Static clinical directives eligible for provider-side KV prompt caching
                 val cache = if (isAnthropic) AnthropicCacheControl.Default else null
-                system(SystemPrompt.staticClinicalGuidance(config.provider), cache = cache)
+                system(SystemPrompt.STATIC_CLINICAL_GUIDANCE, cache = cache)
 
                 // Dynamic patient profile context
                 val patientBlock = SystemPrompt.patientContextBlock(patientProfile)
@@ -137,15 +139,15 @@ class KoogAgentFactory(
                 }
             },
             model = model,
-            // Node-level accounting: every strategy-node transfer consumes one
-            // iteration (each tool round-trip ≈ 3 nodes incl. the round boundary).
-            // The graph self-terminates via its own rails (MAX_TOOL_ROUNDS=24
-            // forced exit + ≤2 premature + ≤2 remediation cycles, worst case
-            // ≈ 88 node transfers), so this global cap must stay ABOVE the rail
-            // sum — otherwise it cannibalizes chatty-but-legal runs before the
-            // forced validation route can fire.
-            maxAgentIterations = 100
+            // Strategy graph iteration budget (sufficient for tool rounds and validation cycles).
+            maxAgentIterations = 128
         )
+
+        val effectiveCtx = if (config.provider == AiProvider.OLLAMA) {
+            (config.providerSettings as? ProviderSettings.Ollama)?.numCtx ?: config.historyCompressionThreshold
+        } else {
+            config.historyCompressionThreshold
+        }
 
         val agent = AIAgent(
             promptExecutor = executor,
@@ -155,7 +157,7 @@ class KoogAgentFactory(
                 safetyValidator = safetyValidator,
                 accumulator = accumulator,
                 maxSafetyRetries = 2,
-                historyCompressionThreshold = config.historyCompressionThreshold,
+                historyCompressionThreshold = effectiveCtx,
                 onSynthesisStarting = { streamingManager.onSynthesisStarting() }
             ),
             toolRegistry = toolRegistry
@@ -163,7 +165,7 @@ class KoogAgentFactory(
             install(ChatMemory) {
                 chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
                 filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
-                val windowSize = (config.historyCompressionThreshold / 500).coerceIn(5, 300)
+                val windowSize = (effectiveCtx / 500).coerceIn(5, 300)
                 windowSize(windowSize)
             }
 
@@ -232,16 +234,29 @@ class KoogAgentFactory(
                 onAgentCompleted { eventContext ->
                     val result = eventContext.result?.toString() ?: ""
                     val turnContext = accumulator.buildTurnContext(result)
-                    val validation = if (result.startsWith("Clinical Response Verification Blocked:")) {
-                        SafetyValidator.ValidationResult(
-                            passed = false,
-                            warnings = emptyList(),
-                            blockedReason = result.removePrefix("Clinical Response Verification Blocked:").trim()
-                        )
-                    } else {
-                        safetyValidator.validate(turnContext)
+                    val validation = when {
+                        // In-graph terminal safety block (retry budget exhausted).
+                        result.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER) -> {
+                            SafetyValidator.ValidationResult(
+                                passed = false,
+                                warnings = emptyList(),
+                                blockedReason = result.removePrefix(ClinicalAgentStrategy.BLOCKED_MARKER).trim()
+                            )
+                        }
+                        // Change-1 small-talk run: the deterministic entry path rendered
+                        // the greeting; no retrieval is required. Persist the reply as a
+                        // normal assistant message.
+                        QuestionRouter.smallTalk(turnContext.userQuestion) && turnContext.toolCalls.isEmpty() -> {
+                            SafetyValidator.ValidationResult(
+                                passed = true,
+                                warnings = emptyList(),
+                                topicRefs = turnContext.topicRefs,
+                                graphicRefs = turnContext.graphicRefs
+                            )
+                        }
+                        else -> safetyValidator.validate(turnContext)
                     }
-                    Log.d(TAG, "Agent completed: tools=${turnContext.toolCalls.map { it.toolName }} validation=${validation.blockedReason ?: "OK"}")
+                    Log.d(TAG, "Agent completed: tools=${turnContext.toolCalls.map { it.toolName }} validation=${validation.blockedReason ?: "OK"} warnings=${validation.warnings.take(1)}")
                     streamingManager.onCompleted(result, validation)
                 }
 
