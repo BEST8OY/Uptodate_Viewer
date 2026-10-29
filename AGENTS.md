@@ -70,7 +70,7 @@ uv run python eval_prompt.py          # Score prompt conformance over eval_cases
 - `domain/ai/SafetyValidatorTest.kt`: Evidence gating (outline alone is not evidence), quantity notation equivalence (`5-10 mg` vs `5 to 10 mg`, `1,200 mg` vs `1200 mg`, `5%` vs `5 percent`, `µg` vs `mcg`), compound slashed units (`5 u/x`, `0.5 mcg/kg/min`), patient-profile restatement.
 - `domain/ai/TurnContextAccumulatorTest.kt`: Tool call deduplication, outline title dash stripping (`-Antiplatelet` -> `Antiplatelet`), ref auto-population.
 
-See [`docs/ai-system-prompts-and-pipelines.md`](docs/ai-system-prompts-and-pipelines.md) for the prompt/validator/tool contract reference.
+See [`docs/ai-system-prompts-and-pipelines.md`](docs/ai-system-prompts-and-pipelines.md) for the operational prompt/validator/tool contract reference and [`docs/architectural-principles-universal-clinical-prompt.md`](docs/architectural-principles-universal-clinical-prompt.md) for the foundational biomedical CDS architecture and empirical verification whitepaper.
 
 ## Architectural Parity & Design Precedence (Kotlin & Python)
 > **Design Precedence**: `python_prototype/` serves as an algorithm verification testbed and reference implementation. Algorithmic tool flow, safety regexes, and validation criteria should align, but **architectural parity must NEVER compromise idiomatic Kotlin, Jetpack Compose M3 Expressive, Room 3, Navigation 3, or Koin architecture**. When superior multiplatform UX or cleaner software engineering warrants divergence (e.g., rich UI models, navigation scoping, native DI), prioritize Kotlin/CMP architecture.

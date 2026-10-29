@@ -48,8 +48,17 @@ class SettingsViewModel(
     }
 
     fun updateProvider(provider: AiProvider) {
+        val defaultModel = when (provider) {
+            AiProvider.OPENROUTER -> com.clinref.app.domain.ai.providers.OpenRouterProvider.DEFAULT_MODEL
+            AiProvider.GOOGLE -> "gemini-2.5-flash"
+            AiProvider.OPENAI -> "gpt-4o"
+            AiProvider.ANTHROPIC -> "claude-3-5-sonnet-latest"
+            AiProvider.MISTRAL -> "open-mistral-nemo"
+            AiProvider.OLLAMA -> "llama3.2"
+        }
         _configuration.value = _configuration.value.copy(
             provider = provider,
+            model = defaultModel,
             providerSettings = defaultSettingsForProvider(provider)
         )
         viewModelScope.launch {
@@ -149,8 +158,9 @@ class SettingsViewModel(
     private suspend fun loadModels(provider: AiProvider, baseUrl: String) {
         val models = koogAgentFactory.getAvailableModels(provider, baseUrl)
         _availableModels.value = models
-        val currentModel = _configuration.value.model
-        if (currentModel.isBlank() || currentModel !in models) {
+        // Inherent package models serve as suggestions/defaults.
+        // NEVER overwrite the user's custom-typed model for any provider!
+        if (_configuration.value.model.isBlank()) {
             models.firstOrNull()?.let { updateModel(it) }
         }
     }

@@ -25,7 +25,7 @@ class OllamaProvider(
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {
-        val modelId = config.model.ifBlank { "llama3.2" }
+        val modelId = config.model.trim().ifEmpty { "llama3.2" }
         val settings = config.providerSettings as? ProviderSettings.Ollama
         val contextLength = settings?.numCtx ?: 4096
         return LLModel(
@@ -54,7 +54,7 @@ class OllamaProvider(
         )
 
         val client = OpenAILLMClient(
-            apiKey = apiKey.ifBlank { "ollama" },
+            apiKey = apiKey.trim().ifBlank { "ollama" },
             settings = settings,
             httpClientFactory = httpClientFactory
         )

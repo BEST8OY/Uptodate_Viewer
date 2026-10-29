@@ -21,24 +21,27 @@ class OpenAIProvider(
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {
-        if (config.model.isNotBlank()) {
-            return LLModel(
-                provider = LLMProvider.OpenAI,
-                id = config.model,
-                capabilities = listOf(
-                    ai.koog.prompt.llm.LLMCapability.Completion,
-                    ai.koog.prompt.llm.LLMCapability.Tools,
-                    ai.koog.prompt.llm.LLMCapability.Temperature,
-                    ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions
-                ),
-                contextLength = 128_000
-            )
-        }
-        return OpenAIModels.models.first()
+        val modelId = config.model.trim().ifEmpty { OpenAIModels.models.first().id }
+        val model = LLModel(
+            provider = LLMProvider.OpenAI,
+            id = modelId,
+            capabilities = listOf(
+                ai.koog.prompt.llm.LLMCapability.Completion,
+                ai.koog.prompt.llm.LLMCapability.Tools,
+                ai.koog.prompt.llm.LLMCapability.Temperature,
+                ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions
+            ),
+            contextLength = 128_000
+        )
+        try {
+            OpenAIModels.addCustomModel(model)
+        } catch (_: Throwable) {}
+        return model
     }
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
-        if (apiKey.isBlank()) return null
+        val key = apiKey.trim()
+        if (key.isBlank()) return null
 
         val settings = OpenAIClientSettings(
             timeoutConfig = ConnectionTimeoutConfig(
@@ -49,7 +52,7 @@ class OpenAIProvider(
         )
 
         val client = OpenAILLMClient(
-            apiKey = apiKey,
+            apiKey = key,
             settings = settings,
             httpClientFactory = httpClientFactory
         )

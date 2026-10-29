@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -51,6 +52,8 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -298,38 +301,100 @@ fun AiSettingsScreen(
                 icon = Icons.Default.Tune
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    // Model Picker
+                    // Model Picker (Editable with Package Inherent Suggestions)
                     Text("Inference Model", style = MaterialTheme.typography.labelMedium)
                     ExposedDropdownMenuBox(
                         expanded = modelExpanded,
                         onExpandedChange = { modelExpanded = it }
                     ) {
                         OutlinedTextField(
-                            value = configuration.model.ifEmpty { "Select reference model" },
-                            onValueChange = {},
-                            readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(modelExpanded) },
+                            value = configuration.model,
+                            onValueChange = { viewModel.updateModel(it) },
+                            label = { Text("Model Identifier") },
+                            placeholder = {
+                                Text(
+                                    when (configuration.provider) {
+                                        AiProvider.OPENROUTER -> "e.g. nvidia/nemotron-3.5-super-vl:free"
+                                        AiProvider.OLLAMA -> "e.g. llama3.2"
+                                        AiProvider.ANTHROPIC -> "e.g. claude-3-7-sonnet"
+                                        AiProvider.OPENAI -> "e.g. gpt-4o"
+                                        AiProvider.GOOGLE -> "e.g. gemini-2.5-flash"
+                                        AiProvider.MISTRAL -> "e.g. open-mistral-nemo"
+                                    }
+                                )
+                            },
+                            trailingIcon = {
+                                if (availableModels.isNotEmpty()) {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded)
+                                }
+                            },
+                            singleLine = true,
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-                            )
-                        )
-                        ExposedDropdownMenu(
-                            expanded = modelExpanded,
-                            onDismissRequest = { modelExpanded = false }
-                        ) {
-                            availableModels.forEach { model ->
-                                DropdownMenuItem(
-                                    text = { Text(model) },
-                                    onClick = {
-                                        viewModel.updateModel(model)
-                                        modelExpanded = false
-                                    }
+                            ),
+                            supportingText = {
+                                Text(
+                                    when (configuration.provider) {
+                                        AiProvider.OPENROUTER -> "Type any OpenRouter model slug (e.g. nvidia/nemotron-3.5-super-vl:free) or select from suggestions"
+                                        AiProvider.OLLAMA -> "Type your local Ollama model name or select from suggestions"
+                                        else -> "Type any custom model identifier or select from suggestions"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall
                                 )
+                            }
+                        )
+                        if (availableModels.isNotEmpty()) {
+                            ExposedDropdownMenu(
+                                expanded = modelExpanded,
+                                onDismissRequest = { modelExpanded = false }
+                            ) {
+                                availableModels.forEach { model ->
+                                    DropdownMenuItem(
+                                        text = { Text(model) },
+                                        onClick = {
+                                            viewModel.updateModel(model)
+                                            modelExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Quick suggestion chips from provider package
+                    if (availableModels.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Suggested Models (tap to apply):",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                availableModels.take(8).forEach { suggestedModel ->
+                                    FilterChip(
+                                        selected = configuration.model.trim() == suggestedModel,
+                                        onClick = { viewModel.updateModel(suggestedModel) },
+                                        label = {
+                                            Text(
+                                                suggestedModel,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    )
+                                }
                             }
                         }
                     }

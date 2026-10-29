@@ -23,6 +23,11 @@ fun OpenRouterSettingsPanel(
     ProviderSettingsHeader("OpenRouter Settings")
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            "OpenRouter routes inference across 300+ upstream LLMs. Specify your model slug (e.g. nvidia/nemotron-3.5-super-vl:free) in the Model Parameters card above.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         // Repetition Penalty
         Column {
             Row(

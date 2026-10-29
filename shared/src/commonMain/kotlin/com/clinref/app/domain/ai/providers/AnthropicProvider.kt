@@ -27,23 +27,26 @@ class AnthropicProvider(
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {
-        if (config.model.isNotBlank()) {
-            return LLModel(
-                provider = LLMProvider.Anthropic,
-                id = config.model,
-                capabilities = listOf(
-                    ai.koog.prompt.llm.LLMCapability.Completion,
-                    ai.koog.prompt.llm.LLMCapability.Tools,
-                    ai.koog.prompt.llm.LLMCapability.Temperature
-                ),
-                contextLength = 200_000
-            )
-        }
-        return AnthropicModels.models.first()
+        val modelId = config.model.trim().ifEmpty { AnthropicModels.models.first().id }
+        val model = LLModel(
+            provider = LLMProvider.Anthropic,
+            id = modelId,
+            capabilities = listOf(
+                ai.koog.prompt.llm.LLMCapability.Completion,
+                ai.koog.prompt.llm.LLMCapability.Tools,
+                ai.koog.prompt.llm.LLMCapability.Temperature
+            ),
+            contextLength = 200_000
+        )
+        try {
+            AnthropicModels.addCustomModel(model)
+        } catch (_: Throwable) {}
+        return model
     }
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
-        if (apiKey.isBlank()) return null
+        val key = apiKey.trim()
+        if (key.isBlank()) return null
 
         val settings = AnthropicClientSettings(
             timeoutConfig = ConnectionTimeoutConfig(
@@ -54,7 +57,7 @@ class AnthropicProvider(
         )
 
         val client = AnthropicLLMClient(
-            apiKey = apiKey,
+            apiKey = key,
             settings = settings,
             httpClientFactory = httpClientFactory
         )

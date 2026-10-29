@@ -25,7 +25,7 @@ class MistralAIProvider(
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {
-        val modelId = config.model.ifBlank { "open-mistral-nemo" }
+        val modelId = config.model.trim().ifEmpty { "open-mistral-nemo" }
         return LLModel(
             provider = LLMProvider.MistralAI,
             id = modelId,
@@ -40,7 +40,8 @@ class MistralAIProvider(
     }
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
-        if (apiKey.isBlank()) return null
+        val key = apiKey.trim()
+        if (key.isBlank()) return null
 
         val baseUrl = config.baseUrl.trim().removeSuffix("/").removeSuffix("/v1").ifBlank { "https://api.mistral.ai" }
 
@@ -54,7 +55,7 @@ class MistralAIProvider(
         )
 
         val client = OpenAILLMClient(
-            apiKey = apiKey,
+            apiKey = key,
             settings = settings,
             httpClientFactory = httpClientFactory
         )

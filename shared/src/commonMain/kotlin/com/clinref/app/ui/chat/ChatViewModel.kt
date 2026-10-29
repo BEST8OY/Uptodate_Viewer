@@ -151,8 +151,9 @@ class ChatViewModel(
      * Atomically synchronizes messages and derived decomposed chat items.
      */
     private fun updateMessages(newMessages: List<MessageUiModel>) {
-        _messages.value = newMessages
-        _chatItems.value = buildChatItems(newMessages)
+        val deduplicated = newMessages.distinctBy { it.id }
+        _messages.value = deduplicated
+        _chatItems.value = buildChatItems(deduplicated)
     }
 
     fun loadConversation(conversationId: String, forceReload: Boolean = false) {
@@ -214,24 +215,10 @@ class ChatViewModel(
                 timestamp = System.currentTimeMillis()
             )
             conversationRepository.addMessage(userMsg)
+            messageOffset++
             updateMessages(_messages.value + userMsg.toUiModel())
             _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = userMsg.id))
             conversationRepository.updateLastPreview(conversationId, trimmed.take(100))
-
-            if (conversationRepository.isOverTokenLimit(conversationId)) {
-                val errorMsg = MessageEntity(
-                    id = UUID.randomUUID().toString(),
-                    conversationId = conversationId,
-                    role = "assistant",
-                    content = "This conversation has exceeded safe token capacities. Please initialize a fresh clinical workspace.",
-                    timestamp = System.currentTimeMillis(),
-                    isError = true
-                )
-                conversationRepository.addMessage(errorMsg)
-                updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
-                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
-                return@launch
-            }
 
             val patientProfile = conversationRepository.getPatientProfile(conversationId)
             val config = configuration.value
@@ -311,6 +298,7 @@ class ChatViewModel(
             isError = true
         )
         conversationRepository.addMessage(errorMsg)
+        messageOffset++
         updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
         _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
     }
@@ -333,6 +321,7 @@ class ChatViewModel(
                 isError = true
             )
             conversationRepository.addMessage(cancelMsg)
+            messageOffset++
             updateMessages(_messages.value + cancelMsg.toUiModel())
             streamingManager.reset()
         }
@@ -368,10 +357,14 @@ class ChatViewModel(
                         role = "assistant",
                         content = content,
                         timestamp = System.currentTimeMillis(),
+                        warningsJson = json.encodeToString(state.validation.warnings),
+                        topicRefsJson = json.encodeToString(state.validation.topicRefs),
+                        graphicRefsJson = json.encodeToString(state.validation.graphicRefs),
                         isError = true
                     )
                     conversationRepository.addMessage(blockedMsg)
-                    updateMessages(_messages.value + blockedMsg.toUiModel(isError = true))
+                    messageOffset++
+                    updateMessages(_messages.value + blockedMsg.toUiModel(warnings = state.validation.warnings, isError = true))
                 }
             }
             is StreamingManager.AgentState.Error -> {
@@ -384,6 +377,7 @@ class ChatViewModel(
                     isError = true
                 )
                 conversationRepository.addMessage(errorMsg)
+                messageOffset++
                 updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
             }
             else -> {
@@ -397,6 +391,7 @@ class ChatViewModel(
                     timestamp = System.currentTimeMillis()
                 )
                 conversationRepository.addMessage(fallbackMsg)
+                messageOffset++
                 updateMessages(_messages.value + fallbackMsg.toUiModel())
             }
         }
@@ -420,6 +415,7 @@ class ChatViewModel(
             graphicRefsJson = json.encodeToString(validation.graphicRefs)
         )
         conversationRepository.addMessage(assistantMsg)
+        messageOffset++
         updateMessages(_messages.value + assistantMsg.toUiModel(warnings = validation.warnings))
         conversationRepository.updateTokenCounts(
             conversationId,
@@ -454,7 +450,7 @@ class ChatViewModel(
         val result = ArrayList<ChatListItem>(messages.size * 2)
         for (message in messages) {
             result.add(ChatListItem.Message(message.copy(showTimestamp = true)))
-            if ((message.articles.isNotEmpty() || message.tables.isNotEmpty()) && !message.isError && message.role == "assistant") {
+            if ((message.articles.isNotEmpty() || message.tables.isNotEmpty()) && message.role == "assistant") {
                 result.add(ChatListItem.ClinicalReferences(message.id, message.articles, message.tables))
             }
         }

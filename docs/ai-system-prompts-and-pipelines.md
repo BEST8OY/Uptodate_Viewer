@@ -5,6 +5,10 @@
 > the database facts those contracts depend on — so a reviewer can audit behaviour without re-reading
 > the source. Both stacks (Kotlin `:shared`, Python `python_prototype/`) implement the same rules;
 > `test_cross_stack_scenarios.py` and `CrossStackScenarioParityTest.kt` pin the shared behaviour.
+>
+> For the comprehensive biomedical informatics whitepaper detailing the theoretical foundations,
+> prefix-caching benchmarks, GRADE preservation, and deterministic evaluation matrices, see:
+> [Architectural Principles for a Universal Clinical Decision Support System Prompt Over an Offline UpToDate Corpus](architectural-principles-universal-clinical-prompt.md).
 
 ## 1. Turn architecture
 

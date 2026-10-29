@@ -22,23 +22,26 @@ class GoogleProvider(
 ) : AiProviderFactory {
 
     override fun resolveModel(config: AiConfiguration): LLModel {
-        if (config.model.isNotBlank()) {
-            return LLModel(
-                provider = LLMProvider.Google,
-                id = config.model,
-                capabilities = listOf(
-                    ai.koog.prompt.llm.LLMCapability.Completion,
-                    ai.koog.prompt.llm.LLMCapability.Tools,
-                    ai.koog.prompt.llm.LLMCapability.Temperature
-                ),
-                contextLength = 1_000_000
-            )
-        }
-        return GoogleModels.Gemini2_5Flash
+        val modelId = config.model.trim().ifEmpty { GoogleModels.Gemini2_5Flash.id }
+        val model = LLModel(
+            provider = LLMProvider.Google,
+            id = modelId,
+            capabilities = listOf(
+                ai.koog.prompt.llm.LLMCapability.Completion,
+                ai.koog.prompt.llm.LLMCapability.Tools,
+                ai.koog.prompt.llm.LLMCapability.Temperature
+            ),
+            contextLength = 1_000_000
+        )
+        try {
+            GoogleModels.addCustomModel(model)
+        } catch (_: Throwable) {}
+        return model
     }
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {
-        if (apiKey.isBlank()) return null
+        val key = apiKey.trim()
+        if (key.isBlank()) return null
 
         val settings = GoogleClientSettings(
             timeoutConfig = ConnectionTimeoutConfig(
@@ -49,7 +52,7 @@ class GoogleProvider(
         )
 
         val client = GoogleLLMClient(
-            apiKey = apiKey,
+            apiKey = key,
             settings = settings,
             httpClientFactory = httpClientFactory
         )
