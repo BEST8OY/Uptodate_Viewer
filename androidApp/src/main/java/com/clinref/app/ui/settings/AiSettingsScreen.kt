@@ -4,10 +4,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
@@ -31,6 +34,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Error
@@ -46,14 +50,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,7 +68,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -76,11 +78,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
+import com.clinref.app.ui.common.BackHandler
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.AiProvider
@@ -99,7 +106,14 @@ fun AiSettingsScreen(
 
     var showApiKey by rememberSaveable { mutableStateOf(false) }
     var providerExpanded by rememberSaveable { mutableStateOf(false) }
-    var modelExpanded by rememberSaveable { mutableStateOf(false) }
+    var showModelSheet by rememberSaveable { mutableStateOf(false) }
+
+    val density = LocalDensity.current
+
+    BackHandler(enabled = providerExpanded || showModelSheet) {
+        providerExpanded = false
+        showModelSheet = false
+    }
 
     Scaffold(
         topBar = {
@@ -198,27 +212,50 @@ fun AiSettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     // Provider Picker
                     Text("Gateway Provider", style = MaterialTheme.typography.labelMedium)
-                    ExposedDropdownMenuBox(
-                        expanded = providerExpanded,
-                        onExpandedChange = { providerExpanded = it }
+                    var providerFieldWidth by remember { mutableIntStateOf(0) }
+                    val providerInteractionSource = remember { MutableInteractionSource() }
+
+                    LaunchedEffect(providerInteractionSource) {
+                        providerInteractionSource.interactions.collect { interaction ->
+                            if (interaction is PressInteraction.Release) {
+                                providerExpanded = true
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { providerFieldWidth = it.width }
                     ) {
                         OutlinedTextField(
                             value = configuration.provider.displayName,
                             onValueChange = {},
                             readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(providerExpanded) },
+                            interactionSource = providerInteractionSource,
+                            trailingIcon = {
+                                IconButton(onClick = { providerExpanded = !providerExpanded }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = if (providerExpanded) "Collapse provider list" else "Expand provider list",
+                                        modifier = Modifier.rotate(if (providerExpanded) 180f else 0f)
+                                    )
+                                }
+                            },
                             shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                            modifier = Modifier.fillMaxWidth(),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
                                 unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
                             )
                         )
-                        ExposedDropdownMenu(
+                        DropdownMenu(
                             expanded = providerExpanded,
-                            onDismissRequest = { providerExpanded = false }
+                            onDismissRequest = { providerExpanded = false },
+                            properties = PopupProperties(focusable = false),
+                            modifier = Modifier
+                                .width(with(density) { providerFieldWidth.toDp() })
+                                .heightIn(max = 280.dp)
                         ) {
                             AiProvider.entries.forEach { provider ->
                                 DropdownMenuItem(
@@ -301,102 +338,55 @@ fun AiSettingsScreen(
                 icon = Icons.Default.Tune
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    // Model Picker (Editable with Package Inherent Suggestions)
+                    // Model Picker (Searchable Modal BottomSheet)
                     Text("Inference Model", style = MaterialTheme.typography.labelMedium)
-                    ExposedDropdownMenuBox(
-                        expanded = modelExpanded,
-                        onExpandedChange = { modelExpanded = it }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { showModelSheet = true }
                     ) {
                         OutlinedTextField(
-                            value = configuration.model,
-                            onValueChange = { viewModel.updateModel(it) },
+                            value = configuration.model.ifBlank { "Select a model..." },
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = false,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledTextColor = if (configuration.model.isBlank()) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                disabledTrailingIconColor = MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                            ),
                             label = { Text("Model Identifier") },
-                            placeholder = {
-                                Text(
-                                    when (configuration.provider) {
-                                        AiProvider.OPENROUTER -> "e.g. nvidia/nemotron-3.5-super-vl:free"
-                                        AiProvider.OLLAMA -> "e.g. llama3.2"
-                                        AiProvider.ANTHROPIC -> "e.g. claude-3-7-sonnet"
-                                        AiProvider.OPENAI -> "e.g. gpt-4o"
-                                        AiProvider.GOOGLE -> "e.g. gemini-2.5-flash"
-                                        AiProvider.MISTRAL -> "e.g. open-mistral-nemo"
-                                    }
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Choose model"
                                 )
                             },
-                            trailingIcon = {
-                                if (availableModels.isNotEmpty()) {
-                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelExpanded)
-                                }
-                            },
-                            singleLine = true,
                             shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
-                            ),
+                            modifier = Modifier.fillMaxWidth(),
                             supportingText = {
                                 Text(
-                                    when (configuration.provider) {
-                                        AiProvider.OPENROUTER -> "Type any OpenRouter model slug (e.g. nvidia/nemotron-3.5-super-vl:free) or select from suggestions"
-                                        AiProvider.OLLAMA -> "Type your local Ollama model name or select from suggestions"
-                                        else -> "Type any custom model identifier or select from suggestions"
-                                    },
+                                    "Tap to choose from presets or enter custom slug",
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
                         )
-                        if (availableModels.isNotEmpty()) {
-                            ExposedDropdownMenu(
-                                expanded = modelExpanded,
-                                onDismissRequest = { modelExpanded = false }
-                            ) {
-                                availableModels.forEach { model ->
-                                    DropdownMenuItem(
-                                        text = { Text(model) },
-                                        onClick = {
-                                            viewModel.updateModel(model)
-                                            modelExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
                     }
 
-                    // Quick suggestion chips from provider package
-                    if (availableModels.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                "Suggested Models (tap to apply):",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                availableModels.take(8).forEach { suggestedModel ->
-                                    FilterChip(
-                                        selected = configuration.model.trim() == suggestedModel,
-                                        onClick = { viewModel.updateModel(suggestedModel) },
-                                        label = {
-                                            Text(
-                                                suggestedModel,
-                                                style = MaterialTheme.typography.labelSmall
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                        )
-                                    )
-                                }
-                            }
-                        }
+                    if (showModelSheet) {
+                        ModelSelectionSheet(
+                            currentModel = configuration.model,
+                            availableModels = availableModels,
+                            onModelSelected = { viewModel.updateModel(it) },
+                            onDismiss = { showModelSheet = false }
+                        )
                     }
 
                     // Temperature Slider
@@ -405,7 +395,7 @@ fun AiSettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Creativity / Temperature", style = MaterialTheme.typography.labelMedium)
+                            Text("Temperature", style = MaterialTheme.typography.labelMedium)
                             Text(
                                 String.format("%.2f", configuration.temperature),
                                 style = MaterialTheme.typography.bodySmall,
@@ -413,6 +403,12 @@ fun AiSettingsScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Lower values are more focused and deterministic, while higher values produce more diverse responses.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Spacer(modifier = Modifier.height(6.dp))
                         Slider(
                             value = configuration.temperature,
@@ -425,9 +421,9 @@ fun AiSettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Strict Guidelines (0.0)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Balanced (0.2)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Exploratory (1.0)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("0.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("0.5", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("1.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
 

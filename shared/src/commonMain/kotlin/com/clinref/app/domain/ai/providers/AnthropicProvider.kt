@@ -7,6 +7,7 @@ import ai.koog.prompt.executor.clients.anthropic.AnthropicClientSettings
 import ai.koog.prompt.executor.clients.anthropic.AnthropicLLMClient
 import ai.koog.prompt.executor.clients.anthropic.AnthropicModels
 import ai.koog.prompt.executor.clients.anthropic.AnthropicParams
+import ai.koog.prompt.executor.clients.anthropic.models.AnthropicThinking
 import ai.koog.prompt.executor.llms.MultiLLMPromptExecutor
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
@@ -28,15 +29,30 @@ class AnthropicProvider(
 
     override fun resolveModel(config: AiConfiguration): LLModel {
         val modelId = config.model.trim().ifEmpty { AnthropicModels.models.first().id }
+        val predefined = AnthropicModels.models.find { it.id.equals(modelId, ignoreCase = true) }
+        val settings = config.providerSettings as? ProviderSettings.Anthropic
+        val isThinking = settings?.enableThinking == true ||
+            modelId.contains("3-7", ignoreCase = true) ||
+            modelId.contains("3.7", ignoreCase = true) ||
+            modelId.contains("thinking", ignoreCase = true)
+
+        val baseCapabilities = predefined?.capabilities ?: listOf(
+            ai.koog.prompt.llm.LLMCapability.Completion,
+            ai.koog.prompt.llm.LLMCapability.Tools,
+            ai.koog.prompt.llm.LLMCapability.Temperature
+        )
+        val capabilities = if (isThinking && ai.koog.prompt.llm.LLMCapability.Thinking !in baseCapabilities) {
+            baseCapabilities + ai.koog.prompt.llm.LLMCapability.Thinking
+        } else {
+            baseCapabilities
+        }
+
+        val contextLength = predefined?.contextLength ?: 200_000L
         val model = LLModel(
             provider = LLMProvider.Anthropic,
             id = modelId,
-            capabilities = listOf(
-                ai.koog.prompt.llm.LLMCapability.Completion,
-                ai.koog.prompt.llm.LLMCapability.Tools,
-                ai.koog.prompt.llm.LLMCapability.Temperature
-            ),
-            contextLength = 200_000
+            capabilities = capabilities,
+            contextLength = contextLength
         )
         try {
             AnthropicModels.addCustomModel(model)
@@ -67,12 +83,19 @@ class AnthropicProvider(
 
     override fun createParams(config: AiConfiguration): LLMParams {
         val settings = config.providerSettings as? ProviderSettings.Anthropic
-        val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
+        val isThinking = settings?.enableThinking == true
+        // Anthropic requires temperature to be 1.0 when extended thinking is enabled
+        val temperature = if (isThinking) 1.0 else (config.temperature.toDouble() * 100).roundToInt() / 100.0
+
+        val thinkingConfig = if (isThinking) {
+            val budget = settings.thinkingBudget ?: 2048
+            AnthropicThinking.Enabled(budgetTokens = budget)
+        } else null
 
         return AnthropicParams(
             temperature = temperature,
             maxTokens = settings?.maxTokens ?: config.maxTokens,
-            thinking = null,
+            thinking = thinkingConfig,
             cacheControl = AnthropicCacheControl.Default
         )
     }

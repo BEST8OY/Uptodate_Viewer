@@ -136,6 +136,8 @@ fun ChatScreen(
     val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
     val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
     val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
+    val reasoningText by viewModel.reasoningText.collectAsStateWithLifecycle()
+    val isReasoning by viewModel.isReasoning.collectAsStateWithLifecycle()
     val isLoadingOlder by viewModel.isLoadingOlder.collectAsStateWithLifecycle()
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
@@ -212,8 +214,8 @@ fun ChatScreen(
     }
 
     // Auto-scroll stream deltas when following the bottom during active generation
-    LaunchedEffect(streamingText, isGenerating) {
-        if (isFollowingBottom && (isGenerating || streamingText.isNotEmpty())) {
+    LaunchedEffect(streamingText, reasoningText, isGenerating) {
+        if (isFollowingBottom && (isGenerating || streamingText.isNotEmpty() || reasoningText.isNotEmpty())) {
             val count = listState.layoutInfo.totalItemsCount
             if (count > 0) {
                 listState.scrollToItem(count - 1)
@@ -368,7 +370,9 @@ fun ChatScreen(
                             ChatOrchestrationIndicator(
                                 steps = orchestrationSteps,
                                 currentStatusText = currentStatusText,
-                                liveSources = liveSources
+                                liveSources = liveSources,
+                                reasoningText = reasoningText,
+                                isReasoning = isReasoning
                             )
                         }
                     }

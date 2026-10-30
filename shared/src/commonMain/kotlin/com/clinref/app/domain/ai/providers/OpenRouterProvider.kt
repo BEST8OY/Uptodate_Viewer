@@ -29,15 +29,31 @@ class OpenRouterProvider(
 
     override fun resolveModel(config: AiConfiguration): LLModel {
         val modelId = config.model.trim().ifEmpty { DEFAULT_MODEL }
+        val predefined = OpenRouterModels.models.find { it.id.equals(modelId, ignoreCase = true) }
+        val isReasoning = modelId.contains("r1", ignoreCase = true) ||
+            modelId.contains("qwq", ignoreCase = true) ||
+            modelId.contains("reason", ignoreCase = true) ||
+            modelId.contains("thinking", ignoreCase = true) ||
+            modelId.contains("3.7", ignoreCase = true) ||
+            modelId.contains("3-7", ignoreCase = true)
+
+        val baseCapabilities = predefined?.capabilities ?: listOf(
+            LLMCapability.Completion,
+            LLMCapability.Tools,
+            LLMCapability.Temperature
+        )
+        val capabilities = if (isReasoning && LLMCapability.Thinking !in baseCapabilities) {
+            baseCapabilities + LLMCapability.Thinking
+        } else {
+            baseCapabilities
+        }
+
+        val contextLength = predefined?.contextLength ?: 128_000L
         val model = LLModel(
             provider = LLMProvider.OpenRouter,
             id = modelId,
-            capabilities = listOf(
-                LLMCapability.Completion,
-                LLMCapability.Tools,
-                LLMCapability.Temperature
-            ),
-            contextLength = 128_000
+            capabilities = capabilities,
+            contextLength = contextLength
         )
         try {
             OpenRouterModels.addCustomModel(model)

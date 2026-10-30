@@ -161,24 +161,52 @@ def create_llm(
             temperature=temperature,
             max_tokens=max_tokens,
         )
-    elif provider == "ollama":
-        from langchain_community.chat_models import ChatOllama
-        return ChatOllama(
-            model=model or "llama3.2",
-            base_url="http://localhost:11434",
-            temperature=temperature,
-            num_predict=max_tokens,
-        )
-    else:
-        # Use litellm for other providers (google, openrouter, etc.)
-        from langchain_community.chat_models import ChatLiteLLM
-        model_name = model or f"{provider}/gpt-4o"
-        return ChatLiteLLM(
-            model=model_name,
-            api_key=api_key,
+    elif provider == "openrouter":
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model or "nvidia/nemotron-3.5-super-vl:free",
+            api_key=api_key or os.environ.get("OPENROUTER_API_KEY"),
+            base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             temperature=temperature,
             max_tokens=max_tokens,
         )
+    elif provider == "ollama":
+        try:
+            from langchain_community.chat_models import ChatOllama
+            return ChatOllama(
+                model=model or "llama3.2",
+                base_url="http://localhost:11434",
+                temperature=temperature,
+                num_predict=max_tokens,
+            )
+        except ImportError:
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=model or "llama3.2",
+                api_key="ollama",
+                base_url=os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+    else:
+        # Use litellm if langchain_community is present, otherwise fallback to OpenAI-compatible ChatOpenAI
+        try:
+            from langchain_community.chat_models import ChatLiteLLM
+            model_name = model or f"{provider}/gpt-4o"
+            return ChatLiteLLM(
+                model=model_name,
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except ImportError:
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
+                model=model or "gpt-4o",
+                api_key=api_key,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
 
 
 def run_interactive(provider: str, model: str, db_path: str):
@@ -516,7 +544,7 @@ def run_tests(db_path: str):
 
 def main():
     parser = argparse.ArgumentParser(description="ClinRef Python Prototype")
-    parser.add_argument("--provider", default="openai", help="LLM provider (openai, anthropic, mistral, ollama)")
+    parser.add_argument("--provider", default="openai", help="LLM provider (openai, anthropic, mistral, ollama, openrouter)")
     parser.add_argument("--model", default=None, help="Model name override")
     parser.add_argument("--query", default=None, help="Single query mode")
     parser.add_argument("--test", action="store_true", help="Run test suite")

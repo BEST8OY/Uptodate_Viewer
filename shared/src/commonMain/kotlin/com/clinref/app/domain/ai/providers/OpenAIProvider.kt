@@ -22,16 +22,32 @@ class OpenAIProvider(
 
     override fun resolveModel(config: AiConfiguration): LLModel {
         val modelId = config.model.trim().ifEmpty { OpenAIModels.models.first().id }
+        val predefined = OpenAIModels.models.find { it.id.equals(modelId, ignoreCase = true) }
+        val settings = config.providerSettings as? ProviderSettings.OpenAI
+        val isReasoningModel = (settings?.reasoningEffort != null && settings.reasoningEffort.lowercase() !in listOf("none", "")) ||
+            modelId.startsWith("o1", ignoreCase = true) ||
+            modelId.startsWith("o3", ignoreCase = true) ||
+            modelId.startsWith("o4", ignoreCase = true) ||
+            modelId.contains("gpt-5", ignoreCase = true)
+
+        val baseCapabilities = predefined?.capabilities ?: listOf(
+            ai.koog.prompt.llm.LLMCapability.Completion,
+            ai.koog.prompt.llm.LLMCapability.Tools,
+            ai.koog.prompt.llm.LLMCapability.Temperature,
+            ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions
+        )
+        val capabilities = if (isReasoningModel && ai.koog.prompt.llm.LLMCapability.Thinking !in baseCapabilities) {
+            baseCapabilities + ai.koog.prompt.llm.LLMCapability.Thinking
+        } else {
+            baseCapabilities
+        }
+
+        val contextLength = predefined?.contextLength ?: 128_000L
         val model = LLModel(
             provider = LLMProvider.OpenAI,
             id = modelId,
-            capabilities = listOf(
-                ai.koog.prompt.llm.LLMCapability.Completion,
-                ai.koog.prompt.llm.LLMCapability.Tools,
-                ai.koog.prompt.llm.LLMCapability.Temperature,
-                ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions
-            ),
-            contextLength = 128_000
+            capabilities = capabilities,
+            contextLength = contextLength
         )
         try {
             OpenAIModels.addCustomModel(model)

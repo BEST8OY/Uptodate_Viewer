@@ -28,15 +28,24 @@ class OllamaProvider(
         val modelId = config.model.trim().ifEmpty { "llama3.2" }
         val settings = config.providerSettings as? ProviderSettings.Ollama
         val contextLength = settings?.numCtx ?: 4096
+        val isReasoning = modelId.contains("r1", ignoreCase = true) ||
+            modelId.contains("qwq", ignoreCase = true) ||
+            modelId.contains("reason", ignoreCase = true) ||
+            modelId.contains("thinking", ignoreCase = true)
+
+        val capabilities = buildList {
+            add(ai.koog.prompt.llm.LLMCapability.Completion)
+            add(ai.koog.prompt.llm.LLMCapability.Tools)
+            add(ai.koog.prompt.llm.LLMCapability.Temperature)
+            add(ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions)
+            if (isReasoning) {
+                add(ai.koog.prompt.llm.LLMCapability.Thinking)
+            }
+        }
         return LLModel(
             provider = LLMProvider.Ollama,
             id = modelId,
-            capabilities = listOf(
-                ai.koog.prompt.llm.LLMCapability.Completion,
-                ai.koog.prompt.llm.LLMCapability.Tools,
-                ai.koog.prompt.llm.LLMCapability.Temperature,
-                ai.koog.prompt.llm.LLMCapability.OpenAIEndpoint.Completions
-            ),
+            capabilities = capabilities,
             contextLength = contextLength.toLong()
         )
     }

@@ -23,15 +23,30 @@ class GoogleProvider(
 
     override fun resolveModel(config: AiConfiguration): LLModel {
         val modelId = config.model.trim().ifEmpty { GoogleModels.Gemini2_5Flash.id }
+        val predefined = GoogleModels.models.find { it.id.equals(modelId, ignoreCase = true) }
+        val settings = config.providerSettings as? ProviderSettings.Google
+        val isThinkingModel = settings?.includeThoughts == true ||
+            modelId.contains("thinking", ignoreCase = true) ||
+            modelId.contains("2.5", ignoreCase = true) ||
+            modelId.contains("3", ignoreCase = true)
+
+        val baseCapabilities = predefined?.capabilities ?: listOf(
+            ai.koog.prompt.llm.LLMCapability.Completion,
+            ai.koog.prompt.llm.LLMCapability.Tools,
+            ai.koog.prompt.llm.LLMCapability.Temperature
+        )
+        val capabilities = if (isThinkingModel && ai.koog.prompt.llm.LLMCapability.Thinking !in baseCapabilities) {
+            baseCapabilities + ai.koog.prompt.llm.LLMCapability.Thinking
+        } else {
+            baseCapabilities
+        }
+
+        val contextLength = predefined?.contextLength ?: 1_000_000L
         val model = LLModel(
             provider = LLMProvider.Google,
             id = modelId,
-            capabilities = listOf(
-                ai.koog.prompt.llm.LLMCapability.Completion,
-                ai.koog.prompt.llm.LLMCapability.Tools,
-                ai.koog.prompt.llm.LLMCapability.Temperature
-            ),
-            contextLength = 1_000_000
+            capabilities = capabilities,
+            contextLength = contextLength
         )
         try {
             GoogleModels.addCustomModel(model)
