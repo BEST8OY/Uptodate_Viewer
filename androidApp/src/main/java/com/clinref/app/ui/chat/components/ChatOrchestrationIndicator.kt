@@ -1,8 +1,9 @@
 package com.clinref.app.ui.chat.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -83,8 +84,7 @@ fun ChatOrchestrationIndicator(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp)
-            .animateContentSize(animationSpec = motionScheme.fastSpatialSpec()),
+            .padding(horizontal = 20.dp, vertical = 4.dp),
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -174,7 +174,12 @@ fun ChatOrchestrationIndicator(
                 enter = fadeIn(animationSpec = motionScheme.fastEffectsSpec()) +
                     expandVertically(animationSpec = motionScheme.fastSpatialSpec()),
                 exit = fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
-                    shrinkVertically(animationSpec = motionScheme.fastSpatialSpec())
+                    shrinkVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
             ) {
                 Column(
                     modifier = Modifier
