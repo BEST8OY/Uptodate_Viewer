@@ -1,7 +1,11 @@
 package com.clinref.app.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -508,8 +512,15 @@ fun AiSettingsScreen(
             // DYNAMIC CONNECTION TEST AREA
             AnimatedVisibility(
                 visible = testResult != null,
-                enter = expandVertically(),
-                exit = shrinkVertically()
+                enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
+                    expandVertically(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
+                exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
+                    shrinkVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
             ) {
                 testResult?.let { result ->
                     val statusColor = when (result) {

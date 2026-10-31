@@ -506,21 +506,22 @@ class StreamingManager {
                     if (topicId.isNotBlank() && topicTitle.isNotBlank() && !AiJsonUtils.isNumericOnly(topicTitle)) {
                         knownTopicTitles[topicId] = topicTitle
                     }
-                    if (res.sectionTitles.isNotEmpty() && topicTitle.isNotBlank()) {
+                    if (topicTitle.isNotBlank()) {
                         val current = _liveDiscoveredSources.value.toMutableList()
-                        for ((secId, secTitleVal) in res.sectionTitles) {
-                            val secTitle = AiJsonUtils.cleanSectionTitle(secTitleVal)
-                            val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
-                            if (secTitle.isNotBlank() && current.none { it.sectionId == cleanSecId && it.topicTitle == topicTitle }) {
-                                current.add(
-                                    SafetyValidator.TopicRef(
-                                        topicId = topicId,
-                                        sectionId = cleanSecId,
-                                        label = secTitle,
-                                        topicTitle = topicTitle
-                                    )
-                                )
+                        val existingIndex = current.indexOfFirst { it.topicId == topicId }
+                        if (existingIndex >= 0) {
+                            if (current[existingIndex].topicTitle.isBlank() || AiJsonUtils.isNumericOnly(current[existingIndex].topicTitle)) {
+                                current[existingIndex] = current[existingIndex].copy(topicTitle = topicTitle, label = topicTitle)
                             }
+                        } else {
+                            current.add(
+                                SafetyValidator.TopicRef(
+                                    topicId = topicId,
+                                    sectionId = "",
+                                    label = topicTitle,
+                                    topicTitle = topicTitle
+                                )
+                            )
                         }
                         _liveDiscoveredSources.value = current
                     }
@@ -530,33 +531,34 @@ class StreamingManager {
                     val topicId = res.topicId
                     if (res.matches.isNotEmpty() && topicId.isNotBlank()) {
                         val current = _liveDiscoveredSources.value.toMutableList()
-                        for (item in res.matches) {
-                            val secId = item.sectionId
-                            val secTitle = AiJsonUtils.cleanSectionTitle(item.sectionTitle)
-                            val cleanSecId = if (secId.equals("FULL", ignoreCase = true)) "" else secId
-                            if (secTitle.isNotBlank() && current.none { it.topicId == topicId && it.sectionId == cleanSecId }) {
-                                current.add(
-                                    SafetyValidator.TopicRef(
-                                        topicId = topicId,
-                                        sectionId = cleanSecId,
-                                        label = secTitle,
-                                        topicTitle = ""
-                                    )
+                        val existingIndex = current.indexOfFirst { it.topicId == topicId }
+                        if (existingIndex < 0) {
+                            val resolvedTitle = knownTopicTitles[topicId] ?: "Clinical Topic #$topicId"
+                            current.add(
+                                SafetyValidator.TopicRef(
+                                    topicId = topicId,
+                                    sectionId = "",
+                                    label = resolvedTitle,
+                                    topicTitle = resolvedTitle
                                 )
-                            }
+                            )
+                            _liveDiscoveredSources.value = current
                         }
-                        _liveDiscoveredSources.value = current
                     }
                 }
                 "getGraphicContent" -> {
                     val res = json.decodeFromString<GraphicContentResponse>(resultText)
                     val title = res.title.trim()
+                    val graphicId = res.graphicId.trim()
                     if (title.isNotBlank()) {
                         val current = _liveDiscoveredSources.value.toMutableList()
-                        if (current.none { it.label == title }) {
+                        val existingIndex = current.indexOfFirst {
+                            (graphicId.isNotBlank() && it.topicId == graphicId) || it.label == title
+                        }
+                        if (existingIndex < 0) {
                             current.add(
                                 SafetyValidator.TopicRef(
-                                    topicId = "",
+                                    topicId = graphicId,
                                     sectionId = "",
                                     label = title,
                                     topicTitle = title

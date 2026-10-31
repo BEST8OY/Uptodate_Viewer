@@ -1,6 +1,8 @@
 package com.clinref.app.ui.common
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -36,7 +38,14 @@ fun ScrollFAB(
     )
     val scale by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
-        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
+        animationSpec = if (visible) {
+            MaterialTheme.motionScheme.fastSpatialSpec()
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        },
         label = "fab_scale"
     )
 

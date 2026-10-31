@@ -13,6 +13,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -201,6 +203,14 @@ fun NavGraph(
         val fastEffectsSpec = motionScheme.fastEffectsSpec<Float>()
         val fastSpatialSpec = motionScheme.fastSpatialSpec<IntOffset>()
         val fastFloatSpatialSpec = motionScheme.fastSpatialSpec<Float>()
+        val exitSpatialSpec = spring<IntOffset>(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+        val exitFloatSpatialSpec = spring<Float>(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
 
         val forwardTransition: AnimatedContentTransitionScope<Scene<NavKey>>.() -> ContentTransform = {
             val initialKey = initialState.navKey()
@@ -255,8 +265,8 @@ fun NavGraph(
                 // Auxiliary Modal Recede / Drop Down (Target parent underneath at zIndex 0f)
                 ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
                     fadeIn(effectsSpec)) togetherWith
-                    (slideOutVertically(fastSpatialSpec) { (it * 0.12f).roundToInt() } +
-                        scaleOut(fastFloatSpatialSpec, targetScale = 0.94f) +
+                    (slideOutVertically(exitSpatialSpec) { (it * 0.12f).roundToInt() } +
+                        scaleOut(exitFloatSpatialSpec, targetScale = 0.94f) +
                         fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
                     targetContentZIndex = 0f
                 }
@@ -285,8 +295,8 @@ fun NavGraph(
                 ((slideInHorizontally(spatialSpec) { -it / 4 } +
                     scaleIn(floatSpatialSpec, initialScale = 0.96f) +
                     fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
-                    (slideOutHorizontally(fastSpatialSpec) { it } +
-                        scaleOut(fastFloatSpatialSpec, targetScale = 0.96f) +
+                    (slideOutHorizontally(exitSpatialSpec) { it } +
+                        scaleOut(exitFloatSpatialSpec, targetScale = 0.96f) +
                         fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
                     targetContentZIndex = 0f
                 }
@@ -300,8 +310,8 @@ fun NavGraph(
             if (initialKey is AiSettingsRoute) {
                 ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
                     fadeIn(effectsSpec)) togetherWith
-                    (slideOutVertically(fastSpatialSpec) { (it * 0.12f).roundToInt() } +
-                        scaleOut(fastFloatSpatialSpec, targetScale = 0.94f) +
+                    (slideOutVertically(exitSpatialSpec) { (it * 0.12f).roundToInt() } +
+                        scaleOut(exitFloatSpatialSpec, targetScale = 0.94f) +
                         fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
                     targetContentZIndex = 0f
                 }
@@ -329,8 +339,8 @@ fun NavGraph(
                 ((slideInHorizontally(spatialSpec) { -it / 4 } +
                     scaleIn(floatSpatialSpec, initialScale = 0.94f) +
                     fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
-                    (slideOutHorizontally(spatialSpec) { it } +
-                        scaleOut(floatSpatialSpec, targetScale = 0.90f) +
+                    (slideOutHorizontally(exitSpatialSpec) { it } +
+                        scaleOut(exitFloatSpatialSpec, targetScale = 0.90f) +
                         fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
                     targetContentZIndex = 0f
                 }
@@ -346,7 +356,7 @@ fun NavGraph(
                 effectsSpec = effectsSpec,
                 fastEffectsSpec = fastEffectsSpec,
                 spatialSpec = spatialSpec,
-                fastSpatialSpec = fastSpatialSpec
+                exitSpatialSpec = exitSpatialSpec
             )
 
             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -370,7 +380,7 @@ fun NavGraph(
                     effectsSpec = effectsSpec,
                     fastEffectsSpec = fastEffectsSpec,
                     spatialSpec = spatialSpec,
-                    fastSpatialSpec = fastSpatialSpec
+                    exitSpatialSpec = exitSpatialSpec
                 )
             }
         }
@@ -393,7 +403,7 @@ private fun ClinRefNavRail(
     effectsSpec: FiniteAnimationSpec<Float>,
     fastEffectsSpec: FiniteAnimationSpec<Float>,
     spatialSpec: FiniteAnimationSpec<IntOffset>,
-    fastSpatialSpec: FiniteAnimationSpec<IntOffset>,
+    exitSpatialSpec: FiniteAnimationSpec<IntOffset>,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -401,7 +411,7 @@ private fun ClinRefNavRail(
         enter = fadeIn(effectsSpec) +
             slideInHorizontally(spatialSpec) { -it },
         exit = fadeOut(fastEffectsSpec) +
-            slideOutHorizontally(fastSpatialSpec) { -it },
+            slideOutHorizontally(exitSpatialSpec) { -it },
         modifier = modifier
     ) {
         NavigationRail {
@@ -439,7 +449,7 @@ private fun BoxScope.ClinRefBottomBar(
     effectsSpec: FiniteAnimationSpec<Float>,
     fastEffectsSpec: FiniteAnimationSpec<Float>,
     spatialSpec: FiniteAnimationSpec<IntOffset>,
-    fastSpatialSpec: FiniteAnimationSpec<IntOffset>,
+    exitSpatialSpec: FiniteAnimationSpec<IntOffset>,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -447,7 +457,7 @@ private fun BoxScope.ClinRefBottomBar(
         enter = fadeIn(effectsSpec) +
             slideInVertically(spatialSpec) { it },
         exit = fadeOut(fastEffectsSpec) +
-            slideOutVertically(fastSpatialSpec) { it },
+            slideOutVertically(exitSpatialSpec) { it },
         modifier = modifier
             .align(Alignment.BottomCenter)
             .windowInsetsPadding(WindowInsets.navigationBars)
