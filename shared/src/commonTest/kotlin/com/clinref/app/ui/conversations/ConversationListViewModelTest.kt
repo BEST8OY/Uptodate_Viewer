@@ -72,7 +72,29 @@ class ConversationListViewModelTest {
 
         assertEquals(2, viewModel.uiState.value.conversations.size)
         assertEquals(2, viewModel.uiState.value.filteredConversations.size)
+        assertEquals(1, viewModel.uiState.value.pinnedConversations.size)
+        assertEquals(1, viewModel.uiState.value.recentConversations.size)
+        assertEquals("Hypertension Consultation", viewModel.uiState.value.conversations[0].title)
+        assertEquals("Asthma Review", viewModel.uiState.value.conversations[1].title)
         assertFalse(viewModel.uiState.value.isLoading)
+    }
+
+    @Test
+    fun `initialization falls back to profile title when entity title is blank`() = runTest(testDispatcher) {
+        conversationsFlow.value = listOf(
+            ConversationEntity(
+                id = "c3",
+                title = "   ",
+                patientProfile = """{"age":"45yo","sex":"Male","conditions":["Diabetes"]}""",
+                createdAt = 1000L,
+                updatedAt = 2000L
+            )
+        )
+
+        val viewModel = ConversationListViewModel(conversationRepository)
+        advanceUntilIdle()
+
+        assertEquals("45yo, Male, Diabetes", viewModel.uiState.value.conversations.first().title)
     }
 
     @Test
@@ -85,6 +107,8 @@ class ConversationListViewModelTest {
 
         assertEquals(1, viewModel.uiState.value.filteredConversations.size)
         assertEquals("c1", viewModel.uiState.value.filteredConversations.first().id)
+        assertEquals(1, viewModel.uiState.value.pinnedConversations.size)
+        assertEquals(0, viewModel.uiState.value.recentConversations.size)
     }
 
     @Test
@@ -120,10 +144,27 @@ class ConversationListViewModelTest {
         viewModel.toggleItemSelection("c1")
         assertTrue(viewModel.uiState.value.isSelectionMode)
         assertTrue(viewModel.uiState.value.selectedIds.contains("c1"))
+        assertTrue(viewModel.uiState.value.conversations.first { it.id == "c1" }.isSelected)
 
         viewModel.toggleItemSelection("c1")
         assertFalse(viewModel.uiState.value.isSelectionMode)
         assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
+        assertFalse(viewModel.uiState.value.conversations.first { it.id == "c1" }.isSelected)
+    }
+
+    @Test
+    fun `clearSelectionMode resets selection mode and unselects items`() = runTest(testDispatcher) {
+        conversationsFlow.value = sampleEntities()
+        val viewModel = ConversationListViewModel(conversationRepository)
+        advanceUntilIdle()
+
+        viewModel.toggleItemSelection("c1")
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+
+        viewModel.clearSelectionMode()
+        assertFalse(viewModel.uiState.value.isSelectionMode)
+        assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
+        assertFalse(viewModel.uiState.value.conversations.first { it.id == "c1" }.isSelected)
     }
 
     @Test

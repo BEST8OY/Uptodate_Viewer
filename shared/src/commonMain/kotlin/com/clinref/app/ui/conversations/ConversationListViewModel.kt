@@ -33,14 +33,14 @@ enum class ConversationFilter(val displayName: String) {
 data class ConversationListUiState(
     val conversations: List<ConversationUiModel> = emptyList(),
     val filteredConversations: List<ConversationUiModel> = emptyList(),
+    val pinnedConversations: List<ConversationUiModel> = emptyList(),
+    val recentConversations: List<ConversationUiModel> = emptyList(),
     val searchQuery: String = "",
-    val isSearchActive: Boolean = false,
     val activeFilter: ConversationFilter = ConversationFilter.ALL,
     val isSelectionMode: Boolean = false,
     val selectedIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
-    val showDeleteConfirmationDialog: Boolean = false,
-    val snackbarMessage: String? = null
+    val showDeleteConfirmationDialog: Boolean = false
 )
 
 class ConversationListViewModel(
@@ -61,6 +61,7 @@ class ConversationListViewModel(
             _uiState.update { it.copy(isLoading = true) }
             try {
                 conversationRepository.getAllConversations().collect { entities ->
+                    val currentSelected = _uiState.value.selectedIds
                     val uiModels = entities.map { entity ->
                         val profile = try {
                             json.decodeFromString<PatientProfile>(entity.patientProfile)
@@ -69,21 +70,29 @@ class ConversationListViewModel(
                         }
                         ConversationUiModel(
                             id = entity.id,
-                            title = buildTitle(profile),
+                            title = entity.title.ifBlank { buildTitle(profile) },
                             lastPreview = entity.lastMessagePreview.ifBlank { "No messages yet" },
                             timestamp = entity.updatedAt,
                             isPinned = entity.isPinned,
                             isUnread = !entity.isRead,
-                            patientProfile = profile
+                            patientProfile = profile,
+                            isSelected = entity.id in currentSelected
                         )
                     }
+
+                    val filter = _uiState.value.activeFilter
+                    val query = _uiState.value.searchQuery
+                    val (filtered, pinned, recent) = filterAndPartition(uiModels, filter, query)
+
                     _uiState.update { state ->
                         state.copy(
                             conversations = uiModels,
+                            filteredConversations = filtered,
+                            pinnedConversations = pinned,
+                            recentConversations = recent,
                             isLoading = false
                         )
                     }
-                    applyFiltersAndSearch()
                 }
             } catch (_: Exception) {
                 _uiState.update { it.copy(isLoading = false) }
@@ -92,31 +101,65 @@ class ConversationListViewModel(
     }
 
     fun onSearchQueryChange(query: String) {
-        _uiState.update { it.copy(searchQuery = query) }
-        applyFiltersAndSearch()
-    }
-
-    fun onSearchActiveChange(active: Boolean) {
         _uiState.update { state ->
+            val (filtered, pinned, recent) = filterAndPartition(
+                conversations = state.conversations,
+                filter = state.activeFilter,
+                query = query
+            )
             state.copy(
-                isSearchActive = active,
-                searchQuery = if (!active) "" else state.searchQuery
+                searchQuery = query,
+                filteredConversations = filtered,
+                pinnedConversations = pinned,
+                recentConversations = recent
             )
         }
-        applyFiltersAndSearch()
     }
 
     fun onFilterSelected(filter: ConversationFilter) {
-        _uiState.update { it.copy(activeFilter = filter) }
-        applyFiltersAndSearch()
+        _uiState.update { state ->
+            val (filtered, pinned, recent) = filterAndPartition(
+                conversations = state.conversations,
+                filter = filter,
+                query = state.searchQuery
+            )
+            state.copy(
+                activeFilter = filter,
+                filteredConversations = filtered,
+                pinnedConversations = pinned,
+                recentConversations = recent
+            )
+        }
     }
 
     fun toggleSelectionMode() {
         _uiState.update { state ->
             val newMode = !state.isSelectionMode
+            val newSelected = if (!newMode) emptySet() else state.selectedIds
+            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
             state.copy(
+                conversations = updatedConversations,
+                filteredConversations = filtered,
+                pinnedConversations = pinned,
+                recentConversations = recent,
                 isSelectionMode = newMode,
-                selectedIds = if (!newMode) emptySet() else state.selectedIds
+                selectedIds = newSelected
+            )
+        }
+    }
+
+    fun clearSelectionMode() {
+        _uiState.update { state ->
+            val updatedConversations = state.conversations.map { it.copy(isSelected = false) }
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
+            state.copy(
+                conversations = updatedConversations,
+                filteredConversations = filtered,
+                pinnedConversations = pinned,
+                recentConversations = recent,
+                isSelectionMode = false,
+                selectedIds = emptySet()
             )
         }
     }
@@ -128,7 +171,13 @@ class ConversationListViewModel(
             } else {
                 state.selectedIds + id
             }
+            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
             state.copy(
+                conversations = updatedConversations,
+                filteredConversations = filtered,
+                pinnedConversations = pinned,
+                recentConversations = recent,
                 selectedIds = newSelected,
                 isSelectionMode = newSelected.isNotEmpty()
             )
@@ -139,7 +188,13 @@ class ConversationListViewModel(
         _uiState.update { state ->
             val allIds = state.filteredConversations.map { it.id }.toSet()
             val newSelected = if (state.selectedIds.size == allIds.size) emptySet() else allIds
+            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
             state.copy(
+                conversations = updatedConversations,
+                filteredConversations = filtered,
+                pinnedConversations = pinned,
+                recentConversations = recent,
                 selectedIds = newSelected,
                 isSelectionMode = newSelected.isNotEmpty()
             )
@@ -190,17 +245,19 @@ class ConversationListViewModel(
         }
 
         _uiState.update { state ->
+            val remaining = state.conversations.filterNot { it.id in selected }
+            val (filtered, pinned, recent) = filterAndPartition(remaining, state.activeFilter, state.searchQuery)
             state.copy(
+                conversations = remaining,
+                filteredConversations = filtered,
+                pinnedConversations = pinned,
+                recentConversations = recent,
                 isSelectionMode = false,
                 selectedIds = emptySet(),
                 showDeleteConfirmationDialog = false
             )
         }
         return backups
-    }
-
-    fun clearSnackbar() {
-        _uiState.update { it.copy(snackbarMessage = null) }
     }
 
     fun markAsRead(id: String) {
@@ -224,12 +281,7 @@ class ConversationListViewModel(
             selected.forEach { id ->
                 conversationRepository.markAsRead(id)
             }
-            _uiState.update { state ->
-                state.copy(
-                    isSelectionMode = false,
-                    selectedIds = emptySet()
-                )
-            }
+            clearSelectionMode()
         }
     }
 
@@ -244,12 +296,7 @@ class ConversationListViewModel(
                     conversationRepository.togglePin(item.id)
                 }
             }
-            _uiState.update { state ->
-                state.copy(
-                    isSelectionMode = false,
-                    selectedIds = emptySet()
-                )
-            }
+            clearSelectionMode()
         }
     }
 
@@ -261,32 +308,33 @@ class ConversationListViewModel(
         }
     }
 
-    private fun applyFiltersAndSearch() {
-        _uiState.update { state ->
-            var list = state.conversations
-
-            list = when (state.activeFilter) {
-                ConversationFilter.ALL -> list
-                ConversationFilter.PINNED -> list.filter { it.isPinned }
-                ConversationFilter.UNREAD -> list.filter { it.isUnread }
-            }
-
-            if (state.searchQuery.isNotBlank()) {
-                val query = state.searchQuery.trim().lowercase()
-                list = list.filter {
-                    it.title.lowercase().contains(query) ||
-                        it.lastPreview.lowercase().contains(query) ||
-                        it.patientProfile.conditions.any { cond -> cond.lowercase().contains(query) }
-                }
-            }
-
-            list = list.sortedWith(
-                compareByDescending<ConversationUiModel> { it.isPinned }
-                    .thenByDescending { it.timestamp }
-            )
-
-            state.copy(filteredConversations = list)
+    private fun filterAndPartition(
+        conversations: List<ConversationUiModel>,
+        filter: ConversationFilter,
+        query: String
+    ): Triple<List<ConversationUiModel>, List<ConversationUiModel>, List<ConversationUiModel>> {
+        var list = when (filter) {
+            ConversationFilter.ALL -> conversations
+            ConversationFilter.PINNED -> conversations.filter { it.isPinned }
+            ConversationFilter.UNREAD -> conversations.filter { it.isUnread }
         }
+
+        if (query.isNotBlank()) {
+            val trimmed = query.trim().lowercase()
+            list = list.filter {
+                it.title.lowercase().contains(trimmed) ||
+                    it.lastPreview.lowercase().contains(trimmed) ||
+                    it.patientProfile.conditions.any { cond -> cond.lowercase().contains(trimmed) }
+            }
+        }
+
+        val sorted = list.sortedWith(
+            compareByDescending<ConversationUiModel> { it.isPinned }
+                .thenByDescending { it.timestamp }
+        )
+        val pinned = sorted.filter { it.isPinned }
+        val recent = sorted.filter { !it.isPinned }
+        return Triple(sorted, pinned, recent)
     }
 
     private fun buildTitle(profile: PatientProfile): String {

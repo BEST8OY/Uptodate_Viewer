@@ -29,11 +29,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
@@ -89,6 +89,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -113,7 +114,10 @@ import com.clinref.app.ui.common.ScrollToTopFAB
 import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.ui.navigation.AiRoute
 import com.clinref.app.util.formatTimestamp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -125,12 +129,6 @@ import org.koin.compose.viewmodel.koinViewModel
  * dual-direction swipe gestures, 1-tap instant consultation start, and native TopAppBar
  * batch selection.
  */
-@OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalMaterial3ExpressiveApi::class,
-    ExperimentalFoundationApi::class,
-    ExperimentalLayoutApi::class
-)
 @Composable
 fun ConversationListScreen(
     onConversationSelected: (String) -> Unit,
@@ -141,10 +139,10 @@ fun ConversationListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val motionScheme = MaterialTheme.motionScheme
-
-    val isBottomBarVisible = LocalBottomBarVisible.current
-    val bottomInsetPadding = if (isBottomBarVisible) 80.dp else 16.dp
+    val snackbarHostState = remember { SnackbarHostState() }
+    var sessionToRename by remember { mutableStateOf<ConversationUiModel?>(null) }
+    val scope = rememberCoroutineScope()
+    var pendingDelete by remember { mutableStateOf<List<ConversationBackup>>(emptyList()) }
 
     LaunchedEffect(reselectEvents) {
         reselectEvents?.collect { route ->
@@ -154,21 +152,10 @@ fun ConversationListScreen(
         }
     }
 
-    val snackbarHostState = remember { SnackbarHostState() }
-    var sessionToRename by remember { mutableStateOf<ConversationUiModel?>(null) }
-    val scope = rememberCoroutineScope()
-    var pendingDelete by remember { mutableStateOf<List<ConversationBackup>>(emptyList()) }
-
-    val textFieldState = rememberTextFieldState()
-
     LifecycleStartEffect(Unit) {
         onStopOrDispose {
             pendingDelete = emptyList()
         }
-    }
-
-    LaunchedEffect(textFieldState.text) {
-        viewModel.onSearchQueryChange(textFieldState.text.toString())
     }
 
     // Snackbar Undo Handler for Deleted Sessions
@@ -186,7 +173,111 @@ fun ConversationListScreen(
     }
 
     BackHandler(enabled = uiState.isSelectionMode) {
-        viewModel.toggleSelectionMode()
+        viewModel.clearSelectionMode()
+    }
+
+    ConversationListContent(
+        uiState = uiState,
+        listState = listState,
+        snackbarHostState = snackbarHostState,
+        sessionToRename = sessionToRename,
+        onSessionToRenameChange = { sessionToRename = it },
+        onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
+        onFilterSelected = { viewModel.onFilterSelected(it) },
+        onToggleSelectionMode = { viewModel.toggleSelectionMode() },
+        onClearSelectionMode = { viewModel.clearSelectionMode() },
+        onToggleItemSelection = { viewModel.toggleItemSelection(it) },
+        onSelectAll = { viewModel.selectAll() },
+        onTogglePinSelected = { viewModel.togglePinSelected() },
+        onMarkSelectedAsRead = { viewModel.markSelectedAsRead() },
+        onShowDeleteConfirmation = { viewModel.showDeleteConfirmation() },
+        onDismissDeleteConfirmation = { viewModel.dismissDeleteConfirmation() },
+        onConfirmDeleteSelected = {
+            scope.launch {
+                val backups = viewModel.deleteSelectedAndReturnBackups()
+                pendingDelete = backups
+            }
+        },
+        onRenameConversation = { id, newTitle ->
+            viewModel.renameConversation(id, newTitle)
+            viewModel.clearSelectionMode()
+        },
+        onConversationSelected = onConversationSelected,
+        onPinClick = { viewModel.togglePin(it) },
+        onMarkAsReadClick = { viewModel.markAsRead(it) },
+        onDeleteSingleClick = { id ->
+            scope.launch {
+                val backup = viewModel.deleteSingleAndReturnBackup(id)
+                if (backup != null) {
+                    pendingDelete = listOf(backup)
+                }
+            }
+        },
+        onNewSessionClick = {
+            viewModel.createNewSession(PatientProfile()) { newId ->
+                onConversationSelected(newId)
+            }
+        },
+        onOpenSettings = onOpenSettings,
+        modifier = modifier
+    )
+}
+
+/**
+ * Stateless content composable for the Clinical Consultations screen.
+ * Decoupled from ViewModel for easy previewing and isolated UI testing.
+ */
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalFoundationApi::class,
+    ExperimentalLayoutApi::class
+)
+@Composable
+fun ConversationListContent(
+    uiState: ConversationListUiState,
+    listState: LazyListState = rememberLazyListState(),
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
+    sessionToRename: ConversationUiModel? = null,
+    onSessionToRenameChange: (ConversationUiModel?) -> Unit = {},
+    onSearchQueryChange: (String) -> Unit = {},
+    onFilterSelected: (ConversationFilter) -> Unit = {},
+    onToggleSelectionMode: () -> Unit = {},
+    onClearSelectionMode: () -> Unit = {},
+    onToggleItemSelection: (String) -> Unit = {},
+    onSelectAll: () -> Unit = {},
+    onTogglePinSelected: () -> Unit = {},
+    onMarkSelectedAsRead: () -> Unit = {},
+    onShowDeleteConfirmation: () -> Unit = {},
+    onDismissDeleteConfirmation: () -> Unit = {},
+    onConfirmDeleteSelected: () -> Unit = {},
+    onRenameConversation: (String, String) -> Unit = { _, _ -> },
+    onConversationSelected: (String) -> Unit = {},
+    onPinClick: (String) -> Unit = {},
+    onMarkAsReadClick: (String) -> Unit = {},
+    onDeleteSingleClick: (String) -> Unit = {},
+    onNewSessionClick: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val motionScheme = MaterialTheme.motionScheme
+    val scope = rememberCoroutineScope()
+
+    val isBottomBarVisible = LocalBottomBarVisible.current
+    val bottomInsetPadding = if (isBottomBarVisible) 80.dp else 16.dp
+
+    val textFieldState = rememberTextFieldState(initialText = uiState.searchQuery)
+
+    // Debounced query emission to prevent UI thrashing during rapid typing
+    LaunchedEffect(textFieldState) {
+        snapshotFlow { textFieldState.text.toString() }
+            .distinctUntilChanged()
+            .collectLatest { query ->
+                if (query.isNotBlank()) {
+                    delay(200)
+                }
+                onSearchQueryChange(query)
+            }
     }
 
     val showScrollToTop by remember {
@@ -200,7 +291,7 @@ fun ConversationListScreen(
     // Confirmation Dialog for Batch Deletions
     if (uiState.showDeleteConfirmationDialog) {
         AlertDialog(
-            onDismissRequest = { viewModel.dismissDeleteConfirmation() },
+            onDismissRequest = onDismissDeleteConfirmation,
             icon = {
                 Icon(
                     imageVector = Icons.Default.DeleteSweep,
@@ -212,23 +303,18 @@ fun ConversationListScreen(
             text = { Text("Are you sure you want to delete ${uiState.selectedIds.size} clinical consultation(s)?") },
             confirmButton = {
                 TextButton(
-                    onClick = {
-                        scope.launch {
-                            val backups = viewModel.deleteSelectedAndReturnBackups()
-                            pendingDelete = backups
-                        }
-                    },
+                    onClick = onConfirmDeleteSelected,
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text("Delete", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.dismissDeleteConfirmation() }) {
+                TextButton(onClick = onDismissDeleteConfirmation) {
                     Text("Cancel")
                 }
             },
-            shape = RoundedCornerShape(24.dp)
+            shape = MaterialTheme.shapes.extraLarge
         )
     }
 
@@ -236,10 +322,10 @@ fun ConversationListScreen(
     sessionToRename?.let { target ->
         RenameSessionDialog(
             initialTitle = target.title,
-            onDismiss = { sessionToRename = null },
+            onDismiss = { onSessionToRenameChange(null) },
             onConfirm = { newTitle ->
-                viewModel.renameConversation(target.id, newTitle)
-                sessionToRename = null
+                onRenameConversation(target.id, newTitle)
+                onSessionToRenameChange(null)
             }
         )
     }
@@ -259,19 +345,20 @@ fun ConversationListScreen(
             ClinicalMessengerHeader(
                 uiState = uiState,
                 textFieldState = textFieldState,
-                onToggleSelectionMode = { viewModel.toggleSelectionMode() },
-                onSelectAll = { viewModel.selectAll() },
-                onTogglePinSelected = { viewModel.togglePinSelected() },
-                onMarkSelectedAsRead = { viewModel.markSelectedAsRead() },
-                onDeleteSelected = { viewModel.showDeleteConfirmation() },
+                onToggleSelectionMode = onToggleSelectionMode,
+                onSelectAll = onSelectAll,
+                onTogglePinSelected = onTogglePinSelected,
+                onMarkSelectedAsRead = onMarkSelectedAsRead,
+                onDeleteSelected = onShowDeleteConfirmation,
                 onRenameSingleSelected = {
                     val singleId = uiState.selectedIds.singleOrNull()
                     if (singleId != null) {
-                        sessionToRename = uiState.conversations.find { it.id == singleId }
+                        val session = uiState.conversations.find { it.id == singleId }
+                        onSessionToRenameChange(session)
                     }
                 },
                 onOpenSettings = onOpenSettings,
-                onFilterSelected = { viewModel.onFilterSelected(it) }
+                onFilterSelected = onFilterSelected
             )
         },
         floatingActionButton = {
@@ -288,17 +375,12 @@ fun ConversationListScreen(
             ) {
                 ExtendedFloatingActionButton(
                     expanded = !isScrollingDown,
-                    onClick = {
-                        // 1-Tap Instant Start: Immediate clinical consultation without modal friction
-                        viewModel.createNewSession(PatientProfile()) { newId ->
-                            onConversationSelected(newId)
-                        }
-                    },
+                    onClick = onNewSessionClick,
                     icon = { Icon(Icons.Default.Add, contentDescription = null) },
                     text = { Text("New Consultation", fontWeight = FontWeight.SemiBold) },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = MaterialTheme.shapes.large,
                     modifier = Modifier
                         .padding(bottom = bottomInsetPadding)
                         .testTag("new_consultation_fab")
@@ -326,25 +408,15 @@ fun ConversationListScreen(
                     EmptySessionsView(
                         searchQuery = uiState.searchQuery,
                         activeFilter = uiState.activeFilter,
-                        onNewSessionClick = {
-                            viewModel.createNewSession(PatientProfile()) { newId ->
-                                onConversationSelected(newId)
-                            }
-                        }
+                        onNewSessionClick = onNewSessionClick
                     )
                 }
 
                 else -> {
                     val isFilteringPinnedOnly = uiState.activeFilter == ConversationFilter.PINNED
-                    val pinnedConversations = remember(uiState.filteredConversations) {
-                        uiState.filteredConversations.filter { it.isPinned }
-                    }
-                    val recentConversations = remember(uiState.filteredConversations) {
-                        uiState.filteredConversations.filter { !it.isPinned }
-                    }
                     val showSectionHeaders = !isFilteringPinnedOnly &&
-                        pinnedConversations.isNotEmpty() &&
-                        recentConversations.isNotEmpty()
+                        uiState.pinnedConversations.isNotEmpty() &&
+                        uiState.recentConversations.isNotEmpty()
 
                     LazyColumn(
                         state = listState,
@@ -355,51 +427,45 @@ fun ConversationListScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Section 1: Pinned Consultations
-                        if (pinnedConversations.isNotEmpty()) {
+                        if (uiState.pinnedConversations.isNotEmpty()) {
                             if (showSectionHeaders || isFilteringPinnedOnly) {
                                 item(key = "header_pinned") {
                                     SectionHeader(
                                         title = "PINNED",
-                                        count = pinnedConversations.size,
+                                        count = uiState.pinnedConversations.size,
                                         icon = Icons.Default.PushPin
                                     )
                                 }
                             }
 
                             items(
-                                items = pinnedConversations,
+                                items = uiState.pinnedConversations,
                                 key = { it.id }
                             ) { conversation ->
                                 ConversationSwipeableItem(
                                     conversation = conversation,
-                                    uiState = uiState,
+                                    isSelectionMode = uiState.isSelectionMode,
+                                    isSelected = conversation.id in uiState.selectedIds,
                                     onConversationSelected = onConversationSelected,
-                                    onPinClick = { viewModel.togglePin(conversation.id) },
-                                    onMarkAsReadClick = { viewModel.markAsRead(conversation.id) },
-                                    onDeleteClick = {
-                                        scope.launch {
-                                            val backup = viewModel.deleteSingleAndReturnBackup(conversation.id)
-                                            if (backup != null) {
-                                                pendingDelete = listOf(backup)
-                                            }
-                                        }
-                                    },
-                                    onToggleItemSelection = { viewModel.toggleItemSelection(conversation.id) },
+                                    onPinClick = { onPinClick(conversation.id) },
+                                    onMarkAsReadClick = { onMarkAsReadClick(conversation.id) },
+                                    onDeleteClick = { onDeleteSingleClick(conversation.id) },
+                                    onToggleItemSelection = { onToggleItemSelection(conversation.id) },
                                     onEnterSelectionMode = {
-                                        viewModel.toggleSelectionMode()
-                                        viewModel.toggleItemSelection(conversation.id)
+                                        onToggleSelectionMode()
+                                        onToggleItemSelection(conversation.id)
                                     }
                                 )
                             }
                         }
 
                         // Section 2: Recent Consultations
-                        if (recentConversations.isNotEmpty()) {
+                        if (uiState.recentConversations.isNotEmpty()) {
                             if (showSectionHeaders) {
                                 item(key = "header_recent") {
                                     SectionHeader(
                                         title = "RECENT SESSIONS",
-                                        count = recentConversations.size,
+                                        count = uiState.recentConversations.size,
                                         icon = Icons.Default.History,
                                         modifier = Modifier.padding(top = 4.dp)
                                     )
@@ -407,27 +473,21 @@ fun ConversationListScreen(
                             }
 
                             items(
-                                items = recentConversations,
+                                items = uiState.recentConversations,
                                 key = { it.id }
                             ) { conversation ->
                                 ConversationSwipeableItem(
                                     conversation = conversation,
-                                    uiState = uiState,
+                                    isSelectionMode = uiState.isSelectionMode,
+                                    isSelected = conversation.id in uiState.selectedIds,
                                     onConversationSelected = onConversationSelected,
-                                    onPinClick = { viewModel.togglePin(conversation.id) },
-                                    onMarkAsReadClick = { viewModel.markAsRead(conversation.id) },
-                                    onDeleteClick = {
-                                        scope.launch {
-                                            val backup = viewModel.deleteSingleAndReturnBackup(conversation.id)
-                                            if (backup != null) {
-                                                pendingDelete = listOf(backup)
-                                            }
-                                        }
-                                    },
-                                    onToggleItemSelection = { viewModel.toggleItemSelection(conversation.id) },
+                                    onPinClick = { onPinClick(conversation.id) },
+                                    onMarkAsReadClick = { onMarkAsReadClick(conversation.id) },
+                                    onDeleteClick = { onDeleteSingleClick(conversation.id) },
+                                    onToggleItemSelection = { onToggleItemSelection(conversation.id) },
                                     onEnterSelectionMode = {
-                                        viewModel.toggleSelectionMode()
-                                        viewModel.toggleItemSelection(conversation.id)
+                                        onToggleSelectionMode()
+                                        onToggleItemSelection(conversation.id)
                                     }
                                 )
                             }
@@ -587,7 +647,7 @@ private fun ClinicalMessengerHeader(
             var isSearchFocused by remember { mutableStateOf(false) }
             val animatedBorderColor by animateColorAsState(
                 targetValue = if (isSearchFocused) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                else MaterialTheme.colorScheme.outlineVariant,
                 animationSpec = motionScheme.fastEffectsSpec(),
                 label = "searchBorder"
             )
@@ -603,7 +663,7 @@ private fun ClinicalMessengerHeader(
                     .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp),
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 color = searchContainerColor,
                 border = BorderStroke(if (isSearchFocused) 1.5.dp else 1.dp, animatedBorderColor)
             ) {
@@ -629,7 +689,7 @@ private fun ClinicalMessengerHeader(
                             Text(
                                 text = "Search consultations, conditions, topics...",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(
@@ -660,13 +720,13 @@ private fun ClinicalMessengerHeader(
                     ) {
                         IconButton(
                             onClick = { textFieldState.clearText() },
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(36.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Clear search",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -690,7 +750,7 @@ private fun ClinicalMessengerHeader(
                         val isSelected = uiState.activeFilter == filter
                         val count = when (filter) {
                             ConversationFilter.ALL -> uiState.conversations.size
-                            ConversationFilter.PINNED -> uiState.conversations.count { it.isPinned }
+                            ConversationFilter.PINNED -> uiState.pinnedConversations.size
                             ConversationFilter.UNREAD -> uiState.conversations.count { it.isUnread }
                         }
                         FilterChip(
@@ -713,7 +773,7 @@ private fun ClinicalMessengerHeader(
                                     )
                                 }
                             } else null,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = MaterialTheme.shapes.small,
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -765,7 +825,7 @@ private fun SectionHeader(
         ) {
             Text(
                 text = count.toString(),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
             )
@@ -780,7 +840,8 @@ private fun SectionHeader(
 @Composable
 private fun LazyItemScope.ConversationSwipeableItem(
     conversation: ConversationUiModel,
-    uiState: ConversationListUiState,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
     onConversationSelected: (String) -> Unit,
     onPinClick: () -> Unit,
     onMarkAsReadClick: () -> Unit,
@@ -798,8 +859,8 @@ private fun LazyItemScope.ConversationSwipeableItem(
 
     SwipeToDismissBox(
         state = dismissState,
-        enableDismissFromStartToEnd = !uiState.isSelectionMode,
-        enableDismissFromEndToStart = !uiState.isSelectionMode,
+        enableDismissFromStartToEnd = !isSelectionMode,
+        enableDismissFromEndToStart = !isSelectionMode,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
@@ -829,7 +890,7 @@ private fun LazyItemScope.ConversationSwipeableItem(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(MaterialTheme.shapes.large)
                     .background(color)
                     .padding(horizontal = 20.dp),
                 contentAlignment = if (isStartToEnd) Alignment.CenterStart else Alignment.CenterEnd
@@ -872,14 +933,14 @@ private fun LazyItemScope.ConversationSwipeableItem(
         content = {
             ClinicalSessionCard(
                 conversation = conversation,
-                isSelectionMode = uiState.isSelectionMode,
-                isSelected = uiState.selectedIds.contains(conversation.id),
+                isSelectionMode = isSelectionMode,
+                isSelected = isSelected,
                 onClick = {
                     onMarkAsReadClick()
                     onConversationSelected(conversation.id)
                 },
                 onLongClick = {
-                    if (!uiState.isSelectionMode) {
+                    if (!isSelectionMode) {
                         onEnterSelectionMode()
                     }
                 },
@@ -916,18 +977,18 @@ private fun ClinicalSessionCard(
 
     val borderColor = when {
         isSelected -> MaterialTheme.colorScheme.primary
-        conversation.isPinned -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-        conversation.isUnread -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+        conversation.isPinned -> MaterialTheme.colorScheme.outlineVariant
+        conversation.isUnread -> MaterialTheme.colorScheme.outlineVariant
+        else -> MaterialTheme.colorScheme.outlineVariant
     }
 
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(MaterialTheme.shapes.large)
             .combinedClickable(
                 onClick = if (isSelectionMode) onToggleSelect else onClick,
                 onLongClick = onLongClick
@@ -1004,13 +1065,13 @@ private fun ClinicalSessionCard(
                 ) {
                     profile.conditions.take(3).forEach { cond ->
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = MaterialTheme.shapes.extraSmall,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Text(
                                 text = cond,
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
@@ -1018,12 +1079,12 @@ private fun ClinicalSessionCard(
                     }
                     if (profile.conditions.size > 3) {
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f)
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest
                         ) {
                             Text(
                                 text = "+${profile.conditions.size - 3}",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
@@ -1035,11 +1096,8 @@ private fun ClinicalSessionCard(
             // Row 3: Clean Message Preview without Synthetic App Prefixes
             Text(
                 text = conversation.lastPreview.ifBlank { "No messages yet" },
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -1061,8 +1119,8 @@ private fun ClinicalDemographicAvatar(
     if (isSelectionMode) {
         Checkbox(
             checked = isSelected,
-            onCheckedChange = { onToggleSelect() },
-            modifier = modifier.size(40.dp)
+            onCheckedChange = null,
+            modifier = modifier.size(32.dp)
         )
     } else {
         val profile = conversation.patientProfile
@@ -1086,7 +1144,7 @@ private fun ClinicalDemographicAvatar(
         }
 
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = MaterialTheme.shapes.medium,
             color = containerColor,
             modifier = modifier.size(40.dp)
         ) {
@@ -1095,8 +1153,7 @@ private fun ClinicalDemographicAvatar(
                     Text(
                         text = demographicBadge,
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
+                            fontWeight = FontWeight.Bold
                         ),
                         color = contentColor
                     )
@@ -1160,7 +1217,7 @@ private fun RenameSessionDialog(
                 Text("Cancel")
             }
         },
-        shape = RoundedCornerShape(24.dp)
+        shape = MaterialTheme.shapes.extraLarge
     )
 }
 
@@ -1209,7 +1266,7 @@ private fun EmptySessionsView(
         ) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.size(64.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -1240,7 +1297,7 @@ private fun EmptySessionsView(
                 Spacer(modifier = Modifier.height(4.dp))
                 Button(
                     onClick = onNewSessionClick,
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.medium,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
