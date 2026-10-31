@@ -12,6 +12,9 @@ import java.io.File
 
 val desktopPlatformModule: Module = module {
     single<SecurePreferences> { DesktopSecurePreferences() }
+    single<com.clinref.app.domain.ai.BackgroundExecutionBridge> {
+        com.clinref.app.domain.ai.NoOpBackgroundExecutionBridge()
+    }
 
     single<AppDatabase> {
         val baseDir = File(System.getProperty("user.home"), ".clinref")

@@ -1,6 +1,7 @@
 package com.clinref.app.ui.chat
 
 import com.clinref.app.data.local.entity.MessageEntity
+import com.clinref.app.domain.ai.ChatExecutionManager
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SecureLogger
@@ -10,8 +11,10 @@ import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -39,19 +42,29 @@ class ChatViewModelTest {
     private val securePreferences = FakeSecurePreferences()
     private val secureLogger: SecureLogger = mockk(relaxed = true)
 
+    private lateinit var chatExecutionManager: ChatExecutionManager
     private lateinit var viewModel: ChatViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        viewModel = ChatViewModel(
+        chatExecutionManager = ChatExecutionManager(
             conversationRepository = conversationRepository,
             contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
             streamingManager = streamingManager,
             reliabilityManager = reliabilityManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger
+            secureLogger = secureLogger,
+            scope = CoroutineScope(SupervisorJob() + testDispatcher)
+        )
+        viewModel = ChatViewModel(
+            conversationRepository = conversationRepository,
+            contentRepository = contentRepository,
+            streamingManager = streamingManager,
+            securePreferences = securePreferences,
+            secureLogger = secureLogger,
+            chatExecutionManager = chatExecutionManager
         )
     }
 

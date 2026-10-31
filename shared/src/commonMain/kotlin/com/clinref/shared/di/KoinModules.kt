@@ -83,6 +83,18 @@ val commonAiModule: Module = module {
             secureLogger = get()
         )
     }
+    single {
+        com.clinref.app.domain.ai.ChatExecutionManager(
+            conversationRepository = get(),
+            contentRepository = get(),
+            koogAgentFactory = get(),
+            streamingManager = get(),
+            reliabilityManager = get(),
+            securePreferences = get(),
+            secureLogger = get(),
+            backgroundExecutionBridge = getOrNull()
+        )
+    }
 }
 
 val commonViewModelModule: Module = module {
@@ -95,7 +107,16 @@ val commonViewModelModule: Module = module {
     factory { com.clinref.app.ui.content.GraphicViewModel(get()) }
     factory { com.clinref.app.ui.content.ContentViewModel(get(), get(), get(), get()) }
     factory { com.clinref.app.ui.settings.SettingsViewModel(get(), get(), get()) }
-    factory { com.clinref.app.ui.chat.ChatViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    factory {
+        com.clinref.app.ui.chat.ChatViewModel(
+            conversationRepository = get(),
+            contentRepository = get(),
+            streamingManager = get(),
+            securePreferences = get(),
+            secureLogger = get(),
+            chatExecutionManager = get()
+        )
+    }
 }
 
 val commonModules: List<Module> = listOf(

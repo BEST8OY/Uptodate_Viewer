@@ -5,21 +5,16 @@ import androidx.lifecycle.viewModelScope
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiJsonUtils
-import com.clinref.app.domain.ai.ClinicalAgentStrategy
+import com.clinref.app.domain.ai.ChatExecutionEvent
+import com.clinref.app.domain.ai.ChatExecutionManager
 import com.clinref.app.domain.ai.ClinicalSource
-import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.PatientProfile
-import com.clinref.app.domain.ai.ReasoningTokenSanitizer
-import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import com.clinref.shared.secure.SecurePreferences
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,10 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.util.UUID
 
 sealed interface ChatScrollEvent {
     /**
@@ -91,11 +83,10 @@ data class MessageUiModel(
 class ChatViewModel(
     private val conversationRepository: ConversationRepository,
     private val contentRepository: ContentRepository,
-    private val koogAgentFactory: KoogAgentFactory,
     private val streamingManager: StreamingManager,
-    private val reliabilityManager: ReliabilityManager,
     private val securePreferences: SecurePreferences,
-    private val secureLogger: SecureLogger
+    private val secureLogger: SecureLogger,
+    private val chatExecutionManager: ChatExecutionManager
 ) : ViewModel() {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -139,12 +130,51 @@ class ChatViewModel(
 
     val configuration: StateFlow<AiConfiguration> = securePreferences.configuration
 
-    private var generationJob: Job? = null
-    private var userCancelled = false
     private var messageOffset = 0
 
     companion object {
         private const val PAGE_SIZE = 50
+    }
+
+    init {
+        viewModelScope.launch {
+            chatExecutionManager.events.collect { event ->
+                if (event.conversationId != _currentConversationId.value) return@collect
+                when (event) {
+                    is ChatExecutionEvent.UserMessageAdded -> {
+                        messageOffset++
+                        updateMessages(_messages.value + event.message.toUiModel())
+                        _scrollEvents.tryEmit(
+                            ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = event.message.id)
+                        )
+                    }
+                    is ChatExecutionEvent.GenerationStarted -> {
+                        _activeAssistantMessageId.value = event.messageId
+                    }
+                    is ChatExecutionEvent.AssistantMessageCompleted -> {
+                        _activeAssistantMessageId.value = null
+                        messageOffset++
+                        updateMessages(_messages.value + event.message.toUiModel(warnings = event.warnings))
+                        _scrollEvents.tryEmit(
+                            ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = event.message.id)
+                        )
+                    }
+                    is ChatExecutionEvent.GenerationError -> {
+                        _activeAssistantMessageId.value = null
+                        messageOffset++
+                        updateMessages(_messages.value + event.message.toUiModel(isError = true))
+                        _scrollEvents.tryEmit(
+                            ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = event.message.id)
+                        )
+                    }
+                    is ChatExecutionEvent.GenerationCancelled -> {
+                        _activeAssistantMessageId.value = null
+                        messageOffset++
+                        updateMessages(_messages.value + event.message.toUiModel())
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -160,12 +190,16 @@ class ChatViewModel(
         if (!forceReload && _currentConversationId.value == conversationId && _messages.value.isNotEmpty()) {
             return
         }
-        generationJob?.cancel()
-        generationJob = null
-        _activeAssistantMessageId.value = null
         _currentConversationId.value = conversationId
         messageOffset = 0
-        streamingManager.reset()
+
+        // Synchronize with background active generation if one is running for this conversation
+        if (chatExecutionManager.isGenerating(conversationId)) {
+            _activeAssistantMessageId.value = chatExecutionManager.activeAssistantMessageId.value
+        } else {
+            _activeAssistantMessageId.value = null
+        }
+
         viewModelScope.launch {
             val profile = conversationRepository.getPatientProfile(conversationId)
             _patientProfile.value = profile
@@ -205,244 +239,12 @@ class ChatViewModel(
         val conversationId = _currentConversationId.value ?: return
         val trimmed = content.trim()
         if (trimmed.isBlank()) return
-
-        viewModelScope.launch {
-            val userMsg = MessageEntity(
-                id = UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                role = "user",
-                content = trimmed,
-                timestamp = System.currentTimeMillis()
-            )
-            conversationRepository.addMessage(userMsg)
-            messageOffset++
-            updateMessages(_messages.value + userMsg.toUiModel())
-            _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = userMsg.id))
-            conversationRepository.updateLastPreview(conversationId, trimmed.take(100))
-
-            val patientProfile = conversationRepository.getPatientProfile(conversationId)
-            val config = configuration.value
-            if (!config.isConfigured) {
-                val errorMsg = MessageEntity(
-                    id = UUID.randomUUID().toString(),
-                    conversationId = conversationId,
-                    role = "assistant",
-                    content = "The clinical AI core is unconfigured. Please finalize provider keys in clinical settings.",
-                    timestamp = System.currentTimeMillis(),
-                    isError = true
-                )
-                conversationRepository.addMessage(errorMsg)
-                updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
-                _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
-                return@launch
-            }
-
-            // Assign a stable ID for the upcoming assistant message so that streaming and completed states share identity
-            val pendingAssistantId = UUID.randomUUID().toString()
-            _activeAssistantMessageId.value = pendingAssistantId
-
-            streamingManager.reset()
-            userCancelled = false
-            val timeoutMs = reliabilityManager.getAgentTimeoutMs(config.provider)
-
-            generationJob = viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val result = reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
-                        // The accumulator is created and wired into the agent (tool callbacks,
-                        // patient profile, question) inside createAgent and must outlive this
-                        // local scope; the ViewModel itself never reads it afterwards.
-                        val (agent, _) = koogAgentFactory.createAgent(
-                            config = config,
-                            conversationId = conversationId,
-                            patientProfile = patientProfile,
-                            streamingManager = streamingManager,
-                            userMessage = trimmed
-                        ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                        agent.run(trimmed, conversationId)
-                    }
-                    withContext(Dispatchers.Main) {
-                        handleAgentResult(conversationId, pendingAssistantId, result)
-                    }
-                } catch (e: CancellationException) {
-                    if (userCancelled) throw e
-                    withContext(Dispatchers.Main) {
-                        handleAgentError(conversationId, pendingAssistantId, e.message ?: "Request timed out.", StreamingManager.ErrorType.TIMEOUT)
-                    }
-                } catch (e: Exception) {
-                    secureLogger.log(SecureLogger.Level.ERROR, "ChatViewModel", "Clinical runtime crash: ${e.message}")
-                    withContext(Dispatchers.Main) {
-                        handleAgentError(conversationId, pendingAssistantId, e.message ?: "General core execution error.", StreamingManager.ErrorType.UNKNOWN)
-                    }
-                } finally {
-                    withContext(Dispatchers.Main) {
-                        _activeAssistantMessageId.value = null
-                    }
-                }
-            }
-        }
-    }
-
-    private suspend fun handleAgentError(
-        conversationId: String,
-        messageId: String,
-        errorMessage: String,
-        errorType: StreamingManager.ErrorType
-    ) {
-        streamingManager.onError(errorMessage)
-        val errorMsg = MessageEntity(
-            id = messageId,
-            conversationId = conversationId,
-            role = "assistant",
-            content = mapErrorToUserMessage(errorType, errorMessage),
-            timestamp = System.currentTimeMillis(),
-            isError = true
-        )
-        conversationRepository.addMessage(errorMsg)
-        messageOffset++
-        updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
-        _scrollEvents.tryEmit(ChatScrollEvent.ScrollToBottom(animated = false, awaitMessageId = errorMsg.id))
+        chatExecutionManager.sendMessage(conversationId, trimmed)
     }
 
     fun cancelGeneration() {
-        userCancelled = true
-        generationJob?.cancel()
-        generationJob = null
-        val pendingId = _activeAssistantMessageId.value
-        _activeAssistantMessageId.value = null
         val conversationId = _currentConversationId.value ?: return
-
-        viewModelScope.launch {
-            val cancelMsg = MessageEntity(
-                id = pendingId ?: UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                role = "cancelled",
-                content = "[Clinical generation session terminated by operator]",
-                timestamp = System.currentTimeMillis(),
-                isError = true
-            )
-            conversationRepository.addMessage(cancelMsg)
-            messageOffset++
-            updateMessages(_messages.value + cancelMsg.toUiModel())
-            streamingManager.reset()
-        }
-    }
-
-    private suspend fun handleAgentResult(
-        conversationId: String,
-        messageId: String,
-        result: String
-    ) {
-        val cleanResult = ReasoningTokenSanitizer.stripReasoning(result)
-        when (val state = streamingManager.agentState.value) {
-            is StreamingManager.AgentState.Completed -> {
-                if (state.validation.passed && !cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
-                    saveSuccessfulMessage(
-                        conversationId, messageId, cleanResult, state.validation, state.tokenUsage
-                    )
-                } else {
-                    val blockedReason = state.validation.blockedReason
-                        ?: "Output quarantined by safety rules."
-                    secureLogger.log(
-                        SecureLogger.Level.WARN, "ChatViewModel",
-                        "Safety blocked: $blockedReason."
-                    )
-                    val content = if (cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
-                        cleanResult
-                    } else {
-                        "${ClinicalAgentStrategy.BLOCKED_MARKER}$blockedReason"
-                    }
-                    val blockedMsg = MessageEntity(
-                        id = messageId,
-                        conversationId = conversationId,
-                        role = "assistant",
-                        content = content,
-                        timestamp = System.currentTimeMillis(),
-                        warningsJson = json.encodeToString(state.validation.warnings),
-                        topicRefsJson = json.encodeToString(state.validation.topicRefs),
-                        graphicRefsJson = json.encodeToString(state.validation.graphicRefs),
-                        isError = true
-                    )
-                    conversationRepository.addMessage(blockedMsg)
-                    messageOffset++
-                    updateMessages(_messages.value + blockedMsg.toUiModel(warnings = state.validation.warnings, isError = true))
-                }
-            }
-            is StreamingManager.AgentState.Error -> {
-                val errorMsg = MessageEntity(
-                    id = messageId,
-                    conversationId = conversationId,
-                    role = "assistant",
-                    content = mapErrorToUserMessage(state.type, state.message),
-                    timestamp = System.currentTimeMillis(),
-                    isError = true
-                )
-                conversationRepository.addMessage(errorMsg)
-                messageOffset++
-                updateMessages(_messages.value + errorMsg.toUiModel(isError = true))
-            }
-            else -> {
-                secureLogger.log(SecureLogger.Level.WARN, "ChatViewModel", "handleAgentResult: state ${state::class.simpleName}")
-                val fallbackResult = result.ifBlank { "Clinical query response generated." }
-                val fallbackMsg = MessageEntity(
-                    id = messageId,
-                    conversationId = conversationId,
-                    role = "assistant",
-                    content = fallbackResult,
-                    timestamp = System.currentTimeMillis()
-                )
-                conversationRepository.addMessage(fallbackMsg)
-                messageOffset++
-                updateMessages(_messages.value + fallbackMsg.toUiModel())
-            }
-        }
-    }
-
-    private suspend fun saveSuccessfulMessage(
-        conversationId: String,
-        messageId: String,
-        result: String,
-        validation: SafetyValidator.ValidationResult,
-        usage: StreamingManager.TokenUsage
-    ) {
-        val assistantMsg = MessageEntity(
-            id = messageId,
-            conversationId = conversationId,
-            role = "assistant",
-            content = result,
-            timestamp = System.currentTimeMillis(),
-            warningsJson = json.encodeToString(validation.warnings),
-            topicRefsJson = json.encodeToString(validation.topicRefs),
-            graphicRefsJson = json.encodeToString(validation.graphicRefs)
-        )
-        conversationRepository.addMessage(assistantMsg)
-        messageOffset++
-        updateMessages(_messages.value + assistantMsg.toUiModel(warnings = validation.warnings))
-        conversationRepository.updateTokenCounts(
-            conversationId,
-            promptDelta = usage.promptTokens,
-            completionDelta = usage.completionTokens,
-            toolDelta = 0
-        )
-        conversationRepository.updateLastPreview(conversationId, result.take(100))
-    }
-
-    private fun mapErrorToUserMessage(type: StreamingManager.ErrorType, detail: String? = null): String {
-        val baseMessage = when (type) {
-            StreamingManager.ErrorType.INVALID_KEY -> "API Key validation rejected. Re-authenticate clinical tokens in Configuration."
-            StreamingManager.ErrorType.NO_NETWORK -> "Network layer unreachable. Please check connectivity."
-            StreamingManager.ErrorType.RATE_LIMIT -> "Upstream rate limit reached. Retrying..."
-            StreamingManager.ErrorType.TIMEOUT -> "Reference core timeout. Please resubmit."
-            StreamingManager.ErrorType.NO_RESULTS -> "Query executed, but reference matches returned no data."
-            StreamingManager.ErrorType.UNKNOWN -> "An error occurred during response generation."
-        }
-        val cleanDetail = detail?.trim()?.takeIf {
-            it.isNotBlank() && !it.equals("Unknown error", ignoreCase = true) && !it.equals(baseMessage, ignoreCase = true)
-        }
-        return if (cleanDetail != null) {
-            "$baseMessage\n\n[$cleanDetail]"
-        } else {
-            baseMessage
-        }
+        chatExecutionManager.cancelGeneration(conversationId)
     }
 
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
