@@ -201,8 +201,6 @@ fun NavGraph(
         val floatSpatialSpec = motionScheme.defaultSpatialSpec<Float>()
         val effectsSpec = motionScheme.defaultEffectsSpec<Float>()
         val fastEffectsSpec = motionScheme.fastEffectsSpec<Float>()
-        val fastSpatialSpec = motionScheme.fastSpatialSpec<IntOffset>()
-        val fastFloatSpatialSpec = motionScheme.fastSpatialSpec<Float>()
         val exitSpatialSpec = spring<IntOffset>(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMediumLow
