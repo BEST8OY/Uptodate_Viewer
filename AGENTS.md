@@ -1,67 +1,99 @@
-# AGENTS.md — ClinRef (Uptodate Viewer)
+# ClinRef — Agent Instructions
 
-## Build
+## Critical Execution Rules
+- **No Android SDK on this machine**: NEVER run Android-specific Gradle tasks (e.g., `./gradlew assembleDebug`, `./gradlew :androidApp:...`, Android instrumented tests, or Android emulator/device tasks).
+- **Desktop/JVM Gradle Tasks ARE Permitted**: You MAY run Desktop JVM tasks for `:shared` (e.g., `./gradlew :shared:compileKotlinDesktop`, `./gradlew :shared:desktopTest`) since they compile and run on standard JVM 17 without requiring the Android SDK.
+- **Do NOT commit `python_prototype/.env`**: Contains local API keys.
+- **Only run `pytest` when modifying real Python code in `python_prototype/`**: Do NOT run `pytest` unconditionally. Specifically, NEVER run `pytest` for Kotlin-only changes, UI/Compose changes, XML resources, Gradle configs, Room DAOs, documentation, or code audits.
 
-Single-module Android app (`:app`). No multi-module complexity.
+## Project Structure & Architecture
+- **Shared Multiplatform Library (`:shared`)**: Package `com.clinref.app` / `com.clinref.shared` targeting **Android** and **Desktop (JVM 17)** via Compose Multiplatform (CMP):
+  - `commonMain`: Compose M3 Expressive UI & adaptive layouts, Navigation 3 runtime & peer roots, ViewModels (MVI StateFlows), Koog AI ReAct state machine & 7 LLM providers, domain entities, Room 3 AppDatabase & DAOs, raw SQLite query engine via `BundledSQLiteDriver`, pure KMP `kzstd` decompression, and Koin DI modules (`commonModules`).
+  - `desktopMain`: Desktop JVM runtime (`DesktopApp.kt`), AES-256 encrypted secure preferences (`DesktopSecurePreferences`), Swing/AWT `ArticleWebView.desktop.kt` (`SwingPanel` + `JEditorPane`), desktop platform logger, and desktop Koin DI (`desktopAppModules`).
+  - `androidMain`: Android-specific implementations, hardware-accelerated Chrome `WebView` (`ArticleWebView.android.kt`, `NestedScrollWebView`, `JsBridge`), Android `BackHandler.android.kt`, and Android platform logger.
+- **Android App Launcher (`:androidApp`)**: Package `com.clinref.app` using Compose M3, Koin DI (`androidPlatformModule`), Navigation 3, and Room 3.
+- **Desktop App Launcher (`:desktopApp`)**: Package `com.clinref.desktop` targeting Desktop JVM 17. Standalone diagnostic runner and Compose Desktop launcher depending on `:shared`.
+- **Python Prototype (`python_prototype/`)**: LangGraph/LangChain agent in Python 3.13 (`uv`). Mirrors Kotlin agent logic 1:1.
+- **SQLite DBs (Project Root)**: 6 SQLite databases (`utdasset.sqlite`, `unidex.en.sqlite`, `fsearch.db`, `utdqf.sqlite`, `utdtoc.db`, `thumbs.db`) read directly by both the Python prototype and the Kotlin SQLite engine.
 
-**No Android SDK on this dev machine** — Gradle builds are not available locally. CI verifies via `./gradlew assembleRelease --stacktrace`.
+## Verification & Commands
 
-**No tests exist.** No lint config, no ktlint/detekt.
+### Build & Test Commands
 
-## Toolchain (non-obvious versions)
+```bash
+# Desktop tests & compilation check (primary local verification command — 308 tests in ~12s)
+./gradlew :shared:desktopTest --stacktrace
 
-- AGP 9.2.1, Kotlin 2.4.0, Gradle 9.6.1
-- `compileSdk = 37`, `minSdk = 31`, JVM target 17
-- CI uses JDK 21 (Temurin)
-- Hilt annotation processing uses **KSP** (not kapt)
-- `libs.versions.toml` is the single source of truth for dependency versions
+# Run Desktop diagnostic verifier & app (queries root SQLite DBs, all 10 ViewModels, Room 3)
+./gradlew :desktopApp:run --console=plain
 
-## Architecture
+# Quick desktop app compilation check
+./gradlew :desktopApp:compileKotlin --console=plain
 
+# Quick shared desktop compilation check without running tests (fast typecheck)
+./gradlew :shared:compileKotlinDesktop --stacktrace
+
+# Generate code coverage report via Jacoco (XML + HTML, when configured)
+./gradlew :shared:jacocoDesktopTestReport --stacktrace
+
+# Lint (Android — CI only, requires Android SDK)
+./gradlew lint --stacktrace
+
+# Full Android release build (CI only, requires Android SDK)
+./gradlew assembleRelease --stacktrace
+
+# Desktop release package (whole-program ProGuard optimization, packaging only)
+./gradlew :shared:packageReleaseDistributionForCurrentOS --stacktrace
 ```
-com.clinref.app/
-├── ClinRefApp.kt          # @HiltAndroidApp Application
-├── MainActivity.kt        # @AndroidEntryPoint, edge-to-edge, single Activity
-├── di/AppModule.kt        # Hilt @Module — provides DAOs
-├── data/                  # DatabaseManager + DAOs (raw SQLite, NOT Room)
-├── domain/                # Data classes (serializable models)
-├── repository/            # Repository layer (uses DAOs)
-├── ui/                    # Compose screens + ViewModels
-│   ├── navigation/        # Navigation 3 (NavDisplay, NavKey routes)
-│   ├── content/           # WebView content viewer + JsBridge
-│   ├── toc/               # Table of contents
-│   ├── search/            # Search
-│   ├── favorites/         # Favorites
-│   ├── history/           # Reading history
-│   ├── setup/             # First-run DB directory picker
-│   └── theme/             # ClinRefTheme
-└── util/                  # GzipUtil, HtmlNormalizer, TimeUtils
+
+> **Important**: Android builds cannot be run locally — there is no Android SDK on this system. Android APKs are built exclusively via GitHub Actions CI. Only desktop targets can be run locally: use `:shared:desktopTest` for rapid verification and test passes; `:shared:compileKotlinDesktop` for fast syntax and typechecking without running tests; and `:desktopApp:run` for local desktop execution against SQLite databases. No separate typecheck or formatter commands — compilation is the typecheck.
+
+
+### Python Prototype (`python_prototype/`)
+> **Important**: Run these commands **ONLY** when you have modified `.py` files inside `python_prototype/`.
+```bash
+uv run pytest test_clinref.py        # Run 187 unit tests (ONLY when python_prototype/ code was modified)
+uv run pytest test_integration.py   # Run 58 integration tests against root SQLite DBs (ONLY when python_prototype/ code was modified)
+uv run pytest                       # Full suite: 421 tests (unit + integration + e2e + contracts + adversarial)
+uv run python run.py                 # Run interactive CLI agent
+uv run python eval_prompt.py          # Score prompt conformance over eval_cases.jsonl (needs an API key)
 ```
 
-## Key conventions
+### Kotlin Unit Tests
+- `ui/navigation/NavigationStateTest.kt`: Independent peer roots, multi-backstack state preservation, reselect scroll-to-top, Exit Through Home pattern.
+- `ui/search/SearchViewModelTest.kt`: Query debouncing (300ms), audience filtering, SavedStateHandle query restoration.
+- `ui/toc/TocViewModelTest.kt`: Tree expansion, root loading, expanded ID persistence, topic resolution.
+- `ui/conversations/ConversationListViewModelTest.kt`: Pinning, unread status, search filtering, multi-selection.
+- `ui/history/HistoryViewModelTest.kt` & `ui/favorites/FavoritesViewModelTest.kt`: StateFlow WhileSubscribed flow collection and DAO operations.
+- `data/local/AppDatabaseTest.kt`: Room 3 in-memory database, ConversationDao, MessageDao (cascade deletes), HistoryDao, FavoriteDao.
+- `data/MedicalDatabaseToolsTest.kt`: Outline section parsing, payload-derived graphic/related-topic inventories, link parsing, footnote bracket removal, graphic table markdown.
+- `domain/ai/SafetyValidatorTest.kt`: Evidence gating (outline alone is not evidence), quantity notation equivalence (`5-10 mg` vs `5 to 10 mg`, `1,200 mg` vs `1200 mg`, `5%` vs `5 percent`, `µg` vs `mcg`), compound slashed units (`5 u/x`, `0.5 mcg/kg/min`), patient-profile restatement.
+- `domain/ai/TurnContextAccumulatorTest.kt`: Tool call deduplication, outline title dash stripping (`-Antiplatelet` -> `Antiplatelet`), ref auto-population.
 
-### Navigation
-Uses **Navigation 3** (`androidx.navigation3`), NOT the older Navigation Compose. Routes are `@Serializable data object/data class` implementing `NavKey`. See `ui/navigation/NavGraph.kt`.
+See [`docs/ai-system-prompts-and-pipelines.md`](docs/ai-system-prompts-and-pipelines.md) for the operational prompt/validator/tool contract reference and [`docs/architectural-principles-universal-clinical-prompt.md`](docs/architectural-principles-universal-clinical-prompt.md) for the foundational biomedical CDS architecture and empirical verification whitepaper.
 
-### Data layer
-**Raw SQLite** via `SQLiteDatabase.openDatabase()` — NOT Room. `DatabaseManager` opens external `.sqlite`/`.db` files selected by the user at first run. DAOs are plain classes (not Room DAOs). The app expects 6 specific DB files in the user-selected directory.
+## Architectural Parity & Design Precedence (Kotlin & Python)
+> **Design Precedence**: `python_prototype/` serves as an algorithm verification testbed and reference implementation. Algorithmic tool flow, safety regexes, and validation criteria should align, but **architectural parity must NEVER compromise idiomatic Kotlin, Jetpack Compose M3 Expressive, Room 3, Navigation 3, or Koin architecture**. When superior multiplatform UX or cleaner software engineering warrants divergence (e.g., rich UI models, navigation scoping, native DI), prioritize Kotlin/CMP architecture.
 
-### WebView content
-Content is rendered in WebView. `JsBridge` exposes a `@JavascriptInterface` method (`appAction`) for JS-to-native communication. ProGuard keep rules for JsBridge are in `proguard-rules.pro` — keep them if modifying JsBridge.
+1. **Lean Retrieval Pipeline (5 tools)**: `searchTopics` returns candidate topics `[{id, title}]`; `getTopicOverview` retrieves the compound bundle (section outline, `graphic_table` inventory, related topics, `topicType`, full markdown for calculators); `getTopicSectionsText` returns section text; `searchTopicSections` locates a section inside a long article; `getGraphicContent` returns table markdown. A separate `getRelatedTopics` tool is deliberately NOT exposed — related topics already arrive inside the overview bundle.
+2. **Intent-Aware Safety Validation**: Non-clinical greetings bypass tool requirements. Answers containing clinical numbers/units (`CLINICAL_QUANTITY_REGEX`) require tool verification; unverified quantities trigger a hard block for self-correction.
+3. **Number & Quantity Normalization**: Quantities are extracted as canonical `<number> <unit>` tokens from both the answer and the evidence corpus, then compared by set membership. Normalizations: both range bounds (`5-10 mg` ≡ `5 to 10 mg`), thousand separators (`1,200 mg` ≡ `1200 mg`), trailing zeros (`2.0 mg` ≡ `2 mg`), `%` ≡ `percent`, `µg`/`μg`/`ug` ≡ `mcg`, singular/plural durations. Units outside the clinical vocabulary are not quantities. The evidence corpus also includes the user question and the active patient profile, so restating a patient-stated value is not flagged.
+4. **DB-Grounded Metadata**: `topicType` comes from the payload's `topicInfo.type` (`drug` / `medical` / `calc` / `narrative`), never from content-shape guesses. Table graphics come from the payload's structured `relatedGraphics` inventory (`subtype == "graphic_table"`), never from `outlineHtml` — outline hrefs carry no subtype, so an outline-derived inventory cannot tell a table from a photograph. The two Lexidrug appendix tables (`57469`, `116421`) are filtered as boilerplate.
+5. **HTML & Link Sanitization**: `javascript:appAction(...)` JSON link payloads convert to `[Text](Topic-ID)` / `[Text](Graphic-ID)`. Footnote citation brackets (`[1]`, `[1, 2]`) are stripped.
+6. **Reference Navigation Intent**: In `ClinicalReferencesSection`, tapping the parent topic card navigates to the root of the article (`sectionId = null`), while tapping a sub-section chip navigates to that specific section (`sectionId = sec.sectionId`).
+7. **Canonical Tool Response Identity**: Retrieval tool responses (`TopicSectionsResponse` / `get_topic_sections_text`) must explicitly include `topicId` alongside `topicTitle` to prevent fragile title-matching heuristics or stale parent associations.
+8. **Synthetic Section Normalization**: Full-article and calculator queries use `"FULL"` as an internal section sentinel. `"FULL"` must always be normalized to `""` in reference models (`TopicRef`, `ClinicalSource`) so reader navigation directs to the root article rather than looking for a nonexistent `#FULL` DOM anchor.
 
-### Compose
-- Material3 alpha (`1.5.0-alpha23`) — experimental APIs are common here
-- `ExperimentalMaterial3ExpressiveApi` is used in several composables
-- Compose BOM `2026.06.01`
-- Edge-to-edge is enabled in MainActivity
+## Known Quirks
+- **Koog Duplicate Classes**: `utils-android` must remain excluded in Gradle configurations; `utils-jvm` is used instead.
+- **ProGuard**: Keep rules in `androidApp/proguard-rules.pro` for Koog, Room3, Koin, serialization, and Compose must not be trimmed.
+- **KMP AGP 9 Setup**: `:shared` uses `com.android.kotlin.multiplatform.library` plugin with `withHostTest { }` inside `kotlin { android { ... } }`. Source sets (`commonMain`, `commonTest`, `androidMain`, `androidHostTest`) use explicit KMP DSL accessors.
+- **Navigation 3 Top-Level Peer Roots**: Bottom navigation and navigation rail top-level routes MUST be independent roots in `toDecoratedEntries` (`getTopLevelRoutesInUse() = listOf(topLevelRoute)`). NEVER stack `listOf(startRoute, topLevelRoute)` to implement "Exit through Home" — this corrupts `NavDisplay`'s internal scene state, z-index calculation, and predictive back targeting across multi-tab transitions. Instead, handle "Exit through Home" via an explicit top-level `BackHandler` (`enabled = !isOnSubRoute && topLevelRoute != startRoute`).
+- **Koog Tool Result Double-Encoding**: In Koog, `eventContext.toolResult` for string-returning tools is a `JSONPrimitive`. Calling `.toString()` outputs double-encoded, escaped JSON strings (`"\"{\\\"key\\\":...}\""`). Deserializing tool results or args in Kotlin must unbox string primitives (e.g., via `extractJsonString` / `parseAsJsonObject`) before attempting `as? JsonObject` to avoid silent `null` deserialization failures.
+- **Koog Tool Argument Deserialization Resilience**: In Koog `SimpleTool<Args>`, LLMs frequently generate `snake_case` JSON keys (e.g., `topic_id`, `section_ids`, `graphic_id`). All `Args` data classes must annotate properties with `@OptIn(ExperimentalSerializationApi::class)` and `@JsonNames(...)` aliases to prevent runtime `MissingFieldException` failures.
+- **Koog onTextMessage Is a Text Filter, Not a Route Predicate**: In the Koog graph DSL, `edge(a forwardTo b onTextMessage { ... })` uses its lambda only to filter/join text parts into the edge payload — its boolean NEVER gates routing. An all-filtered result `Option.of("")` is still a non-empty Option, so the edge resolves as satisfied and fires on every assistant text message. Route gating MUST chain `.onCondition { ... }` after `onTextMessage { true }` (see `ClinicalAgentStrategy.isPrematureTurn`); declaring the predicate directly inside `onTextMessage` caused premature interception to fire unconditionally on every Phase-1 answer attempt (7 interceptions > `maxSafetyRetries = 2` in traced device runs).
+- **Streaming Buffer Hygiene**: When an agent emits preliminary thoughts or tokens before tool calls, streaming managers must clear text buffers on `onToolCallStarting` so that intermediate thought tokens do not bleed into the final streamed clinical response.
+- **Article Scroll & Reading Position Preservation**: Articles in `HtmlContentWebView` use content-anchored positions (`data-b` block indexes + fractional offsets in in-page JS `ArticleScrollJs.kt` for Android WebView, and model offsets in Desktop JEditorPane). Restorations must temporarily suppress `scroll-behavior: smooth` (defined in `CssBuilder.kt`) using `behavior: 'instant'` / `auto` to prevent animated scrolling from top. `ContentScreen` must invoke `viewModel.open(topicId, sectionId)` (idempotent) rather than observing raw route changes to prevent in-article link navigation history from being wiped on screen re-entry.
+- **Chat Scroll & Reading Position Preservation & In-Chat Modal Sheet Overlays**: Following clinical topic/section citations or graphic previews from AI Chat renders `ContentScreen` and `GraphicSheet` directly inside local Compose `ModalBottomSheet` overlays on top of `ChatScreen`, leaving `ChatScreen` continuously mounted in the composition hierarchy. This guarantees `LazyColumn` reading positions, text field input state, and active message streaming coroutines are never unmounted, reset, or clamped on sheet dismissal or back gesture. In-sheet reader sessions use an ephemeral `ViewModelStoreOwner` disposed upon dismissal to prevent state leakage and ensure subsequent article opens instantiate a fresh `ContentViewModel`. Standard library entry points (Table of Contents, Global Search, History, Favorites) continue to navigate to the full-screen reader (`ContentRoute`) via Navigation 3's `NavDisplay`. Auto-scroll to bottom only triggers on user-sent messages (`ChatScrollEvent.ScrollToBottom`) or manual tap of `ScrollToBottomFAB`; it MUST NOT trigger when loading older messages, upon initial conversation open, upon AI response completion, or when the clinician has scrolled up to inspect previous turns. In `loadOlderMessages`, older message pages from Room (`timestamp DESC`) MUST be `.reversed()` prior to prepending to maintain strict chronological order. NEVER attempt to solve LazyColumn reading position retention across destructive route changes using post-remount `LaunchedEffect(scrollToItem)` or pre-navigation snapshot listeners — these inevitably fail due to Frame 0 item count clamping and teardown state clobbering. Always preserve complex scroll state by maintaining the parent composable in the composition hierarchy.
 
-### Serialization
-`kotlinx.serialization` for route definitions and domain models. ProGuard rules keep `$$serializer` classes and `Companion` members for `com.clinref.app.**`.
 
-## Gotchas
-
-- **No bundled databases.** The app is useless without user-provided SQLite files. `SetupScreen` handles first-run directory selection.
-- **CI only builds release APK** — no test step, no lint step. The only CI verification is `assembleRelease`.
-- **`resolutionStrategy.force`** pins `compose-group-mapping:2.4.0` in `build.gradle.kts` — this is a Compose/Kotlin compatibility fix, don't remove without understanding the version matrix.
-- **`useLegacyPackaging = true`** for JNI libs — needed for native library loading from assets.
-- **`@SuppressLint("SetJavaScriptEnabled")`** is only justified in `HtmlContentWebView` (has JsBridge). Don't add it to other WebViews — `GraphicSheet` explicitly disables JS, and `ContributorsDialog` loads static HTML.

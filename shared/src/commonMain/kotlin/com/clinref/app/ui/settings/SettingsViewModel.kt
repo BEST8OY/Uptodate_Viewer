@@ -1,0 +1,173 @@
+package com.clinref.app.ui.settings
+
+import ai.koog.agents.core.agent.AIAgent
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.clinref.app.domain.ai.AiConfiguration
+import com.clinref.app.domain.ai.AiProvider
+import com.clinref.app.domain.ai.KoogAgentFactory
+import com.clinref.app.domain.ai.PatientProfile
+import com.clinref.app.domain.ai.ReliabilityManager
+import com.clinref.app.domain.ai.StreamingManager
+import com.clinref.app.domain.ai.defaultSettingsForProvider
+import com.clinref.shared.secure.SecurePreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+
+class SettingsViewModel(
+    private val securePreferences: SecurePreferences,
+    private val koogAgentFactory: KoogAgentFactory,
+    private val reliabilityManager: ReliabilityManager = ReliabilityManager()
+) : ViewModel() {
+
+    private val _configuration = MutableStateFlow(AiConfiguration())
+    val configuration: StateFlow<AiConfiguration> = _configuration.asStateFlow()
+
+    private val _apiKey = MutableStateFlow("")
+    val apiKey: StateFlow<String> = _apiKey.asStateFlow()
+
+    private val _availableModels = MutableStateFlow<List<String>>(emptyList())
+    val availableModels: StateFlow<List<String>> = _availableModels.asStateFlow()
+
+    private val _testResult = MutableStateFlow<TestResult?>(null)
+    val testResult: StateFlow<TestResult?> = _testResult.asStateFlow()
+
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _configuration.value = securePreferences.configuration.first()
+            val config = _configuration.value
+            _apiKey.value = securePreferences.getApiKey(config.provider)
+            loadModels(config.provider, config.baseUrl)
+        }
+    }
+
+    fun updateProvider(provider: AiProvider) {
+        val defaultModel = when (provider) {
+            AiProvider.OPENROUTER -> com.clinref.app.domain.ai.providers.OpenRouterProvider.DEFAULT_MODEL
+            AiProvider.GOOGLE -> "gemini-2.5-flash"
+            AiProvider.OPENAI -> "gpt-4o"
+            AiProvider.ANTHROPIC -> "claude-3-5-sonnet-latest"
+            AiProvider.MISTRAL -> "open-mistral-nemo"
+            AiProvider.OLLAMA -> "llama3.2"
+        }
+        _configuration.value = _configuration.value.copy(
+            provider = provider,
+            model = defaultModel,
+            providerSettings = defaultSettingsForProvider(provider)
+        )
+        viewModelScope.launch {
+            _apiKey.value = securePreferences.getApiKey(provider)
+            loadModels(provider, _configuration.value.baseUrl)
+        }
+    }
+
+    fun updateApiKey(key: String) {
+        _apiKey.value = key
+    }
+
+    fun updateBaseUrl(url: String) {
+        _configuration.value = _configuration.value.copy(baseUrl = url)
+    }
+
+    fun updateModel(model: String) {
+        _configuration.value = _configuration.value.copy(model = model)
+    }
+
+    fun updateTemperature(temp: Float) {
+        val current = _configuration.value
+        val newSettings = when (val s = current.providerSettings) {
+            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(temperature = temp)
+        }
+        _configuration.value = current.copy(providerSettings = newSettings)
+    }
+
+    fun updateMaxTokens(tokens: Int) {
+        val current = _configuration.value
+        val newSettings = when (val s = current.providerSettings) {
+            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(maxTokens = tokens)
+            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(maxTokens = tokens)
+        }
+        _configuration.value = current.copy(providerSettings = newSettings)
+    }
+
+    fun updateProviderSettings(settings: com.clinref.app.domain.ai.ProviderSettings) {
+        _configuration.value = _configuration.value.copy(providerSettings = settings)
+    }
+
+    fun updateHistoryThreshold(threshold: Int) {
+        _configuration.value = _configuration.value.copy(historyCompressionThreshold = threshold)
+    }
+
+    fun testConnection() {
+        viewModelScope.launch {
+            _testResult.value = TestResult.Loading
+            try {
+                val config = _configuration.value
+                securePreferences.saveApiKey(config.provider, _apiKey.value)
+
+                val testConfig = config.copy(isConfigured = true)
+                val result = reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
+                    koogAgentFactory.testConnection(testConfig)
+                }
+
+                _testResult.value = result.fold(
+                    onSuccess = { TestResult.Success },
+                    onFailure = { err ->
+                        val rootCause = err.cause ?: err
+                        TestResult.Error("Connection failed: ${rootCause.message ?: rootCause::class.simpleName}")
+                    }
+                )
+            } catch (e: Throwable) {
+                val rootCause = e.cause ?: e
+                _testResult.value = TestResult.Error(
+                    "Connection failed: ${rootCause.message ?: rootCause::class.simpleName}"
+                )
+            }
+        }
+    }
+
+    fun save() {
+        viewModelScope.launch {
+            _isSaving.value = true
+            try {
+                val config = _configuration.value.copy(isConfigured = true)
+                securePreferences.saveApiKey(config.provider, _apiKey.value)
+                securePreferences.saveConfiguration(config)
+                _testResult.value = null
+            } finally {
+                _isSaving.value = false
+            }
+        }
+    }
+
+    private suspend fun loadModels(provider: AiProvider, baseUrl: String) {
+        val models = koogAgentFactory.getAvailableModels(provider, baseUrl)
+        _availableModels.value = models
+        // Inherent package models serve as suggestions/defaults.
+        // NEVER overwrite the user's custom-typed model for any provider!
+        if (_configuration.value.model.isBlank()) {
+            models.firstOrNull()?.let { updateModel(it) }
+        }
+    }
+
+    sealed class TestResult {
+        data object Loading : TestResult()
+        data object Success : TestResult()
+        data class Error(val message: String) : TestResult()
+    }
+}

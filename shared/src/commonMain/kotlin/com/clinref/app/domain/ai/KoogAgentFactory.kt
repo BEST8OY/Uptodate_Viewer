@@ -1,0 +1,276 @@
+package com.clinref.app.domain.ai
+
+import com.clinref.shared.platform.PlatformLogger as Log
+import ai.koog.agents.core.agent.AIAgent
+import ai.koog.agents.core.agent.config.AIAgentConfig
+import ai.koog.agents.core.tools.ToolRegistry
+import ai.koog.agents.chatMemory.feature.ChatMemory
+import ai.koog.agents.features.eventHandler.feature.handleEvents
+import ai.koog.agents.features.tokenizer.feature.MessageTokenizer
+import ai.koog.agents.features.tracing.feature.Tracing
+import ai.koog.http.client.okhttp.OkHttpKoogHttpClient
+import ai.koog.prompt.dsl.prompt
+import ai.koog.prompt.tokenizer.SimpleRegexBasedTokenizer
+import ai.koog.prompt.executor.clients.anthropic.AnthropicCacheControl
+import com.clinref.app.data.ai.RoomChatHistoryProvider
+import com.clinref.app.data.MedicalDatabaseTools
+import com.clinref.app.data.TopicOverviewResponse
+import com.clinref.app.data.TopicSectionsResponse
+import com.clinref.shared.secure.SecurePreferences
+import com.clinref.app.domain.ai.providers.AiProviderFactory
+import com.clinref.app.domain.ai.providers.AnthropicProvider
+import com.clinref.app.domain.ai.providers.GoogleProvider
+import com.clinref.app.domain.ai.providers.OllamaProvider
+import com.clinref.app.domain.ai.providers.MistralAIProvider
+import com.clinref.app.domain.ai.providers.OpenAIProvider
+import com.clinref.app.domain.ai.providers.OpenRouterProvider
+
+private const val TAG = "KoogAgent"
+
+class KoogAgentFactory(
+    private val securePreferences: SecurePreferences,
+    private val medicalDatabaseTools: MedicalDatabaseTools,
+    private val safetyValidator: SafetyValidator,
+    private val chatHistoryProvider: RoomChatHistoryProvider,
+    private val secureLogger: SecureLogger
+) {
+
+    private val httpClientFactory: ai.koog.http.client.KoogHttpClient.Factory = SafeKoogHttpClientFactory()
+    private val executorCache = java.util.concurrent.ConcurrentHashMap<String, ai.koog.prompt.executor.model.PromptExecutor>()
+
+    private val providers: Map<AiProvider, AiProviderFactory> by lazy {
+        mapOf(
+            AiProvider.GOOGLE to GoogleProvider(httpClientFactory),
+            AiProvider.OPENAI to OpenAIProvider(httpClientFactory),
+            AiProvider.MISTRAL to MistralAIProvider(httpClientFactory),
+            AiProvider.ANTHROPIC to AnthropicProvider(httpClientFactory),
+            AiProvider.OPENROUTER to OpenRouterProvider(httpClientFactory),
+            AiProvider.OLLAMA to OllamaProvider(httpClientFactory)
+        )
+    }
+
+    private fun getProvider(provider: AiProvider): AiProviderFactory? = providers[provider]
+
+    suspend fun testConnection(config: AiConfiguration): Result<Unit> {
+        val apiKey = securePreferences.getApiKey(config.provider)
+        if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) {
+            return Result.failure(IllegalStateException("API key is not configured for ${config.provider.displayName}"))
+        }
+
+        val providerFactory = getProvider(config.provider)
+            ?: return Result.failure(IllegalStateException("Unsupported provider: ${config.provider.displayName}"))
+
+        val cacheKey = "${config.provider}_${apiKey.hashCode()}_${config.baseUrl}"
+        val executor = executorCache[cacheKey] ?: run {
+            val created = providerFactory.createExecutor(config, apiKey)
+                ?: return Result.failure(IllegalStateException("Failed to initialize client for ${config.provider.displayName}"))
+            executorCache[cacheKey] = created
+            created
+        }
+        val model = providerFactory.resolveModel(config)
+        val providerParams = providerFactory.createParams(config)
+
+        return try {
+            val pingPrompt = prompt(id = "test-connection-ping", params = providerParams) {
+                user("ping")
+            }
+            executor.execute(
+                prompt = pingPrompt,
+                model = model,
+                tools = emptyList()
+            )
+            Result.success(Unit)
+        } catch (e: Throwable) {
+            val rootCause = e.cause ?: e
+            Result.failure(rootCause)
+        }
+    }
+
+    suspend fun createAgent(
+        config: AiConfiguration,
+        conversationId: String,
+        patientProfile: PatientProfile,
+        streamingManager: StreamingManager,
+        userMessage: String = "",
+        existingAccumulator: TurnContextAccumulator? = null
+    ): Pair<AIAgent<String, String>, TurnContextAccumulator>? {
+        val apiKey = securePreferences.getApiKey(config.provider)
+        if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) return null
+
+        val providerFactory = getProvider(config.provider) ?: return null
+        val cacheKey = "${config.provider}_${apiKey.hashCode()}_${config.baseUrl}"
+        val executor = executorCache[cacheKey] ?: run {
+            val created = providerFactory.createExecutor(config, apiKey) ?: return null
+            executorCache[cacheKey] = created
+            created
+        }
+        val model = providerFactory.resolveModel(config)
+        val providerParams = providerFactory.createParams(config)
+
+        val toolRegistry = ToolRegistry {
+            tools(medicalDatabaseTools.asToolList())
+        }
+
+        val accumulator = existingAccumulator ?: TurnContextAccumulator(
+            topicTitleResolver = { tid -> medicalDatabaseTools.getTopicTitle(tid) },
+            sectionTitleResolver = { tid, sid -> medicalDatabaseTools.getSectionTitle(tid, sid) }
+        )
+        // Deliver the patient profile to the accumulator so it joins the evidence corpus
+        // (a restated profile value is not an invented quantity) and reaches the synthesis turn.
+        accumulator.setPatientProfile(patientProfile)
+        if (userMessage.isNotBlank()) {
+            accumulator.setUserQuestion(userMessage)
+        }
+
+        val isAnthropic = config.provider == AiProvider.ANTHROPIC
+        val agentConfig = AIAgentConfig(
+            prompt = prompt(
+                id = "chat",
+                params = providerParams
+            ) {
+                // Static clinical directives eligible for provider-side KV prompt caching
+                val cache = if (isAnthropic) AnthropicCacheControl.Default else null
+                system(SystemPrompt.STATIC_CLINICAL_GUIDANCE, cache = cache)
+
+                // Dynamic patient profile context
+                val patientBlock = SystemPrompt.patientContextBlock(patientProfile)
+                if (patientBlock.isNotBlank()) {
+                    system(patientBlock)
+                }
+            },
+            model = model,
+            // Strategy graph iteration budget (sufficient for tool rounds and validation cycles).
+            maxAgentIterations = 128
+        )
+
+        val effectiveCtx = if (config.provider == AiProvider.OLLAMA) {
+            (config.providerSettings as? ProviderSettings.Ollama)?.numCtx ?: config.historyCompressionThreshold
+        } else {
+            config.historyCompressionThreshold
+        }
+
+        val agent = AIAgent(
+            promptExecutor = executor,
+            agentConfig = agentConfig,
+            strategy = ClinicalAgentStrategy.createAutonomous(
+                tools = medicalDatabaseTools.asToolList(),
+                safetyValidator = safetyValidator,
+                accumulator = accumulator,
+                maxSafetyRetries = 2,
+                historyCompressionThreshold = effectiveCtx,
+                onSynthesisStarting = { streamingManager.onSynthesisStarting() }
+            ),
+            toolRegistry = toolRegistry
+        ) {
+            install(ChatMemory) {
+                chatHistoryProvider = this@KoogAgentFactory.chatHistoryProvider
+                filterMessages { msg -> msg is ai.koog.prompt.message.Message.User || msg is ai.koog.prompt.message.Message.Assistant }
+                val windowSize = (effectiveCtx / 500).coerceIn(5, 300)
+                windowSize(windowSize)
+            }
+
+            install(Tracing.Feature) {
+                addMessageProcessor(AndroidTraceLogWriter(secureLogger = secureLogger))
+            }
+
+            install(MessageTokenizer.Feature) {
+                tokenizer = SimpleRegexBasedTokenizer()
+                enableCaching = true
+            }
+
+            handleEvents {
+                onToolCallStarting { eventContext ->
+                    val callId = eventContext.toolCallId ?: ""
+                    val argsStr = eventContext.toolArgs.toString()
+                    Log.d(TAG, "Tool starting: ${eventContext.toolName} args=$argsStr")
+                    accumulator.onToolCallStarting(callId, argsStr)
+                    streamingManager.onToolCallStarting(eventContext.toolName, argsStr, callId)
+                }
+
+                onLLMStreamingFrameReceived { eventContext ->
+                    when (val frame = eventContext.streamFrame) {
+                        is ai.koog.prompt.streaming.StreamFrame.TextDelta -> {
+                            streamingManager.onStreamingTextDelta(frame.text)
+                        }
+                        is ai.koog.prompt.streaming.StreamFrame.ReasoningDelta -> {
+                            frame.text?.let { streamingManager.onStreamingReasoningDelta(it) }
+                        }
+                        is ai.koog.prompt.streaming.StreamFrame.ToolCallDelta -> {
+                            streamingManager.onStreamingToolCallDelta(
+                                callId = frame.id ?: "",
+                                content = frame.content ?: "",
+                                toolName = frame.name
+                            )
+                        }
+                        is ai.koog.prompt.streaming.StreamFrame.End -> {
+                            streamingManager.onStreamingEnd()
+                        }
+                        else -> {}
+                    }
+                }
+
+                onToolCallCompleted { eventContext ->
+                    val callId = eventContext.toolCallId ?: ""
+                    val resultText = eventContext.toolResult?.toString() ?: ""
+                    val success = eventContext.toolResult != null
+                    val toolArgsStr = eventContext.toolArgs.toString()
+                    Log.d(TAG, "Tool completed: ${eventContext.toolName} success=$success result=${resultText.take(200)}")
+                    accumulator.onToolCallCompleted(callId, eventContext.toolName, resultText, success, toolArgsStr)
+                    streamingManager.onToolCallCompleted(eventContext.toolName, resultText, callId)
+                    streamingManager.onWaitingForLlm()
+                }
+
+                onLLMCallCompleted { eventContext ->
+                    val metaInfo = eventContext.response?.metaInfo
+                    if (metaInfo != null) {
+                        streamingManager.onLlmCallCompleted(
+                            promptTokens = metaInfo.inputTokensCount ?: 0,
+                            completionTokens = metaInfo.outputTokensCount ?: 0,
+                            totalTokens = metaInfo.totalTokensCount ?: 0
+                        )
+                    }
+                }
+
+                onAgentCompleted { eventContext ->
+                    val result = eventContext.result?.toString() ?: ""
+                    val turnContext = accumulator.buildTurnContext(result)
+                    val validation = when {
+                        // In-graph terminal safety block (retry budget exhausted).
+                        result.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER) -> {
+                            SafetyValidator.ValidationResult(
+                                passed = false,
+                                warnings = emptyList(),
+                                blockedReason = result.removePrefix(ClinicalAgentStrategy.BLOCKED_MARKER).trim()
+                            )
+                        }
+                        // Change-1 small-talk run: the deterministic entry path rendered
+                        // the greeting; no retrieval is required. Persist the reply as a
+                        // normal assistant message.
+                        QuestionRouter.smallTalk(turnContext.userQuestion) && turnContext.toolCalls.isEmpty() -> {
+                            SafetyValidator.ValidationResult(
+                                passed = true,
+                                warnings = emptyList(),
+                                topicRefs = turnContext.topicRefs,
+                                graphicRefs = turnContext.graphicRefs
+                            )
+                        }
+                        else -> safetyValidator.validate(turnContext)
+                    }
+                    Log.d(TAG, "Agent completed: tools=${turnContext.toolCalls.map { it.toolName }} validation=${validation.blockedReason ?: "OK"} warnings=${validation.warnings.take(1)}")
+                    streamingManager.onCompleted(result, validation)
+                }
+
+                onAgentExecutionFailed { eventContext ->
+                    Log.e(TAG, "Agent failed: ${eventContext.error.message}")
+                    streamingManager.onError(eventContext.error.message ?: "Unknown error")
+                }
+            }
+        }
+
+        return Pair(agent, accumulator)
+    }
+
+    suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
+        return getProvider(provider)?.getAvailableModels() ?: emptyList()
+    }
+}
