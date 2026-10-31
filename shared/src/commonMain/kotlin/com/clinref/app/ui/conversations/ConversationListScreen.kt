@@ -111,7 +111,6 @@ import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalBottomBarVisible
 import com.clinref.app.ui.common.BackHandler
-import com.clinref.app.ui.common.ScrollToTopFAB
 import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.ui.navigation.AiRoute
 import com.clinref.app.util.formatTimestamp
@@ -290,12 +289,11 @@ fun ConversationListContent(
             }
     }
 
-    val showScrollToTop by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 0 }
-    }
-
-    val isScrollingDown by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 0 && listState.isScrollInProgress }
+    // Position-anchored FAB expansion: full label at top of list, compact icon when scrolled down
+    val isAtTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 10
+        }
     }
 
     // Confirmation Dialog for Batch Deletions
@@ -451,7 +449,7 @@ fun ConversationListContent(
                     ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                 ) {
                     ExtendedFloatingActionButton(
-                        expanded = !isScrollingDown && !isFabMenuExpanded,
+                        expanded = isAtTop && !isFabMenuExpanded,
                         onClick = { isFabMenuExpanded = !isFabMenuExpanded },
                         icon = {
                             val rotation by animateFloatAsState(
@@ -590,16 +588,6 @@ fun ConversationListContent(
                         ) { isFabMenuExpanded = false }
                 )
             }
-
-            // Scroll to Top Floating Action Button
-            ScrollToTopFAB(
-                visible = showScrollToTop && !uiState.isSelectionMode && !isFabMenuExpanded,
-                onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = bottomInsetPadding + 16.dp)
-                    .testTag("scroll_to_top_fab")
-            )
         }
     }
 }
