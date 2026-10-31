@@ -3,6 +3,7 @@ package com.clinref.app.ui.conversations
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,7 +12,9 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +33,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -39,14 +41,14 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -61,8 +63,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -93,6 +93,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -126,8 +127,8 @@ import org.koin.compose.viewmodel.koinViewModel
  *
  * Designed for fast clinical decision support: compact top bar with docked search,
  * high-density cards with demographic squircle avatars and condition micro-chips,
- * dual-direction swipe gestures, 1-tap instant consultation start, and native TopAppBar
- * batch selection.
+ * dual-direction swipe gestures, Speed Dial FAB with fast start vs patient profile,
+ * and native TopAppBar batch selection.
  */
 @Composable
 fun ConversationListScreen(
@@ -183,13 +184,11 @@ fun ConversationListScreen(
         sessionToRename = sessionToRename,
         onSessionToRenameChange = { sessionToRename = it },
         onSearchQueryChange = { viewModel.onSearchQueryChange(it) },
-        onFilterSelected = { viewModel.onFilterSelected(it) },
         onToggleSelectionMode = { viewModel.toggleSelectionMode() },
         onClearSelectionMode = { viewModel.clearSelectionMode() },
         onToggleItemSelection = { viewModel.toggleItemSelection(it) },
         onSelectAll = { viewModel.selectAll() },
         onTogglePinSelected = { viewModel.togglePinSelected() },
-        onMarkSelectedAsRead = { viewModel.markSelectedAsRead() },
         onShowDeleteConfirmation = { viewModel.showDeleteConfirmation() },
         onDismissDeleteConfirmation = { viewModel.dismissDeleteConfirmation() },
         onConfirmDeleteSelected = {
@@ -204,7 +203,6 @@ fun ConversationListScreen(
         },
         onConversationSelected = onConversationSelected,
         onPinClick = { viewModel.togglePin(it) },
-        onMarkAsReadClick = { viewModel.markAsRead(it) },
         onDeleteSingleClick = { id ->
             scope.launch {
                 val backup = viewModel.deleteSingleAndReturnBackup(id)
@@ -215,6 +213,11 @@ fun ConversationListScreen(
         },
         onNewSessionClick = {
             viewModel.createNewSession(PatientProfile()) { newId ->
+                onConversationSelected(newId)
+            }
+        },
+        onNewSessionWithProfileClick = { profile ->
+            viewModel.createNewSession(profile) { newId ->
                 onConversationSelected(newId)
             }
         },
@@ -241,22 +244,20 @@ fun ConversationListContent(
     sessionToRename: ConversationUiModel? = null,
     onSessionToRenameChange: (ConversationUiModel?) -> Unit = {},
     onSearchQueryChange: (String) -> Unit = {},
-    onFilterSelected: (ConversationFilter) -> Unit = {},
     onToggleSelectionMode: () -> Unit = {},
     onClearSelectionMode: () -> Unit = {},
     onToggleItemSelection: (String) -> Unit = {},
     onSelectAll: () -> Unit = {},
     onTogglePinSelected: () -> Unit = {},
-    onMarkSelectedAsRead: () -> Unit = {},
     onShowDeleteConfirmation: () -> Unit = {},
     onDismissDeleteConfirmation: () -> Unit = {},
     onConfirmDeleteSelected: () -> Unit = {},
     onRenameConversation: (String, String) -> Unit = { _, _ -> },
     onConversationSelected: (String) -> Unit = {},
     onPinClick: (String) -> Unit = {},
-    onMarkAsReadClick: (String) -> Unit = {},
     onDeleteSingleClick: (String) -> Unit = {},
     onNewSessionClick: () -> Unit = {},
+    onNewSessionWithProfileClick: (PatientProfile) -> Unit = {},
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -267,6 +268,15 @@ fun ConversationListContent(
     val bottomInsetPadding = if (isBottomBarVisible) 80.dp else 16.dp
 
     val textFieldState = rememberTextFieldState(initialText = uiState.searchQuery)
+
+    // Speed Dial Menu State
+    var isFabMenuExpanded by remember { mutableStateOf(false) }
+    var showPatientProfileSheet by remember { mutableStateOf(false) }
+
+    // Close FAB menu on system back
+    BackHandler(enabled = isFabMenuExpanded) {
+        isFabMenuExpanded = false
+    }
 
     // Debounced query emission to prevent UI thrashing during rapid typing
     LaunchedEffect(textFieldState) {
@@ -330,6 +340,17 @@ fun ConversationListContent(
         )
     }
 
+    // Patient Profile Input Bottom Sheet / Dialog
+    if (showPatientProfileSheet) {
+        PatientProfileSheet(
+            onDismiss = { showPatientProfileSheet = false },
+            onStart = { profile ->
+                showPatientProfileSheet = false
+                onNewSessionWithProfileClick(profile)
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier
             .fillMaxSize()
@@ -348,7 +369,6 @@ fun ConversationListContent(
                 onToggleSelectionMode = onToggleSelectionMode,
                 onSelectAll = onSelectAll,
                 onTogglePinSelected = onTogglePinSelected,
-                onMarkSelectedAsRead = onMarkSelectedAsRead,
                 onDeleteSelected = onShowDeleteConfirmation,
                 onRenameSingleSelected = {
                     val singleId = uiState.selectedIds.singleOrNull()
@@ -357,34 +377,101 @@ fun ConversationListContent(
                         onSessionToRenameChange(session)
                     }
                 },
-                onOpenSettings = onOpenSettings,
-                onFilterSelected = onFilterSelected
+                onOpenSettings = onOpenSettings
             )
         },
         floatingActionButton = {
-            AnimatedVisibility(
-                visible = !uiState.isSelectionMode,
-                enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
-                    fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
-                exit = scaleOut(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
-                ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(bottom = bottomInsetPadding)
             ) {
-                ExtendedFloatingActionButton(
-                    expanded = !isScrollingDown,
-                    onClick = onNewSessionClick,
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("New Consultation", fontWeight = FontWeight.SemiBold) },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier
-                        .padding(bottom = bottomInsetPadding)
-                        .testTag("new_consultation_fab")
-                )
+                // Secondary Speed-Dial Options
+                AnimatedVisibility(
+                    visible = isFabMenuExpanded && !uiState.isSelectionMode,
+                    enter = fadeIn(motionScheme.fastEffectsSpec()) + scaleIn(motionScheme.fastSpatialSpec()),
+                    exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(motionScheme.fastSpatialSpec())
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Option 1: With Patient Profile
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                isFabMenuExpanded = false
+                                showPatientProfileSheet = true
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.PersonAdd,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            text = { Text("With Patient Profile", fontWeight = FontWeight.SemiBold) },
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            shape = MaterialTheme.shapes.large,
+                            modifier = Modifier.testTag("fab_with_profile")
+                        )
+
+                        // Option 2: Fast Consultation
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                isFabMenuExpanded = false
+                                onNewSessionClick()
+                            },
+                            icon = {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            text = { Text("Fast Consultation", fontWeight = FontWeight.SemiBold) },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            shape = MaterialTheme.shapes.large,
+                            modifier = Modifier.testTag("fab_fast_consultation")
+                        )
+                    }
+                }
+
+                // Primary Trigger FAB
+                AnimatedVisibility(
+                    visible = !uiState.isSelectionMode,
+                    enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
+                        fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
+                    exit = scaleOut(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
+                ) {
+                    ExtendedFloatingActionButton(
+                        expanded = !isScrollingDown && !isFabMenuExpanded,
+                        onClick = { isFabMenuExpanded = !isFabMenuExpanded },
+                        icon = {
+                            val rotation by animateFloatAsState(
+                                targetValue = if (isFabMenuExpanded) 45f else 0f,
+                                animationSpec = motionScheme.fastSpatialSpec(),
+                                label = "fabRotation"
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = if (isFabMenuExpanded) "Close menu" else "New Consultation",
+                                modifier = Modifier.rotate(rotation)
+                            )
+                        },
+                        text = { Text("New Consultation", fontWeight = FontWeight.SemiBold) },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier.testTag("new_consultation_fab")
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -407,15 +494,12 @@ fun ConversationListContent(
                 uiState.filteredConversations.isEmpty() -> {
                     EmptySessionsView(
                         searchQuery = uiState.searchQuery,
-                        activeFilter = uiState.activeFilter,
                         onNewSessionClick = onNewSessionClick
                     )
                 }
 
                 else -> {
-                    val isFilteringPinnedOnly = uiState.activeFilter == ConversationFilter.PINNED
-                    val showSectionHeaders = !isFilteringPinnedOnly &&
-                        uiState.pinnedConversations.isNotEmpty() &&
+                    val showSectionHeaders = uiState.pinnedConversations.isNotEmpty() &&
                         uiState.recentConversations.isNotEmpty()
 
                     LazyColumn(
@@ -428,7 +512,7 @@ fun ConversationListContent(
                     ) {
                         // Section 1: Pinned Consultations
                         if (uiState.pinnedConversations.isNotEmpty()) {
-                            if (showSectionHeaders || isFilteringPinnedOnly) {
+                            if (showSectionHeaders) {
                                 item(key = "header_pinned") {
                                     SectionHeader(
                                         title = "PINNED",
@@ -448,7 +532,6 @@ fun ConversationListContent(
                                     isSelected = conversation.id in uiState.selectedIds,
                                     onConversationSelected = onConversationSelected,
                                     onPinClick = { onPinClick(conversation.id) },
-                                    onMarkAsReadClick = { onMarkAsReadClick(conversation.id) },
                                     onDeleteClick = { onDeleteSingleClick(conversation.id) },
                                     onToggleItemSelection = { onToggleItemSelection(conversation.id) },
                                     onEnterSelectionMode = {
@@ -482,7 +565,6 @@ fun ConversationListContent(
                                     isSelected = conversation.id in uiState.selectedIds,
                                     onConversationSelected = onConversationSelected,
                                     onPinClick = { onPinClick(conversation.id) },
-                                    onMarkAsReadClick = { onMarkAsReadClick(conversation.id) },
                                     onDeleteClick = { onDeleteSingleClick(conversation.id) },
                                     onToggleItemSelection = { onToggleItemSelection(conversation.id) },
                                     onEnterSelectionMode = {
@@ -496,9 +578,22 @@ fun ConversationListContent(
                 }
             }
 
+            // Dismissible Scrim when Speed Dial is expanded
+            if (isFabMenuExpanded) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { isFabMenuExpanded = false }
+                )
+            }
+
             // Scroll to Top Floating Action Button
             ScrollToTopFAB(
-                visible = showScrollToTop && !uiState.isSelectionMode,
+                visible = showScrollToTop && !uiState.isSelectionMode && !isFabMenuExpanded,
                 onClick = { scope.launch { listState.animateScrollToItem(0) } },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -520,11 +615,9 @@ private fun ClinicalMessengerHeader(
     onToggleSelectionMode: () -> Unit,
     onSelectAll: () -> Unit,
     onTogglePinSelected: () -> Unit,
-    onMarkSelectedAsRead: () -> Unit,
     onDeleteSelected: () -> Unit,
     onRenameSingleSelected: () -> Unit,
     onOpenSettings: () -> Unit,
-    onFilterSelected: (ConversationFilter) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val motionScheme = MaterialTheme.motionScheme
@@ -562,14 +655,6 @@ private fun ClinicalMessengerHeader(
                     )
                 }
 
-                IconButton(onClick = onMarkSelectedAsRead) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "Mark selected as read",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-
                 IconButton(onClick = onDeleteSelected) {
                     Icon(
                         imageVector = Icons.Default.Delete,
@@ -578,14 +663,17 @@ private fun ClinicalMessengerHeader(
                     )
                 }
 
-                val allSelected = uiState.selectedIds.size == uiState.filteredConversations.size &&
+                // Show Select All ONLY when partially selected (Close X handles deselect/exit)
+                val notAllSelected = uiState.selectedIds.size < uiState.filteredConversations.size &&
                     uiState.filteredConversations.isNotEmpty()
-                IconButton(onClick = onSelectAll) {
-                    Icon(
-                        imageVector = if (allSelected) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                        contentDescription = "Select All",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                if (notAllSelected) {
+                    IconButton(onClick = onSelectAll) {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircle,
+                            contentDescription = "Select All",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -600,7 +688,7 @@ private fun ClinicalMessengerHeader(
             modifier = modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.background)
-                .padding(bottom = 4.dp),
+                .padding(bottom = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             TopAppBar(
@@ -732,57 +820,6 @@ private fun ClinicalMessengerHeader(
                     }
                 }
             }
-
-            // Compact Filter Chips Row
-            Box(
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(ConversationFilter.entries) { filter ->
-                        val isSelected = uiState.activeFilter == filter
-                        val count = when (filter) {
-                            ConversationFilter.ALL -> uiState.conversations.size
-                            ConversationFilter.PINNED -> uiState.pinnedConversations.size
-                            ConversationFilter.UNREAD -> uiState.conversations.count { it.isUnread }
-                        }
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onFilterSelected(filter) },
-                            label = {
-                                Text(
-                                    text = "${filter.displayName} ($count)",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                )
-                            },
-                            leadingIcon = if (isSelected) {
-                                {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                }
-                            } else null,
-                            shape = MaterialTheme.shapes.small,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -844,7 +881,6 @@ private fun LazyItemScope.ConversationSwipeableItem(
     isSelected: Boolean,
     onConversationSelected: (String) -> Unit,
     onPinClick: () -> Unit,
-    onMarkAsReadClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onToggleItemSelection: () -> Unit,
     onEnterSelectionMode: () -> Unit,
@@ -935,10 +971,7 @@ private fun LazyItemScope.ConversationSwipeableItem(
                 conversation = conversation,
                 isSelectionMode = isSelectionMode,
                 isSelected = isSelected,
-                onClick = {
-                    onMarkAsReadClick()
-                    onConversationSelected(conversation.id)
-                },
+                onClick = { onConversationSelected(conversation.id) },
                 onLongClick = {
                     if (!isSelectionMode) {
                         onEnterSelectionMode()
@@ -953,7 +986,7 @@ private fun LazyItemScope.ConversationSwipeableItem(
 
 /**
  * Clean Clinical session list item card without 3-dot clutter,
- * featuring demographic avatar, single unread dot, micro-chips, and clean preview.
+ * featuring demographic avatar, micro-chips, and clean preview.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -971,14 +1004,12 @@ private fun ClinicalSessionCard(
     val containerColor = when {
         isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
         conversation.isPinned -> MaterialTheme.colorScheme.surfaceContainerHigh
-        conversation.isUnread -> MaterialTheme.colorScheme.surfaceContainer
         else -> MaterialTheme.colorScheme.surfaceContainerLow
     }
 
     val borderColor = when {
         isSelected -> MaterialTheme.colorScheme.primary
         conversation.isPinned -> MaterialTheme.colorScheme.outlineVariant
-        conversation.isUnread -> MaterialTheme.colorScheme.outlineVariant
         else -> MaterialTheme.colorScheme.outlineVariant
     }
 
@@ -1014,29 +1045,15 @@ private fun ClinicalSessionCard(
                 )
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // Single, authoritative unread indicator dot
-                        if (conversation.isUnread) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
-                            )
-                        }
-                        Text(
-                            text = conversation.title.ifBlank { "Clinical Consultation" },
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.SemiBold
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
+                    Text(
+                        text = conversation.title.ifBlank { "Clinical Consultation" },
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
 
                     if (conversation.timestamp > 0) {
                         Text(
@@ -1227,32 +1244,17 @@ private fun RenameSessionDialog(
 @Composable
 private fun EmptySessionsView(
     searchQuery: String,
-    activeFilter: ConversationFilter,
     onNewSessionClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val icon = when {
-        searchQuery.isNotBlank() -> Icons.Default.Search
-        activeFilter == ConversationFilter.PINNED -> Icons.Default.PushPin
-        activeFilter == ConversationFilter.UNREAD -> Icons.Default.CheckCircle
-        else -> Icons.Default.Forum
+    val isSearch = searchQuery.isNotBlank()
+    val icon = if (isSearch) Icons.Default.Search else Icons.Default.Forum
+    val title = if (isSearch) "No Matching Consultations" else "No Consultations Yet"
+    val description = if (isSearch) {
+        "No consultations match \"$searchQuery\". Check your search term or try searching by clinical condition."
+    } else {
+        "Start a clinical consultation to synthesize UpToDate evidence, calculate dosages, and evaluate drug interactions."
     }
-
-    val title = when {
-        searchQuery.isNotBlank() -> "No Matching Consultations"
-        activeFilter == ConversationFilter.PINNED -> "No Pinned Consultations"
-        activeFilter == ConversationFilter.UNREAD -> "No Unread Consultations"
-        else -> "No Consultations Yet"
-    }
-
-    val description = when {
-        searchQuery.isNotBlank() -> "No consultations match \"$searchQuery\". Check your search term or try searching by clinical condition."
-        activeFilter == ConversationFilter.PINNED -> "Swipe right on a consultation to pin critical clinical cases for immediate access."
-        activeFilter == ConversationFilter.UNREAD -> "All clinical consultations have been reviewed."
-        else -> "Start a clinical consultation to synthesize UpToDate evidence, calculate dosages, and evaluate drug interactions."
-    }
-
-    val showStartButton = searchQuery.isBlank() && activeFilter == ConversationFilter.ALL
 
     Box(
         modifier = modifier
@@ -1293,7 +1295,7 @@ private fun EmptySessionsView(
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
 
-            if (showStartButton) {
+            if (!isSearch) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Button(
                     onClick = onNewSessionClick,

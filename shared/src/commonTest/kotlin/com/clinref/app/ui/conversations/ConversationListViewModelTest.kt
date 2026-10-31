@@ -64,7 +64,7 @@ class ConversationListViewModelTest {
     )
 
     @Test
-    fun `initialization maps entities to UI models and applies ALL filter by default`() = runTest(testDispatcher) {
+    fun `initialization maps entities to UI models and partitions pinned and recent`() = runTest(testDispatcher) {
         conversationsFlow.value = sampleEntities()
 
         val viewModel = ConversationListViewModel(conversationRepository)
@@ -98,32 +98,6 @@ class ConversationListViewModelTest {
     }
 
     @Test
-    fun `filtering by PINNED shows only pinned conversations`() = runTest(testDispatcher) {
-        conversationsFlow.value = sampleEntities()
-        val viewModel = ConversationListViewModel(conversationRepository)
-        advanceUntilIdle()
-
-        viewModel.onFilterSelected(ConversationFilter.PINNED)
-
-        assertEquals(1, viewModel.uiState.value.filteredConversations.size)
-        assertEquals("c1", viewModel.uiState.value.filteredConversations.first().id)
-        assertEquals(1, viewModel.uiState.value.pinnedConversations.size)
-        assertEquals(0, viewModel.uiState.value.recentConversations.size)
-    }
-
-    @Test
-    fun `filtering by UNREAD shows only unread conversations`() = runTest(testDispatcher) {
-        conversationsFlow.value = sampleEntities()
-        val viewModel = ConversationListViewModel(conversationRepository)
-        advanceUntilIdle()
-
-        viewModel.onFilterSelected(ConversationFilter.UNREAD)
-
-        assertEquals(1, viewModel.uiState.value.filteredConversations.size)
-        assertEquals("c2", viewModel.uiState.value.filteredConversations.first().id)
-    }
-
-    @Test
     fun `search query filters conversations by preview or title`() = runTest(testDispatcher) {
         conversationsFlow.value = sampleEntities()
         val viewModel = ConversationListViewModel(conversationRepository)
@@ -133,6 +107,8 @@ class ConversationListViewModelTest {
 
         assertEquals(1, viewModel.uiState.value.filteredConversations.size)
         assertEquals("c2", viewModel.uiState.value.filteredConversations.first().id)
+        assertEquals(0, viewModel.uiState.value.pinnedConversations.size)
+        assertEquals(1, viewModel.uiState.value.recentConversations.size)
     }
 
     @Test
@@ -150,6 +126,22 @@ class ConversationListViewModelTest {
         assertFalse(viewModel.uiState.value.isSelectionMode)
         assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
         assertFalse(viewModel.uiState.value.conversations.first { it.id == "c1" }.isSelected)
+    }
+
+    @Test
+    fun `selectAll idempotently selects all filtered items without deselecting`() = runTest(testDispatcher) {
+        conversationsFlow.value = sampleEntities()
+        val viewModel = ConversationListViewModel(conversationRepository)
+        advanceUntilIdle()
+
+        viewModel.selectAll()
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+        assertEquals(2, viewModel.uiState.value.selectedIds.size)
+
+        // Calling selectAll again should stay 100% selected (idempotent)
+        viewModel.selectAll()
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+        assertEquals(2, viewModel.uiState.value.selectedIds.size)
     }
 
     @Test
@@ -256,25 +248,6 @@ class ConversationListViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
-    }
-
-    @Test
-    fun `markSelectedAsRead marks all selected conversations as read and exits selection mode`() = runTest(testDispatcher) {
-        conversationsFlow.value = sampleEntities()
-        val viewModel = ConversationListViewModel(conversationRepository)
-        advanceUntilIdle()
-
-        viewModel.toggleItemSelection("c1")
-        viewModel.toggleItemSelection("c2")
-        assertTrue(viewModel.uiState.value.isSelectionMode)
-
-        viewModel.markSelectedAsRead()
-        advanceUntilIdle()
-
-        assertFalse(viewModel.uiState.value.isSelectionMode)
-        assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
-        coVerify { conversationRepository.markAsRead("c1") }
-        coVerify { conversationRepository.markAsRead("c2") }
     }
 
     @Test

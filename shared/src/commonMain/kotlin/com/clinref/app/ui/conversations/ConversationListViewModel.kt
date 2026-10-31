@@ -19,16 +19,9 @@ data class ConversationUiModel(
     val lastPreview: String,
     val timestamp: Long,
     val isPinned: Boolean = false,
-    val isUnread: Boolean = false,
     val patientProfile: PatientProfile = PatientProfile(),
     val isSelected: Boolean = false
 )
-
-enum class ConversationFilter(val displayName: String) {
-    ALL("All Sessions"),
-    PINNED("Pinned"),
-    UNREAD("Unread")
-}
 
 data class ConversationListUiState(
     val conversations: List<ConversationUiModel> = emptyList(),
@@ -36,7 +29,6 @@ data class ConversationListUiState(
     val pinnedConversations: List<ConversationUiModel> = emptyList(),
     val recentConversations: List<ConversationUiModel> = emptyList(),
     val searchQuery: String = "",
-    val activeFilter: ConversationFilter = ConversationFilter.ALL,
     val isSelectionMode: Boolean = false,
     val selectedIds: Set<String> = emptySet(),
     val isLoading: Boolean = false,
@@ -74,15 +66,13 @@ class ConversationListViewModel(
                             lastPreview = entity.lastMessagePreview.ifBlank { "No messages yet" },
                             timestamp = entity.updatedAt,
                             isPinned = entity.isPinned,
-                            isUnread = !entity.isRead,
                             patientProfile = profile,
                             isSelected = entity.id in currentSelected
                         )
                     }
 
-                    val filter = _uiState.value.activeFilter
                     val query = _uiState.value.searchQuery
-                    val (filtered, pinned, recent) = filterAndPartition(uiModels, filter, query)
+                    val (filtered, pinned, recent) = filterAndPartition(uiModels, query)
 
                     _uiState.update { state ->
                         state.copy(
@@ -104,27 +94,10 @@ class ConversationListViewModel(
         _uiState.update { state ->
             val (filtered, pinned, recent) = filterAndPartition(
                 conversations = state.conversations,
-                filter = state.activeFilter,
                 query = query
             )
             state.copy(
                 searchQuery = query,
-                filteredConversations = filtered,
-                pinnedConversations = pinned,
-                recentConversations = recent
-            )
-        }
-    }
-
-    fun onFilterSelected(filter: ConversationFilter) {
-        _uiState.update { state ->
-            val (filtered, pinned, recent) = filterAndPartition(
-                conversations = state.conversations,
-                filter = filter,
-                query = state.searchQuery
-            )
-            state.copy(
-                activeFilter = filter,
                 filteredConversations = filtered,
                 pinnedConversations = pinned,
                 recentConversations = recent
@@ -137,7 +110,7 @@ class ConversationListViewModel(
             val newMode = !state.isSelectionMode
             val newSelected = if (!newMode) emptySet() else state.selectedIds
             val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
                 conversations = updatedConversations,
                 filteredConversations = filtered,
@@ -152,7 +125,7 @@ class ConversationListViewModel(
     fun clearSelectionMode() {
         _uiState.update { state ->
             val updatedConversations = state.conversations.map { it.copy(isSelected = false) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
                 conversations = updatedConversations,
                 filteredConversations = filtered,
@@ -172,7 +145,7 @@ class ConversationListViewModel(
                 state.selectedIds + id
             }
             val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
                 conversations = updatedConversations,
                 filteredConversations = filtered,
@@ -187,16 +160,15 @@ class ConversationListViewModel(
     fun selectAll() {
         _uiState.update { state ->
             val allIds = state.filteredConversations.map { it.id }.toSet()
-            val newSelected = if (state.selectedIds.size == allIds.size) emptySet() else allIds
-            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.activeFilter, state.searchQuery)
+            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in allIds) }
+            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
                 conversations = updatedConversations,
                 filteredConversations = filtered,
                 pinnedConversations = pinned,
                 recentConversations = recent,
-                selectedIds = newSelected,
-                isSelectionMode = newSelected.isNotEmpty()
+                selectedIds = allIds,
+                isSelectionMode = allIds.isNotEmpty()
             )
         }
     }
@@ -246,7 +218,7 @@ class ConversationListViewModel(
 
         _uiState.update { state ->
             val remaining = state.conversations.filterNot { it.id in selected }
-            val (filtered, pinned, recent) = filterAndPartition(remaining, state.activeFilter, state.searchQuery)
+            val (filtered, pinned, recent) = filterAndPartition(remaining, state.searchQuery)
             state.copy(
                 conversations = remaining,
                 filteredConversations = filtered,
@@ -271,17 +243,6 @@ class ConversationListViewModel(
         if (trimmed.isBlank()) return
         viewModelScope.launch {
             conversationRepository.renameConversation(id, trimmed)
-        }
-    }
-
-    fun markSelectedAsRead() {
-        val selected = _uiState.value.selectedIds
-        if (selected.isEmpty()) return
-        viewModelScope.launch {
-            selected.forEach { id ->
-                conversationRepository.markAsRead(id)
-            }
-            clearSelectionMode()
         }
     }
 
@@ -310,14 +271,9 @@ class ConversationListViewModel(
 
     private fun filterAndPartition(
         conversations: List<ConversationUiModel>,
-        filter: ConversationFilter,
         query: String
     ): Triple<List<ConversationUiModel>, List<ConversationUiModel>, List<ConversationUiModel>> {
-        var list = when (filter) {
-            ConversationFilter.ALL -> conversations
-            ConversationFilter.PINNED -> conversations.filter { it.isPinned }
-            ConversationFilter.UNREAD -> conversations.filter { it.isUnread }
-        }
+        var list = conversations
 
         if (query.isNotBlank()) {
             val trimmed = query.trim().lowercase()
