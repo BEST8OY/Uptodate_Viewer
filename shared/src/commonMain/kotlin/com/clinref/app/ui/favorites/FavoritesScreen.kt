@@ -56,6 +56,7 @@ import androidx.navigation3.runtime.NavKey
 import com.clinref.app.domain.FavoriteEntry
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalBottomBarVisible
+import com.clinref.app.ui.common.showUndoSnackbar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +81,7 @@ fun FavoritesScreen(
     val isSelectionMode = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    var pendingDelete by remember { mutableStateOf<List<FavoriteEntry>>(emptyList()) }
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val isBottomBarVisible = LocalBottomBarVisible.current
@@ -91,6 +93,7 @@ fun FavoritesScreen(
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose {
+            pendingDelete = emptyList()
             selectedIds = emptySet()
         }
     }
@@ -149,7 +152,9 @@ fun FavoritesScreen(
                         }
                         IconButton(
                             onClick = {
+                                val entries = favorites.filter { it.topicId in selectedIds }
                                 selectedIds.forEach { viewModel.removeFavorite(it) }
+                                pendingDelete = entries
                                 selectedIds = emptySet()
                             },
                             enabled = selectedIds.isNotEmpty()
@@ -212,7 +217,9 @@ fun FavoritesScreen(
             ) {
                 FloatingActionButton(
                     onClick = {
+                        val entries = favorites.filter { it.topicId in selectedIds }
                         selectedIds.forEach { viewModel.removeFavorite(it) }
+                        pendingDelete = entries
                         selectedIds = emptySet()
                     },
                     containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -271,11 +278,25 @@ fun FavoritesScreen(
                             },
                             onSwipeToRemove = {
                                 viewModel.removeFavorite(entry.topicId)
+                                pendingDelete = listOf(entry)
                             }
                         )
                     }
                 }
             }
+        }
+    }
+
+    LaunchedEffect(pendingDelete) {
+        pendingDelete.takeIf { it.isNotEmpty() }?.let { entries ->
+            val message = if (entries.size == 1) "Favorite removed" else "${entries.size} favorites removed"
+            showUndoSnackbar(
+                snackbarHostState = snackbarHostState,
+                message = message
+            ) {
+                entries.forEach { viewModel.addFavorite(it.topicId, it.title, it.timestamp) }
+            }
+            pendingDelete = emptyList()
         }
     }
 }

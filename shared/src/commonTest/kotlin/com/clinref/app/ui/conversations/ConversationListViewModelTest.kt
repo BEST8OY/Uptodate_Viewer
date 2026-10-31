@@ -1,7 +1,9 @@
 package com.clinref.app.ui.conversations
 
 import com.clinref.app.data.local.entity.ConversationEntity
+import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.repository.ConversationRepository
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -142,5 +144,114 @@ class ConversationListViewModelTest {
         advanceUntilIdle()
 
         coVerify { conversationRepository.deleteConversation("c1") }
+    }
+
+    @Test
+    fun `deleteSingleAndReturnBackup returns backup and calls delete`() = runTest(testDispatcher) {
+        val backup = ConversationBackup(entity = sampleEntities().first())
+        coEvery { conversationRepository.getConversationBackup("c1") } returns backup
+
+        val viewModel = ConversationListViewModel(conversationRepository)
+        val result = viewModel.deleteSingleAndReturnBackup("c1")
+
+        assertEquals(backup, result)
+        coVerify { conversationRepository.deleteConversation("c1") }
+    }
+
+    @Test
+    fun `deleteSelectedAndReturnBackups returns backups and clears selection state`() = runTest(testDispatcher) {
+        conversationsFlow.value = sampleEntities()
+        val backup1 = ConversationBackup(entity = sampleEntities()[0])
+        val backup2 = ConversationBackup(entity = sampleEntities()[1])
+        coEvery { conversationRepository.getConversationBackup("c1") } returns backup1
+        coEvery { conversationRepository.getConversationBackup("c2") } returns backup2
+
+        val viewModel = ConversationListViewModel(conversationRepository)
+        advanceUntilIdle()
+
+        viewModel.toggleItemSelection("c1")
+        viewModel.toggleItemSelection("c2")
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+
+        viewModel.showDeleteConfirmation()
+        assertTrue(viewModel.uiState.value.showDeleteConfirmationDialog)
+
+        val backups = viewModel.deleteSelectedAndReturnBackups()
+
+        assertEquals(2, backups.size)
+        assertFalse(viewModel.uiState.value.isSelectionMode)
+        assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
+        assertFalse(viewModel.uiState.value.showDeleteConfirmationDialog)
+        coVerify { conversationRepository.deleteConversation("c1") }
+        coVerify { conversationRepository.deleteConversation("c2") }
+    }
+
+    @Test
+    fun `restoreConversationBackup delegates to repository`() = runTest(testDispatcher) {
+        val backup = ConversationBackup(entity = sampleEntities().first())
+        val viewModel = ConversationListViewModel(conversationRepository)
+
+        viewModel.restoreConversationBackup(backup)
+        advanceUntilIdle()
+
+        coVerify { conversationRepository.restoreConversationBackup(backup) }
+    }
+
+    @Test
+    fun `renameConversation delegates trimmed title to repository`() = runTest(testDispatcher) {
+        val viewModel = ConversationListViewModel(conversationRepository)
+
+        viewModel.renameConversation("c1", "  Renamed Topic  ")
+        advanceUntilIdle()
+
+        coVerify { conversationRepository.renameConversation("c1", "Renamed Topic") }
+    }
+
+    @Test
+    fun `renameConversation ignores blank titles`() = runTest(testDispatcher) {
+        val viewModel = ConversationListViewModel(conversationRepository)
+
+        viewModel.renameConversation("c1", "   ")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { conversationRepository.renameConversation(any(), any()) }
+    }
+
+    @Test
+    fun `markSelectedAsRead marks all selected conversations as read and exits selection mode`() = runTest(testDispatcher) {
+        conversationsFlow.value = sampleEntities()
+        val viewModel = ConversationListViewModel(conversationRepository)
+        advanceUntilIdle()
+
+        viewModel.toggleItemSelection("c1")
+        viewModel.toggleItemSelection("c2")
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+
+        viewModel.markSelectedAsRead()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isSelectionMode)
+        assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
+        coVerify { conversationRepository.markAsRead("c1") }
+        coVerify { conversationRepository.markAsRead("c2") }
+    }
+
+    @Test
+    fun `togglePinSelected toggles pin state across all selected items`() = runTest(testDispatcher) {
+        conversationsFlow.value = sampleEntities()
+        val viewModel = ConversationListViewModel(conversationRepository)
+        advanceUntilIdle()
+
+        viewModel.toggleItemSelection("c1") // already pinned
+        viewModel.toggleItemSelection("c2") // not pinned
+
+        viewModel.togglePinSelected()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isSelectionMode)
+        assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
+        // Since at least one is unpinned (c2), target is pinned: only c2 should be toggled to pinned
+        coVerify { conversationRepository.togglePin("c2") }
+        coVerify(exactly = 0) { conversationRepository.togglePin("c1") }
     }
 }

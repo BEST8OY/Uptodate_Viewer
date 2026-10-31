@@ -56,6 +56,7 @@ import androidx.navigation3.runtime.NavKey
 import com.clinref.app.domain.HistoryEntry
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalBottomBarVisible
+import com.clinref.app.ui.common.showUndoSnackbar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +81,7 @@ fun HistoryScreen(
     val isSelectionMode = selectedIds.isNotEmpty()
     var showClearAllDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    var pendingDelete by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val isBottomBarVisible = LocalBottomBarVisible.current
@@ -91,6 +93,7 @@ fun HistoryScreen(
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose {
+            pendingDelete = emptyList()
             selectedIds = emptySet()
         }
     }
@@ -149,7 +152,9 @@ fun HistoryScreen(
                         }
                         IconButton(
                             onClick = {
+                                val entries = history.filter { it.topicId in selectedIds }
                                 selectedIds.forEach { viewModel.removeHistory(it) }
+                                pendingDelete = entries
                                 selectedIds = emptySet()
                             },
                             enabled = selectedIds.isNotEmpty()
@@ -212,7 +217,9 @@ fun HistoryScreen(
             ) {
                 FloatingActionButton(
                     onClick = {
+                        val entries = history.filter { it.topicId in selectedIds }
                         selectedIds.forEach { viewModel.removeHistory(it) }
+                        pendingDelete = entries
                         selectedIds = emptySet()
                     },
                     containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -271,11 +278,25 @@ fun HistoryScreen(
                             },
                             onSwipeToDelete = {
                                 viewModel.removeHistory(entry.topicId)
+                                pendingDelete = listOf(entry)
                             }
                         )
                     }
                 }
             }
+        }
+    }
+
+    LaunchedEffect(pendingDelete) {
+        pendingDelete.takeIf { it.isNotEmpty() }?.let { entries ->
+            val message = if (entries.size == 1) "History removed" else "${entries.size} history items removed"
+            showUndoSnackbar(
+                snackbarHostState = snackbarHostState,
+                message = message
+            ) {
+                entries.forEach { viewModel.addHistory(it.topicId, it.title, it.timestamp) }
+            }
+            pendingDelete = emptyList()
         }
     }
 }

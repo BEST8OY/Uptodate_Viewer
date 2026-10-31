@@ -209,6 +209,50 @@ class ConversationListViewModel(
         }
     }
 
+    fun renameConversation(id: String, newTitle: String) {
+        val trimmed = newTitle.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            conversationRepository.renameConversation(id, trimmed)
+        }
+    }
+
+    fun markSelectedAsRead() {
+        val selected = _uiState.value.selectedIds
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            selected.forEach { id ->
+                conversationRepository.markAsRead(id)
+            }
+            _uiState.update { state ->
+                state.copy(
+                    isSelectionMode = false,
+                    selectedIds = emptySet()
+                )
+            }
+        }
+    }
+
+    fun togglePinSelected() {
+        val selected = _uiState.value.selectedIds
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            val selectedList = _uiState.value.conversations.filter { it.id in selected }
+            val shouldPin = selectedList.any { !it.isPinned }
+            selectedList.forEach { item ->
+                if (item.isPinned != shouldPin) {
+                    conversationRepository.togglePin(item.id)
+                }
+            }
+            _uiState.update { state ->
+                state.copy(
+                    isSelectionMode = false,
+                    selectedIds = emptySet()
+                )
+            }
+        }
+    }
+
     fun createNewSession(profile: PatientProfile, onCreated: (String) -> Unit) {
         viewModelScope.launch {
             val title = buildTitle(profile)
