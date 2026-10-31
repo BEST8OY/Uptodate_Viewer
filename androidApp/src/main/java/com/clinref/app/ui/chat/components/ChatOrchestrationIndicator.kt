@@ -75,6 +75,10 @@ fun ChatOrchestrationIndicator(
     var isExpanded by remember { mutableStateOf(false) }
     val motionScheme = MaterialTheme.motionScheme
 
+    val distinctSources = remember(liveSources) {
+        liveSources.distinctBy { it.topicId.ifBlank { it.label } }
+    }
+
     val chevronRotation by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
         animationSpec = motionScheme.fastSpatialSpec(),
@@ -137,8 +141,8 @@ fun ChatOrchestrationIndicator(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val countBadge = buildString {
-                        if (liveSources.isNotEmpty()) {
-                            append("${liveSources.size} ${if (liveSources.size == 1) "source" else "sources"}")
+                        if (distinctSources.isNotEmpty()) {
+                            append("${distinctSources.size} ${if (distinctSources.size == 1) "source" else "sources"}")
                         }
                         if (steps.isNotEmpty()) {
                             if (isNotEmpty()) append(" · ")
@@ -191,9 +195,9 @@ fun ChatOrchestrationIndicator(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                     )
 
-                    // 1. Consulted Evidence Chips
-                    if (liveSources.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // 1. Consulted Evidence Chips (deduplicated)
+                    if (distinctSources.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
                                 text = "CONSULTED SOURCES",
                                 style = MaterialTheme.typography.labelSmall.copy(
@@ -206,10 +210,10 @@ fun ChatOrchestrationIndicator(
 
                             FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                liveSources.take(3).forEach { src ->
+                                distinctSources.take(3).forEach { src ->
                                     val label = src.topicTitle.ifEmpty { src.label }
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
@@ -221,17 +225,20 @@ fun ChatOrchestrationIndicator(
                                         Row(
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Description,
                                                 contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(11.dp)
+                                                modifier = Modifier.size(12.dp)
                                             )
                                             Text(
                                                 text = label,
-                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
                                                 color = MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
@@ -239,9 +246,9 @@ fun ChatOrchestrationIndicator(
                                         }
                                     }
                                 }
-                                if (liveSources.size > 3) {
+                                if (distinctSources.size > 3) {
                                     Text(
-                                        text = "+${liveSources.size - 3} more",
+                                        text = "+${distinctSources.size - 3} more",
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.align(Alignment.CenterVertically)

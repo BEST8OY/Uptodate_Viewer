@@ -10,11 +10,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
@@ -56,7 +56,7 @@ import com.clinref.app.domain.ai.ClinicalSource
  * unified container with typographic citation badges (e.g. [1], [T1]) rather than
  * generic clip-art icons. Motion is driven by Material 3 Expressive motionScheme.
  */
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ClinicalReferencesSection(
     articles: List<ClinicalSource.Article>,
@@ -195,7 +195,6 @@ fun ClinicalReferencesSection(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ArticleReferenceItem(
     citationNumber: Int,
@@ -250,33 +249,38 @@ private fun ArticleReferenceItem(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                // Sub-section pills
+                // Sub-section pills (horizontal scrollable row)
                 if (sections.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         sections.forEach { sec ->
-                            val cleanTitle = AiJsonUtils.cleanSectionTitle(sec.sectionTitle)
+                            val rawTitle = AiJsonUtils.cleanSectionTitle(sec.sectionTitle)
+                            val cleanTitle = normalizeSectionTitle(rawTitle)
                             if (cleanTitle.isNotBlank()) {
                                 Surface(
                                     onClick = { onSectionClick(sec.sectionId) },
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
                                     border = BorderStroke(
                                         0.5.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
                                     )
                                 ) {
                                     Text(
                                         text = cleanTitle,
                                         style = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 10.sp,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.Medium
                                         ),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -370,4 +374,24 @@ private fun TableReferenceItem(
             modifier = Modifier.size(11.dp)
         )
     }
+}
+
+/**
+ * Normalizes section titles from database casing to clean display case.
+ * Converts multi-word ALL CAPS ("GENERAL APPROACH") to sentence case ("General approach"),
+ * while preserving medical acronyms (e.g. "HIV", "COVID-19", "ECG").
+ */
+private fun normalizeSectionTitle(title: String): String {
+    val trimmed = title.trim()
+    val letters = trimmed.filter { it.isLetter() }
+    if (letters.isEmpty()) return trimmed
+
+    // If already mixed case (contains lower case), preserve original
+    if (letters.any { it.isLowerCase() }) return trimmed
+
+    // Preserve short medical acronyms (e.g. HIV, COPD, ECG, COVID-19)
+    if (!trimmed.contains(' ') && letters.length <= 5) return trimmed
+
+    // Convert ALL CAPS phrase to sentence case
+    return trimmed.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }
