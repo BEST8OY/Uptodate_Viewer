@@ -93,7 +93,7 @@ kotlin {
             }
         }
 
-        val desktopMain by getting {
+        getByName("desktopMain") {
             dependencies {
                 implementation(libs.koog.http.client.okhttp)
                 implementation(libs.koog.utils.jvm)
@@ -101,7 +101,7 @@ kotlin {
             }
         }
 
-        val androidHostTest by getting {
+        getByName("androidHostTest") {
             dependencies {
             }
         }

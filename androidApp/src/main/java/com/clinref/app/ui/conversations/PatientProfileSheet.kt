@@ -13,14 +13,13 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -43,7 +42,6 @@ fun PatientProfileSheet(
 
     val ageState = rememberTextFieldState()
     var sex by remember { mutableStateOf("") }
-    var sexExpanded by remember { mutableStateOf(false) }
     val conditions = remember { mutableStateListOf<String>() }
     val medications = remember { mutableStateListOf<String>() }
     val allergies = remember { mutableStateListOf<String>() }
@@ -52,8 +50,6 @@ fun PatientProfileSheet(
     val conditionInputState = rememberTextFieldState()
     val medicationInputState = rememberTextFieldState()
     val allergyInputState = rememberTextFieldState()
-
-    val sexOptions = listOf("Male", "Female", "Other", "")
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -87,33 +83,30 @@ fun PatientProfileSheet(
                 lineLimits = TextFieldLineLimits.SingleLine
             )
 
-            // Sex
-            ExposedDropdownMenuBox(
-                expanded = sexExpanded,
-                onExpandedChange = { sexExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = sex.ifEmpty { "Select" },
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Sex") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(sexExpanded) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+            // Sex Selection
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Sex",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                ExposedDropdownMenu(
-                    expanded = sexExpanded,
-                    onDismissRequest = { sexExpanded = false }
+                val sexOptions = listOf("Female", "Male", "Other")
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    sexOptions.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option.ifEmpty { "None" }) },
+                    sexOptions.forEachIndexed { index, option ->
+                        SegmentedButton(
+                            selected = sex == option,
                             onClick = {
-                                sex = option
-                                sexExpanded = false
-                            }
-                        )
+                                sex = if (sex == option) "" else option
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = sexOptions.size)
+                        ) {
+                            Text(
+                                text = option,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
                     }
                 }
             }
