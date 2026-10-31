@@ -260,8 +260,7 @@ private fun ArticleReferenceItem(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         sections.forEach { sec ->
-                            val rawTitle = AiJsonUtils.cleanSectionTitle(sec.sectionTitle)
-                            val cleanTitle = normalizeSectionTitle(rawTitle)
+                            val cleanTitle = AiJsonUtils.cleanSectionTitle(sec.sectionTitle)
                             if (cleanTitle.isNotBlank()) {
                                 Surface(
                                     onClick = { onSectionClick(sec.sectionId) },
@@ -374,24 +373,4 @@ private fun TableReferenceItem(
             modifier = Modifier.size(11.dp)
         )
     }
-}
-
-/**
- * Normalizes section titles from database casing to clean display case.
- * Converts multi-word ALL CAPS ("GENERAL APPROACH") to sentence case ("General approach"),
- * while preserving medical acronyms (e.g. "HIV", "COVID-19", "ECG").
- */
-private fun normalizeSectionTitle(title: String): String {
-    val trimmed = title.trim()
-    val letters = trimmed.filter { it.isLetter() }
-    if (letters.isEmpty()) return trimmed
-
-    // If already mixed case (contains lower case), preserve original
-    if (letters.any { it.isLowerCase() }) return trimmed
-
-    // Preserve short medical acronyms (e.g. HIV, COPD, ECG, COVID-19)
-    if (!trimmed.contains(' ') && letters.length <= 5) return trimmed
-
-    // Convert ALL CAPS phrase to sentence case
-    return trimmed.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }

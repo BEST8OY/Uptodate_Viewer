@@ -75,10 +75,6 @@ fun ChatOrchestrationIndicator(
     var isExpanded by remember { mutableStateOf(false) }
     val motionScheme = MaterialTheme.motionScheme
 
-    val distinctSources = remember(liveSources) {
-        liveSources.distinctBy { it.topicId.ifBlank { it.label } }
-    }
-
     val chevronRotation by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
         animationSpec = motionScheme.fastSpatialSpec(),
@@ -141,8 +137,8 @@ fun ChatOrchestrationIndicator(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val countBadge = buildString {
-                        if (distinctSources.isNotEmpty()) {
-                            append("${distinctSources.size} ${if (distinctSources.size == 1) "source" else "sources"}")
+                        if (liveSources.isNotEmpty()) {
+                            append("${liveSources.size} ${if (liveSources.size == 1) "source" else "sources"}")
                         }
                         if (steps.isNotEmpty()) {
                             if (isNotEmpty()) append(" · ")
@@ -195,8 +191,8 @@ fun ChatOrchestrationIndicator(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                     )
 
-                    // 1. Consulted Evidence Chips (deduplicated)
-                    if (distinctSources.isNotEmpty()) {
+                    // 1. Consulted Evidence Chips
+                    if (liveSources.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
                                 text = "CONSULTED SOURCES",
@@ -213,7 +209,7 @@ fun ChatOrchestrationIndicator(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                distinctSources.take(3).forEach { src ->
+                                liveSources.take(3).forEach { src ->
                                     val label = src.topicTitle.ifEmpty { src.label }
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
@@ -246,9 +242,9 @@ fun ChatOrchestrationIndicator(
                                         }
                                     }
                                 }
-                                if (distinctSources.size > 3) {
+                                if (liveSources.size > 3) {
                                     Text(
-                                        text = "+${distinctSources.size - 3} more",
+                                        text = "+${liveSources.size - 3} more",
                                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.align(Alignment.CenterVertically)
