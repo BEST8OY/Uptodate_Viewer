@@ -175,17 +175,38 @@ fun ModelSelectionSheet(
             ) {
                 if (filteredModels.isEmpty() && !isCustomInput) {
                     item {
-                        Text(
-                            text = "No matching preset models. Type a custom model slug above to apply it.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 24.dp)
-                        )
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "No preset models match your search.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Type any model identifier above to use it directly.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
 
                 items(filteredModels, key = { it }) { model ->
                     val isSelected = model.trim().equals(currentModel.trim(), ignoreCase = true)
+
                     ListItem(
                         headlineContent = {
                             Text(
@@ -225,4 +246,3 @@ fun ModelSelectionSheet(
         }
     }
 }
-

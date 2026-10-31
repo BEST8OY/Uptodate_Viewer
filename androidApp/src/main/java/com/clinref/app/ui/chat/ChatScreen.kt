@@ -1,7 +1,6 @@
 package com.clinref.app.ui.chat
 
 import android.content.ClipData
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
@@ -30,11 +29,7 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MedicalServices
-import androidx.compose.material.icons.filled.Medication
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.CircularProgressIndicator
@@ -303,10 +298,6 @@ fun ChatScreen(
         ) {
             if (messages.isEmpty() && !isLoadingOlder) {
                 ChatEmptyState(
-                    onSuggestionSelected = { query ->
-                        isFollowingBottom = true
-                        viewModel.sendMessage(query)
-                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
@@ -372,7 +363,8 @@ fun ChatScreen(
                                 currentStatusText = currentStatusText,
                                 liveSources = liveSources,
                                 reasoningText = reasoningText,
-                                isReasoning = isReasoning
+                                isReasoning = isReasoning,
+                                onSourceClick = { ref -> handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null }) }
                             )
                         }
                     }
@@ -519,7 +511,6 @@ fun ChatScreen(
  */
 @Composable
 private fun ChatEmptyState(
-    onSuggestionSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -560,69 +551,5 @@ private fun ChatEmptyState(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 16.dp)
         )
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Text(
-            text = "Suggested Clinical Queries",
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        val suggestions = listOf(
-            SuggestionItem("First-line asthma management in adults", Icons.Default.MedicalServices, "Pulmonology"),
-            SuggestionItem("Anticoagulation dosing & duration for acute DVT", Icons.Default.Medication, "Hematology"),
-            SuggestionItem("Blood pressure goals in diabetic patients", Icons.Default.CheckCircle, "Cardiology"),
-            SuggestionItem("Empiric antibiotic therapy for community-acquired pneumonia", Icons.Default.Science, "Infectious Disease")
-        )
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            suggestions.forEach { item ->
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSuggestionSelected(item.query) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = item.icon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = item.domain.uppercase(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = item.query,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
-
-private data class SuggestionItem(val query: String, val icon: ImageVector, val domain: String)
