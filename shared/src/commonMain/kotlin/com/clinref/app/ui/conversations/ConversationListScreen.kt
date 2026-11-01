@@ -23,13 +23,16 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -63,9 +66,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonMenu
+import androidx.compose.material3.FloatingActionButtonMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -77,8 +83,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleFloatingActionButton
+import androidx.compose.material3.ToggleFloatingActionButtonDefaults
+import androidx.compose.material3.ToggleFloatingActionButtonDefaults.animateIcon
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -97,6 +107,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -264,7 +275,6 @@ fun ConversationListContent(
     val scope = rememberCoroutineScope()
 
     val isBottomBarVisible = LocalBottomBarVisible.current
-    val bottomInsetPadding = if (isBottomBarVisible) 80.dp else 16.dp
 
     val textFieldState = rememberTextFieldState(initialText = uiState.searchQuery)
 
@@ -287,13 +297,6 @@ fun ConversationListContent(
                 }
                 onSearchQueryChange(query)
             }
-    }
-
-    // Position-anchored FAB expansion: full label at top of list, compact icon when scrolled down
-    val isAtTop by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 10
-        }
     }
 
     // Confirmation Dialog for Batch Deletions
@@ -355,10 +358,17 @@ fun ConversationListContent(
             .testTag("conversation_list_screen"),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.padding(bottom = bottomInsetPadding)
-            )
+            SnackbarHost(hostState = snackbarHostState)
+        },
+        bottomBar = {
+            if (isBottomBarVisible) {
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .height(80.dp)
+                )
+            }
         },
         topBar = {
             ClinicalMessengerHeader(
@@ -379,95 +389,80 @@ fun ConversationListContent(
             )
         },
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(bottom = bottomInsetPadding)
+            AnimatedVisibility(
+                visible = !uiState.isSelectionMode,
+                enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
+                    fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
+                exit = scaleOut(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
             ) {
-                // Secondary Speed-Dial Options
-                AnimatedVisibility(
-                    visible = isFabMenuExpanded && !uiState.isSelectionMode,
-                    enter = fadeIn(motionScheme.fastEffectsSpec()) + scaleIn(motionScheme.fastSpatialSpec()),
-                    exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(motionScheme.fastSpatialSpec())
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Option 1: With Patient Profile
-                        ExtendedFloatingActionButton(
-                            onClick = {
-                                isFabMenuExpanded = false
-                                showPatientProfileSheet = true
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Default.PersonAdd,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            text = { Text("With Patient Profile", fontWeight = FontWeight.SemiBold) },
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = MaterialTheme.colorScheme.primary,
-                            shape = MaterialTheme.shapes.large,
-                            modifier = Modifier.testTag("fab_with_profile")
-                        )
-
-                        // Option 2: Fast Consultation
-                        ExtendedFloatingActionButton(
-                            onClick = {
-                                isFabMenuExpanded = false
-                                onNewSessionClick()
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = Icons.Default.Bolt,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            text = { Text("Fast Consultation", fontWeight = FontWeight.SemiBold) },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            shape = MaterialTheme.shapes.large,
-                            modifier = Modifier.testTag("fab_fast_consultation")
-                        )
-                    }
-                }
-
-                // Primary Trigger FAB
-                AnimatedVisibility(
-                    visible = !uiState.isSelectionMode,
-                    enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
-                        fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
-                    exit = scaleOut(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
-                ) {
-                    ExtendedFloatingActionButton(
-                        expanded = isAtTop && !isFabMenuExpanded,
-                        onClick = { isFabMenuExpanded = !isFabMenuExpanded },
-                        icon = {
-                            val rotation by animateFloatAsState(
-                                targetValue = if (isFabMenuExpanded) 45f else 0f,
-                                animationSpec = motionScheme.fastSpatialSpec(),
-                                label = "fabRotation"
-                            )
+                FloatingActionButtonMenu(
+                    expanded = isFabMenuExpanded,
+                    button = {
+                        ToggleFloatingActionButton(
+                            checked = isFabMenuExpanded,
+                            onCheckedChange = { isFabMenuExpanded = !isFabMenuExpanded },
+                            containerColor = ToggleFloatingActionButtonDefaults.containerColor(
+                                initialColor = MaterialTheme.colorScheme.primary,
+                                finalColor = MaterialTheme.colorScheme.primaryContainer
+                            ),
+                            modifier = Modifier.testTag("new_consultation_fab")
+                        ) {
+                            val imageVector by remember {
+                                derivedStateOf {
+                                    if (checkedProgress > 0.5f) Icons.Default.Close else Icons.Default.Add
+                                }
+                            }
                             Icon(
-                                imageVector = Icons.Default.Add,
+                                painter = rememberVectorPainter(imageVector),
                                 contentDescription = if (isFabMenuExpanded) "Close menu" else "New Consultation",
-                                modifier = Modifier.rotate(rotation)
+                                modifier = Modifier.animateIcon(
+                                    checkedProgress = { checkedProgress },
+                                    color = ToggleFloatingActionButtonDefaults.iconColor(
+                                        initialColor = MaterialTheme.colorScheme.onPrimary,
+                                        finalColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                )
+                            )
+                        }
+                    }
+                ) {
+                    FloatingActionButtonMenuItem(
+                        onClick = {
+                            isFabMenuExpanded = false
+                            showPatientProfileSheet = true
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.PersonAdd,
+                                contentDescription = null
                             )
                         },
-                        text = { Text("New Consultation", fontWeight = FontWeight.SemiBold) },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        shape = MaterialTheme.shapes.large,
-                        modifier = Modifier.testTag("new_consultation_fab")
+                        text = { Text("Patient Case") },
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("fab_with_profile")
+                    )
+
+                    FloatingActionButtonMenuItem(
+                        onClick = {
+                            isFabMenuExpanded = false
+                            onNewSessionClick()
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null
+                            )
+                        },
+                        text = { Text("Quick Consultation") },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.testTag("fab_fast_consultation")
                     )
                 }
             }
@@ -492,7 +487,8 @@ fun ConversationListContent(
                 uiState.filteredConversations.isEmpty() -> {
                     EmptySessionsView(
                         searchQuery = uiState.searchQuery,
-                        onNewSessionClick = onNewSessionClick
+                        onNewSessionClick = onNewSessionClick,
+                        onClearSearch = { textFieldState.clearText() }
                     )
                 }
 
@@ -505,7 +501,7 @@ fun ConversationListContent(
                         modifier = Modifier
                             .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                             .fillMaxWidth(),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = bottomInsetPadding + 24.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Section 1: Pinned Consultations
@@ -796,7 +792,9 @@ private fun ClinicalMessengerHeader(
                     ) {
                         IconButton(
                             onClick = { textFieldState.clearText() },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier
+                                .size(36.dp)
+                                .minimumInteractiveComponentSize()
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
@@ -1072,7 +1070,7 @@ private fun ClinicalSessionCard(
                         Surface(
                             shape = MaterialTheme.shapes.extraSmall,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                         ) {
                             Text(
                                 text = cond,
@@ -1125,7 +1123,9 @@ private fun ClinicalDemographicAvatar(
         Checkbox(
             checked = isSelected,
             onCheckedChange = null,
-            modifier = modifier.size(32.dp)
+            modifier = modifier
+                .size(32.dp)
+                .minimumInteractiveComponentSize()
         )
     } else {
         val profile = conversation.patientProfile
@@ -1233,6 +1233,7 @@ private fun RenameSessionDialog(
 private fun EmptySessionsView(
     searchQuery: String,
     onNewSessionClick: () -> Unit,
+    onClearSearch: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isSearch = searchQuery.isNotBlank()
@@ -1283,7 +1284,17 @@ private fun EmptySessionsView(
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
 
-            if (!isSearch) {
+            if (isSearch) {
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedButton(
+                    onClick = onClearSearch,
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Clear Search")
+                }
+            } else {
                 Spacer(modifier = Modifier.height(4.dp))
                 Button(
                     onClick = onNewSessionClick,

@@ -63,7 +63,8 @@ fun ScrollFAB(
                 onClick = onClick,
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                shadowElevation = 3.dp,
+                tonalElevation = 3.dp,
+                shadowElevation = 2.dp,
                 modifier = Modifier.size(48.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(48.dp)) {

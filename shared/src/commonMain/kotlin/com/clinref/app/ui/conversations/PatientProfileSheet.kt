@@ -191,7 +191,7 @@ fun PatientProfileSheet(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Start Conversation")
+                Text("Start Consultation")
             }
         }
     }
@@ -199,7 +199,7 @@ fun PatientProfileSheet(
     if (isWideScreen) {
         Dialog(onDismissRequest = onDismiss) {
             Card(
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                 modifier = Modifier
                     .widthIn(max = AdaptiveTokens.MaxDialogWidth)

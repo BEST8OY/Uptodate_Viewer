@@ -72,10 +72,7 @@ fun ChatMessageItem(
             ) {
                 Text(
                     text = message.content,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 16.sp,
-                        lineHeight = 22.sp
-                    ),
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
                 )
