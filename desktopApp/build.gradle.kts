@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.compose.compiler)
     application
 }
@@ -25,7 +26,9 @@ tasks.named<JavaExec>("run") {
 dependencies {
     implementation(project(":shared"))
     implementation(libs.compose.ui)
+    implementation(libs.compose.runtime)
     implementation(libs.compose.material3)
+    implementation(libs.compose.components.resources)
     implementation(libs.koin.core)
     implementation(libs.kotlinx.coroutines.swing)
 }
