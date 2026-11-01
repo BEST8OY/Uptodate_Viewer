@@ -7,12 +7,13 @@ plugins {
 
 android {
     namespace = "com.clinref.app"
-    compileSdk = 37
+    compileSdk = libs.versions.android.compileSdk.get().toInt()
+    compileSdkMinor = libs.versions.android.compileSdkMinor.get().toInt()
 
     defaultConfig {
         applicationId = "com.clinref.app"
-        minSdk = 35
-        targetSdk = 37
+        minSdk = libs.versions.android.minSdk.get().toInt()
+        targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = 1
         versionName = "1.0"
     }

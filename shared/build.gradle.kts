@@ -15,8 +15,12 @@ kotlin {
 
     android {
         namespace = "com.clinref.shared"
-        compileSdk = 37
-        minSdk = 35
+        compileSdk {
+            version = release(libs.versions.android.compileSdk.get().toInt()) {
+                minorApiLevel = libs.versions.android.compileSdkMinor.get().toInt()
+            }
+        }
+        minSdk = libs.versions.android.minSdk.get().toInt()
 
         compilerOptions {
             jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

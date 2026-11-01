@@ -1,5 +1,9 @@
 [versions]
 agp = "9.3.0"
+android-compileSdk = "37"
+android-compileSdkMinor = "1"
+android-minSdk = "35"
+android-targetSdk = "37"
 kotlin = "2.4.20"
 ksp = "2.3.12"
 compose-plugin = "1.13.0-beta01"
