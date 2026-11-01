@@ -197,8 +197,11 @@ actual fun HtmlContentWebView(
     }
 
     SwingPanel(
-        background = bgColor,
-        factory = { scrollPane },
+        factory = {
+            scrollPane.apply {
+                background = awtBgColor
+            }
+        },
         modifier = modifier
     )
 }

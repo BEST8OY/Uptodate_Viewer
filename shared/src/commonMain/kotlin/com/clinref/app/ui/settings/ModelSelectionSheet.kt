@@ -34,7 +34,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,7 +56,10 @@ fun ModelSelectionSheet(
     availableModels: List<String>,
     onModelSelected: (String) -> Unit,
     onDismiss: () -> Unit,
-    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    sheetState: SheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+    )
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
@@ -216,14 +220,6 @@ fun ModelSelectionSheet(
                         val isSelected = model.trim().equals(currentModel.trim(), ignoreCase = true)
 
                         ListItem(
-                            headlineContent = {
-                                Text(
-                                    text = model,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                            },
                             trailingContent = {
                                 if (isSelected) {
                                     Icon(
@@ -247,7 +243,14 @@ fun ModelSelectionSheet(
                                     onModelSelected(model)
                                     onDismiss()
                                 }
-                        )
+                        ) {
+                            Text(
+                                text = model,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))

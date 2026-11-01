@@ -66,6 +66,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -428,11 +429,15 @@ fun AiSettingsScreen(
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            Slider(
+                            val sliderState = rememberSliderState(
                                 value = configuration.temperature,
-                                onValueChange = { viewModel.updateTemperature(it) },
-                                valueRange = 0f..1f,
                                 steps = 19,
+                                trackRange = 0f..1f
+                            )
+
+                            Slider(
+                                state = sliderState,
+                                onValueChange = { viewModel.updateTemperature(it) },
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Row(

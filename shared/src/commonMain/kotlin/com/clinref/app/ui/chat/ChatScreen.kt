@@ -41,7 +41,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -59,7 +60,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
+import com.clinref.app.ui.common.setPlainText
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -129,7 +131,7 @@ fun ChatScreen(
     val config by viewModel.configuration.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -327,8 +329,8 @@ fun ChatScreen(
                                 is ChatListItem.Message -> ChatMessageItem(
                                     message = item.uiModel,
                                     onCopyMessage = { content ->
-                                        clipboardManager.setText(AnnotatedString(content))
                                         coroutineScope.launch {
+                                            clipboard.setPlainText(content)
                                             snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                         }
                                     },
@@ -370,8 +372,8 @@ fun ChatScreen(
                                     ),
                                     isStreaming = true,
                                     onCopyMessage = { content ->
-                                        clipboardManager.setText(AnnotatedString(content))
                                         coroutineScope.launch {
+                                            clipboard.setPlainText(content)
                                             snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                         }
                                     },
@@ -432,8 +434,9 @@ fun ChatScreen(
 
     val currentArticle = activeArticle
     if (currentArticle != null) {
-        val articleSheetState = rememberModalBottomSheetState(
-            skipPartiallyExpanded = true
+        val articleSheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
         )
         val articleStoreOwner = remember(currentArticle) {
             object : ViewModelStoreOwner {
