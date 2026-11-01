@@ -2,7 +2,6 @@
 agp = "9.3.0"
 kotlin = "2.4.20"
 ksp = "2.3.12"
-composeBom = "2026.09.00"
 compose-plugin = "1.13.0-beta01"
 coreKtx = "1.19.1"
 lifecycleRuntimeKtx = "2.11.0"
@@ -26,7 +25,6 @@ mockk = "1.13.13"
 coroutinesTest = "1.10.1"
 
 [libraries]
-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-plugin" }
 compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-plugin" }
 compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-plugin" }

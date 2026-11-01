@@ -57,8 +57,7 @@ dependencies {
     implementation(libs.koin.compose)
     implementation(libs.koin.compose.viewmodel)
 
-    // Compose BOM
-    implementation(platform(libs.compose.bom))
+    // Compose
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.ui)
