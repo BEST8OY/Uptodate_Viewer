@@ -417,7 +417,7 @@ class SafetyValidatorTest {
         // Retrieval protocol and closed-world grounding come before formatting
         assertTrue(prompt.contains("RETRIEVE FIRST"))
         assertTrue(prompt.contains("FIDELITY"))
-        assertTrue(prompt.contains("BLUF:"))
+        assertTrue(prompt.contains("bolded clinical conclusion"))
         assertTrue(prompt.contains(SystemPrompt.CANONICAL_ABSTENTION))
         assertTrue(
             "Grounding rules must precede the format rules",
@@ -431,8 +431,8 @@ class SafetyValidatorTest {
         // never by a closed list of shapes baked into the prompt.
         assertTrue(prompt.contains("ANSWER STRUCTURE"))
         assertTrue("Source headings are preferred", prompt.contains("retrieved section's own title"))
-        assertTrue("No heading may be forced", prompt.contains("Never force a heading"))
-        assertTrue("A header may never be padded with invention", prompt.contains("instead of filling it"))
+        assertTrue("Irrelevant headings must be omitted", prompt.contains("Completely omit unneeded outline headings"))
+        assertTrue("Empty headings banned", prompt.contains("never output empty headings"))
         assertTrue("Preamble is banned", prompt.contains("No preamble"))
         assertFalse("No fixed shape taxonomy", prompt.contains("When to Escalate"))
         assertFalse("No fixed dosing template", prompt.contains("First-Line Regimen & Dosing"))

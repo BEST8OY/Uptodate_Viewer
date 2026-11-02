@@ -107,12 +107,12 @@ sealed interface ClinicalSource {
         fun fromTopicRefs(refs: List<SafetyValidator.TopicRef>): List<Article> {
             if (refs.isEmpty()) return emptyList()
             return refs.groupBy { it.topicId }.map { (topicId, topicRefsList) ->
-                val primaryTitle = topicRefsList.firstOrNull { it.topicTitle.isNotBlank() }?.topicTitle
+                val primaryTitle = (topicRefsList.firstOrNull { it.topicTitle.isNotBlank() }?.topicTitle
                     ?: topicRefsList.firstOrNull()?.label?.takeIf { !AiJsonUtils.isNumericOnly(it) }
-                    ?: topicId
+                    ?: topicId).let { AiJsonUtils.cleanHtmlText(it) }
                 val sections = topicRefsList
                     .filter { it.sectionId.isNotBlank() && !it.sectionId.equals("FULL", ignoreCase = true) }
-                    .map { SectionRef(sectionId = it.sectionId, sectionTitle = it.label) }
+                    .map { SectionRef(sectionId = it.sectionId, sectionTitle = AiJsonUtils.cleanHtmlText(it.label)) }
                     .distinctBy { it.sectionId }
                 Article(
                     topicId = topicId,
@@ -131,10 +131,10 @@ sealed interface ClinicalSource {
         ): List<Table> {
             if (refs.isEmpty()) return emptyList()
             return refs.distinctBy { it.graphicId }.map { ref ->
-                val parentTitle = ref.topicId?.let { parentTopicTitles[it] }
+                val parentTitle = ref.topicId?.let { parentTopicTitles[it] }?.let { AiJsonUtils.cleanHtmlText(it) }
                 Table(
                     graphicId = ref.graphicId,
-                    tableTitle = ref.label,
+                    tableTitle = AiJsonUtils.cleanHtmlText(ref.label),
                     parentTopicId = ref.topicId,
                     parentTopicTitle = parentTitle
                 )
@@ -149,12 +149,12 @@ sealed interface ClinicalSource {
             graphicRefs: List<ResolvedGraphicRef>
         ): Pair<List<Article>, List<Table>> {
             val articles = topicRefs.groupBy { it.topicId }.map { (topicId, group) ->
-                val primaryTitle = group.firstOrNull { it.topicTitle.isNotBlank() }?.topicTitle
+                val primaryTitle = (group.firstOrNull { it.topicTitle.isNotBlank() }?.topicTitle
                     ?: group.firstOrNull()?.title?.takeIf { !AiJsonUtils.isNumericOnly(it) }
-                    ?: topicId
+                    ?: topicId).let { AiJsonUtils.cleanHtmlText(it) }
                 val sections = group
                     .filter { !it.sectionId.isNullOrBlank() && !it.sectionId.equals("FULL", ignoreCase = true) }
-                    .map { SectionRef(sectionId = it.sectionId!!, sectionTitle = it.title) }
+                    .map { SectionRef(sectionId = it.sectionId!!, sectionTitle = AiJsonUtils.cleanHtmlText(it.title)) }
                     .distinctBy { it.sectionId }
                 Article(
                     topicId = topicId,
@@ -166,9 +166,9 @@ sealed interface ClinicalSource {
             val tables = graphicRefs.distinctBy { it.graphicId }.map { ref ->
                 Table(
                     graphicId = ref.graphicId,
-                    tableTitle = ref.title,
+                    tableTitle = AiJsonUtils.cleanHtmlText(ref.title),
                     parentTopicId = ref.topicId,
-                    parentTopicTitle = ref.topicTitle
+                    parentTopicTitle = ref.topicTitle?.let { AiJsonUtils.cleanHtmlText(it) }
                 )
             }
 

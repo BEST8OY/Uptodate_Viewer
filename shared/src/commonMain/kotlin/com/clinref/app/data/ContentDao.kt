@@ -1,5 +1,6 @@
 package com.clinref.app.data
 
+import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.app.util.ZstdUtil
 import com.clinref.shared.db.useQueryFirstOrNull
 import kotlinx.serialization.decodeFromString
@@ -74,7 +75,7 @@ class ContentDao(
             } as? JsonObject
             title = enInfo?.get("title")?.jsonPrimitive?.content
         }
-        return title?.removeSurrounding("\"")?.trim()?.takeIf { it.isNotBlank() }
+        return title?.removeSurrounding("\"")?.let { AiJsonUtils.cleanHtmlText(it) }?.takeIf { it.isNotBlank() }
     }
 
     private fun extractNumericId(topicId: String): Int? {
@@ -130,9 +131,10 @@ class ContentDao(
                 if (info.boolean("hideInResults")) continue
                 val id = info.string("id")
                 if (id.isEmpty() || id in BOILERPLATE_GRAPHIC_IDS) continue
-                val title = info.string("displayName").ifEmpty {
+                val rawTitle = info.string("displayName").ifEmpty {
                     entry.string("label").orEmpty()
                 }
+                val title = AiJsonUtils.cleanHtmlText(rawTitle)
                 out.putIfAbsent(id, GraphicMeta(id = id, title = title.ifEmpty { id }, subtype = info.string("subtype")))
             }
         }
@@ -147,7 +149,8 @@ class ContentDao(
             if (obj.boolean("hideInResults")) continue
             val id = obj.string("id")
             if (id.isEmpty()) continue
-            out.putIfAbsent(id, TopicMeta(id = id, title = obj.string("title").ifEmpty { id }))
+            val rawTitle = obj.string("title").ifEmpty { id }
+            out.putIfAbsent(id, TopicMeta(id = id, title = AiJsonUtils.cleanHtmlText(rawTitle).ifEmpty { id }))
         }
         return out.values.toList()
     }

@@ -35,25 +35,25 @@ A management or disease topic rarely contains numeric doses. Before stating a do
 ### 2. FIDELITY — strict closed world
 - Copy every dose, range, interval, threshold, and unit character-for-character from retrieved text (write "0.5 g", never "500 mg"). Never convert units or multiply weight-based doses.
 - Keep the source's strength: "we recommend", "we suggest", and "may be used" are not interchangeable.
-- If a value is not in the retrieved text, write exactly: "$CANONICAL_ABSTENTION"
+- If a specific clinical value or parameter requested by the clinician is not in the retrieved text, write exactly: "$CANONICAL_ABSTENTION"
 - If nothing relevant was retrieved, say so in one sentence and stop. Never answer a clinical question from memory, and never fill a gap with a plausible value.
 - When the patient profile makes an agent contraindicated by allergy or organ impairment, choose an alternative from the evidence and say why.
 - Never describe images, scans, or figures. Cite retrieved text and tables only.
 
 ### 3. ANSWER STRUCTURE — let the question decide
-Open with a bolded BLUF: one or two sentences giving the direct, patient-adjusted answer. No preamble — never open with "Based on the retrieved evidence".
+Open directly with a bolded clinical conclusion: one or two sentences giving the direct, patient-adjusted answer without any label or heading prefix. No preamble — never open with "Based on the retrieved evidence".
 Group the detail under short bold headers that name what the question asks for — causes, workup, dosing, monitoring, prognosis, escalation. Prefer the retrieved section's own title when it fits ("Common etiologies"), and a pure list can be plain bullets grouped the way the source groups them.
-Never force a heading the question does not ask for, and never pad one: if the evidence has no value for a heading you would use, say so in one line instead of filling it.
+Only include headings for which the retrieved evidence provides direct, substantive guidance. Completely omit unneeded outline headings or sections that have no relevant evidence — never output empty headings or headings stating nothing was specified.
 
 ### 4. OUTPUT MECHANICS
-Plain text with bold for the BLUF and headers only. No markdown links and no references or sources list — the app renders the retrieved sections as reference cards."""
+Plain text with bold for the opening takeaway and headers only. No markdown links and no references or sources list — the app renders the retrieved sections as reference cards."""
 
     /**
      * The one-line contract restated in the synthesis turn. Format details live in
      * [STATIC_CLINICAL_GUIDANCE] so there is a single place to change them.
      */
     const val SYNTHESIS_CONTRACT: String =
-        "Answer the inquiry below under the system rules: bolded BLUF first, headings named by the question, only the headings the evidence fills, every clinical value copied verbatim."
+        "Answer the inquiry below under the system rules: bolded direct clinical answer first, headings named by the question, only the headings the evidence fills, every clinical value copied verbatim."
 
     /**
      * Renders template blocks joined with "\n" (no trailing newline).
@@ -145,7 +145,7 @@ Plain text with bold for the BLUF and headers only. No markdown links and no ref
             "2. [UNVERIFIED_QTY] Replace each rejected quantity with the exact string from `<retrieved_evidence>`, or delete it and write \"$CANONICAL_ABSTENTION\"",
             "3. [VISUAL] Do not describe images, scans, figures or tracings. Name the topic or table instead.",
             "4. [BLANK_WITH_EVIDENCE] Write the complete answer now from `<retrieved_evidence>`.",
-            "5. Output the complete answer in the required structure: bolded BLUF first, then only the headings the evidence fills — plain text, no links, no sources list."
+            "5. Output the complete answer in the required structure: bolded direct clinical answer first, then only the headings the evidence fills — plain text, no links, no sources list."
         )
     }
 

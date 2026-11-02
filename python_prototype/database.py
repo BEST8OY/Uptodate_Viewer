@@ -22,6 +22,24 @@ _DB_DIR = Path(__file__).parent.parent
 _ZSTD_DECOMPRESSOR = zstandard.ZstdDecompressor()
 
 
+def clean_html_text(raw: Optional[str]) -> str:
+    """Strips HTML tags and unescapes common HTML entities (e.g., &nbsp;, &amp;)."""
+    if not raw:
+        return ""
+    text = re.sub(r"<[^>]+>", "", raw)
+    text = (
+        text.replace("&nbsp;", " ")
+        .replace("&#160;", " ")
+        .replace("&amp;", "&")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+    )
+    return re.sub(r"\s+", " ", text).strip()
+
+
 class ClinRefDatabase:
     """Unified access to all ClinRef SQLite databases."""
 
@@ -428,7 +446,7 @@ class ClinRefDatabase:
                     "SELECT title FROM topic WHERE topic_id = ? LIMIT 1", (num_id,)
                 ).fetchone()
                 if row and row["title"]:
-                    return row["title"].strip()
+                    return clean_html_text(row["title"])
             except Exception:
                 pass
 
@@ -439,9 +457,9 @@ class ClinRefDatabase:
                     info = asset.get("topicInfo", {})
                     for t in info.get("translatedTopicInfos", []):
                         if t.get("languageCode") == "en-US" and t.get("title"):
-                            return t.get("title").strip()
+                            return clean_html_text(t.get("title"))
                     if info.get("title"):
-                        return info.get("title").strip()
+                        return clean_html_text(info.get("title"))
             except Exception:
                 pass
 

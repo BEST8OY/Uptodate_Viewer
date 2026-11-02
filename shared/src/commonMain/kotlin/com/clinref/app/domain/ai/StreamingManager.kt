@@ -170,14 +170,14 @@ class StreamingManager {
             val updated = _orchestrationSteps.value.toMutableList()
             updated[existingIndex] = updated[existingIndex].copy(
                 status = StepStatus.IN_PROGRESS,
-                detail = "Drafting evidence-grounded recommendations & BLUF"
+                detail = "Drafting evidence-grounded clinical recommendations"
             )
             _orchestrationSteps.value = updated
         } else {
             _orchestrationSteps.value = _orchestrationSteps.value + OrchestrationStep(
                 id = "step_synthesis",
                 title = "Synthesize Clinical Guidance",
-                detail = "Drafting evidence-grounded recommendations & BLUF",
+                detail = "Drafting evidence-grounded clinical recommendations",
                 status = StepStatus.IN_PROGRESS
             )
         }

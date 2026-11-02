@@ -2153,7 +2153,7 @@ class TestSystemPromptArchitecture:
         # Retrieval protocol and closed-world grounding come before formatting
         assert "RETRIEVE FIRST" in prompt
         assert "FIDELITY" in prompt
-        assert "BLUF:" in prompt
+        assert "bolded clinical conclusion" in prompt
         assert prompt.index("RETRIEVE FIRST") < prompt.index("FIDELITY") < prompt.index("ANSWER STRUCTURE") < prompt.index("OUTPUT MECHANICS")
         assert "If nothing relevant was retrieved" in prompt, "whole-answer abstention must be stated"
 
@@ -2161,8 +2161,8 @@ class TestSystemPromptArchitecture:
         # never by a closed list of shapes baked into the prompt.
         assert "ANSWER STRUCTURE" in prompt
         assert "retrieved section's own title" in prompt
-        assert "Never force a heading" in prompt
-        assert "instead of filling it" in prompt
+        assert "Completely omit unneeded outline headings" in prompt
+        assert "never output empty headings" in prompt
         assert "No preamble" in prompt
         assert "When to Escalate" not in prompt, "no fixed shape taxonomy"
         assert "First-Line Regimen & Dosing" not in prompt, "no fixed dosing template"

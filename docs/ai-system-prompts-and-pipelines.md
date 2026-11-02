@@ -58,15 +58,17 @@ The static block (≈2.6 KB, cache-eligible) has four sections:
 1. **Retrieve first** — the pipeline in one line, which section titles answer which class of
    question, and the rule that a disease topic's recommendations rarely contain doses (retrieve the
    drug topic that owns one).
-2. **Answer shape** — BLUF always, then the detail grouped under short bold headings that name
-   what the question asks for (causes, workup, dosing, monitoring, prognosis, escalation), preferring
-   the retrieved section's own title and never forcing a heading the question does not ask for.
+2. **Answer shape** — direct bold clinical conclusion always (unlabeled), then the detail grouped
+   under short bold headings that name what the question asks for (causes, workup, dosing, monitoring,
+   prognosis, escalation), preferring the retrieved section's own title, completely omitting unneeded
+   outline headings, and never forcing a heading the question does not ask for.
    There is no fixed set of shapes: a closed taxonomy produced nonsense such as "Preferred
    Etiologies" on a causes question, because no listed shape fit, so the model bolted the topic onto
    a therapy label. Deriving the heading from the evidence removes that failure class.
 3. **Fidelity** — verbatim quantities, preserved recommendation strength (`recommend` vs `suggest`
-   vs `may`), canonical abstention, patient-profile cross-check, no image interpretation.
-4. **Output mechanics** — plain text, bold for BLUF/headers only, no links or reference list.
+   vs `may`), canonical abstention reserved for explicitly missing requested values, patient-profile
+   cross-check, no image interpretation.
+4. **Output mechanics** — plain text, bold for opening takeaway/headers only, no links or reference list.
 
 Two deliberate properties: the retrieval *order* is restated only for planning (the graph enforces
 it anyway), and the format rules exist in exactly one place — the synthesis directive carries a

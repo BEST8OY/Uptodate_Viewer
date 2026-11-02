@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,24 +36,113 @@ import com.mikepenz.markdown.compose.components.MarkdownComponentModel
 import com.mikepenz.markdown.compose.components.MarkdownComponents
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.LocalTableRowIndex
+import com.mikepenz.markdown.compose.elements.MarkdownBlockQuote
 import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
 import com.mikepenz.markdown.compose.elements.MarkdownTableRow
+import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.MarkdownDimens
+import com.mikepenz.markdown.model.MarkdownTypography
 import com.mikepenz.markdown.model.markdownDimens
 
 @Composable
 fun clinrefMarkdownComponents(): MarkdownComponents = markdownComponents(
     table = { model ->
         ClinRefMarkdownTable(model = model)
+    },
+    blockQuote = { model ->
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f))
+                .padding(vertical = 4.dp, horizontal = 2.dp)
+        ) {
+            MarkdownBlockQuote(
+                content = model.content,
+                node = model.node,
+                style = model.typography.quote
+            )
+        }
     }
 )
 
 @Composable
 fun clinrefMarkdownDimens(): MarkdownDimens = markdownDimens(
+    blockQuoteThickness = 3.dp,
+    codeBackgroundCornerSize = 4.dp,
     tableCellPadding = 10.dp,
     tableCellWidth = 160.dp,
     tableCornerSize = 12.dp
+)
+
+@Composable
+fun clinrefMarkdownTypography(): MarkdownTypography = markdownTypography(
+    h1 = MaterialTheme.typography.titleLarge.copy(
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        fontWeight = FontWeight.Bold
+    ),
+    h2 = MaterialTheme.typography.titleMedium.copy(
+        fontSize = 17.sp,
+        lineHeight = 23.sp,
+        fontWeight = FontWeight.Bold
+    ),
+    h3 = MaterialTheme.typography.titleSmall.copy(
+        fontSize = 15.sp,
+        lineHeight = 21.sp,
+        fontWeight = FontWeight.SemiBold
+    ),
+    h4 = MaterialTheme.typography.titleSmall.copy(
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.SemiBold
+    ),
+    h5 = MaterialTheme.typography.titleSmall.copy(
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.SemiBold
+    ),
+    h6 = MaterialTheme.typography.titleSmall.copy(
+        fontSize = 13.sp,
+        lineHeight = 19.sp,
+        fontWeight = FontWeight.SemiBold
+    ),
+    paragraph = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = 15.sp,
+        lineHeight = 22.sp
+    ),
+    text = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = 15.sp,
+        lineHeight = 22.sp
+    ),
+    bullet = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = 15.sp,
+        lineHeight = 22.sp
+    ),
+    ordered = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = 15.sp,
+        lineHeight = 22.sp
+    ),
+    list = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = 15.sp,
+        lineHeight = 22.sp
+    ),
+    quote = MaterialTheme.typography.bodyMedium.copy(
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        fontStyle = FontStyle.Italic,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    ),
+    code = MaterialTheme.typography.bodySmall.copy(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 13.sp,
+        lineHeight = 18.sp
+    ),
+    inlineCode = MaterialTheme.typography.bodySmall.copy(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 13.sp
+    )
 )
 
 @Composable

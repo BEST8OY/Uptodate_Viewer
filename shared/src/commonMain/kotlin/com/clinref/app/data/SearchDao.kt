@@ -1,6 +1,7 @@
 package com.clinref.app.data
 
 import androidx.sqlite.SQLiteConnection
+import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.shared.db.useQuery
 import com.clinref.shared.db.useQueryFirstOrNull
 
@@ -17,7 +18,7 @@ class SearchDao(
                 "SELECT title FROM topic WHERE topic_id = ? LIMIT 1",
                 bind = { it.bindText(1, numericId) }
             ) { stmt ->
-                stmt.getText(0).trim().takeIf { it.isNotBlank() }
+                stmt.getText(0).let { AiJsonUtils.cleanHtmlText(it) }.takeIf { it.isNotBlank() }
             }
         } catch (_: Exception) {
             null

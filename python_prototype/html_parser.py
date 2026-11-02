@@ -47,7 +47,7 @@ def extract_outline_sections(outline_html: str) -> list[dict]:
 
         if section_id and section_id not in seen_ids:
             seen_ids.add(section_id)
-            title = re.sub(r"^[-–—]+\s*", "", title)
+            title = re.sub(r"\s+", " ", re.sub(r"^[-–—]+\s*", "", title).replace("\xa0", " ").replace("&nbsp;", " ")).strip()
             ul_parents = len(a_tag.find_parents("ul"))
             level = max(1, ul_parents)
             sections.append({"id": section_id, "title": title, "level": level})

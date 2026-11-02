@@ -89,7 +89,7 @@ class StreamingManagerTest {
         assertEquals(StreamingManager.StepStatus.COMPLETED, steps[0].status)
         assertEquals("step_synthesis", steps[1].id)
         assertEquals("Synthesize Clinical Guidance", steps[1].title)
-        assertEquals("Drafting evidence-grounded recommendations & BLUF", steps[1].detail)
+        assertEquals("Drafting evidence-grounded clinical recommendations", steps[1].detail)
         assertEquals(StreamingManager.StepStatus.IN_PROGRESS, steps[1].status)
         assertEquals("Synthesizing point-of-care guidance…", manager.currentStatusText.value)
 

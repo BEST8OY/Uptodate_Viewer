@@ -1,5 +1,6 @@
 package com.clinref.app.data
 
+import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
@@ -173,7 +174,7 @@ class MedicalDatabaseTools(
     }
 
     private fun contentTitle(content: ContentRepository.TopicContent, topicId: String): String =
-        content.title.ifEmpty { contentRepository.getTopicTitle(topicId) ?: topicId }
+        AiJsonUtils.cleanHtmlText(content.title.ifEmpty { contentRepository.getTopicTitle(topicId) ?: topicId })
 
     fun getTopicSectionsText(topicId: String, sectionIds: List<String>): TopicSectionsResponse {
         val cleanTopicId = topicId.trim()
@@ -504,16 +505,11 @@ class MedicalDatabaseTools(
     }
 
     private fun cleanOutlineTitle(html: String): String {
-        return html
-            .replace(LEGACY_HYPHEN_REGEX, "")
-            .replace(STRIP_TAGS_REGEX, "")
-            .replace(LEADING_BULLET_OR_DASH_REGEX, "")
-            .replace("&nbsp;", " ")
-            .replace("&#160;", " ")
-            .replace("&amp;", "&")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .trim()
+        return AiJsonUtils.cleanHtmlText(
+            html.replace(LEGACY_HYPHEN_REGEX, "")
+                .replace(STRIP_TAGS_REGEX, "")
+                .replace(LEADING_BULLET_OR_DASH_REGEX, "")
+        )
     }
 
     private fun extractSectionHtml(

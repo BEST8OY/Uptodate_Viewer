@@ -164,11 +164,12 @@ fun ClinicalReferencesSection(
                         )
 
                         val currentCitation = citationIndex++
-                        val topicTitle = if (article.topicTitle.isBlank() || AiJsonUtils.isNumericOnly(article.topicTitle)) {
+                        val rawTopicTitle = if (article.topicTitle.isBlank() || AiJsonUtils.isNumericOnly(article.topicTitle)) {
                             "Clinical Topic #${article.topicId}"
                         } else {
                             article.topicTitle
                         }
+                        val topicTitle = AiJsonUtils.cleanHtmlText(rawTopicTitle)
 
                         ArticleReferenceItem(
                             citationNumber = currentCitation,

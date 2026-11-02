@@ -46,6 +46,28 @@ object AiJsonUtils {
     val GRAPHIC_PREFIX_REGEX = Regex("(?i)^graphic-")
     val GRAPHIC_TABLE_REGEX = Regex("""### Graphic Table:\s*(.+)""")
     private val DASH_PREFIX_CHARS = charArrayOf('-', '–', '—', ' ')
+    private val HTML_TAG_REGEX = Regex("""<[^>]+>""")
+    private val MULTI_SPACE_REGEX = Regex("""\s+""")
+
+    /**
+     * Strips all HTML tags and unescapes common HTML entities (e.g. &nbsp;, &amp;, &quot;).
+     * Normalizes contiguous whitespace to a single space.
+     */
+    fun cleanHtmlText(raw: String): String {
+        if (raw.isBlank()) return ""
+        return raw
+            .replace(HTML_TAG_REGEX, "")
+            .replace("&nbsp;", " ")
+            .replace("&#160;", " ")
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace(MULTI_SPACE_REGEX, " ")
+            .trim()
+    }
 
     /**
      * Normalizes a graphic ID by stripping any leading 'graphic-' prefix.

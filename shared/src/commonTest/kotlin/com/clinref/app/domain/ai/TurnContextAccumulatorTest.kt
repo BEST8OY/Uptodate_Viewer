@@ -606,6 +606,29 @@ class TurnContextAccumulatorTest {
     }
 
     @Test
+    fun `AiJsonUtils cleanHtmlText strips HTML tags and decodes HTML entities`() {
+        val raw = "Treatment of uncomplicated gonorrhea (<i>Neisseria gonorrhoeae&nbsp;</i>infection) in adults and adolescents"
+        val expected = "Treatment of uncomplicated gonorrhea (Neisseria gonorrhoeae infection) in adults and adolescents"
+        assertEquals(expected, AiJsonUtils.cleanHtmlText(raw))
+
+        val entities = "Cavitary &amp; non-cavitary &quot;TB&#39;s&quot; &lt;100 &gt;50&nbsp;&#160;cases"
+        assertEquals("Cavitary & non-cavitary \"TB's\" <100 >50 cases", AiJsonUtils.cleanHtmlText(entities))
+        assertEquals("", AiJsonUtils.cleanHtmlText("   "))
+    }
+
+    @Test
+    fun `ClinicalSource sanitizes HTML tags and entities in topic and section titles`() {
+        val topicRefs = listOf(
+            SafetyValidator.TopicRef("100", "secA", "<b>Diagnosis&nbsp;&amp;&nbsp;Workup</b>", "Gonorrhea (<i>Neisseria&nbsp;</i>Infection)"),
+            SafetyValidator.TopicRef("100", "secB", "Treatment", "Gonorrhea (<i>Neisseria&nbsp;</i>Infection)")
+        )
+        val articles = ClinicalSource.fromTopicRefs(topicRefs)
+        assertEquals(1, articles.size)
+        assertEquals("Gonorrhea (Neisseria Infection)", articles[0].topicTitle)
+        assertEquals("Diagnosis & Workup", articles[0].sections[0].sectionTitle)
+    }
+
+    @Test
     fun `ClinicalSource converts to and from SafetyValidator refs and Resolved refs`() {
         val topicRefs = listOf(
             SafetyValidator.TopicRef("100", "secA", "Section A", "Topic 100 Title"),

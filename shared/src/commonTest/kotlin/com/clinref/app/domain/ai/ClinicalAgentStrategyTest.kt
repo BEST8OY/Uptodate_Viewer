@@ -312,7 +312,7 @@ class ClinicalAgentStrategyTest {
         assertTrue(prompt.contains("[UNVERIFIED_QTY] Replace each rejected quantity with the exact string from `<retrieved_evidence>`, or delete it and write \"Not specified in retrieved UpToDate sections.\""))
         assertTrue(prompt.contains("[VISUAL] Do not describe images, scans, figures or tracings. Name the topic or table instead."))
         assertTrue(prompt.contains("[BLANK_WITH_EVIDENCE] Write the complete answer now from `<retrieved_evidence>`."))
-        assertTrue(prompt.endsWith("5. Output the complete answer in the required structure: bolded BLUF first, then only the headings the evidence fills — plain text, no links, no sources list."))
+        assertTrue(prompt.endsWith("5. Output the complete answer in the required structure: bolded direct clinical answer first, then only the headings the evidence fills — plain text, no links, no sources list."))
     }
 
     @Test
