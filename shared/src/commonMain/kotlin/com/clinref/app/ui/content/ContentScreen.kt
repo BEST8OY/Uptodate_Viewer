@@ -297,15 +297,13 @@ fun ContentScreen(
                 }
             }
 
-            if (!showOutline) {
-                AnimatedVisibility(
-                    visible = isLoading,
-                    enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                    exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
-                    modifier = Modifier.align(Alignment.Center),
-                ) {
-                    ContentLoadingView()
-                }
+            AnimatedVisibility(
+                visible = isLoading && !showOutline,
+                enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                modifier = Modifier.align(Alignment.Center),
+            ) {
+                ContentLoadingView()
             }
         }
     }

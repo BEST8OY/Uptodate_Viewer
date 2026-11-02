@@ -64,6 +64,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import androidx.navigation3.runtime.NavKey
 import com.clinref.app.ui.navigation.TocRoute
+import com.clinref.app.ui.navigation.bindReselectScrollToTop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, FlowPreview::class)
 @Composable
@@ -76,13 +77,7 @@ fun TocScreen(
     searchViewModel: SearchViewModel = koinViewModel()
 ) {
     val listState = rememberLazyListState()
-    LaunchedEffect(reselectEvents) {
-        reselectEvents?.collect { route ->
-            if (route == TocRoute) {
-                listState.animateScrollToItem(0)
-            }
-        }
-    }
+    listState.bindReselectScrollToTop(reselectEvents, TocRoute)
 
     val tocItems by viewModel.tocItems.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()

@@ -124,6 +124,7 @@ import com.clinref.app.ui.adaptive.LocalBottomBarVisible
 import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.ui.navigation.AiRoute
+import com.clinref.app.ui.navigation.bindReselectScrollToTop
 import com.clinref.app.util.formatTimestamp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -150,18 +151,11 @@ fun ConversationListScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    listState.bindReselectScrollToTop(reselectEvents, AiRoute)
     val snackbarHostState = remember { SnackbarHostState() }
     var sessionToRename by remember { mutableStateOf<ConversationUiModel?>(null) }
     val scope = rememberCoroutineScope()
     var pendingDelete by remember { mutableStateOf<List<ConversationBackup>>(emptyList()) }
-
-    LaunchedEffect(reselectEvents) {
-        reselectEvents?.collect { route ->
-            if (route == AiRoute) {
-                listState.animateScrollToItem(0)
-            }
-        }
-    }
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose {

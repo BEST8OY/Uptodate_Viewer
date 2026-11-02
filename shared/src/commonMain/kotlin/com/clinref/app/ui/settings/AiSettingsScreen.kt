@@ -72,8 +72,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -435,6 +437,12 @@ fun AiSettingsScreen(
                                 trackRange = 0f..1f
                             )
 
+                            LaunchedEffect(configuration.provider, configuration.temperature) {
+                                if (abs(sliderState.value - configuration.temperature) > 0.001f) {
+                                    sliderState.value = configuration.temperature
+                                }
+                            }
+
                             Slider(
                                 state = sliderState,
                                 onValueChange = { viewModel.updateTemperature(it) },
@@ -534,6 +542,13 @@ fun AiSettingsScreen(
                 }
 
                 // DYNAMIC CONNECTION TEST AREA
+                var lastResult by remember { mutableStateOf(testResult) }
+                LaunchedEffect(testResult) {
+                    if (testResult != null) {
+                        lastResult = testResult
+                    }
+                }
+
                 AnimatedVisibility(
                     visible = testResult != null,
                     enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
@@ -546,7 +561,7 @@ fun AiSettingsScreen(
                             )
                         )
                 ) {
-                    testResult?.let { result ->
+                    (testResult ?: lastResult)?.let { result ->
                         val statusColor = when (result) {
                             is SettingsViewModel.TestResult.Success -> MaterialTheme.colorScheme.primaryContainer
                             is SettingsViewModel.TestResult.Error -> MaterialTheme.colorScheme.errorContainer

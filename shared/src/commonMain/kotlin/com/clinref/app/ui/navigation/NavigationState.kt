@@ -1,6 +1,8 @@
 package com.clinref.app.ui.navigation
 
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -18,6 +20,7 @@ import androidx.navigation3.runtime.rememberDecoratedNavEntries
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.savedstate.serialization.SavedStateConfiguration
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -101,12 +104,9 @@ class NavigationState(
             }
         }
 
-        return getTopLevelRoutesInUse()
-            .flatMap { decoratedEntries[it] ?: emptyList() }
+        // ONLY expose active route's stack to NavDisplay (Independent Peer Roots pattern)
+        return decoratedEntries[topLevelRoute] ?: emptyList()
     }
-
-    private fun getTopLevelRoutesInUse(): List<NavKey> =
-        listOf(topLevelRoute)
 }
 
 class Navigator(val state: NavigationState) {
@@ -143,8 +143,7 @@ class Navigator(val state: NavigationState) {
     }
 
     fun goBack() {
-        val currentStack = state.backStacks[state.topLevelRoute]
-            ?: error("Stack for ${state.topLevelRoute} not found")
+        val currentStack = state.backStacks[state.topLevelRoute] ?: return
         val currentRoute = currentStack.lastOrNull() ?: return
 
         if (currentRoute == state.topLevelRoute) {
@@ -154,6 +153,21 @@ class Navigator(val state: NavigationState) {
             }
         } else {
             currentStack.removeLastOrNull()
+        }
+    }
+}
+
+/**
+ * Binds a LazyListState to reselection events for a specific navigation route.
+ * Reselecting the active top-level route scrolls the list to top.
+ */
+@Composable
+fun LazyListState.bindReselectScrollToTop(reselectEvents: Flow<NavKey>?, targetRoute: NavKey) {
+    LaunchedEffect(this, reselectEvents, targetRoute) {
+        reselectEvents?.collect { route ->
+            if (route == targetRoute) {
+                animateScrollToItem(0)
+            }
         }
     }
 }

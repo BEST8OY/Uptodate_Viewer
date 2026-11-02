@@ -90,7 +90,7 @@ actual fun GraphicWebView(
         AnimatedVisibility(
             visible = sheetLoading,
             enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
+            exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
             modifier = Modifier.fillMaxSize(),
         ) {
             Box(

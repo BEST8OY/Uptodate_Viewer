@@ -34,7 +34,6 @@ data class ContentRoute(val topicId: String, val sectionId: String? = null) : Na
 @Serializable
 data object AiSettingsRoute : NavKey
 
-
 @Serializable
 data class ChatRoute(val conversationId: String) : NavKey
 
@@ -44,3 +43,5 @@ val topLevelRoutes: List<TopLevelRoute> = listOf(
     FavoritesRoute,
     AiRoute
 )
+
+val topLevelRoutesSet: Set<TopLevelRoute> = topLevelRoutes.toSet()

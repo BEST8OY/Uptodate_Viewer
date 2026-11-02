@@ -2,10 +2,12 @@ package com.clinref.app.ui.history
 
 import com.clinref.app.ui.common.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.clinref.app.ui.navigation.HistoryRoute
+import com.clinref.app.ui.navigation.bindReselectScrollToTop
 import kotlinx.coroutines.flow.Flow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -68,13 +71,7 @@ fun HistoryScreen(
     viewModel: HistoryViewModel = koinViewModel()
 ) {
     val listState = rememberLazyListState()
-    LaunchedEffect(reselectEvents) {
-        reselectEvents?.collect { route ->
-            if (route == HistoryRoute) {
-                listState.animateScrollToItem(0)
-            }
-        }
-    }
+    listState.bindReselectScrollToTop(reselectEvents, HistoryRoute)
 
     val history by viewModel.history.collectAsStateWithLifecycle()
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
@@ -207,13 +204,18 @@ fun HistoryScreen(
             }
         },
         floatingActionButton = {
+            val motionScheme = MaterialTheme.motionScheme
             AnimatedVisibility(
                 visible = isSelectionMode,
                 modifier = Modifier.padding(bottom = bottomInsetPadding),
-                enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
-                    slideInHorizontally(MaterialTheme.motionScheme.defaultEffectsSpec()) { it / 2 },
-                exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()) +
-                    slideOutHorizontally(MaterialTheme.motionScheme.defaultEffectsSpec()) { it / 2 }
+                enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
+                    fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
+                exit = scaleOut(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
             ) {
                 FloatingActionButton(
                     onClick = {

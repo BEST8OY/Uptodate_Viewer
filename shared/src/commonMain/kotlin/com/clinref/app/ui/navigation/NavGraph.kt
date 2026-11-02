@@ -41,6 +41,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +58,6 @@ import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.scene.Scene
-import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.ui.NavDisplay
 import com.clinref.app.data.DatabaseManager
 import com.clinref.app.ui.adaptive.AdaptiveTokens
@@ -86,6 +86,37 @@ val TopLevelRoute.icon: ImageVector
         AiRoute -> Icons.AutoMirrored.Filled.Chat
     }
 
+@Immutable
+private class NavMotion(
+    val spatialSpec: FiniteAnimationSpec<IntOffset>,
+    val floatSpatialSpec: FiniteAnimationSpec<Float>,
+    val effectsSpec: FiniteAnimationSpec<Float>,
+    val fastEffectsSpec: FiniteAnimationSpec<Float>,
+    val exitSpatialSpec: FiniteAnimationSpec<IntOffset>,
+    val exitFloatSpatialSpec: FiniteAnimationSpec<Float>
+)
+
+@Composable
+private fun rememberNavMotion(): NavMotion {
+    val motionScheme = MaterialTheme.motionScheme
+    return remember(motionScheme) {
+        NavMotion(
+            spatialSpec = motionScheme.defaultSpatialSpec(),
+            floatSpatialSpec = motionScheme.defaultSpatialSpec(),
+            effectsSpec = motionScheme.defaultEffectsSpec(),
+            fastEffectsSpec = motionScheme.fastEffectsSpec(),
+            exitSpatialSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            exitFloatSpatialSpec = spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        )
+    }
+}
+
 private fun Scene<NavKey>.navKey(): NavKey? =
     (key as? NavKey) ?: entries.lastOrNull()?.contentKey as? NavKey
 
@@ -104,10 +135,10 @@ fun NavGraph(
 
     val navigationState = rememberNavigationState(
         startRoute = TocRoute,
-        topLevelRoutes = topLevelRoutes.toSet()
+        topLevelRoutes = topLevelRoutesSet
     )
 
-    val navigator = remember { Navigator(navigationState) }
+    val navigator = remember(navigationState) { Navigator(navigationState) }
     var selectedGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val isOnSubRoute by remember {
@@ -124,78 +155,80 @@ fun NavGraph(
         navigator.navigate(navigationState.startRoute)
     }
 
-    val entryProvider: (NavKey) -> NavEntry<NavKey> = entryProvider {
-        entry<TocRoute> {
-            TocScreen(
-                onTopicSelected = { topicId ->
-                    navigator.navigate(ContentRoute(topicId))
-                },
-                onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId.removePrefix("Graphic-")
-                },
-                reselectEvents = navigator.reselectEvents
-            )
-        }
-        entry<HistoryRoute> {
-            HistoryScreen(
-                onTopicSelected = { topicId ->
-                    if (topicId.startsWith("Graphic-")) {
-                        selectedGraphicId = topicId.removePrefix("Graphic-")
-                    } else {
+    val entryProvider: (NavKey) -> NavEntry<NavKey> = remember(navigator, navigationState) {
+        entryProvider {
+            entry<TocRoute> {
+                TocScreen(
+                    onTopicSelected = { topicId ->
                         navigator.navigate(ContentRoute(topicId))
+                    },
+                    onGraphicSelected = { graphicId ->
+                        selectedGraphicId = graphicId.removePrefix("Graphic-")
+                    },
+                    reselectEvents = navigator.reselectEvents
+                )
+            }
+            entry<HistoryRoute> {
+                HistoryScreen(
+                    onTopicSelected = { topicId ->
+                        if (topicId.startsWith("Graphic-")) {
+                            selectedGraphicId = topicId.removePrefix("Graphic-")
+                        } else {
+                            navigator.navigate(ContentRoute(topicId))
+                        }
+                    },
+                    currentRoute = navigationState.topLevelRoute,
+                    reselectEvents = navigator.reselectEvents
+                )
+            }
+            entry<FavoritesRoute> {
+                FavoritesScreen(
+                    onTopicSelected = { topicId ->
+                        if (topicId.startsWith("Graphic-")) {
+                            selectedGraphicId = topicId.removePrefix("Graphic-")
+                        } else {
+                            navigator.navigate(ContentRoute(topicId))
+                        }
+                    },
+                    currentRoute = navigationState.topLevelRoute,
+                    reselectEvents = navigator.reselectEvents
+                )
+            }
+            entry<ContentRoute> { key ->
+                ContentScreen(
+                    topicId = key.topicId,
+                    sectionId = key.sectionId,
+                    onBack = { navigator.goBack() },
+                    onHome = { navigator.navigate(TocRoute) },
+                    onGraphicSelected = { graphicId ->
+                        selectedGraphicId = graphicId.removePrefix("Graphic-")
                     }
-                },
-                currentRoute = navigationState.topLevelRoute,
-                reselectEvents = navigator.reselectEvents
-            )
-        }
-        entry<FavoritesRoute> {
-            FavoritesScreen(
-                onTopicSelected = { topicId ->
-                    if (topicId.startsWith("Graphic-")) {
-                        selectedGraphicId = topicId.removePrefix("Graphic-")
-                    } else {
-                        navigator.navigate(ContentRoute(topicId))
-                    }
-                },
-                currentRoute = navigationState.topLevelRoute,
-                reselectEvents = navigator.reselectEvents
-            )
-        }
-        entry<ContentRoute> { key ->
-            ContentScreen(
-                topicId = key.topicId,
-                sectionId = key.sectionId,
-                onBack = { navigator.goBack() },
-                onHome = { navigator.navigate(TocRoute) },
-                onGraphicSelected = { graphicId ->
-                    selectedGraphicId = graphicId.removePrefix("Graphic-")
-                }
-            )
-        }
-        entry<AiRoute> {
-            ConversationListScreen(
-                onConversationSelected = { conversationId ->
-                    navigator.navigate(ChatRoute(conversationId))
-                },
-                onOpenSettings = {
-                    navigator.navigate(AiSettingsRoute)
-                },
-                reselectEvents = navigator.reselectEvents
-            )
-        }
-        entry<AiSettingsRoute> {
-            AiSettingsScreen(
-                onBack = { navigator.goBack() }
-            )
-        }
-        entry<ChatRoute> { key ->
-            ChatScreen(
-                conversationId = key.conversationId,
-                onNavigateToHome = { navigator.navigate(TocRoute) },
-                onBack = { navigator.goBack() },
-                onNavigateToSettings = { navigator.navigate(AiSettingsRoute) }
-            )
+                )
+            }
+            entry<AiRoute> {
+                ConversationListScreen(
+                    onConversationSelected = { conversationId ->
+                        navigator.navigate(ChatRoute(conversationId))
+                    },
+                    onOpenSettings = {
+                        navigator.navigate(AiSettingsRoute)
+                    },
+                    reselectEvents = navigator.reselectEvents
+                )
+            }
+            entry<AiSettingsRoute> {
+                AiSettingsScreen(
+                    onBack = { navigator.goBack() }
+                )
+            }
+            entry<ChatRoute> { key ->
+                ChatScreen(
+                    conversationId = key.conversationId,
+                    onNavigateToHome = { navigator.navigate(TocRoute) },
+                    onBack = { navigator.goBack() },
+                    onNavigateToSettings = { navigator.navigate(AiSettingsRoute) }
+                )
+            }
         }
     }
 
@@ -205,60 +238,19 @@ fun NavGraph(
         val isExpandedScreen = windowWidthClass == WindowWidthClass.EXPANDED
         val bottomBarVisible = !isOnSubRoute && !isWideScreen
         val navRailVisible = isWideScreen && (isExpandedScreen || !isOnSubRoute)
-        val motionScheme = MaterialTheme.motionScheme
-        val spatialSpec = motionScheme.defaultSpatialSpec<IntOffset>()
-        val floatSpatialSpec = motionScheme.defaultSpatialSpec<Float>()
-        val effectsSpec = motionScheme.defaultEffectsSpec<Float>()
-        val fastEffectsSpec = motionScheme.fastEffectsSpec<Float>()
-        val exitSpatialSpec = spring<IntOffset>(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        )
-        val exitFloatSpatialSpec = spring<Float>(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        )
+        val motion = rememberNavMotion()
 
         val forwardTransition: AnimatedContentTransitionScope<Scene<NavKey>>.() -> ContentTransform = {
             val initialKey = initialState.navKey()
             val targetKey = targetState.navKey()
 
-            if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
-                // Lateral Peer Navigation: Directional Shared Axis X (Neutral zIndex)
-                val fromIndex = topLevelRoutes.indexOf(initialKey)
-                val toIndex = topLevelRoutes.indexOf(targetKey)
-                val transform = if (toIndex > fromIndex) {
-                    (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
-                        fadeIn(effectsSpec)) togetherWith
-                        (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
-                            fadeOut(fastEffectsSpec))
-                } else if (toIndex < fromIndex) {
-                    (slideInHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
-                        fadeIn(effectsSpec)) togetherWith
-                        (slideOutHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
-                            fadeOut(fastEffectsSpec))
-                } else {
-                    fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
-                }
-                transform.apply { targetContentZIndex = 0f }
-            } else if (targetKey is AiSettingsRoute) {
-                // Auxiliary Modal Lift: Upward slide + scale expansion with background retreat
-                ((slideInVertically(spatialSpec) { (it * 0.12f).roundToInt() } +
-                    scaleIn(floatSpatialSpec, initialScale = 0.94f) +
-                    fadeIn(effectsSpec)) togetherWith
-                    (scaleOut(floatSpatialSpec, targetScale = 0.96f) +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
-                    targetContentZIndex = 1f
-                }
-            } else {
-                // Hierarchical Drill-Down Forward Push: 100% Slide in with 1/4 Parallax Retreat
-                ((slideInHorizontally(spatialSpec) { it } +
-                    fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
-                    (slideOutHorizontally(spatialSpec) { -it / 4 } +
-                        scaleOut(floatSpatialSpec, targetScale = 0.96f) +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
-                    targetContentZIndex = 1f
-                }
+            when {
+                initialKey is TopLevelRoute && targetKey is TopLevelRoute ->
+                    peerLateralTransition(initialKey, targetKey, motion)
+                targetKey is AiSettingsRoute ->
+                    auxiliaryModalLiftTransition(motion)
+                else ->
+                    hierarchicalForwardTransition(motion)
             }
         }
 
@@ -266,43 +258,13 @@ fun NavGraph(
             val initialKey = initialState.navKey()
             val targetKey = targetState.navKey()
 
-            if (initialKey is AiSettingsRoute) {
-                // Auxiliary Modal Recede / Drop Down
-                ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
-                    fadeIn(effectsSpec)) togetherWith
-                    (slideOutVertically(exitSpatialSpec) { (it * 0.12f).roundToInt() } +
-                        scaleOut(exitFloatSpatialSpec, targetScale = 0.94f) +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
-                    targetContentZIndex = 0f
-                }
-            } else if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
-                // Lateral Peer Pop: Exit Through Home
-                val fromIndex = topLevelRoutes.indexOf(initialKey)
-                val toIndex = topLevelRoutes.indexOf(targetKey)
-                val transform = if (toIndex > fromIndex) {
-                    (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
-                        fadeIn(effectsSpec)) togetherWith
-                        (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
-                            fadeOut(fastEffectsSpec))
-                } else if (toIndex < fromIndex) {
-                    (slideInHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
-                        fadeIn(effectsSpec)) togetherWith
-                        (slideOutHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
-                            fadeOut(fastEffectsSpec))
-                } else {
-                    fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
-                }
-                transform.apply { targetContentZIndex = 0f }
-            } else {
-                // Hierarchical Pop: 100% Slide Out to Right with 1/4 Parallax Return
-                ((slideInHorizontally(spatialSpec) { -it / 4 } +
-                    scaleIn(floatSpatialSpec, initialScale = 0.96f) +
-                    fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
-                    (slideOutHorizontally(exitSpatialSpec) { it } +
-                        scaleOut(exitFloatSpatialSpec, targetScale = 0.96f) +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
-                    targetContentZIndex = 0f
-                }
+            when {
+                initialKey is AiSettingsRoute ->
+                    auxiliaryModalRecedeTransition(motion)
+                initialKey is TopLevelRoute && targetKey is TopLevelRoute ->
+                    peerLateralTransition(initialKey, targetKey, motion)
+                else ->
+                    hierarchicalPopTransition(motion)
             }
         }
 
@@ -310,41 +272,17 @@ fun NavGraph(
             val initialKey = initialState.navKey()
             val targetKey = targetState.navKey()
 
-            if (initialKey is AiSettingsRoute) {
-                ((scaleIn(floatSpatialSpec, initialScale = 0.96f) +
-                    fadeIn(effectsSpec)) togetherWith
-                    (slideOutVertically(exitSpatialSpec) { (it * 0.12f).roundToInt() } +
-                        scaleOut(exitFloatSpatialSpec, targetScale = 0.94f) +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
-                    targetContentZIndex = 0f
-                }
-            } else if (initialKey is TopLevelRoute && targetKey is TopLevelRoute) {
-                val fromIndex = topLevelRoutes.indexOf(initialKey)
-                val toIndex = topLevelRoutes.indexOf(targetKey)
-                val transform = if (toIndex > fromIndex) {
-                    (slideInHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
-                        fadeIn(effectsSpec)) togetherWith
-                        (slideOutHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
-                            fadeOut(fastEffectsSpec))
-                } else if (toIndex < fromIndex) {
-                    (slideInHorizontally(spatialSpec) { -(it * 0.20f).roundToInt() } +
-                        fadeIn(effectsSpec)) togetherWith
-                        (slideOutHorizontally(spatialSpec) { (it * 0.20f).roundToInt() } +
-                            fadeOut(fastEffectsSpec))
-                } else {
-                    fadeIn(effectsSpec) togetherWith fadeOut(fastEffectsSpec)
-                }
-                transform.apply { targetContentZIndex = 0f }
-            } else {
-                // Hierarchical Predictive Pop
-                ((slideInHorizontally(spatialSpec) { -it / 4 } +
-                    scaleIn(floatSpatialSpec, initialScale = 0.94f) +
-                    fadeIn(effectsSpec, initialAlpha = 0f)) togetherWith
-                    (slideOutHorizontally(exitSpatialSpec) { it } +
-                        scaleOut(exitFloatSpatialSpec, targetScale = 0.90f) +
-                        fadeOut(fastEffectsSpec, targetAlpha = 0f))).apply {
-                    targetContentZIndex = 0f
-                }
+            when {
+                initialKey is AiSettingsRoute ->
+                    auxiliaryModalRecedeTransition(motion)
+                initialKey is TopLevelRoute && targetKey is TopLevelRoute ->
+                    peerLateralTransition(initialKey, targetKey, motion)
+                else ->
+                    hierarchicalPopTransition(
+                        motion,
+                        initialScale = 0.94f,
+                        targetScale = 0.90f
+                    )
             }
         }
 
@@ -358,11 +296,7 @@ fun NavGraph(
                     visible = navRailVisible,
                     currentRoute = navigationState.topLevelRoute,
                     onNavigate = { navigator.navigate(it) },
-                    onReselect = { navigator.onReselect(it) },
-                    effectsSpec = effectsSpec,
-                    fastEffectsSpec = fastEffectsSpec,
-                    spatialSpec = spatialSpec,
-                    exitSpatialSpec = exitSpatialSpec
+                    motion = motion
                 )
 
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -371,7 +305,6 @@ fun NavGraph(
                         onBack = {
                             navigator.goBack()
                         },
-                        sceneStrategies = listOf(SinglePaneSceneStrategy()),
                         transitionSpec = forwardTransition,
                         popTransitionSpec = popTransition,
                         predictivePopTransitionSpec = predictivePopTransition,
@@ -382,11 +315,7 @@ fun NavGraph(
                         visible = bottomBarVisible,
                         currentRoute = navigationState.topLevelRoute,
                         onNavigate = { navigator.navigate(it) },
-                        onReselect = { navigator.onReselect(it) },
-                        effectsSpec = effectsSpec,
-                        fastEffectsSpec = fastEffectsSpec,
-                        spatialSpec = spatialSpec,
-                        exitSpatialSpec = exitSpatialSpec
+                        motion = motion
                     )
                 }
             }
@@ -401,24 +330,77 @@ fun NavGraph(
     }
 }
 
+private fun peerLateralTransition(
+    from: TopLevelRoute,
+    to: TopLevelRoute,
+    motion: NavMotion
+): ContentTransform {
+    val fromIndex = topLevelRoutes.indexOf(from)
+    val toIndex = topLevelRoutes.indexOf(to)
+    return when {
+        toIndex > fromIndex -> {
+            (slideInHorizontally(motion.spatialSpec) { (it * 0.20f).roundToInt() } +
+                fadeIn(motion.effectsSpec)) togetherWith
+                (slideOutHorizontally(motion.spatialSpec) { -(it * 0.20f).roundToInt() } +
+                    fadeOut(motion.fastEffectsSpec))
+        }
+        toIndex < fromIndex -> {
+            (slideInHorizontally(motion.spatialSpec) { -(it * 0.20f).roundToInt() } +
+                fadeIn(motion.effectsSpec)) togetherWith
+                (slideOutHorizontally(motion.spatialSpec) { (it * 0.20f).roundToInt() } +
+                    fadeOut(motion.fastEffectsSpec))
+        }
+        else -> fadeIn(motion.effectsSpec) togetherWith fadeOut(motion.fastEffectsSpec)
+    }
+}
+
+private fun auxiliaryModalLiftTransition(motion: NavMotion): ContentTransform =
+    (slideInVertically(motion.spatialSpec) { (it * 0.12f).roundToInt() } +
+        scaleIn(motion.floatSpatialSpec, initialScale = 0.94f) +
+        fadeIn(motion.effectsSpec)) togetherWith
+        (scaleOut(motion.floatSpatialSpec, targetScale = 0.96f) +
+            fadeOut(motion.fastEffectsSpec, targetAlpha = 0f))
+
+private fun auxiliaryModalRecedeTransition(motion: NavMotion): ContentTransform =
+    (scaleIn(motion.floatSpatialSpec, initialScale = 0.96f) +
+        fadeIn(motion.effectsSpec)) togetherWith
+        (slideOutVertically(motion.exitSpatialSpec) { (it * 0.12f).roundToInt() } +
+            scaleOut(motion.exitFloatSpatialSpec, targetScale = 0.94f) +
+            fadeOut(motion.fastEffectsSpec, targetAlpha = 0f))
+
+private fun hierarchicalForwardTransition(motion: NavMotion): ContentTransform =
+    (slideInHorizontally(motion.spatialSpec) { it } +
+        fadeIn(motion.effectsSpec, initialAlpha = 0f)) togetherWith
+        (slideOutHorizontally(motion.spatialSpec) { -it / 4 } +
+            scaleOut(motion.floatSpatialSpec, targetScale = 0.96f) +
+            fadeOut(motion.fastEffectsSpec, targetAlpha = 0f))
+
+private fun hierarchicalPopTransition(
+    motion: NavMotion,
+    initialScale: Float = 0.96f,
+    targetScale: Float = 0.96f
+): ContentTransform =
+    (slideInHorizontally(motion.spatialSpec) { -it / 4 } +
+        scaleIn(motion.floatSpatialSpec, initialScale = initialScale) +
+        fadeIn(motion.effectsSpec, initialAlpha = 0f)) togetherWith
+        (slideOutHorizontally(motion.exitSpatialSpec) { it } +
+            scaleOut(motion.exitFloatSpatialSpec, targetScale = targetScale) +
+            fadeOut(motion.fastEffectsSpec, targetAlpha = 0f))
+
 @Composable
 private fun ClinRefNavRail(
     visible: Boolean,
     currentRoute: NavKey,
     onNavigate: (TopLevelRoute) -> Unit,
-    onReselect: (TopLevelRoute) -> Unit,
-    effectsSpec: FiniteAnimationSpec<Float>,
-    fastEffectsSpec: FiniteAnimationSpec<Float>,
-    spatialSpec: FiniteAnimationSpec<IntOffset>,
-    exitSpatialSpec: FiniteAnimationSpec<IntOffset>,
+    motion: NavMotion,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(effectsSpec) +
-            slideInHorizontally(spatialSpec) { -it },
-        exit = fadeOut(fastEffectsSpec) +
-            slideOutHorizontally(exitSpatialSpec) { -it },
+        enter = fadeIn(motion.effectsSpec) +
+            slideInHorizontally(motion.spatialSpec) { -it },
+        exit = fadeOut(motion.fastEffectsSpec) +
+            slideOutHorizontally(motion.exitSpatialSpec) { -it },
         modifier = modifier
     ) {
         NavigationRail {
@@ -427,13 +409,7 @@ private fun ClinRefNavRail(
                 val isSelected = route == currentRoute
                 NavigationRailItem(
                     selected = isSelected,
-                    onClick = {
-                        if (isSelected) {
-                            onReselect(route)
-                        } else {
-                            onNavigate(route)
-                        }
-                    },
+                    onClick = { onNavigate(route) },
                     icon = {
                         Icon(
                             imageVector = route.icon,
@@ -452,19 +428,15 @@ private fun BoxScope.ClinRefBottomBar(
     visible: Boolean,
     currentRoute: NavKey,
     onNavigate: (TopLevelRoute) -> Unit,
-    onReselect: (TopLevelRoute) -> Unit,
-    effectsSpec: FiniteAnimationSpec<Float>,
-    fastEffectsSpec: FiniteAnimationSpec<Float>,
-    spatialSpec: FiniteAnimationSpec<IntOffset>,
-    exitSpatialSpec: FiniteAnimationSpec<IntOffset>,
+    motion: NavMotion,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(effectsSpec) +
-            slideInVertically(spatialSpec) { it },
-        exit = fadeOut(fastEffectsSpec) +
-            slideOutVertically(exitSpatialSpec) { it },
+        enter = fadeIn(motion.effectsSpec) +
+            slideInVertically(motion.spatialSpec) { it },
+        exit = fadeOut(motion.fastEffectsSpec) +
+            slideOutVertically(motion.exitSpatialSpec) { it },
         modifier = modifier
             .align(Alignment.BottomCenter)
             .windowInsetsPadding(WindowInsets.navigationBars)
@@ -474,13 +446,7 @@ private fun BoxScope.ClinRefBottomBar(
                 val isSelected = route == currentRoute
                 NavigationBarItem(
                     selected = isSelected,
-                    onClick = {
-                        if (isSelected) {
-                            onReselect(route)
-                        } else {
-                            onNavigate(route)
-                        }
-                    },
+                    onClick = { onNavigate(route) },
                     icon = {
                         Icon(
                             imageVector = route.icon,
