@@ -47,7 +47,7 @@ def extract_headers(answer: str) -> list[str]:
     headers: list[str] = []
     for match in HEADER_RE.finditer(answer or ""):
         label = match.group(1).strip().rstrip(":").strip()
-        # A bolded BLUF sentence is not a header: headers are short and do not end in a period.
+        # A bolded clinical takeaway sentence is not a header: headers are short and do not end in a period.
         if not label or label.endswith(".") or len(label) > 60:
             continue
         if label not in headers:
@@ -56,10 +56,10 @@ def extract_headers(answer: str) -> list[str]:
 
 
 def _is_bluf(answer: str) -> bool:
-    """A BLUF is a sentence, not a title.
+    """A clinical takeaway is a sentence, not a title.
 
     `**Management of the common cold:**` opens with bold text but tells the reader nothing, so
-    a long bold label ending in a colon is not accepted as a bottom line.
+    a long bold label ending in a colon is not accepted as a clinical takeaway.
     """
     text = (answer or "").lstrip()
     if not text.startswith("**"):
@@ -123,7 +123,7 @@ CHECK_LABELS = {
     "grounded": "grounding (every value traceable)",
     "no_doses": "no doses invented for an unanswerable question",
     "declared_unknown": "said the value is not in the retrieved sections",
-    "bluf": "BLUF first",
+    "bluf": "bold takeaway first",
     "no_preamble": "no preamble",
     "refs": "references attached",
     "content": "required clinical statements present",

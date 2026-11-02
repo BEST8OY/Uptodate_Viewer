@@ -55,20 +55,22 @@ Two system messages, so provider-side prompt caching stays effective:
 
 The static block (≈2.6 KB, cache-eligible) has four sections:
 
-1. **Retrieve first** — the pipeline in one line, which section titles answer which class of
-   question, and the rule that a disease topic's recommendations rarely contain doses (retrieve the
-   drug topic that owns one).
-2. **Answer shape** — direct bold clinical conclusion always (unlabeled), then the detail grouped
-   under short bold headings that name what the question asks for (causes, workup, dosing, monitoring,
-   prognosis, escalation), preferring the retrieved section's own title, completely omitting unneeded
-   outline headings, and never forcing a heading the question does not ask for.
-   There is no fixed set of shapes: a closed taxonomy produced nonsense such as "Preferred
-   Etiologies" on a causes question, because no listed shape fit, so the model bolted the topic onto
-   a therapy label. Deriving the heading from the evidence removes that failure class.
-3. **Fidelity** — verbatim quantities, preserved recommendation strength (`recommend` vs `suggest`
-   vs `may`), canonical abstention reserved for explicitly missing requested values, patient-profile
-   cross-check, no image interpretation.
-4. **Output mechanics** — plain text, bold for opening takeaway/headers only, no links or reference list.
+1. **Retrieve first (Database Schema & Tool Mechanics)** — the deterministic retrieval sequence
+   (`searchTopics` → `getTopicOverview` → `getTopicSectionsText` / `getGraphicContent`), query hygiene
+   (1–3 plain keywords, no demographics or lab values), auto-recovery from empty results via typeahead
+   `refine_with` vocabulary, topic type routing (`medical` vs `drug` vs `calc`), Dose Provenance rule,
+   in-article keyword section search (`searchTopicSections`), and tabular data retrieval (`graphic_table`).
+2. **Fidelity (Strict Closed-World Grounding)** — verbatim quantities character-for-character,
+   preserved GRADE recommendation strength modal verbs (`recommend` vs `suggest` vs `may`), patient-profile
+   cross-check, canonical abstention (`Not specified in retrieved UpToDate sections.`), strict evidence
+   boundaries, and no image interpretation.
+3. **Answer structure (Let the Question Decide)** — direct bold clinical conclusion always (unlabeled),
+   no conversational preambles ("Based on the retrieved evidence..."), followed by details grouped under
+   short bold headings that name what the question asks for (causes, workup, dosing, monitoring, prognosis,
+   escalation), preferring the retrieved section's own title, completely omitting unneeded outline headings,
+   and never forcing an empty heading or heading stating nothing was specified.
+4. **Output mechanics** — plain text, bold for opening clinical conclusion and headers only, simple bullets,
+   no links or reference list.
 
 Two deliberate properties: the retrieval *order* is restated only for planning (the graph enforces
 it anyway), and the format rules exist in exactly one place — the synthesis directive carries a
@@ -217,7 +219,7 @@ real graph and scores each turn deterministically — no LLM judge, no network:
 | check | prompt rule it measures |
 |---|---|
 | `grounded` | every clinical quantity in the answer appears in the retrieved text (Gate 2) |
-| `bluf` | answer opens with a bolded bottom line |
+| `bluf` | answer opens with a bolded clinical conclusion |
 | `no_preamble` | no "Based on the retrieved evidence…" opener |
 | `refs` | at least one retrieved section backs the answer |
 | `no_doses` | an unanswerable question produced no dosing values |

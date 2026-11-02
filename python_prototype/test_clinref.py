@@ -2132,12 +2132,12 @@ class TestChange6Rule2BoundaryFixAndCap(_ChangeParityBase):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# System Prompt & Remediation Redesign (BLUF, answer shapes, Non-FTS)
+# System Prompt & Remediation Redesign (Bold takeaway, answer shapes, Non-FTS)
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class TestSystemPromptArchitecture:
-    """Verifies the BLUF directive, question-shaped answer headers, and non-FTS remediation."""
+    """Verifies the bold takeaway directive, question-shaped answer headers, and non-FTS remediation."""
 
     def test_system_prompt_bluf_and_answer_shapes(self):
         context = extract_patient_context({
@@ -2435,7 +2435,7 @@ class TestPromptEvaluation:
         real = "**Start symptomatic therapy; antibiotics are not indicated.**\n- Analgesics."
         assert eval_prompt._is_bluf(real) is True
 
-        labelled = "**BLUF:** start symptomatic therapy.\n- Analgesics."
+        labelled = "**Clinical conclusion:** start symptomatic therapy.\n- Analgesics."
         assert eval_prompt._is_bluf(labelled) is True
 
     def test_preamble_and_missing_bluf_are_flagged(self):
@@ -2449,5 +2449,5 @@ class TestPromptEvaluation:
     def test_header_extraction_is_informational_only(self):
         import eval_prompt
 
-        answer = "**BLUF:** start here.\n### **Common Etiologies**\n- malignancy\n## **Cautions**\n- none"
-        assert eval_prompt.extract_headers(answer) == ["BLUF", "Common Etiologies", "Cautions"]
+        answer = "**Clinical conclusion:** start here.\n### **Common Etiologies**\n- malignancy\n## **Cautions**\n- none"
+        assert eval_prompt.extract_headers(answer) == ["Clinical conclusion", "Common Etiologies", "Cautions"]
