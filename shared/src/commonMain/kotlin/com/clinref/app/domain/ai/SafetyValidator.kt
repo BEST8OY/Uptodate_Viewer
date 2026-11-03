@@ -75,9 +75,10 @@ class SafetyValidator {
         // which never renders answer-quality findings. Within a gate, all rules collect.
         val evidenceViolations = validateEvidence(context)
         val violations = if (evidenceViolations.isNotEmpty()) evidenceViolations else validateAnswer(context)
+        val warnings = buildWarnings(context, violations)
         return ValidationResult(
             passed = violations.isEmpty(),
-            warnings = emptyList(),
+            warnings = warnings,
             topicRefs = context.topicRefs,
             graphicRefs = context.graphicRefs,
             blockedReason = violations.joinToString(" | ") { it.detail }.ifEmpty { null },
@@ -251,4 +252,103 @@ class SafetyValidator {
         Regex("""(?i)(?:image|x-?ray|ct|mri|ecg|ekg|ultrasound|scan)\s+(?:findings?|abnormalities?|features?)"""),
         Regex("""(?i)the\s+(?:figure|diagram)\s+(?:shows?|demonstrates?|reveals?|depicts?)""")
     )
+
+    internal fun buildWarnings(context: TurnContext, violations: List<Violation>): List<String> {
+        val warnings = mutableListOf<String>()
+        val unverifiedQtyViolation = violations.find {
+            it.code == ViolationCodes.UNVERIFIED_QTY || it.code == ViolationCodes.UNRETRIEVED_DOSES
+        }
+        if (unverifiedQtyViolation != null) {
+            val answerQuantities = extractQuantities(context.answer)
+            val verified = extractQuantities(evidenceCorpus(context))
+            val unverifiedMap = answerQuantities.filterKeys { it !in verified }
+            val unverified = unverifiedMap.values.distinct()
+            if (unverified.isNotEmpty()) {
+                val wrongStatements = extractWrongStatements(context.answer, unverifiedMap.keys)
+                warnings.add(buildUnverifiedQuantityWarning(unverified, wrongStatements))
+            } else {
+                warnings.add(unverifiedQtyViolation.detail)
+            }
+        }
+        val visualViolation = violations.find { it.code == ViolationCodes.VISUAL }
+        if (visualViolation != null) {
+            warnings.add(visualViolation.detail)
+        }
+        return warnings
+    }
+
+    /**
+     * Extracts sentences, list items, or lines from [answer] that contain any of the [unverifiedCanonicalKeys].
+     */
+    internal fun extractWrongStatements(
+        answer: String,
+        unverifiedCanonicalKeys: Set<String>
+    ): List<String> {
+        if (answer.isBlank() || unverifiedCanonicalKeys.isEmpty()) return emptyList()
+
+        val results = LinkedHashSet<String>()
+
+        val lines = answer.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        for (line in lines) {
+            // Check if line is a markdown list item, heading, blockquote, or table row
+            if (line.startsWith("-") || line.startsWith("*") || line.startsWith("+") ||
+                line.startsWith(">") || line.startsWith("|") || line.startsWith("#") ||
+                line.matches(Regex("""^\d+\.\s+.*"""))
+            ) {
+                val candidate = line.replace(Regex("""^[-*+>#]+\s*"""), "")
+                    .replace(Regex("""^\d+\.\s+"""), "")
+                    .trim()
+                val candidateQuantities = extractQuantities(candidate)
+                if (candidateQuantities.keys.any { it in unverifiedCanonicalKeys }) {
+                    results.add(candidate)
+                }
+            } else {
+                // Split prose paragraph into sentences
+                val sentences = line.split(Regex("""(?<=[.!?])\s+(?=[A-Z0-9"'-])"""))
+                var sentenceMatched = false
+                for (s in sentences) {
+                    val candidate = s.trim()
+                    if (candidate.isNotBlank()) {
+                        val candidateQuantities = extractQuantities(candidate)
+                        if (candidateQuantities.keys.any { it in unverifiedCanonicalKeys }) {
+                            results.add(candidate)
+                            sentenceMatched = true
+                        }
+                    }
+                }
+                // If sentence splitting missed an unverified quantity in the line, add the entire line
+                if (!sentenceMatched) {
+                    val lineQuantities = extractQuantities(line)
+                    if (lineQuantities.keys.any { it in unverifiedCanonicalKeys }) {
+                        results.add(line)
+                    }
+                }
+            }
+        }
+
+        if (results.isEmpty()) {
+            results.add(answer.trim())
+        }
+
+        return results.toList()
+    }
+
+    internal fun buildUnverifiedQuantityWarning(
+        unverifiedDisplayValues: List<String>,
+        wrongStatements: List<String>
+    ): String {
+        return buildString {
+            append("Warning: Unverified clinical quantities (")
+            append(unverifiedDisplayValues.take(10).joinToString(", "))
+            append("). The following statement(s) could not be verified against retrieved database sections:\n")
+            wrongStatements.forEach { statement ->
+                append("• \"")
+                append(statement)
+                append("\"\n")
+            }
+        }.trimEnd()
+    }
 }

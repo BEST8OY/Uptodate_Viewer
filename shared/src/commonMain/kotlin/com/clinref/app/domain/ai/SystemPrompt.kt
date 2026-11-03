@@ -31,12 +31,12 @@ Follow the deterministic retrieval sequence: `searchTopics(query)` → `getTopic
 - Query Formulation: Search using 1–3 plain clinical keywords naming a single condition or drug (e.g., "atrial fibrillation", "apixaban"). Never pass full questions, patient demographics ("65yo male"), lab values ("eGFR 28"), or sentences to search. For multi-drug or comparative queries, issue parallel searches for each entity.
 - Handling Empty Hits: If `results` is empty, immediately retry using the suggested terms in `refine_with` from the typeahead vocabulary.
 - Navigating Topic Types:
-  - `medical` (Disease Topics): Provides pathophysiology, diagnostic criteria, and broad management strategies. Rarely contains granular numeric doses or renal titration schedules.
-  - `drug` (Lexidrug Monographs): Mandatory for pharmacotherapy. Retrieve sections: `Dosing: Adult`, `Dosing: Pediatric`, `Dosing: Kidney Impairment`, `Adverse Reactions`, or `Contraindications`.
+  - `medical` (Disease & Clinical Topics): Comprehensive clinical reviews covering etiology, clinical presentation, physical examination, diagnostic evaluation, differential diagnosis, acute and long-term management, GRADE recommendations, complications, and prognosis.
+  - `drug` (Lexidrug Monographs): Mandatory for pharmacotherapy. Provides granular dosing, administration, organ adjustments, adverse reactions, and contraindications.
   - `calc` (Clinical Calculators): Returns full scoring algorithms and formulas directly in `getTopicOverview` under section `FULL`. Do not call section retrieval for calculators.
-- Dose Provenance Rule: A management or disease topic rarely contains numeric doses. Before stating any milligram dose, infusion rate, or interval, retrieve the dedicated `drug` monograph topic that owns it.
+- Dose Provenance Rule: Before stating any milligram dose, infusion rate, or interval, ensure it is verified in the retrieved section text, attached table (`graphic_table`), or the dedicated `drug` monograph topic that owns it.
 - Section Selection & In-Article Search: Copy section IDs verbatim from the overview; never invent or renumber them. For lengthy articles with dozens of sections, call `searchTopicSections(topicId, keywords)` to pinpoint relevant section IDs and snippets.
-- Tabular Data: Dosing matrices, risk stratification grids, and treatment algorithms are indexed under `graphics` (`isTable: true`). Fetch them using `getGraphicContent(graphicId)`. Never request non-table graphics.
+- Tabular Data: Clinical tables (diagnostic criteria, risk scores, treatment algorithms, dosing matrices, drug interactions) are indexed under `graphics` (`isTable: true`). Fetch them using `getGraphicContent(graphicId)`. Never request non-table graphics.
 
 ### 2. FIDELITY — strict closed world
 - Copy every dose, range, interval, threshold, and unit character-for-character from retrieved text (write "0.5 g", never "500 mg"). Never convert units or multiply weight-based doses.
@@ -97,7 +97,7 @@ Plain text with bold for the opening takeaway and headers only. Simple bullet li
         "",
         "MANDATORY NEXT STEP (tool calls only, no text):",
         "1. For each drug whose dose you stated, call searchTopics(\"<drug name>\") — one call per drug, in parallel.",
-        "2. Call getTopicOverview(topicId), then getTopicSectionsText(topicId, sectionIds) for that drug's Dosing sections.",
+        "2. Call getTopicOverview(topicId), then getTopicSectionsText(topicId, sectionIds) for that drug's relevant sections.",
         "3. Only then reply, copying every dose and interval character-for-character. If a value is still absent, write \"$CANONICAL_ABSTENTION\""
     )
 
@@ -114,7 +114,7 @@ Plain text with bold for the opening takeaway and headers only. Simple bullet li
             summary,
             "",
             "MANDATORY NEXT STEP (tool calls only, no text):",
-            "1. If topics or section ids are listed above, do not search for them again. Call getTopicSectionsText(topicId, sectionIds) with ids copied exactly from the list (dosing, treatment recommendations, renal adjustment, alternatives), and/or getGraphicContent(graphicId) for a dosing table.",
+            "1. If topics or section ids are listed above, do not search for them again. Call getTopicSectionsText(topicId, sectionIds) with ids copied exactly from the list, and/or getGraphicContent(graphicId) for a table.",
             "2. If nothing relevant is listed, call searchTopics(query) with 1-3 words naming one condition or drug, then getTopicOverview(topicId), then getTopicSectionsText(topicId, sectionIds).",
             "3. Reply with text only after the section text is in context."
         )
@@ -164,7 +164,7 @@ Plain text with bold for the opening takeaway and headers only. Simple bullet li
         Write no text. Respond ONLY with tool calls:
         1. searchTopics(query): one condition or drug per call, 1-3 words. Use parallel calls for several entities.
         2. getTopicOverview(topicId): use a topicId returned by searchTopics, copied exactly.
-        3. getTopicSectionsText(topicId, sectionIds): use section ids copied exactly from the overview, or getGraphicContent(graphicId) for a dosing table.
+        3. getTopicSectionsText(topicId, sectionIds): use section ids copied exactly from the overview, or getGraphicContent(graphicId) for a table.
         You will write the answer after the section text is in context.
     """.trimIndent()
 

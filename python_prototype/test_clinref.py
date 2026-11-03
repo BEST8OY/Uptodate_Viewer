@@ -2130,6 +2130,23 @@ class TestChange6Rule2BoundaryFixAndCap(_ChangeParityBase):
         assert not res.passed
         assert "0.002 mg" in res.blocked_reason
 
+    def test_extract_wrong_statements_and_warnings(self):
+        from safety_validator import extract_wrong_statements
+        answer = "For mild infection, amoxicillin 500 mg PO TID is standard. For severe cases, administer 1,000 mg IV every 8 hours."
+        wrong = extract_wrong_statements(answer, {"1000 mg"})
+        assert len(wrong) == 1
+        assert wrong[0] == "For severe cases, administer 1,000 mg IV every 8 hours."
+
+        res = SafetyValidator().validate(self.ctx(
+            answer=answer,
+            tool_results=["Standard dose is amoxicillin 500 mg three times daily."]
+        ))
+        assert not res.passed
+        assert len(res.warnings) == 1
+        assert "1,000 mg" in res.warnings[0]
+        assert "For severe cases, administer 1,000 mg IV every 8 hours." in res.warnings[0]
+        assert "For mild infection" not in res.warnings[0]
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # System Prompt & Remediation Redesign (Bold takeaway, answer shapes, Non-FTS)
@@ -2166,6 +2183,7 @@ class TestSystemPromptArchitecture:
         assert "No preamble" in prompt
         assert "When to Escalate" not in prompt, "no fixed shape taxonomy"
         assert "First-Line Regimen & Dosing" not in prompt, "no fixed dosing template"
+        assert "Dosing: Adult" not in prompt, "no forced drug section names"
 
         # Patient profile parsing
         assert "Age: 65" in prompt

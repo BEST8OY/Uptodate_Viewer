@@ -125,7 +125,9 @@ object ClinicalAgentStrategy {
 
         data class Blocked(
             val reason: String,
-            val violations: List<Violation> = emptyList()
+            val violations: List<Violation> = emptyList(),
+            val draft: String = "",
+            val warnings: List<String> = emptyList()
         ) : SafetyEvaluation()
     }
 
@@ -456,7 +458,14 @@ object ClinicalAgentStrategy {
         }
 
         val nodeSafetyBlock by node<SafetyEvaluation.Blocked, String>("safety_block") { blocked ->
-            formatTerminalBlockedMessage(blocked.reason)
+            val hasWrongNumbers = blocked.violations.any {
+                it.code == ViolationCodes.UNVERIFIED_QTY || it.code == ViolationCodes.UNRETRIEVED_DOSES
+            }
+            if (hasWrongNumbers && blocked.draft.isNotBlank()) {
+                blocked.draft
+            } else {
+                formatTerminalBlockedMessage(blocked.reason)
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════════
@@ -736,7 +745,9 @@ object ClinicalAgentStrategy {
         if (retryCount >= maxSafetyRetries) {
             return SafetyEvaluation.Blocked(
                 reason = validation.blockedReason ?: "Clinical verification blocked after retries",
-                violations = validation.violations
+                violations = validation.violations,
+                draft = cleanText,
+                warnings = validation.warnings
             )
         }
 

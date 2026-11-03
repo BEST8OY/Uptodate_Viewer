@@ -251,9 +251,10 @@ class SafetyValidator:
         # which never renders answer-quality findings. Within a gate, all rules collect.
         evidence_violations = self.validate_evidence(context)
         violations = evidence_violations or self.validate_answer(context)
+        warnings = build_warnings(context, violations)
         return ValidationResult(
             passed=not violations,
-            warnings=[],
+            warnings=warnings,
             topic_refs=context.structured_topic_refs,
             graphic_refs=context.structured_graphic_refs,
             blocked_reason=" | ".join(v.detail for v in violations) if violations else None,
@@ -368,3 +369,82 @@ class SafetyValidator:
                 ),
             )
         ]
+
+
+def extract_wrong_statements(answer: str, unverified_canonical_keys: set[str]) -> list[str]:
+    """Extract sentences, list items, or lines from answer that contain any unverified canonical quantities."""
+    if not answer.strip() or not unverified_canonical_keys:
+        return []
+
+    results = []
+    seen = set()
+
+    lines = [line.strip() for line in answer.splitlines() if line.strip()]
+
+    for line in lines:
+        if (
+            line.startswith(("-", "*", "+", ">", "|", "#"))
+            or re.match(r"^\d+\.\s+", line)
+        ):
+            candidate = re.sub(r"^[-*+>#]+\s*", "", line)
+            candidate = re.sub(r"^\d+\.\s+", "", candidate).strip()
+            candidate_quantities = extract_quantities(candidate)
+            if any(k in unverified_canonical_keys for k in candidate_quantities):
+                if candidate not in seen:
+                    seen.add(candidate)
+                    results.append(candidate)
+        else:
+            sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"'-])", line)
+            sentence_matched = False
+            for s in sentences:
+                candidate = s.strip()
+                if candidate:
+                    candidate_quantities = extract_quantities(candidate)
+                    if any(k in unverified_canonical_keys for k in candidate_quantities):
+                        if candidate not in seen:
+                            seen.add(candidate)
+                            results.append(candidate)
+                        sentence_matched = True
+            if not sentence_matched:
+                line_quantities = extract_quantities(line)
+                if any(k in unverified_canonical_keys for k in line_quantities):
+                    if line not in seen:
+                        seen.add(line)
+                        results.append(line)
+
+    if not results and answer.strip():
+        results.append(answer.strip())
+
+    return results
+
+
+def build_unverified_quantity_warning(
+    unverified_display_values: list[str], wrong_statements: list[str]
+) -> str:
+    lines = [
+        f"Warning: Unverified clinical quantities ({', '.join(unverified_display_values[:10])}). "
+        "The following statement(s) could not be verified against retrieved database sections:"
+    ]
+    for stmt in wrong_statements:
+        lines.append(f'• "{stmt}"')
+    return "\n".join(lines)
+
+
+def build_warnings(context: TurnContext, violations: list[Violation]) -> list[str]:
+    warnings: list[str] = []
+    unverified_qty = next((v for v in violations if v.code in ("UNVERIFIED_QTY", "UNRETRIEVED_DOSES")), None)
+    if unverified_qty is not None:
+        answer_quantities = extract_quantities(context.answer)
+        verified = extract_quantities(SafetyValidator._build_corpus(context))
+        unverified_map = {k: v for k, v in answer_quantities.items() if k not in verified}
+        unverified = list(dict.fromkeys(unverified_map.values()))
+        if unverified:
+            wrong_statements = extract_wrong_statements(context.answer, set(unverified_map.keys()))
+            warnings.append(build_unverified_quantity_warning(unverified, wrong_statements))
+        else:
+            warnings.append(unverified_qty.detail)
+    visual = next((v for v in violations if v.code == "VISUAL"), None)
+    if visual is not None:
+        warnings.append(visual.detail)
+    return warnings
+

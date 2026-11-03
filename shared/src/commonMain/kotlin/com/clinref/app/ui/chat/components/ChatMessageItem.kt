@@ -277,6 +277,8 @@ fun ChatWarningAlert(warning: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f))
             .drawBehind {
                 drawLine(
                     color = warnColor,
@@ -285,7 +287,7 @@ fun ChatWarningAlert(warning: String) {
                     strokeWidth = 3.dp.toPx()
                 )
             }
-            .padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top
     ) {
         Icon(
@@ -300,7 +302,7 @@ fun ChatWarningAlert(warning: String) {
         Text(
             text = warning,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onTertiaryContainer
         )
     }
 }

@@ -5,6 +5,7 @@ import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import com.clinref.shared.secure.SecurePreferences
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +38,8 @@ class ChatExecutionManager(
     private val securePreferences: SecurePreferences,
     private val secureLogger: SecureLogger,
     private val backgroundExecutionBridge: BackgroundExecutionBridge? = null,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -124,7 +126,7 @@ class ChatExecutionManager(
 
             activeJob = launch {
                 try {
-                    val result = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    val result = kotlinx.coroutines.withContext(ioDispatcher) {
                         reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
                             val (agent, _) = koogAgentFactory.createAgent(
                                 config = config,
@@ -192,7 +194,7 @@ class ChatExecutionManager(
         }
     }
 
-    private suspend fun handleAgentResult(
+    internal suspend fun handleAgentResult(
         conversationId: String,
         messageId: String,
         result: String
@@ -200,12 +202,37 @@ class ChatExecutionManager(
         val cleanResult = ReasoningTokenSanitizer.stripReasoning(result)
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
+                val hasWrongNumbers = state.validation.violations.any {
+                    it.code == ViolationCodes.UNVERIFIED_QTY || it.code == ViolationCodes.UNRETRIEVED_DOSES
+                }
                 if (state.validation.passed && !cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
                     saveSuccessfulMessage(
                         conversationId = conversationId,
                         messageId = messageId,
                         result = cleanResult,
                         validation = state.validation,
+                        usage = state.tokenUsage
+                    )
+                } else if (hasWrongNumbers && cleanResult.isNotBlank() && !cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
+                    val effectiveValidation = if (state.validation.warnings.isEmpty()) {
+                        state.validation.copy(
+                            warnings = listOf(
+                                state.validation.blockedReason
+                                    ?: "Clinical response contains unverified clinical quantities."
+                            )
+                        )
+                    } else {
+                        state.validation
+                    }
+                    secureLogger.log(
+                        SecureLogger.Level.WARN, "ChatExecutionManager",
+                        "Safety validator blocked wrong numbers; displaying final LLM message with warnings: ${effectiveValidation.warnings.firstOrNull()}."
+                    )
+                    saveSuccessfulMessage(
+                        conversationId = conversationId,
+                        messageId = messageId,
+                        result = cleanResult,
+                        validation = effectiveValidation,
                         usage = state.tokenUsage
                     )
                 } else {

@@ -267,7 +267,7 @@ class ClinicalAgentStrategyTest {
         assertTrue(prompt.contains("Write no text. Respond ONLY with tool calls:"))
         assertTrue(prompt.contains("1. searchTopics(query): one condition or drug per call, 1-3 words. Use parallel calls for several entities."))
         assertTrue(prompt.contains("2. getTopicOverview(topicId): use a topicId returned by searchTopics, copied exactly."))
-        assertTrue(prompt.contains("3. getTopicSectionsText(topicId, sectionIds): use section ids copied exactly from the overview, or getGraphicContent(graphicId) for a dosing table."))
+        assertTrue(prompt.contains("3. getTopicSectionsText(topicId, sectionIds): use section ids copied exactly from the overview, or getGraphicContent(graphicId) for a table."))
         assertTrue(prompt.endsWith("You will write the answer after the section text is in context."))
         // The loose SYSTEM NOTICE prefix keeps the format_synthesis passthrough predicate working.
         assertTrue(prompt.startsWith("SYSTEM NOTICE"))
@@ -1061,6 +1061,10 @@ class ClinicalAgentStrategyTest {
             onPrepareRetry = { }
         )
         assertTrue(third is ClinicalAgentStrategy.SafetyEvaluation.Blocked)
+        val blocked = third as ClinicalAgentStrategy.SafetyEvaluation.Blocked
+        assertEquals("Draft must be preserved on safety block", draft, blocked.draft)
+        assertTrue("Warnings must not be empty on safety block for wrong numbers", blocked.warnings.isNotEmpty())
+        assertTrue("Warning must cite the offending unverified quantity", blocked.warnings.first().contains("500 mg"))
     }
 }
 

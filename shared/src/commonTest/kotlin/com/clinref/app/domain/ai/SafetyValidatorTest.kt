@@ -436,6 +436,7 @@ class SafetyValidatorTest {
         assertTrue("Preamble is banned", prompt.contains("No preamble"))
         assertFalse("No fixed shape taxonomy", prompt.contains("When to Escalate"))
         assertFalse("No fixed dosing template", prompt.contains("First-Line Regimen & Dosing"))
+        assertFalse("No forced drug section names", prompt.contains("Dosing: Adult"))
 
         // Patient profile fields
         assertTrue(prompt.contains("Age: 65"))
@@ -822,5 +823,63 @@ class SafetyValidatorTest {
             patientProfile = profile
         ))
         assertTrue("Restating a profile value is not invention: ${result.blockedReason}", result.passed)
+    }
+
+    @Test
+    fun `extractWrongStatements extracts exact sentences containing unverified quantities`() {
+        val answer = "For mild infection, amoxicillin 500 mg PO TID is standard. For severe cases, administer 1,000 mg IV every 8 hours."
+        // 500 mg is verified, 1000 mg is unverified
+        val wrongStatements = validator.extractWrongStatements(answer, setOf("1000 mg"))
+
+        assertEquals(1, wrongStatements.size)
+        assertEquals("For severe cases, administer 1,000 mg IV every 8 hours.", wrongStatements[0])
+    }
+
+    @Test
+    fun `extractWrongStatements extracts markdown list items containing unverified quantities`() {
+        val answer = """
+            Recommendations:
+            - Preferred: Amoxicillin 500 mg orally three times daily.
+            - Severe allergy: Azithromycin 1200 mg once daily.
+            - Alternative: Doxycycline 100 mg twice daily.
+        """.trimIndent()
+
+        val wrongStatements = validator.extractWrongStatements(answer, setOf("1200 mg"))
+
+        assertEquals(1, wrongStatements.size)
+        assertEquals("Severe allergy: Azithromycin 1200 mg once daily.", wrongStatements[0])
+    }
+
+    @Test
+    fun `validate populates warnings with wrong statements and unverified numbers when UNVERIFIED_QTY occurs`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "For mild infection, amoxicillin 500 mg PO TID is standard. For severe cases, administer 1,000 mg IV every 8 hours.",
+            toolResults = listOf("Standard dose is amoxicillin 500 mg three times daily."),
+            fetchedSections = listOf(section())
+        ))
+
+        assertFalse("1000 mg is not in evidence, so validation fails", result.passed)
+        assertEquals(1, result.violations.size)
+        assertEquals(ViolationCodes.UNVERIFIED_QTY, result.violations[0].code)
+
+        assertEquals("Warnings must contain 1 warning alert", 1, result.warnings.size)
+        val warning = result.warnings[0]
+        assertTrue("Warning must mention unverified quantity 1,000 mg", warning.contains("1,000 mg"))
+        assertTrue("Warning must include the wrong statement", warning.contains("For severe cases, administer 1,000 mg IV every 8 hours."))
+        assertFalse("Warning must not flag the verified statement", warning.contains("For mild infection, amoxicillin 500 mg"))
+    }
+
+    @Test
+    fun `validate leaves warnings empty when response passes clinical verification`() {
+        val result = validator.validate(ctx(
+            toolCalls = listOf(toolCall()),
+            answer = "Amoxicillin 500 mg PO TID is standard therapy.",
+            toolResults = listOf("Standard dose is amoxicillin 500 mg three times daily."),
+            fetchedSections = listOf(section())
+        ))
+
+        assertTrue("Verified response passes", result.passed)
+        assertTrue("Warnings must be empty when response passes", result.warnings.isEmpty())
     }
 }

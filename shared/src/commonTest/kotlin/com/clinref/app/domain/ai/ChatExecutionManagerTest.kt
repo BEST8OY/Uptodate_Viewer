@@ -1,15 +1,19 @@
 package com.clinref.app.domain.ai
 
+import ai.koog.agents.core.agent.AIAgent
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.fakes.FakeSecurePreferences
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -50,7 +54,9 @@ class ChatExecutionManagerTest {
             reliabilityManager = reliabilityManager,
             securePreferences = securePreferences,
             secureLogger = secureLogger,
-            backgroundExecutionBridge = backgroundBridge
+            backgroundExecutionBridge = backgroundBridge,
+            scope = CoroutineScope(SupervisorJob() + testDispatcher),
+            ioDispatcher = testDispatcher
         )
     }
 
@@ -110,6 +116,69 @@ class ChatExecutionManagerTest {
         coVerify(atLeast = 1) {
             conversationRepository.addMessage(match {
                 it.conversationId == "conv-2" && it.role == "cancelled"
+            })
+        }
+    }
+
+    @Test
+    fun testHandleAgentResultSavesFinalMessageWithWarningWhenBlockedForWrongNumbers() = runTest(testDispatcher) {
+        val draftAnswer = "Administer amoxicillin 1,000 mg orally every 8 hours."
+        val warningText = "Warning: Unverified clinical quantities (1,000 mg). The following statement(s) could not be verified against retrieved database sections:\n• \"Administer amoxicillin 1,000 mg orally every 8 hours.\""
+
+        val validation = SafetyValidator.ValidationResult(
+            passed = false,
+            warnings = listOf(warningText),
+            violations = listOf(Violation(code = ViolationCodes.UNVERIFIED_QTY, detail = "Unverified 1,000 mg", target = ViolationTarget.PHASE_2)),
+            blockedReason = "Unverified clinical quantities found in response: 1,000 mg."
+        )
+
+        every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
+            result = draftAnswer,
+            validation = validation,
+            tokenUsage = StreamingManager.TokenUsage(100, 50, 150)
+        )
+
+        manager.handleAgentResult("conv-1", "msg-1", draftAnswer)
+        advanceUntilIdle()
+
+        coVerify {
+            conversationRepository.addMessage(match { msg ->
+                msg.conversationId == "conv-1" &&
+                    msg.id == "msg-1" &&
+                    msg.role == "assistant" &&
+                    msg.content == draftAnswer &&
+                    !msg.isError &&
+                    msg.warningsJson?.contains("1,000 mg") == true
+            })
+        }
+    }
+
+    @Test
+    fun testHandleAgentResultQuarantinesMessageWhenBlockedWithoutWrongNumbers() = runTest(testDispatcher) {
+        val blockedText = "${ClinicalAgentStrategy.BLOCKED_MARKER}No tools executed"
+        val validation = SafetyValidator.ValidationResult(
+            passed = false,
+            warnings = emptyList(),
+            violations = listOf(Violation(code = ViolationCodes.NO_TOOLS, detail = "No tools", target = ViolationTarget.PHASE_1)),
+            blockedReason = "No tools executed"
+        )
+
+        every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
+            result = blockedText,
+            validation = validation,
+            tokenUsage = StreamingManager.TokenUsage(100, 50, 150)
+        )
+
+        manager.handleAgentResult("conv-1", "msg-2", blockedText)
+        advanceUntilIdle()
+
+        coVerify {
+            conversationRepository.addMessage(match { msg ->
+                msg.conversationId == "conv-1" &&
+                    msg.id == "msg-2" &&
+                    msg.role == "assistant" &&
+                    msg.isError &&
+                    msg.content.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)
             })
         }
     }
