@@ -100,6 +100,21 @@ class ChatExecutionManagerTest {
     }
 
     @Test
+    fun testCancelGenerationIsIdempotentAndDoesNotInsertDuplicates() = runTest(testDispatcher) {
+        manager.cancelGeneration("conv-1")
+        manager.cancelGeneration("conv-1")
+        manager.cancelGeneration("conv-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            conversationRepository.addMessage(match {
+                it.role == "cancelled" && it.isError && it.content.contains("terminated by operator")
+            })
+        }
+        verify(exactly = 1) { backgroundBridge.onExecutionCancelled("conv-1") }
+    }
+
+    @Test
     fun testCanSendMessageAllowsWhenNoGenerationActive() = runTest(testDispatcher) {
         assertTrue(manager.canSendMessage("conv-1"))
         assertTrue(manager.canSendMessage("conv-2"))

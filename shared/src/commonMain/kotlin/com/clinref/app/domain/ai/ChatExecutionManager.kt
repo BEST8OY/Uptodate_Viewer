@@ -159,6 +159,7 @@ class ChatExecutionManager(
                     )
                 } finally {
                     statusJob.cancel()
+                    userCancelled = true
                     _activeConversationId.value = null
                     _activeAssistantMessageId.value = null
                 }
@@ -171,9 +172,13 @@ class ChatExecutionManager(
         if (currentActive != null && currentActive != conversationId) {
             return
         }
+        if (currentActive == null && userCancelled) {
+            return
+        }
         userCancelled = true
-        activeJob?.cancel()
+        val job = activeJob
         activeJob = null
+        job?.cancel()
         val pendingId = _activeAssistantMessageId.value
         _activeConversationId.value = null
         _activeAssistantMessageId.value = null

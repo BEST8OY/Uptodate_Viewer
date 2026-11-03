@@ -71,10 +71,10 @@ class ChatGenerationService : Service() {
             }
             ACTION_CANCEL -> {
                 val convId = intent.getStringExtra(EXTRA_CONVERSATION_ID) ?: currentConversationId
+                stopForegroundAndSelf()
                 if (convId != null) {
                     chatExecutionManager.cancelGeneration(convId)
                 }
-                stopForegroundAndSelf()
             }
             ACTION_STOP -> {
                 val convId = intent.getStringExtra(EXTRA_CONVERSATION_ID)
@@ -183,6 +183,7 @@ class ChatGenerationService : Service() {
     }
 
     private fun stopForegroundAndSelf() {
+        currentConversationId = null
         releaseWakeLock()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()

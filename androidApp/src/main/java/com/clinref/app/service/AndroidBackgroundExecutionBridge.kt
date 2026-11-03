@@ -51,8 +51,9 @@ class AndroidBackgroundExecutionBridge(
 
     override fun onExecutionCancelled(conversationId: String) {
         val intent = Intent(context, ChatGenerationService::class.java).apply {
-            action = ChatGenerationService.ACTION_CANCEL
+            action = ChatGenerationService.ACTION_STOP
             putExtra(ChatGenerationService.EXTRA_CONVERSATION_ID, conversationId)
+            putExtra(ChatGenerationService.EXTRA_IS_ERROR, true)
         }
         try {
             context.startService(intent)
