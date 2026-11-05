@@ -51,6 +51,22 @@ class KoogAgentFactory(
 
     private fun getProvider(provider: AiProvider): AiProviderFactory? = providers[provider]
 
+    suspend fun resolveRuntime(config: AiConfiguration): Triple<ai.koog.prompt.executor.model.PromptExecutor, ai.koog.prompt.llm.LLModel, ai.koog.prompt.params.LLMParams?>? {
+        val apiKey = securePreferences.getApiKey(config.provider)
+        if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) return null
+
+        val providerFactory = getProvider(config.provider) ?: return null
+        val cacheKey = "${config.provider}_${apiKey.hashCode()}_${config.baseUrl}"
+        val executor = executorCache[cacheKey] ?: run {
+            val created = providerFactory.createExecutor(config, apiKey) ?: return null
+            executorCache[cacheKey] = created
+            created
+        }
+        val model = providerFactory.resolveModel(config)
+        val providerParams = providerFactory.createParams(config)
+        return Triple(executor, model, providerParams)
+    }
+
     suspend fun testConnection(config: AiConfiguration): Result<Unit> {
         val apiKey = securePreferences.getApiKey(config.provider)
         if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) {

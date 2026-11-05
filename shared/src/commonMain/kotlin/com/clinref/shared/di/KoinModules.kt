@@ -84,10 +84,18 @@ val commonAiModule: Module = module {
         )
     }
     single {
+        com.clinref.app.domain.ai.ClinicalOrchestrator(
+            medicalDatabaseTools = get(),
+            safetyValidator = get(),
+            secureLogger = get()
+        )
+    }
+    single {
         com.clinref.app.domain.ai.ChatExecutionManager(
             conversationRepository = get(),
             contentRepository = get(),
             koogAgentFactory = get(),
+            clinicalOrchestrator = get(),
             streamingManager = get(),
             reliabilityManager = get(),
             securePreferences = get(),

@@ -2,6 +2,7 @@ package com.clinref.app.ui.chat
 
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.ChatExecutionManager
+import com.clinref.app.domain.ai.ClinicalOrchestrator
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.SecureLogger
@@ -41,6 +42,7 @@ class ChatViewModelTest {
     private val reliabilityManager: ReliabilityManager = mockk(relaxed = true)
     private val securePreferences = FakeSecurePreferences()
     private val secureLogger: SecureLogger = mockk(relaxed = true)
+    private val clinicalOrchestrator: ClinicalOrchestrator = mockk(relaxed = true)
 
     private lateinit var chatExecutionManager: ChatExecutionManager
     private lateinit var viewModel: ChatViewModel
@@ -52,6 +54,7 @@ class ChatViewModelTest {
             conversationRepository = conversationRepository,
             contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
+            clinicalOrchestrator = clinicalOrchestrator,
             streamingManager = streamingManager,
             reliabilityManager = reliabilityManager,
             securePreferences = securePreferences,

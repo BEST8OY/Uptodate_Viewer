@@ -33,6 +33,7 @@ class ChatExecutionManager(
     private val conversationRepository: ConversationRepository,
     private val contentRepository: ContentRepository,
     private val koogAgentFactory: KoogAgentFactory,
+    private val clinicalOrchestrator: ClinicalOrchestrator,
     private val streamingManager: StreamingManager,
     private val reliabilityManager: ReliabilityManager,
     private val securePreferences: SecurePreferences,
@@ -128,17 +129,22 @@ class ChatExecutionManager(
                 try {
                     val result = kotlinx.coroutines.withContext(ioDispatcher) {
                         reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
-                            val (agent, _) = koogAgentFactory.createAgent(
-                                config = config,
-                                conversationId = conversationId,
+                            val runtime = koogAgentFactory.resolveRuntime(config)
+                                ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
+                            val history = conversationRepository.getMessagesPage(conversationId, 20, 0)
+                            clinicalOrchestrator.runTurn(
+                                question = trimmed,
                                 patientProfile = patientProfile,
+                                chatHistory = history.reversed(),
+                                executor = runtime.first,
+                                model = runtime.second,
+                                providerParams = runtime.third,
                                 streamingManager = streamingManager,
-                                userMessage = trimmed
-                            ) ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                            agent.run(trimmed, conversationId)
+                                isAnthropic = config.provider == AiProvider.ANTHROPIC
+                            )
                         }
                     }
-                    handleAgentResult(conversationId, pendingAssistantId, result)
+                    handleAgentResult(conversationId, pendingAssistantId, result.content)
                 } catch (e: CancellationException) {
                     if (userCancelled) {
                         throw e

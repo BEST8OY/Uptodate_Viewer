@@ -40,6 +40,7 @@ class ChatExecutionManagerTest {
     private val securePreferences = FakeSecurePreferences()
     private val secureLogger: SecureLogger = mockk(relaxed = true)
     private val backgroundBridge: BackgroundExecutionBridge = mockk(relaxed = true)
+    private val clinicalOrchestrator: ClinicalOrchestrator = mockk(relaxed = true)
 
     private lateinit var manager: ChatExecutionManager
 
@@ -50,6 +51,7 @@ class ChatExecutionManagerTest {
             conversationRepository = conversationRepository,
             contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
+            clinicalOrchestrator = clinicalOrchestrator,
             streamingManager = streamingManager,
             reliabilityManager = reliabilityManager,
             securePreferences = securePreferences,
