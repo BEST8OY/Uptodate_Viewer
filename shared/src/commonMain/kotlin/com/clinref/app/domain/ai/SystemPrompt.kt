@@ -173,4 +173,45 @@ Plain text with bold for the opening takeaway and headers only. Simple bullet li
      * provider-side prompt caches are not invalidated per consultation.
      */
     fun patientContextBlock(patientProfile: PatientProfile): String = patientProfile.toSystemBlock()
+
+    /**
+     * Formats fetched section content into an evidence digest string.
+     */
+    fun evidenceSummaryFrom(sections: List<SafetyValidator.FetchedSection>): String =
+        sections.joinToString("\n---\n") { sec ->
+            if (sec.contentSnippet.isNotBlank()) {
+                "Section [${sec.sectionId}] (${sec.sectionTitle}):\n${sec.contentSnippet}"
+            } else {
+                "Section [${sec.sectionId}] (${sec.sectionTitle}) from topic ${sec.topicTitle}"
+            }
+        }.ifBlank { "No section text was successfully fetched in the prior turn." }
+
+    /**
+     * Formats the Stage-2 synthesis directive for closed-book answering without tools.
+     */
+    fun formatSynthesisPrompt(
+        pendingInput: String,
+        userQuestion: String,
+        turnContext: SafetyValidator.TurnContext
+    ): String {
+        if (pendingInput.startsWith("SYSTEM NOTICE")) {
+            return pendingInput
+        }
+
+        val evidenceSummary = evidenceSummaryFrom(turnContext.fetchedSections)
+        val question = if (userQuestion.isNotBlank()) userQuestion else pendingInput
+
+        return buildString {
+            appendLine("CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK — NO TOOLS ACTIVE)")
+            appendLine()
+            appendLine("<retrieved_evidence>")
+            appendLine(evidenceSummary)
+            appendLine("</retrieved_evidence>")
+            appendLine()
+            appendLine(SYNTHESIS_CONTRACT)
+            appendLine()
+            appendLine("CLINICAL INQUIRY:")
+            append(question)
+        }
+    }
 }

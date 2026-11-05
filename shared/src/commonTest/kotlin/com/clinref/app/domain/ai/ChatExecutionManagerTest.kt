@@ -172,7 +172,7 @@ class ChatExecutionManagerTest {
 
     @Test
     fun testHandleAgentResultQuarantinesMessageWhenBlockedWithoutWrongNumbers() = runTest(testDispatcher) {
-        val blockedText = "${ClinicalAgentStrategy.BLOCKED_MARKER}No tools executed"
+        val blockedText = "${ChatExecutionManager.BLOCKED_MARKER}No tools executed"
         val validation = SafetyValidator.ValidationResult(
             passed = false,
             warnings = emptyList(),
@@ -195,7 +195,7 @@ class ChatExecutionManagerTest {
                     msg.id == "msg-2" &&
                     msg.role == "assistant" &&
                     msg.isError &&
-                    msg.content.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)
+                    msg.content.startsWith(ChatExecutionManager.BLOCKED_MARKER)
             })
         }
     }

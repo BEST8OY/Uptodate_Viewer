@@ -454,7 +454,7 @@ class SafetyValidatorTest {
             answer = "",
             fetchedSections = listOf(SafetyValidator.FetchedSection("1", "Topic", "H1", "Dosing", "Give 5 mg."))
         )
-        val prompt = ClinicalAgentStrategy.formatSynthesisPrompt("", "What is the dose?", turnContext)
+        val prompt = SystemPrompt.formatSynthesisPrompt("", "What is the dose?", turnContext)
 
         assertTrue("The directive restates the one-line contract", prompt.contains(SystemPrompt.SYNTHESIS_CONTRACT))
         assertTrue(prompt.contains("<retrieved_evidence>"))

@@ -205,6 +205,10 @@ class ChatExecutionManager(
         }
     }
 
+    companion object {
+        const val BLOCKED_MARKER = "Clinical Response Verification Blocked: "
+    }
+
     internal suspend fun handleAgentResult(
         conversationId: String,
         messageId: String,
@@ -216,7 +220,7 @@ class ChatExecutionManager(
                 val hasWrongNumbers = state.validation.violations.any {
                     it.code == ViolationCodes.UNVERIFIED_QTY || it.code == ViolationCodes.UNRETRIEVED_DOSES
                 }
-                if (state.validation.passed && !cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
+                if (state.validation.passed && !cleanResult.startsWith(BLOCKED_MARKER)) {
                     saveSuccessfulMessage(
                         conversationId = conversationId,
                         messageId = messageId,
@@ -224,7 +228,7 @@ class ChatExecutionManager(
                         validation = state.validation,
                         usage = state.tokenUsage
                     )
-                } else if (hasWrongNumbers && cleanResult.isNotBlank() && !cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
+                } else if (hasWrongNumbers && cleanResult.isNotBlank() && !cleanResult.startsWith(BLOCKED_MARKER)) {
                     val effectiveValidation = if (state.validation.warnings.isEmpty()) {
                         state.validation.copy(
                             warnings = listOf(
@@ -253,10 +257,10 @@ class ChatExecutionManager(
                         SecureLogger.Level.WARN, "ChatExecutionManager",
                         "Safety blocked: $blockedReason."
                     )
-                    val content = if (cleanResult.startsWith(ClinicalAgentStrategy.BLOCKED_MARKER)) {
+                    val content = if (cleanResult.startsWith(BLOCKED_MARKER)) {
                         cleanResult
                     } else {
-                        "${ClinicalAgentStrategy.BLOCKED_MARKER}$blockedReason"
+                        "$BLOCKED_MARKER$blockedReason"
                     }
                     saveQuarantinedMessage(conversationId, messageId, content, state.validation)
                 }

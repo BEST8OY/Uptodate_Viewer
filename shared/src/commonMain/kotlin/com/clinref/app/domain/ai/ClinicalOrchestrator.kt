@@ -196,14 +196,14 @@ class ClinicalOrchestrator(
         // ════════════════════════════════════════════════════════════════════
         streamingManager.onSynthesisStarting()
 
-        val rawEvidence = ClinicalAgentStrategy.evidenceSummaryFrom(accumulator.getFetchedSections())
+        val rawEvidence = SystemPrompt.evidenceSummaryFrom(accumulator.getFetchedSections())
         val evidenceSummary = if (rawEvidence.length > MAX_EVIDENCE_CHARS) {
             rawEvidence.take(MAX_EVIDENCE_CHARS) + "\n...[Additional sections omitted for context budgeting]"
         } else {
             rawEvidence
         }
 
-        val synthesisDirective = ClinicalAgentStrategy.formatSynthesisPrompt(
+        val synthesisDirective = SystemPrompt.formatSynthesisPrompt(
             pendingInput = trimmedQuestion,
             userQuestion = trimmedQuestion,
             turnContext = accumulator.buildTurnContext("")

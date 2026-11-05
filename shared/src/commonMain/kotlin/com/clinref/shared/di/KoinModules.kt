@@ -8,7 +8,6 @@ import com.clinref.app.data.DatabaseManager
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.SearchDao
 import com.clinref.app.data.TocDao
-import com.clinref.app.data.ai.RoomChatHistoryProvider
 import com.clinref.app.data.local.AppDatabase
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.ReliabilityManager
@@ -42,8 +41,6 @@ val commonDatabaseModule: Module = module {
     single { get<AppDatabase>().historyDao() }
     single { get<AppDatabase>().favoriteDao() }
     single { get<AppDatabase>().readingPositionDao() }
-
-    single { RoomChatHistoryProvider(messageDao = get()) }
 }
 
 val commonRepositoryModule: Module = module {
@@ -77,9 +74,6 @@ val commonAiModule: Module = module {
     single {
         KoogAgentFactory(
             securePreferences = get(),
-            medicalDatabaseTools = get(),
-            safetyValidator = get(),
-            chatHistoryProvider = get(),
             secureLogger = get()
         )
     }
