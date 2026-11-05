@@ -22,7 +22,7 @@ route_intent  ──small talk──▶ canned reply (no LLM, no tools) ──�
                         ▼
                      validate_evidence        ← Gate 1 (NO_TOOLS / NO_SECTIONS)
                         │ fail → evidence-gate pause prompt → evidence_gathering
-                        │ pass → (compress history if near token limit) → synthesis
+                        │ pass → clinical_synthesis (distilled <retrieved_evidence>)
                         ▼
                      clinical_synthesis       ← closed book, tools = emptyList()
                         ▼
@@ -36,15 +36,22 @@ route_intent  ──small talk──▶ canned reply (no LLM, no tools) ──�
                         └ budget exhausted → blocked message (reason + what to do) → finish
 ```
 
-Budgets: `MAX_TOOL_ROUNDS = 24`, `maxSafetyRetries = 2` (Gate 1 retries, Gate 2 revisions per
-draft, premature interceptions), `MAX_EVIDENCE_ESCALATIONS = 1`, `maxAgentIterations = 128`,
-history compression at 80 % of `historyCompressionThreshold` (128 000 default).
+### Production Kotlin Multiplatform (`ClinicalOrchestrator`) Execution Model
 
-Why escalation exists: a tool-free revision can only drop or re-word a value. If the value was
-never retrieved, the model tends to restate it and the turn dead-ends after the budget. After one
-failed revision the violation becomes `UNRETRIEVED_DOSES` (Phase 1), the offending values are named
-in the prompt, and tools are available again. Escalation is capped at one, and it resets the
-revision counter so the freshly retrieved draft gets its own repair attempt.
+In the production Kotlin application (`:shared`), this lifecycle is implemented by `ClinicalOrchestrator` via an explicit procedural pipeline directly on `PromptExecutor`:
+
+1. **Stage 0: Deterministic Small-Talk Gating**: Immediate regex check (`QuestionRouter.smallTalk`). Greetings and conversational pleasantries bypass the retrieval pipeline with zero LLM or network calls.
+2. **Stage 1: Ephemeral Parallel Tool Retrieval Loop**: Runs up to `MAX_RETRIEVAL_ROUNDS = 10`. When the model suggests multiple tools, they execute concurrently via `coroutineScope { awaitAll() }`. Evidence sections are accumulated in full without artificial truncation (`MAX_EVIDENCE_CHARS` limit removed to guarantee complete clinical tables and multi-page dosing matrices reach synthesis unclipped). Multi-turn conversation history is retained up to `MAX_CHAT_HISTORY_TURNS = 100`.
+   - **Evidence Gating & 1-Pass Retry**: If round execution ends with zero retrieved evidence, a single retrieval retry is triggered (`buildEvidenceGatePausePrompt`). If still empty, the orchestrator emits `CANONICAL_ABSTENTION` and halts without synthesis.
+3. **Stage 2: Closed-Book Clinical Synthesis**: Tools are completely omitted (`tools = emptyList()`), strictly preventing tool hallucination. Synthesis streams token-by-token into `StreamingManager.onStreamingTextDelta`. Static clinical guidance is cached (`AnthropicCacheControl.Default`), and reasoning tokens are sanitized (`ReasoningTokenSanitizer`).
+4. **Gate 2: Deterministic Safety Validation & 1-Pass Revision**: `SafetyValidator.validate` checks the completed draft for unverified quantities (`UNVERIFIED_QTY` / `UNRETRIEVED_DOSES`). A single-pass tool-free revision is issued (`buildRevisionPrompt`). If figures remain unverified after revision, the draft is presented with amber warning badges citing the offending values.
+
+### Python Prototype Reference Model
+
+In `python_prototype/agent.py`, the turn is driven by LangGraph state transitions:
+Budgets: `MAX_TOOL_ROUNDS = 24`, `maxSafetyRetries = 2` (Gate 1 retries, Gate 2 revisions per draft, premature interceptions), `MAX_EVIDENCE_ESCALATIONS = 1`, `maxAgentIterations = 128`.
+
+Why escalation exists: a tool-free revision can only drop or re-word a value. If the value was never retrieved, the model tends to restate it and the turn dead-ends after the budget. After one failed revision the violation becomes `UNRETRIEVED_DOSES` (Phase 1), the offending values are named in the prompt, and tools are available again. Escalation is capped at one, and it resets the revision counter so the freshly retrieved draft gets its own repair attempt.
 
 ## 2. System prompt
 
@@ -112,7 +119,7 @@ actionable rather than a dead end.
 |---|---|---|---|
 | 1 | `searchTopics` | `query` | Candidate `{id, title}` pairs; auto-refines through the typeahead vocabulary when the direct hit is empty |
 | 2 | `getTopicOverview` | `topicId` | Section outline, `graphic_table` ids, related topics, `topicType`; calculator topics return full content |
-| 3 | `getTopicSectionsText` | `topicId`, `sectionIds[]` | Verbatim section text, ≤ 10 sections per call; extras reported in `omittedSections` |
+| 3 | `getTopicSectionsText` | `topicId`, `sectionIds[]` | Verbatim section text, ≤ 10 sections per call (extras reported in `omittedSections`); applies parent-child section subsumption in outline order to eliminate redundant descendant text |
 | 4 | `searchTopicSections` | `topicId`, `query` | Section ids + snippets for one narrow topic inside a long article |
 | 5 | `getGraphicContent` | `graphicId` | Markdown table for `graphic_table` assets; non-tables return an error envelope |
 

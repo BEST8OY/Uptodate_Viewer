@@ -340,6 +340,51 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
+    fun `getTopicSectionsText avoids duplicate text when both parent and child sections are requested`() {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Treatment</a>
+                    <ul>
+                        <li><a href="appAction({&quot;section&quot;:&quot;H3&quot;})">Antibiotics</a></li>
+                    </ul>
+                </li>
+                <li><a href="appAction({&quot;section&quot;:&quot;H4&quot;})">Prevention</a></li>
+            </ul>
+        """.trimIndent()
+
+        val bodyHtml = """
+            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>General overview text.</p>
+            <p class="headingAnchor" id="H2"><span class="h2">Treatment</span><span class="headingEndMark">—</span>Infected wounds must be drained.</p>
+            <p class="headingAnchor" id="H3"><span class="h3">Antibiotics</span><span class="headingEndMark">—</span>Give Vancomycin 15 to 20 mg/kg IV.</p>
+            <p class="headingAnchor" id="H4"><span class="h2">Prevention</span><span class="headingEndMark">—</span>Use sterile technique.</p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("401") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
+        every { contentRepository.getTopicTitle("401") } returns "Topic 401"
+
+        // Request both H2 (parent) and H3 (child), in reverse order to verify sorting & subsumption
+        val res = tools.getTopicSectionsText("401", listOf("H3", "H2"))
+        val md = res.markdown
+
+        // Both sections are in sectionTitles for citation badges
+        assertTrue(res.sectionTitles.containsKey("H2"))
+        assertTrue(res.sectionTitles.containsKey("H3"))
+
+        // H2 is emitted in full and contains H3 content
+        assertTrue(md.contains("=== Section: H2 ==="))
+        assertTrue(md.contains("Infected wounds must be drained."))
+        assertTrue(md.contains("Vancomycin 15 to 20 mg/kg IV"))
+
+        // H3 is emitted with pointer to H2 and avoids duplicating the clinical text
+        assertTrue(md.contains("=== Section: H3 ===\n(Content included in section [H2] above)"))
+
+        // The text "Vancomycin 15 to 20 mg/kg IV" should appear EXACTLY once in the whole response
+        val occurrences = Regex("Vancomycin 15 to 20 mg/kg IV").findAll(md).count()
+        assertEquals(1, occurrences)
+    }
+
+    @Test
     fun `getTopicSectionsText resolves section by title if title is passed instead of id`() {
         val outlineHtml = """
             <ul id="innerOutline">

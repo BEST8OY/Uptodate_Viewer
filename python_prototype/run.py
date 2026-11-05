@@ -31,7 +31,6 @@ from tools import init_tools
 DEFAULT_TEMPERATURE = 0.15
 DEFAULT_MAX_OUTPUT_TOKENS_CLOUD = 16384
 DEFAULT_MAX_OUTPUT_TOKENS_OLLAMA = 4096
-DEFAULT_HISTORY_COMPRESSION_THRESHOLD = 128000
 
 
 def collect_patient_profile() -> Optional[dict]:
@@ -222,10 +221,8 @@ def run_interactive(provider: str, model: str, db_path: str):
     llm_with_tools = llm.bind_tools(tools)
 
     from agent import (
-        compress_conversation_history,
         create_clinical_agent,
         create_initial_state,
-        is_near_token_limit,
     )
     from token_tracker import TokenTracker
     token_tracker = TokenTracker()
@@ -236,7 +233,6 @@ def run_interactive(provider: str, model: str, db_path: str):
         callbacks=[token_tracker],
         llm_with_tools=llm_with_tools,
         llm_tool_free=llm,
-        history_compression_threshold=DEFAULT_HISTORY_COMPRESSION_THRESHOLD,
     )
 
     print(f"ClinRef Prototype — Provider: {provider}, Model: {model or 'default'}")
@@ -355,13 +351,6 @@ def run_interactive(provider: str, model: str, db_path: str):
         conversation_history.append(HumanMessage(content=user_input))
         conversation_history.append(AIMessage(content=answer))
 
-        # Semantic history compression when approaching 128k threshold
-        if is_near_token_limit(conversation_history, DEFAULT_HISTORY_COMPRESSION_THRESHOLD):
-            conversation_history = compress_conversation_history(
-                conversation_history,
-                patient_profile=patient_profile,
-            )
-
     db.close()
 
 
@@ -391,7 +380,6 @@ def run_single_query(query: str, provider: str, model: str, db_path: str, patien
         callbacks=[token_tracker],
         llm_with_tools=llm_with_tools,
         llm_tool_free=llm,
-        history_compression_threshold=DEFAULT_HISTORY_COMPRESSION_THRESHOLD,
     )
 
     initial_state = create_initial_state(query, system_prompt, patient_profile=patient_profile)

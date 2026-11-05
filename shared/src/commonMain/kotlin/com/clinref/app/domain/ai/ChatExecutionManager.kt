@@ -131,7 +131,11 @@ class ChatExecutionManager(
                         reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
                             val runtime = koogAgentFactory.resolveRuntime(config)
                                 ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                            val history = conversationRepository.getMessagesPage(conversationId, 20, 0)
+                            val history = conversationRepository.getMessagesPage(
+                                conversationId,
+                                ClinicalOrchestrator.MAX_CHAT_HISTORY_TURNS,
+                                0
+                            )
                             clinicalOrchestrator.runTurn(
                                 question = trimmed,
                                 patientProfile = patientProfile,

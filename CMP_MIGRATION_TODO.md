@@ -16,7 +16,7 @@ This document serves as the authoritative, phased TODO checklist and execution b
 |  | - Compose M3 Expressive UI & Adaptive Layouts (Phone, Tablet, Desktop)      |  |
 |  | - Navigation 3 NavDisplay & Top-Level Independent Peer Roots                |  |
 |  | - ViewModels (MVI StateFlows, UI State, Coroutine Scopes)                   |  |
-|  | - Koog AI Agent Pipeline (ClinicalAgentStrategy, Safety, Accumulator)       |  |
+|  | - Procedural Two-Stage AI Pipeline (ClinicalOrchestrator, Safety, Accumulator)|  |
 |  | - Domain Models & Unified Clinical Citation Hierarchy (ClinicalSource)      |  |
 |  | - Repositories (Content, Search, Toc, History, Favorites, Conversation)    |  |
 |  | - Room 3 AppDatabase (Conversations, Messages, History, Favorites)          |  |
@@ -77,7 +77,7 @@ This document serves as the authoritative, phased TODO checklist and execution b
   - [x] Pure domain models: `Audience`, `Topic`, `SearchResult`, `TocItem`, `GraphicData`, `HistoryEntry`, `FavoriteEntry`.
   - [x] AI domain models: `ClinicalSource`, `AiConfiguration`, `PatientProfile`, `AiProvider`, `ProviderSettings`, `SystemPrompt`, `AiJsonUtils`.
   - [x] All 7 AI providers: `OpenAIProvider`, `AnthropicProvider`, `GoogleProvider`, `MistralAIProvider`, `OllamaProvider`, `OpenRouterProvider`, `AiProviderFactory`.
-  - [x] Autonomous ReAct state machine: `ClinicalAgentStrategy`, `SafetyValidator`, `TurnContextAccumulator`, `StreamingManager`, `ReliabilityManager`.
+  - [x] Procedural two-stage clinical pipeline: `ClinicalOrchestrator`, `SafetyValidator`, `TurnContextAccumulator`, `StreamingManager`, `ReliabilityManager`.
 - [x] **3.2. Pure Kotlin HTML Table to Markdown Transformation**
   - [x] Eliminated JVM-only `org.jsoup:jsoup` dependency in `MedicalDatabaseTools.kt`.
   - [x] Implemented pure Kotlin regex-based table parser and markdown pipe generator matching Python prototype test expectations.

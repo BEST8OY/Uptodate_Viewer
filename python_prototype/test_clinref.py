@@ -1203,7 +1203,42 @@ class TestGetTopicSectionText:
         # No token cap: the whole calculator body is returned
         assert result.truncated is None
         assert "[Content truncated due to token limit]" not in result.markdown
-        assert result.markdown.count("Calculations") == 300
+
+    def test_get_topic_sections_text_avoids_duplicate_text_for_subsumed_sections(self):
+        import tools
+        self.mock_db.get_topic_title.return_value = "Topic 401"
+        self.mock_db.get_topic_asset.return_value = {
+            "topicInfo": {"type": "medical"},
+            "outlineHtml": """
+                <ul id="innerOutline">
+                    <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
+                    <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Treatment</a>
+                        <ul>
+                            <li><a href="appAction({&quot;section&quot;:&quot;H3&quot;})">Antibiotics</a></li>
+                        </ul>
+                    </li>
+                    <li><a href="appAction({&quot;section&quot;:&quot;H4&quot;})">Prevention</a></li>
+                </ul>
+            """,
+            "bodyHtml": """
+                <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>General overview text.</p>
+                <p class="headingAnchor" id="H2"><span class="h2">Treatment</span><span class="headingEndMark">—</span>Infected wounds must be drained.</p>
+                <p class="headingAnchor" id="H3"><span class="h3">Antibiotics</span><span class="headingEndMark">—</span>Give Vancomycin 15 to 20 mg/kg IV.</p>
+                <p class="headingAnchor" id="H4"><span class="h2">Prevention</span><span class="headingEndMark">—</span>Use sterile technique.</p>
+            """,
+        }
+        # Request both H2 (parent) and H3 (child) in reverse order
+        result = tools.get_topic_sections_text.func(
+            topic_id="401", section_ids=["H3", "H2"]
+        )
+
+        assert "H2" in result.sectionTitles
+        assert "H3" in result.sectionTitles
+        assert "=== Section: H2 ===" in result.markdown
+        assert "Infected wounds must be drained." in result.markdown
+        assert "Vancomycin 15 to 20 mg/kg IV" in result.markdown
+        assert "=== Section: H3 ===\n(Content included in section [H2] above)" in result.markdown
+        assert result.markdown.count("Vancomycin 15 to 20 mg/kg IV") == 1
 
 
 class TestGetGraphicContent:
@@ -1285,7 +1320,6 @@ class TestAgentGraph:
         assert "execute_tools" in graph.nodes
         assert "intercept_premature" in graph.nodes
         assert "validate_evidence" in graph.nodes
-        assert "node_compress_history" in graph.nodes
         assert "validate_safety" in graph.nodes
         assert "safety_block" in graph.nodes
 

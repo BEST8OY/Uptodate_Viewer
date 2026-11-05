@@ -41,8 +41,7 @@ class ClinicalOrchestrator(
     companion object {
         private const val TAG = "ClinicalOrchestrator"
         const val MAX_RETRIEVAL_ROUNDS = 10
-        const val MAX_CHAT_HISTORY_TURNS = 10
-        const val MAX_EVIDENCE_CHARS = 120_000 // ~30k tokens
+        const val MAX_CHAT_HISTORY_TURNS = 100
     }
 
     data class ExecutionResult(
@@ -196,12 +195,7 @@ class ClinicalOrchestrator(
         // ════════════════════════════════════════════════════════════════════
         streamingManager.onSynthesisStarting()
 
-        val rawEvidence = SystemPrompt.evidenceSummaryFrom(accumulator.getFetchedSections())
-        val evidenceSummary = if (rawEvidence.length > MAX_EVIDENCE_CHARS) {
-            rawEvidence.take(MAX_EVIDENCE_CHARS) + "\n...[Additional sections omitted for context budgeting]"
-        } else {
-            rawEvidence
-        }
+        val evidenceSummary = SystemPrompt.evidenceSummaryFrom(accumulator.getFetchedSections())
 
         val synthesisDirective = SystemPrompt.formatSynthesisPrompt(
             pendingInput = trimmedQuestion,

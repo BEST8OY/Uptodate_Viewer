@@ -40,10 +40,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -486,25 +484,7 @@ fun AiSettingsScreen(
                     }
                 }
 
-                // PANEL 3: RATE LIMITS & MEMORY
-                SettingsGroupCard(
-                    title = "Memory & Rate Controls",
-                    icon = Icons.Default.Speed
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        OutlinedTextField(
-                            value = configuration.historyCompressionThreshold.toString(),
-                            onValueChange = { it.toIntOrNull()?.let { threshold -> viewModel.updateHistoryThreshold(threshold) } },
-                            label = { Text("Compression Threshold (Tokens)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            leadingIcon = { Icon(Icons.Default.History, contentDescription = null) }
-                        )
-                    }
-                }
-
-                // PANEL 4: DATA COMPLIANCE NOTICE
+                // PANEL 3: DATA COMPLIANCE NOTICE
                 Card(
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(

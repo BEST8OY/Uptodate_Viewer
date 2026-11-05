@@ -263,11 +263,15 @@ class MedicalDatabaseTools(
             )
         }
 
+        val outlineOrderMap = sections.mapIndexed { idx, s -> s.id.uppercase() to idx }.toMap()
+        val sortedValidIds = validIds.sortedBy { outlineOrderMap[it.uppercase()] ?: Int.MAX_VALUE }
+        val subsumedMap = findSubsumedSections(sortedValidIds, sections)
+
         val sectionsMd = mutableListOf<String>()
         val sectionTitles = mutableMapOf<String, String>()
         val omittedSections = mutableListOf<String>()
 
-        validIds.forEachIndexed { index, sectionId ->
+        sortedValidIds.forEachIndexed { index, sectionId ->
 
             // Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
             // extra IDs are reported in omittedSections (never dropped silently).
@@ -277,15 +281,20 @@ class MedicalDatabaseTools(
             }
 
             val title = idToTitle[sectionId] ?: ""
-            val sectionHtml = extractSectionHtml(content.bodyHtml, sections, sectionId)
-            val secMarkdown = if (sectionHtml != null) {
-                htmlToMarkdown(sectionHtml) { tid ->
-                    topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
-                }
+            val subsumedBy = subsumedMap[sectionId]
+            val secEntry = if (subsumedBy != null) {
+                "=== Section: $sectionId ===\n(Content included in section [$subsumedBy] above)"
             } else {
-                "Section not found."
+                val sectionHtml = extractSectionHtml(content.bodyHtml, sections, sectionId)
+                val secMarkdown = if (sectionHtml != null) {
+                    htmlToMarkdown(sectionHtml) { tid ->
+                        topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
+                    }
+                } else {
+                    "Section not found."
+                }
+                "=== Section: $sectionId ===\n$secMarkdown"
             }
-            val secEntry = "=== Section: $sectionId ===\n$secMarkdown"
 
             sectionsMd.add(secEntry)
             sectionTitles[sectionId] = title
@@ -442,12 +451,65 @@ class MedicalDatabaseTools(
         val score: Int
     )
 
-    private data class ParsedSection(
+    internal data class ParsedSection(
         val id: String,
         val title: String,
         val level: Int = 1,
         val parentId: String? = null
     )
+
+    /**
+     * Determines which requested sections are structurally subsumed by an ancestor section
+     * that is already being emitted in full.
+     *
+     * In UpToDate articles, extracting an ancestor section (e.g. level 1) includes all of its
+     * child subsections (level > 1) up to the next sibling/ancestor. If both an ancestor and
+     * its descendants are requested, extracting each descendant separately causes massive
+     * duplication in LLM context.
+     *
+     * Returns a map of `descendantSectionId -> ancestorSectionId`.
+     */
+    internal fun findSubsumedSections(
+        sortedValidIds: List<String>,
+        outlineSections: List<ParsedSection>
+    ): Map<String, String> {
+        if (outlineSections.isEmpty() || sortedValidIds.size <= 1) return emptyMap()
+
+        val outlineIndexMap = outlineSections.mapIndexed { idx, s -> s.id.uppercase() to idx }.toMap()
+        val subsumedMap = mutableMapOf<String, String>()
+        val emittedAncestors = mutableListOf<Triple<String, Int, Int>>()
+
+        for (sid in sortedValidIds) {
+            val sidUpper = sid.uppercase()
+            val secIndex = outlineIndexMap[sidUpper] ?: continue
+            val secLevel = outlineSections[secIndex].level
+
+            var subsumedBy: String? = null
+            for ((ancId, ancIndex, ancLevel) in emittedAncestors) {
+                if (ancIndex < secIndex) {
+                    var isAllDeeper = true
+                    for (k in (ancIndex + 1)..secIndex) {
+                        if (outlineSections[k].level <= ancLevel) {
+                            isAllDeeper = false
+                            break
+                        }
+                    }
+                    if (isAllDeeper) {
+                        subsumedBy = ancId
+                        break
+                    }
+                }
+            }
+
+            if (subsumedBy != null) {
+                subsumedMap[sid] = subsumedBy
+            } else {
+                emittedAncestors.add(Triple(sid, secIndex, secLevel))
+            }
+        }
+
+        return subsumedMap
+    }
 
     /**
      * Section entries of `outlineHtml`, depth-first, deduplicated. Graphics and related

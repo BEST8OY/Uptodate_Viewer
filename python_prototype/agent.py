@@ -1,13 +1,10 @@
-r"""LangGraph clinical retrieval agent — mirrors KoogAgentFactory.kt & ClinicalAgentStrategy.kt.
+r"""LangGraph clinical retrieval agent — mirrors Kotlin ClinicalOrchestrator architecture.
 
 Two-Phase Isolated Graph Architecture:
   Phase 1: node_evidence_gathering (with retrieval tools) <-> execute_tools
                                     |
                                     v
            validate_evidence (Dual Gate 1: Pre-Synthesis Evidence Gate)
-                                    |
-                                    v
-     [Near 128k token headroom?] -> node_compress_history
                                     |
                                     v
   Phase 2: node_clinical_synthesis (ZERO database tools bound in model schema)
@@ -94,95 +91,6 @@ def estimate_messages_tokens(messages: list[BaseMessage]) -> int:
                 total += estimate_tokens(tc.get("name", ""))
                 total += estimate_tokens(json.dumps(tc.get("args", {})))
     return total
-
-
-def is_near_token_limit(messages: list[BaseMessage], threshold: int = 128000) -> bool:
-    """Evaluates whether message context exceeds 85% of active threshold."""
-    return estimate_messages_tokens(messages) >= int(threshold * 0.85)
-
-
-def compress_conversation_history(
-    messages: list[BaseMessage],
-    patient_profile: Optional[Union[PatientProfile, dict]] = None,
-) -> list[BaseMessage]:
-    """Semantic history compression preserving patient profile, allergies, and citations.
-
-    Mirrors Koog's native semantic history compression (nodeLLMCompressHistory).
-    Preserves:
-    - Patient Profile demographics / constraints
-    - Documented Allergies (never discarded or compressed away)
-    - Primary Clinical Inquiries
-    - Key Verified Topics & References
-    """
-    if len(messages) <= 2:
-        return list(messages)
-
-    sys_msgs = [m for m in messages if isinstance(m, SystemMessage)]
-    non_sys = [m for m in messages if not isinstance(m, SystemMessage)]
-
-    if len(non_sys) <= 2:
-        return list(messages)
-
-    older_msgs = non_sys[:-2]
-    recent_msgs = non_sys[-2:]
-
-    inquiries = []
-    topics_mentioned = set()
-    for m in older_msgs:
-        if isinstance(m, HumanMessage) and m.content:
-            text = str(m.content).strip()
-            if not text.startswith("SYSTEM NOTICE:"):
-                inquiries.append(text[:120])
-        elif isinstance(m, ToolMessage) and m.content:
-            try:
-                data = json.loads(m.content)
-                if isinstance(data, dict):
-                    if "topicTitle" in data and data["topicTitle"]:
-                        topics_mentioned.add(data["topicTitle"])
-                    elif "title" in data and data["title"]:
-                        topics_mentioned.add(data["title"])
-            except Exception:
-                pass
-
-    summary_lines = ["=== CONVERSATION HISTORY SUMMARY (TLDR) ==="]
-
-    profile_dict = patient_profile.model_dump() if hasattr(patient_profile, "model_dump") else (patient_profile or {})
-    if profile_dict:
-        demo_parts = []
-        if profile_dict.get("age"):
-            demo_parts.append(f"Age {profile_dict['age']}")
-        if profile_dict.get("sex"):
-            demo_parts.append(str(profile_dict['sex']))
-        if profile_dict.get("conditions"):
-            demo_parts.append(f"Conditions: {', '.join(profile_dict['conditions'])}")
-        if demo_parts:
-            summary_lines.append(f"Patient Demographics: {', '.join(demo_parts)}")
-
-        allergies = profile_dict.get("allergies", [])
-        if allergies:
-            alg_str = ", ".join(allergies) if isinstance(allergies, list) else str(allergies)
-            summary_lines.append(f"Documented Allergies: {alg_str} (STRICT CONTRAINDICATION)")
-
-        medications = profile_dict.get("medications", [])
-        if medications:
-            med_str = ", ".join(medications) if isinstance(medications, list) else str(medications)
-            summary_lines.append(f"Active Medications: {med_str}")
-
-        notes = profile_dict.get("notes")
-        if notes:
-            summary_lines.append(f"Clinical Notes & Renal Markers: {notes}")
-
-    if inquiries:
-        summary_lines.append("Prior Inquiries: " + "; ".join(inquiries[-4:]))
-
-    if topics_mentioned:
-        summary_lines.append("Verified Topics & References: " + ", ".join(sorted(topics_mentioned)[:5]))
-
-    summary_lines.append("===========================================")
-    summary_text = "\n".join(summary_lines)
-
-    compressed_human_msg = HumanMessage(content=summary_text)
-    return sys_msgs + [compressed_human_msg] + recent_msgs
 
 
 def extract_section_text_from_markdown(full_markdown: str, section_id: str) -> str:
@@ -280,7 +188,7 @@ def create_clinical_agent(
     max_premature_retries: int = 2,
     llm_with_tools: Any = None,
     llm_tool_free: Any = None,
-    history_compression_threshold: int = 128000,
+    history_compression_threshold: Optional[int] = None,
 ):
     """Create the phase-isolated clinical retrieval agent graph.
 
@@ -659,33 +567,7 @@ def create_clinical_agent(
                 return "safety_block"
             return "node_evidence_gathering"
 
-        # Check token headroom before clinical synthesis
-        if is_near_token_limit(state["messages"], threshold=history_compression_threshold):
-            return "node_compress_history"
         return "node_clinical_synthesis"
-
-    # ── History Compression ───────────────────────────────────────────
-
-    def node_compress_history(state: AgentState) -> dict:
-        """Perform semantic history compression preserving patient profile and citations."""
-        tc = TurnContext(**state["turn_context"])
-        non_sys = [m for m in state["messages"] if not isinstance(m, SystemMessage)]
-        if len(non_sys) <= 2:
-            return {}
-
-        older_msgs = non_sys[:-2]
-        compressed_messages = compress_conversation_history(
-            state["messages"],
-            patient_profile=tc.patient_profile,
-        )
-        summary_message = next(
-            (m for m in compressed_messages if isinstance(m, HumanMessage) and "CONVERSATION HISTORY SUMMARY" in str(m.content)),
-            None,
-        )
-        if not summary_message:
-            return {}
-
-        return {"messages": [RemoveMessage(id=m.id) for m in older_msgs if getattr(m, "id", None)] + [summary_message]}
 
     # ── Phase 2: Clinical Synthesis ────────────────────────────────────
 
@@ -865,7 +747,6 @@ def create_clinical_agent(
     workflow.add_node("execute_tools", execute_tools)
     workflow.add_node("intercept_premature", intercept_premature)
     workflow.add_node("validate_evidence", validate_evidence)
-    workflow.add_node("node_compress_history", node_compress_history)
     workflow.add_node("node_clinical_synthesis", node_clinical_synthesis)
     workflow.add_node("validate_safety", validate_safety)
     workflow.add_node("safety_block", safety_block)
@@ -890,10 +771,8 @@ def create_clinical_agent(
     workflow.add_conditional_edges("validate_evidence", route_after_validate_evidence, {
         "node_evidence_gathering": "node_evidence_gathering",
         "safety_block": "safety_block",
-        "node_compress_history": "node_compress_history",
         "node_clinical_synthesis": "node_clinical_synthesis",
     })
-    workflow.add_edge("node_compress_history", "node_clinical_synthesis")
     workflow.add_edge("node_clinical_synthesis", "validate_safety")
     workflow.add_conditional_edges("validate_safety", route_after_validate_safety, {
         END: END,

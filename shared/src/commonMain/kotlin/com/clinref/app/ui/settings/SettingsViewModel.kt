@@ -109,10 +109,6 @@ class SettingsViewModel(
         _configuration.value = _configuration.value.copy(providerSettings = settings)
     }
 
-    fun updateHistoryThreshold(threshold: Int) {
-        _configuration.value = _configuration.value.copy(historyCompressionThreshold = threshold)
-    }
-
     fun testConnection() {
         viewModelScope.launch {
             _testResult.value = TestResult.Loading

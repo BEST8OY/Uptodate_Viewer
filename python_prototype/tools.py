@@ -270,6 +270,56 @@ def resolve_section_ids(requested_ids: list[str], id_to_title: dict[str, str]) -
     return valid_ids, invalid_ids
 
 
+def find_subsumed_sections(
+    sorted_valid_ids: list[str],
+    outline_sections: list[dict],
+) -> dict[str, str]:
+    """Determine which requested sections are structurally subsumed by an ancestor section.
+
+    In UpToDate articles, extracting an ancestor section (e.g. level 1) includes all of its
+    child subsections (level > 1) up to the next sibling/ancestor. If both an ancestor and
+    its descendants are requested, extracting each descendant separately causes massive
+    duplication in LLM context.
+
+    Returns a dict mapping child_section_id -> ancestor_section_id.
+    """
+    if not outline_sections or len(sorted_valid_ids) <= 1:
+        return {}
+
+    outline_map = {
+        s["id"].upper(): (idx, s.get("level", 1))
+        for idx, s in enumerate(outline_sections)
+        if s.get("id")
+    }
+    subsumed: dict[str, str] = {}
+    emitted_ancestors: list[tuple[str, int, int]] = []
+
+    for sid in sorted_valid_ids:
+        sid_upper = sid.upper()
+        if sid_upper not in outline_map:
+            continue
+        sec_idx, sec_level = outline_map[sid_upper]
+
+        subsumed_by = None
+        for anc_id, anc_idx, anc_level in emitted_ancestors:
+            if anc_idx < sec_idx:
+                is_all_deeper = True
+                for k in range(anc_idx + 1, sec_idx + 1):
+                    if outline_sections[k].get("level", 1) <= anc_level:
+                        is_all_deeper = False
+                        break
+                if is_all_deeper:
+                    subsumed_by = anc_id
+                    break
+
+        if subsumed_by:
+            subsumed[sid] = subsumed_by
+        else:
+            emitted_ancestors.append((sid, sec_idx, sec_level))
+
+    return subsumed
+
+
 # ---------------------------------------------------------------------------
 # Retrieval Tools
 # ---------------------------------------------------------------------------
@@ -567,11 +617,23 @@ def get_topic_sections_text(
             invalidSections=invalid_ids,
         )
 
+    # Sort valid_ids by outline order and compute subsumed sections
+    outline_order_map = {
+        s["id"].upper(): idx
+        for idx, s in enumerate(raw_outline_sections)
+        if s.get("id")
+    }
+    sorted_valid_ids = sorted(
+        valid_ids,
+        key=lambda sid: outline_order_map.get(sid.upper(), float("inf")),
+    )
+    subsumed_map = find_subsumed_sections(sorted_valid_ids, raw_outline_sections)
+
     sections_md = []
     section_titles = {}
     omitted_sections = []
 
-    for index, section_id in enumerate(valid_ids):
+    for index, section_id in enumerate(sorted_valid_ids):
         # Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
         # extra IDs are reported in omittedSections (never dropped silently).
         if index >= MAX_SECTIONS_PER_CALL:
@@ -579,12 +641,16 @@ def get_topic_sections_text(
             continue
 
         title = id_to_title.get(section_id, "")
-        section_html = extract_section_html(body_html, outline_html or "", section_id)
-        if section_html:
-            markdown = html_to_markdown(section_html)
-            sec_entry = f"=== Section: {section_id} ===\n{markdown}"
+        subsumed_by = subsumed_map.get(section_id)
+        if subsumed_by:
+            sec_entry = f"=== Section: {section_id} ===\n(Content included in section [{subsumed_by}] above)"
         else:
-            sec_entry = f"=== Section: {section_id} ===\nSection not found."
+            section_html = extract_section_html(body_html, outline_html or "", section_id)
+            if section_html:
+                markdown = html_to_markdown(section_html)
+                sec_entry = f"=== Section: {section_id} ===\n{markdown}"
+            else:
+                sec_entry = f"=== Section: {section_id} ===\nSection not found."
 
         sections_md.append(sec_entry)
         section_titles[section_id] = title
