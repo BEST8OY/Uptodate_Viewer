@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.MessageUiModel
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 
@@ -137,9 +138,14 @@ fun ChatMessageItem(
                         }
                     }
 
+                    val markdownState = rememberMarkdownState(
+                        content = message.content,
+                        retainState = true
+                    )
+
                     CompositionLocalProvider(LocalUriHandler provides customUriHandler) {
                         Markdown(
-                            content = message.content,
+                            markdownState = markdownState,
                             modifier = Modifier.fillMaxWidth(),
                             colors = markdownColor(
                                 codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
