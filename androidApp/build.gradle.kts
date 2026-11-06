@@ -107,10 +107,6 @@ dependencies {
     implementation(libs.security.crypto)
     compileOnly(libs.error.prone.annotations)
 
-    // Markdown rendering in Compose
-    implementation(libs.markdown.renderer)
-    implementation(libs.markdown.renderer.m3)
-
     // HTML parsing
     implementation(libs.jsoup)
 

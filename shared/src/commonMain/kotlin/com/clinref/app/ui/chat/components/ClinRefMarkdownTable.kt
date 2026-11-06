@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.HorizontalDivider
@@ -31,7 +30,6 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.components.MarkdownComponentModel
 import com.mikepenz.markdown.compose.components.MarkdownComponents
 import com.mikepenz.markdown.compose.components.markdownComponents
@@ -54,9 +52,9 @@ fun clinrefMarkdownComponents(): MarkdownComponents = markdownComponents(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f))
-                .padding(vertical = 4.dp, horizontal = 2.dp)
+                .clip(MaterialTheme.shapes.small)
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .padding(vertical = 4.dp, horizontal = 4.dp)
         ) {
             MarkdownBlockQuote(
                 content = model.content,
@@ -79,69 +77,37 @@ fun clinrefMarkdownDimens(): MarkdownDimens = markdownDimens(
 @Composable
 fun clinrefMarkdownTypography(): MarkdownTypography = markdownTypography(
     h1 = MaterialTheme.typography.titleLarge.copy(
-        fontSize = 20.sp,
-        lineHeight = 26.sp,
         fontWeight = FontWeight.Bold
     ),
     h2 = MaterialTheme.typography.titleMedium.copy(
-        fontSize = 17.sp,
-        lineHeight = 23.sp,
         fontWeight = FontWeight.Bold
     ),
     h3 = MaterialTheme.typography.titleSmall.copy(
-        fontSize = 15.sp,
-        lineHeight = 21.sp,
+        fontWeight = FontWeight.Bold
+    ),
+    h4 = MaterialTheme.typography.labelLarge.copy(
         fontWeight = FontWeight.SemiBold
     ),
-    h4 = MaterialTheme.typography.titleSmall.copy(
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
+    h5 = MaterialTheme.typography.labelMedium.copy(
         fontWeight = FontWeight.SemiBold
     ),
-    h5 = MaterialTheme.typography.titleSmall.copy(
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        fontWeight = FontWeight.SemiBold
+    h6 = MaterialTheme.typography.labelSmall.copy(
+        fontWeight = FontWeight.Medium
     ),
-    h6 = MaterialTheme.typography.titleSmall.copy(
-        fontSize = 13.sp,
-        lineHeight = 19.sp,
-        fontWeight = FontWeight.SemiBold
-    ),
-    paragraph = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = 15.sp,
-        lineHeight = 22.sp
-    ),
-    text = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = 15.sp,
-        lineHeight = 22.sp
-    ),
-    bullet = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = 15.sp,
-        lineHeight = 22.sp
-    ),
-    ordered = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = 15.sp,
-        lineHeight = 22.sp
-    ),
-    list = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = 15.sp,
-        lineHeight = 22.sp
-    ),
+    paragraph = MaterialTheme.typography.bodyLarge,
+    text = MaterialTheme.typography.bodyLarge,
+    bullet = MaterialTheme.typography.bodyLarge,
+    ordered = MaterialTheme.typography.bodyLarge,
+    list = MaterialTheme.typography.bodyLarge,
     quote = MaterialTheme.typography.bodyMedium.copy(
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
         fontStyle = FontStyle.Italic,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     ),
     code = MaterialTheme.typography.bodySmall.copy(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 13.sp,
-        lineHeight = 18.sp
+        fontFamily = FontFamily.Monospace
     ),
     inlineCode = MaterialTheme.typography.bodySmall.copy(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 13.sp
+        fontFamily = FontFamily.Monospace
     )
 )
 
@@ -167,13 +133,13 @@ fun ClinRefMarkdownTable(
         val isScrollable = columnsCount > 1 && maxWidth < (160 * columnsCount).dp
 
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = MaterialTheme.shapes.medium,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             modifier = modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(MaterialTheme.shapes.medium)
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 MarkdownTable(
@@ -190,11 +156,9 @@ fun ClinRefMarkdownTable(
                                 content = c,
                                 header = header,
                                 tableWidth = tableWidth,
-                                style = style.copy(
+                                style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.sp,
-                                    lineHeight = 18.sp
+                                    fontWeight = FontWeight.SemiBold
                                 ),
                                 verticalAlignment = Alignment.Top,
                                 maxLines = Int.MAX_VALUE,
@@ -217,10 +181,8 @@ fun ClinRefMarkdownTable(
                                 content = c,
                                 header = row,
                                 tableWidth = tableWidth,
-                                style = style.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 13.sp,
-                                    lineHeight = 18.sp
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
                                 ),
                                 verticalAlignment = Alignment.Top,
                                 maxLines = Int.MAX_VALUE,
@@ -252,7 +214,7 @@ fun ClinRefMarkdownTable(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Scroll horizontally to view all $columnsCount columns",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }

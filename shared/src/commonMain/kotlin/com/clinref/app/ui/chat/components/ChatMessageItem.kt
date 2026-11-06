@@ -180,9 +180,9 @@ fun ChatMessageItem(
                                 markdownState = markdownState,
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = markdownColor(
-                                    codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
-                                    inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
-                                    dividerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    dividerColor = MaterialTheme.colorScheme.outlineVariant,
                                     tableBackground = Color.Transparent
                                 ),
                                 typography = clinrefMarkdownTypography(),
