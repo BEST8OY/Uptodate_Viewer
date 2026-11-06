@@ -1,5 +1,6 @@
 package com.clinref.app.ui.chat.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,9 +21,14 @@ import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,9 +43,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.clinref.app.domain.ai.SafetyValidator
+import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.MessageUiModel
 import com.mikepenz.markdown.m3.Markdown
@@ -47,10 +56,18 @@ import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChatMessageItem(
     message: MessageUiModel,
     isStreaming: Boolean = message.id == "streaming",
+    orchestrationPhase: StreamingManager.OrchestrationPhase = StreamingManager.OrchestrationPhase.COMPLETED,
+    currentStatusText: String = "",
+    liveSources: List<SafetyValidator.TopicRef> = emptyList(),
+    sectionsReadCount: Int = 0,
+    isDraft: Boolean = false,
+    isRevised: Boolean = false,
+    onSourceClick: ((SafetyValidator.TopicRef) -> Unit)? = null,
     onCopyMessage: (String) -> Unit = {},
     onNavigateToContent: (String, String?) -> Unit = { _, _ -> },
     onGraphicSelected: (String) -> Unit = {},
@@ -84,6 +101,18 @@ fun ChatMessageItem(
                     .widthIn(max = AdaptiveTokens.MaxChatAssistantWidth)
                     .fillMaxWidth()
             ) {
+                if (isStreaming) {
+                    ChatCardOrchestrationHeader(
+                        phase = orchestrationPhase,
+                        currentStatusText = currentStatusText,
+                        liveSources = liveSources,
+                        sectionsReadCount = sectionsReadCount,
+                        isDraft = isDraft,
+                        isRevised = isRevised,
+                        onSourceClick = { ref -> onSourceClick?.invoke(ref) }
+                    )
+                }
+
                 if (message.isError) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -113,68 +142,96 @@ fun ChatMessageItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    val currentUriHandler = LocalUriHandler.current
-                    val customUriHandler = remember(currentUriHandler, onNavigateToContent, onGraphicSelected) {
-                        object : UriHandler {
-                            override fun openUri(uri: String) {
-                                when {
-                                    uri.startsWith("topic:") -> {
-                                        val topicId = uri.removePrefix("topic:")
-                                        onNavigateToContent(topicId, null)
-                                    }
-                                    uri.startsWith("graphic:") -> {
-                                        val graphicId = uri.removePrefix("graphic:").removePrefix("Graphic-")
-                                        onGraphicSelected(graphicId)
-                                    }
-                                    else -> {
-                                        try {
-                                            currentUriHandler.openUri(uri)
-                                        } catch (_: Exception) {
-                                            // Ignore malformed or unsupported URI schemas
+                    if (isStreaming && message.content.isBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                LoadingIndicator(
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Consulting UpToDate library & clinical monographs…",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else if (message.content.isNotBlank()) {
+                        val currentUriHandler = LocalUriHandler.current
+                        val customUriHandler = remember(currentUriHandler, onNavigateToContent, onGraphicSelected) {
+                            object : UriHandler {
+                                override fun openUri(uri: String) {
+                                    when {
+                                        uri.startsWith("topic:") -> {
+                                            val topicId = uri.removePrefix("topic:")
+                                            onNavigateToContent(topicId, null)
+                                        }
+                                        uri.startsWith("graphic:") -> {
+                                            val graphicId = uri.removePrefix("graphic:").removePrefix("Graphic-")
+                                            onGraphicSelected(graphicId)
+                                        }
+                                        else -> {
+                                            try {
+                                                currentUriHandler.openUri(uri)
+                                            } catch (_: Exception) {
+                                                // Ignore malformed or unsupported URI schemas
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    val markdownState = rememberMarkdownState(
-                        content = message.content,
-                        retainState = true
-                    )
-
-                    CompositionLocalProvider(LocalUriHandler provides customUriHandler) {
-                        Markdown(
-                            markdownState = markdownState,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = markdownColor(
-                                codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
-                                inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
-                                dividerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                                tableBackground = Color.Transparent
-                            ),
-                            typography = clinrefMarkdownTypography(),
-                            dimens = clinrefMarkdownDimens(),
-                            components = clinrefMarkdownComponents()
+                        val markdownState = rememberMarkdownState(
+                            content = message.content,
+                            retainState = true
                         )
+
+                        CompositionLocalProvider(LocalUriHandler provides customUriHandler) {
+                            Markdown(
+                                markdownState = markdownState,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = markdownColor(
+                                    codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
+                                    inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.7f),
+                                    dividerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    tableBackground = Color.Transparent
+                                ),
+                                typography = clinrefMarkdownTypography(),
+                                dimens = clinrefMarkdownDimens(),
+                                components = clinrefMarkdownComponents()
+                            )
+                        }
                     }
 
-                    if (isStreaming) {
+                    if (isStreaming && message.content.isNotBlank()) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(vertical = 4.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(7.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary)
+                            CircularWavyProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "Clinical synthesis in progress…",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = if (orchestrationPhase == StreamingManager.OrchestrationPhase.VERIFICATION) {
+                                    "Running Gate 2 clinical safety validation…"
+                                } else {
+                                    "Synthesizing recommendations…"
+                                },
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -193,8 +250,31 @@ fun ChatMessageItem(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        val topicCount = message.articles.size
+                        val tableCount = message.tables.size
+                        if (topicCount > 0 || tableCount > 0) {
+                            val topicLabel = if (topicCount == 1) "1 topic" else "$topicCount topics"
+                            val tableLabel = if (tableCount > 0) " · $tableCount ${if (tableCount == 1) "table" else "tables"}" else ""
+                            val safetyStatus = if (message.warnings.isEmpty()) "Quantities ✓" else "Some values unverified"
+                            Text(
+                                text = "$topicLabel$tableLabel · $safetyStatus",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                color = if (message.warnings.isEmpty()) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerLow,

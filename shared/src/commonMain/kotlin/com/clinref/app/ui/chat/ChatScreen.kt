@@ -72,7 +72,6 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
-import com.clinref.app.ui.chat.components.ChatOrchestrationIndicator
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
 import com.clinref.app.ui.common.ScrollToBottomFAB
 import com.clinref.app.ui.content.ContentScreen
@@ -83,7 +82,6 @@ import org.koin.compose.viewmodel.koinViewModel
 
 private object ChatListKeys {
     const val LOADING_OLDER = "loading_older_indicator"
-    const val ORCHESTRATION = "orchestration_card"
     const val BOTTOM_ANCHOR = "bottom_anchor"
 }
 
@@ -115,12 +113,13 @@ fun ChatScreen(
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
     val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
     val isAwaitingResponse by viewModel.isAwaitingResponse.collectAsStateWithLifecycle()
-    val orchestrationSteps by viewModel.orchestrationSteps.collectAsStateWithLifecycle()
+    val orchestrationPhase by viewModel.orchestrationPhase.collectAsStateWithLifecycle()
+    val sectionsReadCount by viewModel.sectionsReadCount.collectAsStateWithLifecycle()
+    val isDraft by viewModel.isDraft.collectAsStateWithLifecycle()
+    val isRevised by viewModel.isRevised.collectAsStateWithLifecycle()
     val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
     val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
     val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
-    val reasoningText by viewModel.reasoningText.collectAsStateWithLifecycle()
-    val isReasoning by viewModel.isReasoning.collectAsStateWithLifecycle()
     val isLoadingOlder by viewModel.isLoadingOlder.collectAsStateWithLifecycle()
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
@@ -321,20 +320,7 @@ fun ChatScreen(
                             }
                         }
 
-                        if (isGenerating) {
-                            item(key = activeAssistantId?.let { "orchestration_$it" } ?: ChatListKeys.ORCHESTRATION) {
-                                ChatOrchestrationIndicator(
-                                    steps = orchestrationSteps,
-                                    currentStatusText = currentStatusText,
-                                    liveSources = liveSources,
-                                    reasoningText = reasoningText,
-                                    isReasoning = isReasoning,
-                                    onSourceClick = { ref -> handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null }) }
-                                )
-                            }
-                        }
-
-                        if (activeAssistantId != null && !hasAssistantInPersisted && streamingText.isNotEmpty()) {
+                        if (activeAssistantId != null && !hasAssistantInPersisted) {
                             item(key = activeAssistantId) {
                                 ChatMessageItem(
                                     message = MessageUiModel(
@@ -345,6 +331,13 @@ fun ChatScreen(
                                         showTimestamp = false
                                     ),
                                     isStreaming = true,
+                                    orchestrationPhase = orchestrationPhase,
+                                    currentStatusText = currentStatusText,
+                                    liveSources = liveSources,
+                                    sectionsReadCount = sectionsReadCount,
+                                    isDraft = isDraft,
+                                    isRevised = isRevised,
+                                    onSourceClick = { ref -> handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null }) },
                                     onCopyMessage = { content ->
                                         coroutineScope.launch {
                                             clipboard.setPlainText(content)

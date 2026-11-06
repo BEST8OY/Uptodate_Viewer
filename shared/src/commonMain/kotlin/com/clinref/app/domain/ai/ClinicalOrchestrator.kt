@@ -218,6 +218,7 @@ class ClinicalOrchestrator(
         // ════════════════════════════════════════════════════════════════════
         // GATE 2: Safety Validation & 1-Pass Revision on Unverified Quantities
         // ════════════════════════════════════════════════════════════════════
+        streamingManager.onVerificationStarting()
         var turnContext = accumulator.buildTurnContext(draftText)
         var validation = safetyValidator.validate(turnContext)
 
@@ -227,6 +228,7 @@ class ClinicalOrchestrator(
 
         if (!validation.passed && hasUnverifiedNumbers && draftText.isNotBlank()) {
             Log.w(TAG, "Gate 2 detected unverified clinical quantities; issuing 1 revision pass")
+            streamingManager.onRevisionStarting()
             val revisionDirective = SystemPrompt.buildRevisionPrompt(
                 violations = validation.violations,
                 draft = draftText,

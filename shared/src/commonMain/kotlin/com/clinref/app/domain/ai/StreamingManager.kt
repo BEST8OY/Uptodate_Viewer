@@ -27,6 +27,15 @@ class StreamingManager {
         FAILED
     }
 
+    enum class OrchestrationPhase {
+        IDLE,
+        EVIDENCE_RETRIEVAL,
+        SYNTHESIS,
+        VERIFICATION,
+        COMPLETED,
+        ERROR
+    }
+
     data class OrchestrationStep(
         val id: String,
         val title: String,
@@ -87,6 +96,19 @@ class StreamingManager {
     private val _isReasoning = MutableStateFlow(false)
     val isReasoning: StateFlow<Boolean> = _isReasoning.asStateFlow()
 
+    private val _orchestrationPhase = MutableStateFlow(OrchestrationPhase.IDLE)
+    val orchestrationPhase: StateFlow<OrchestrationPhase> = _orchestrationPhase.asStateFlow()
+
+    private val _sectionsReadCount = MutableStateFlow(0)
+    val sectionsReadCount: StateFlow<Int> = _sectionsReadCount.asStateFlow()
+
+    private val _isDraft = MutableStateFlow(false)
+    val isDraft: StateFlow<Boolean> = _isDraft.asStateFlow()
+
+    private val _isRevised = MutableStateFlow(false)
+    val isRevised: StateFlow<Boolean> = _isRevised.asStateFlow()
+
+    private var totalSectionsReadCount = 0
     private var stepCounter = 0
     private var activeToolCalls = 0
     private var accumulatedUsage = TokenUsage()
@@ -109,6 +131,7 @@ class StreamingManager {
         _streamingText.value = ""
         _reasoningText.value = ""
         _isReasoning.value = false
+        _orchestrationPhase.value = OrchestrationPhase.EVIDENCE_RETRIEVAL
 
         val stepId = callId.ifBlank { "step_$stepCounter" }
         val (title, detail) = getStepInfo(toolName, args)
@@ -189,9 +212,21 @@ class StreamingManager {
         _streamingText.value = ""
         _reasoningText.value = ""
         _isReasoning.value = false
+        _orchestrationPhase.value = OrchestrationPhase.SYNTHESIS
+        _isDraft.value = true
 
         _currentStatusText.value = "Synthesizing point-of-care guidance…"
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
+    }
+
+    fun onVerificationStarting() {
+        _orchestrationPhase.value = OrchestrationPhase.VERIFICATION
+        _currentStatusText.value = "Verifying clinical quantities against sources…"
+    }
+
+    fun onRevisionStarting() {
+        _isRevised.value = true
+        _currentStatusText.value = "Rechecking values against evidence…"
     }
 
     fun onWaitingForLlm() {
@@ -318,6 +353,8 @@ class StreamingManager {
         activeToolCalls = 0
         _toolProgress.value = null
         _currentStatusText.value = "Complete"
+        _orchestrationPhase.value = OrchestrationPhase.COMPLETED
+        _isDraft.value = false
         _orchestrationSteps.value = _orchestrationSteps.value.map {
             if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.COMPLETED) else it
         }
@@ -336,6 +373,8 @@ class StreamingManager {
         activeToolCalls = 0
         _toolProgress.value = null
         _currentStatusText.value = "Error"
+        _orchestrationPhase.value = OrchestrationPhase.ERROR
+        _isDraft.value = false
         _orchestrationSteps.value = _orchestrationSteps.value.map {
             if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.FAILED) else it
         }
@@ -354,6 +393,11 @@ class StreamingManager {
         stepCounter = 0
         activeToolCalls = 0
         accumulatedUsage = TokenUsage()
+        totalSectionsReadCount = 0
+        _sectionsReadCount.value = 0
+        _orchestrationPhase.value = OrchestrationPhase.IDLE
+        _isDraft.value = false
+        _isRevised.value = false
         streamingBuffer.clear()
         reasoningBuffer.clear()
         pendingTagBuffer.clear()
@@ -428,8 +472,9 @@ class StreamingManager {
                 "searchTopics" -> {
                     val res = json.decodeFromString<SearchTopicsResponse>(resultText)
                     val count = res.results.size
+                    val topicWord = if (count == 1) "topic" else "topics"
                     if (count > 0) {
-                        "$count candidate topics identified"
+                        "$count candidate $topicWord identified"
                     } else if (res.message.startsWith("Auto-refined", ignoreCase = true)) {
                         res.message
                     } else {
@@ -439,34 +484,43 @@ class StreamingManager {
                 "getTopicOverview" -> {
                     val res = json.decodeFromString<TopicOverviewResponse>(resultText)
                     val count = res.sections.size
+                    val sectionWord = if (count == 1) "section" else "sections"
                     val resolvedTitle = res.title.takeIf { it.isNotBlank() && !AiJsonUtils.isNumericOnly(it) }
                         ?: knownTopicTitles[res.topicId]
                     if (!resolvedTitle.isNullOrBlank()) {
-                        "Overview: \"$resolvedTitle\" ($count sections)"
+                        "Overview: \"$resolvedTitle\" ($count $sectionWord)"
                     } else {
-                        "Topic overview loaded ($count sections)"
+                        "Topic overview loaded ($count $sectionWord)"
                     }
                 }
                 "searchTopicSections" -> {
                     val res = json.decodeFromString<SearchTopicSectionsResponse>(resultText)
                     val count = res.matches.size
                     val resolvedTitle = knownTopicTitles[res.topicId]
+                    val sectionWord = if (count == 1) "section" else "sections"
                     if (count > 0 && !resolvedTitle.isNullOrBlank()) {
-                        "$count matching sections in \"$resolvedTitle\""
+                        "$count matching $sectionWord in \"$resolvedTitle\""
                     } else if (count > 0) {
-                        "$count matching sections found"
-                    } else "No matching sections found"
+                        "$count matching $sectionWord found"
+                    } else if (!resolvedTitle.isNullOrBlank()) {
+                        "0 matching sections in \"$resolvedTitle\""
+                    } else "0 matching sections found"
                 }
                 "getTopicSectionsText" -> {
                     val res = json.decodeFromString<TopicSectionsResponse>(resultText)
                     val count = res.sectionTitles.size
+                    totalSectionsReadCount += count
+                    _sectionsReadCount.value = totalSectionsReadCount
                     val resolvedTitle = res.topicTitle.takeIf { it.isNotBlank() && !AiJsonUtils.isNumericOnly(it) }
                         ?: knownTopicTitles[res.topicId]
+                    val sectionWord = if (count == 1) "section" else "sections"
                     if (!resolvedTitle.isNullOrBlank() && count > 0) {
-                        "$count sections from \"$resolvedTitle\""
+                        "$count $sectionWord from \"$resolvedTitle\""
                     } else if (count > 0) {
-                        "$count sections retrieved"
-                    } else null
+                        "$count $sectionWord retrieved"
+                    } else if (!resolvedTitle.isNullOrBlank()) {
+                        "0 sections matched in \"$resolvedTitle\""
+                    } else "0 sections matched"
                 }
                 "getGraphicContent" -> {
                     val res = json.decodeFromString<GraphicContentResponse>(resultText)

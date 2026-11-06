@@ -198,4 +198,88 @@ class StreamingManagerTest {
         manager.onStreamingTextDelta("Revised text without quantities")
         assertEquals("Revised text without quantities", manager.streamingText.value)
     }
+
+    @Test
+    fun `transitions orchestration phases through evidence retrieval, synthesis, verification, and completion`() {
+        assertEquals(StreamingManager.OrchestrationPhase.IDLE, manager.orchestrationPhase.value)
+        assertFalse(manager.isDraft.value)
+        assertFalse(manager.isRevised.value)
+
+        // Stage 1: Evidence Retrieval starts on tool call
+        manager.onToolCallStarting("searchTopics", """{"query":"pneumonia"}""", "call_1")
+        assertEquals(StreamingManager.OrchestrationPhase.EVIDENCE_RETRIEVAL, manager.orchestrationPhase.value)
+        assertFalse(manager.isDraft.value)
+
+        // Stage 2: Synthesis starts
+        manager.onSynthesisStarting()
+        assertEquals(StreamingManager.OrchestrationPhase.SYNTHESIS, manager.orchestrationPhase.value)
+        assertTrue(manager.isDraft.value)
+
+        // Gate 2: Verification starts
+        manager.onVerificationStarting()
+        assertEquals(StreamingManager.OrchestrationPhase.VERIFICATION, manager.orchestrationPhase.value)
+        assertTrue(manager.isDraft.value)
+        assertEquals("Verifying clinical quantities against sources…", manager.currentStatusText.value)
+
+        // Gate 2 Revision pass
+        manager.onRevisionStarting()
+        assertTrue(manager.isRevised.value)
+        assertEquals("Rechecking values against evidence…", manager.currentStatusText.value)
+
+        // Completed
+        manager.onCompleted("Final answer", SafetyValidator.ValidationResult(passed = true, warnings = emptyList()))
+        assertEquals(StreamingManager.OrchestrationPhase.COMPLETED, manager.orchestrationPhase.value)
+        assertFalse(manager.isDraft.value)
+
+        // Reset returns to IDLE
+        manager.reset()
+        assertEquals(StreamingManager.OrchestrationPhase.IDLE, manager.orchestrationPhase.value)
+        assertFalse(manager.isDraft.value)
+        assertFalse(manager.isRevised.value)
+    }
+
+    @Test
+    fun `corrects 0 sections detail and avoids getting stuck in fetching evidence state`() {
+        // Topic setup
+        val searchJson = """{"query":"moxifloxacin","results":[{"id":"101","title":"Moxifloxacin: Drug information"}],"message":""}"""
+        manager.onToolCallStarting("searchTopics", """{"query":"moxifloxacin"}""", "call_search")
+        manager.onToolCallCompleted("searchTopics", searchJson, "call_search")
+
+        // Start fetching sections
+        manager.onToolCallStarting("getTopicSectionsText", """{"topicId":"101","sectionIds":["nonexistent"]}""", "call_sections")
+        val initialStep = manager.orchestrationSteps.value.find { it.id == "call_sections" }
+        assertEquals("Fetching evidence from \"Moxifloxacin: Drug information\"", initialStep?.detail)
+
+        // Complete with 0 sections matched
+        val emptySectionsJson = """{"topicId":"101","topicTitle":"Moxifloxacin: Drug information","sectionTitles":{},"markdown":""}"""
+        manager.onToolCallCompleted("getTopicSectionsText", emptySectionsJson, "call_sections")
+
+        val completedStep = manager.orchestrationSteps.value.find { it.id == "call_sections" }
+        assertEquals(StreamingManager.StepStatus.COMPLETED, completedStep?.status)
+        // Must NOT remain stuck as "Fetching evidence from..."!
+        assertEquals("0 sections matched in \"Moxifloxacin: Drug information\"", completedStep?.detail)
+    }
+
+    @Test
+    fun `tracks accumulated section count and singularizes section labels`() {
+        assertEquals(0, manager.sectionsReadCount.value)
+
+        // 1 section response
+        val oneSectionJson = """{"topicId":"101","topicTitle":"Amoxicillin","sectionTitles":{"s1":"Dosing"},"markdown":"Text"}"""
+        manager.onToolCallStarting("getTopicSectionsText", """{"topicId":"101"}""", "call_1")
+        manager.onToolCallCompleted("getTopicSectionsText", oneSectionJson, "call_1")
+
+        assertEquals(1, manager.sectionsReadCount.value)
+        val step1 = manager.orchestrationSteps.value.find { it.id == "call_1" }
+        assertEquals("1 section from \"Amoxicillin\"", step1?.detail)
+
+        // 3 sections response
+        val threeSectionsJson = """{"topicId":"102","topicTitle":"Doxycycline","sectionTitles":{"s1":"Dosing","s2":"Adverse","s3":"Renal"},"markdown":"Text"}"""
+        manager.onToolCallStarting("getTopicSectionsText", """{"topicId":"102"}""", "call_2")
+        manager.onToolCallCompleted("getTopicSectionsText", threeSectionsJson, "call_2")
+
+        assertEquals(4, manager.sectionsReadCount.value)
+        val step2 = manager.orchestrationSteps.value.find { it.id == "call_2" }
+        assertEquals("3 sections from \"Doxycycline\"", step2?.detail)
+    }
 }

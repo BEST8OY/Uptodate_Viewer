@@ -57,6 +57,10 @@ class ChatViewModelTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         every { streamingManager.currentStatusText } returns MutableStateFlow("")
+        every { streamingManager.orchestrationPhase } returns MutableStateFlow(StreamingManager.OrchestrationPhase.IDLE)
+        every { streamingManager.sectionsReadCount } returns MutableStateFlow(0)
+        every { streamingManager.isDraft } returns MutableStateFlow(false)
+        every { streamingManager.isRevised } returns MutableStateFlow(false)
         chatExecutionManager = ChatExecutionManager(
             conversationRepository = conversationRepository,
             koogAgentFactory = koogAgentFactory,

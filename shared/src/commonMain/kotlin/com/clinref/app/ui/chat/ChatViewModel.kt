@@ -113,6 +113,10 @@ class ChatViewModel(
     val agentState: StateFlow<StreamingManager.AgentState> = streamingManager.agentState
     val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
     val orchestrationSteps: StateFlow<List<StreamingManager.OrchestrationStep>> = streamingManager.orchestrationSteps
+    val orchestrationPhase: StateFlow<StreamingManager.OrchestrationPhase> = streamingManager.orchestrationPhase
+    val sectionsReadCount: StateFlow<Int> = streamingManager.sectionsReadCount
+    val isDraft: StateFlow<Boolean> = streamingManager.isDraft
+    val isRevised: StateFlow<Boolean> = streamingManager.isRevised
     val currentStatusText: StateFlow<String> = streamingManager.currentStatusText
     val streamingText: StateFlow<String> = streamingManager.streamingText
     val reasoningText: StateFlow<String> = streamingManager.reasoningText
