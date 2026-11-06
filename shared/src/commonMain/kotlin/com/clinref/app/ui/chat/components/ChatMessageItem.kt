@@ -43,6 +43,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -203,32 +205,8 @@ fun ChatMessageItem(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        val hasSources = message.articles.isNotEmpty() || message.tables.isNotEmpty()
-                        if (hasSources) {
-                            val safetyStatus = if (message.warnings.isEmpty()) {
-                                "Clinical quantities verified ✓"
-                            } else {
-                                "Some clinical values unverified"
-                            }
-                            Text(
-                                text = safetyStatus,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                color = if (message.warnings.isEmpty()) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
-                                } else {
-                                    MaterialTheme.colorScheme.error
-                                }
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -313,16 +291,34 @@ fun TopicPill(label: String, onClick: () -> Unit) {
 
 @Composable
 fun ChatWarningAlert(warning: String) {
-    val warnColor = MaterialTheme.colorScheme.tertiary
+    val warnColor = MaterialTheme.colorScheme.error
+    val annotatedText = remember(warning) {
+        val builder = AnnotatedString.Builder()
+        val parts = warning.split("**")
+        parts.forEachIndexed { index, part ->
+            if (index % 2 == 1) {
+                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                builder.append(part)
+                builder.pop()
+            } else {
+                builder.append(part)
+            }
+        }
+        builder.toAnnotatedString()
+    }
+
     Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-        modifier = Modifier.fillMaxWidth()
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, warnColor.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
     ) {
         Row(
             modifier = Modifier
                 .drawBehind {
-                    val strokeWidth = 3.dp.toPx()
+                    val strokeWidth = 3.5.dp.toPx()
                     val halfStroke = strokeWidth / 2f
                     drawLine(
                         color = warnColor,
@@ -331,12 +327,12 @@ fun ChatWarningAlert(warning: String) {
                         strokeWidth = strokeWidth
                     )
                 }
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.Top
         ) {
             Icon(
                 imageVector = Icons.Default.Warning,
-                contentDescription = "Warning Indicator",
+                contentDescription = "Safety Warning",
                 tint = warnColor,
                 modifier = Modifier
                     .size(16.dp)
@@ -344,9 +340,12 @@ fun ChatWarningAlert(warning: String) {
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = warning,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer
+                text = annotatedText,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }
