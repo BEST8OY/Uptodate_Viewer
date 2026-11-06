@@ -235,7 +235,7 @@ class StreamingManager {
         if (inSynthesis) {
             _currentStatusText.value = "Synthesizing point-of-care guidance…"
         } else {
-            _currentStatusText.value = "Reasoning over clinical findings…"
+            _currentStatusText.value = "Evaluating candidate topics…"
         }
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
     }

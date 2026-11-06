@@ -142,31 +142,7 @@ fun ChatMessageItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    if (isStreaming && message.content.isBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                            ) {
-                                LoadingIndicator(
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = "Consulting UpToDate library & clinical monographs…",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    } else if (message.content.isNotBlank()) {
+                    if (message.content.isNotBlank()) {
                         val currentUriHandler = LocalUriHandler.current
                         val customUriHandler = remember(currentUriHandler, onNavigateToContent, onGraphicSelected) {
                             object : UriHandler {
@@ -213,29 +189,6 @@ fun ChatMessageItem(
                             )
                         }
                     }
-
-                    if (isStreaming && message.content.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        ) {
-                            CircularWavyProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = if (orchestrationPhase == StreamingManager.OrchestrationPhase.VERIFICATION) {
-                                    "Running Gate 2 clinical safety validation…"
-                                } else {
-                                    "Synthesizing recommendations…"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
                 }
 
                 if (message.warnings.isNotEmpty()) {
@@ -253,20 +206,21 @@ fun ChatMessageItem(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        val topicCount = message.articles.size
-                        val tableCount = message.tables.size
-                        if (topicCount > 0 || tableCount > 0) {
-                            val topicLabel = if (topicCount == 1) "1 topic" else "$topicCount topics"
-                            val tableLabel = if (tableCount > 0) " · $tableCount ${if (tableCount == 1) "table" else "tables"}" else ""
-                            val safetyStatus = if (message.warnings.isEmpty()) "Quantities ✓" else "Some values unverified"
+                        val hasSources = message.articles.isNotEmpty() || message.tables.isNotEmpty()
+                        if (hasSources) {
+                            val safetyStatus = if (message.warnings.isEmpty()) {
+                                "Clinical quantities verified ✓"
+                            } else {
+                                "Some clinical values unverified"
+                            }
                             Text(
-                                text = "$topicLabel$tableLabel · $safetyStatus",
+                                text = safetyStatus,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
                                 ),
                                 color = if (message.warnings.isEmpty()) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                                 } else {
                                     MaterialTheme.colorScheme.error
                                 }
