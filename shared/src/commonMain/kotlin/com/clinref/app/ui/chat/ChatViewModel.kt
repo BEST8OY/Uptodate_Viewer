@@ -107,6 +107,9 @@ class ChatViewModel(
     private val _activeAssistantMessageId = MutableStateFlow<String?>(null)
     val activeAssistantMessageId: StateFlow<String?> = _activeAssistantMessageId.asStateFlow()
 
+    private val _isAwaitingResponse = MutableStateFlow(false)
+    val isAwaitingResponse: StateFlow<Boolean> = _isAwaitingResponse.asStateFlow()
+
     val agentState: StateFlow<StreamingManager.AgentState> = streamingManager.agentState
     val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
     val orchestrationSteps: StateFlow<List<StreamingManager.OrchestrationStep>> = streamingManager.orchestrationSteps
@@ -152,15 +155,18 @@ class ChatViewModel(
                         _activeAssistantMessageId.value = event.messageId
                     }
                     is ChatExecutionEvent.AssistantMessageCompleted -> {
-                        _activeAssistantMessageId.value = null
+                        if (_activeAssistantMessageId.value == event.message.id) {
+                            _isAwaitingResponse.value = false
+                            _activeAssistantMessageId.value = null
+                        }
                         messageOffset++
                         updateMessages(_messages.value + event.message.toUiModel(warnings = event.warnings))
-                        _scrollEvents.tryEmit(
-                            ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = event.message.id)
-                        )
                     }
                     is ChatExecutionEvent.GenerationError -> {
-                        _activeAssistantMessageId.value = null
+                        if (_activeAssistantMessageId.value == event.message.id) {
+                            _isAwaitingResponse.value = false
+                            _activeAssistantMessageId.value = null
+                        }
                         messageOffset++
                         updateMessages(_messages.value + event.message.toUiModel(isError = true))
                         _scrollEvents.tryEmit(
@@ -168,7 +174,10 @@ class ChatViewModel(
                         )
                     }
                     is ChatExecutionEvent.GenerationCancelled -> {
-                        _activeAssistantMessageId.value = null
+                        if (_activeAssistantMessageId.value == event.message.id) {
+                            _isAwaitingResponse.value = false
+                            _activeAssistantMessageId.value = null
+                        }
                         messageOffset++
                         updateMessages(_messages.value + event.message.toUiModel())
                     }
@@ -194,7 +203,9 @@ class ChatViewModel(
         messageOffset = 0
 
         // Synchronize with background active generation if one is running for this conversation
-        if (chatExecutionManager.isGenerating(conversationId)) {
+        val isGeneratingActive = chatExecutionManager.isGenerating(conversationId)
+        _isAwaitingResponse.value = isGeneratingActive
+        if (isGeneratingActive) {
             _activeAssistantMessageId.value = chatExecutionManager.activeAssistantMessageId.value
         } else {
             _activeAssistantMessageId.value = null
@@ -235,15 +246,23 @@ class ChatViewModel(
         }
     }
 
-    fun sendMessage(content: String) {
-        val conversationId = _currentConversationId.value ?: return
+    fun sendMessage(content: String): Boolean {
+        val conversationId = _currentConversationId.value ?: return false
         val trimmed = content.trim()
-        if (trimmed.isBlank()) return
-        chatExecutionManager.sendMessage(conversationId, trimmed)
+        if (trimmed.isBlank()) return false
+        if (!chatExecutionManager.canSendMessage(conversationId)) return false
+        _isAwaitingResponse.value = true
+        val accepted = chatExecutionManager.sendMessage(conversationId, trimmed)
+        if (!accepted) {
+            _isAwaitingResponse.value = false
+            return false
+        }
+        return true
     }
 
     fun cancelGeneration() {
         val conversationId = _currentConversationId.value ?: return
+        _isAwaitingResponse.value = false
         chatExecutionManager.cancelGeneration(conversationId)
     }
 

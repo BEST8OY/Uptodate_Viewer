@@ -162,4 +162,40 @@ class StreamingManagerTest {
         assertEquals(StreamingManager.StepStatus.COMPLETED, stepsAfterFirst.find { it.id == "call_1" }?.status)
         assertEquals(StreamingManager.StepStatus.IN_PROGRESS, stepsAfterFirst.find { it.id == "call_2" }?.status)
     }
+
+    @Test
+    fun `onCompleted preserves streamingText while onError and reset clear it`() {
+        manager.onStreamingTextDelta("Partial recommendation")
+        assertEquals("Partial recommendation", manager.streamingText.value)
+
+        manager.onCompleted("Final clinical guidance", SafetyValidator.ValidationResult(passed = true, warnings = emptyList()))
+        assertEquals("Final clinical guidance", manager.streamingText.value)
+
+        manager.onError("Network failure")
+        assertEquals("", manager.streamingText.value)
+
+        manager.onStreamingTextDelta("New partial")
+        assertEquals("New partial", manager.streamingText.value)
+
+        manager.reset()
+        assertEquals("", manager.streamingText.value)
+    }
+
+    @Test
+    fun `onSynthesisStarting clears streaming and reasoning buffers for clean synthesis or revision pass`() {
+        manager.onStreamingReasoningDelta("Pre-synthesis reasoning")
+        manager.onStreamingTextDelta("Draft text with unverified quantity")
+        assertEquals("Draft text with unverified quantity", manager.streamingText.value)
+        assertEquals("Pre-synthesis reasoning", manager.reasoningText.value)
+
+        manager.onSynthesisStarting()
+
+        assertEquals("streamingText must be cleared on synthesis start/restart", "", manager.streamingText.value)
+        assertEquals("reasoningText must be cleared on synthesis start/restart", "", manager.reasoningText.value)
+        assertFalse(manager.isReasoning.value)
+
+        // Verifying revision pass starts clean
+        manager.onStreamingTextDelta("Revised text without quantities")
+        assertEquals("Revised text without quantities", manager.streamingText.value)
+    }
 }

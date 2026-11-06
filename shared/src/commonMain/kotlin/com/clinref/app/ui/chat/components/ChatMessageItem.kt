@@ -280,36 +280,41 @@ fun TopicPill(label: String, onClick: () -> Unit) {
 @Composable
 fun ChatWarningAlert(warning: String) {
     val warnColor = MaterialTheme.colorScheme.tertiary
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f))
-            .drawBehind {
-                drawLine(
-                    color = warnColor,
-                    start = Offset(0f, 0f),
-                    end = Offset(0f, size.height),
-                    strokeWidth = 3.dp.toPx()
-                )
-            }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Top
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Icon(
-            imageVector = Icons.Default.Warning,
-            contentDescription = "Warning Indicator",
-            tint = warnColor,
+        Row(
             modifier = Modifier
-                .size(16.dp)
-                .padding(top = 2.dp)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = warning,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onTertiaryContainer
-        )
+                .drawBehind {
+                    val strokeWidth = 3.dp.toPx()
+                    val halfStroke = strokeWidth / 2f
+                    drawLine(
+                        color = warnColor,
+                        start = Offset(halfStroke, 0f),
+                        end = Offset(halfStroke, size.height),
+                        strokeWidth = strokeWidth
+                    )
+                }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = "Warning Indicator",
+                tint = warnColor,
+                modifier = Modifier
+                    .size(16.dp)
+                    .padding(top = 2.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = warning,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        }
     }
 }
 

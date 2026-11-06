@@ -182,6 +182,14 @@ class StreamingManager {
             )
         }
 
+        streamingBuffer.clear()
+        reasoningBuffer.clear()
+        pendingTagBuffer.clear()
+        inReasoningBlock = false
+        _streamingText.value = ""
+        _reasoningText.value = ""
+        _isReasoning.value = false
+
         _currentStatusText.value = "Synthesizing point-of-care guidance…"
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
     }
@@ -314,10 +322,11 @@ class StreamingManager {
             if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.COMPLETED) else it
         }
         streamingBuffer.clear()
+        streamingBuffer.append(result)
         reasoningBuffer.clear()
         pendingTagBuffer.clear()
         inReasoningBlock = false
-        _streamingText.value = ""
+        _streamingText.value = result
         _reasoningText.value = ""
         _isReasoning.value = false
         _agentState.value = AgentState.Completed(result, validation, accumulatedUsage)

@@ -1,7 +1,6 @@
 package com.clinref.app.ui.chat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,7 +71,6 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
@@ -87,7 +86,6 @@ import org.koin.compose.viewmodel.koinViewModel
 private object ChatListKeys {
     const val LOADING_OLDER = "loading_older_indicator"
     const val ORCHESTRATION = "orchestration_card"
-    const val STREAMING = "streaming"
     const val BOTTOM_ANCHOR = "bottom_anchor"
 }
 
@@ -106,6 +104,57 @@ private val ArticleSheetRequestSaver = listSaver<ArticleSheetRequest?, String?>(
     }
 )
 
+/**
+ * Pure function computing display items for the chat LazyColumn.
+ * Guarantees zero dropped items across stream completion, resets, and error transitions.
+ */
+fun computeDisplayItems(
+    chatItems: List<ChatListItem>,
+    activeAssistantId: String?,
+    streamingText: String,
+    fallbackText: String = ""
+): List<ChatListItem> {
+    if (activeAssistantId == null) return chatItems
+    val hasAssistantInPersisted = chatItems.any { it is ChatListItem.Message && it.uiModel.id == activeAssistantId }
+    val effectiveText = streamingText.ifEmpty { fallbackText }
+    if (!hasAssistantInPersisted && effectiveText.isNotEmpty()) {
+        return chatItems + ChatListItem.Message(
+            MessageUiModel(
+                id = activeAssistantId,
+                role = "assistant",
+                content = effectiveText,
+                timestamp = 0L,
+                showTimestamp = false
+            )
+        )
+    }
+    return chatItems
+}
+
+/**
+ * Pure holder tracking streamed text continuity across resets and completion handoffs.
+ */
+class ChatDisplayItemsHolder {
+    var lastStreamedText: String = ""
+        private set
+    var currentAssistantId: String? = null
+        private set
+
+    fun onStreamingText(assistantId: String?, text: String) {
+        if (assistantId != currentAssistantId) {
+            currentAssistantId = assistantId
+            lastStreamedText = ""
+        }
+        if (text.isNotEmpty()) {
+            lastStreamedText = text
+        }
+    }
+
+    fun getFallbackText(assistantId: String?): String {
+        return if (assistantId != null && assistantId == currentAssistantId) lastStreamedText else ""
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChatScreen(
@@ -118,7 +167,7 @@ fun ChatScreen(
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
     val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
-    val agentState by viewModel.agentState.collectAsStateWithLifecycle()
+    val isAwaitingResponse by viewModel.isAwaitingResponse.collectAsStateWithLifecycle()
     val orchestrationSteps by viewModel.orchestrationSteps.collectAsStateWithLifecycle()
     val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
     val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
@@ -136,12 +185,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
-    var isFollowingBottom by remember { mutableStateOf(false) }
-
-    val isGenerating = activeAssistantId != null ||
-        agentState is StreamingManager.AgentState.ToolCallInProgress ||
-        agentState is StreamingManager.AgentState.WaitingForLlm
+    val isGenerating = activeAssistantId != null || isAwaitingResponse
 
     val textFieldState = rememberTextFieldState()
     var chatInputHeightPx by remember { mutableIntStateOf(0) }
@@ -168,23 +212,10 @@ fun ChatScreen(
         viewModel.loadConversation(conversationId)
     }
 
-    LaunchedEffect(isUserDragging) {
-        if (isUserDragging && listState.canScrollForward) {
-            isFollowingBottom = false
-        }
-    }
-
-    LaunchedEffect(listState.canScrollForward) {
-        if (!listState.canScrollForward) {
-            isFollowingBottom = true
-        }
-    }
-
     LaunchedEffect(Unit) {
         viewModel.scrollEvents.collect { event ->
             when (event) {
                 is ChatScrollEvent.ScrollToBottom -> {
-                    isFollowingBottom = true
                     snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
                     val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
                     if (event.animated) {
@@ -197,18 +228,9 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(streamingText, reasoningText, isGenerating) {
-        if (isFollowingBottom && (isGenerating || streamingText.isNotEmpty() || reasoningText.isNotEmpty())) {
-            val count = listState.layoutInfo.totalItemsCount
-            if (count > 0) {
-                listState.scrollToItem(count - 1)
-            }
-        }
-    }
-
     val imeBottom = WindowInsets.ime.getBottom(density)
     LaunchedEffect(imeBottom, isOverlayActive) {
-        if (!isOverlayActive && imeBottom > 0 && isFollowingBottom) {
+        if (!isOverlayActive && imeBottom > 0 && !listState.canScrollForward) {
             val count = listState.layoutInfo.totalItemsCount
             if (count > 0) {
                 listState.scrollToItem(count - 1)
@@ -293,6 +315,20 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.TopCenter
                 ) {
+                    val holder = remember { ChatDisplayItemsHolder() }
+                    SideEffect {
+                        holder.onStreamingText(activeAssistantId, streamingText)
+                    }
+                    val fallbackText = holder.getFallbackText(activeAssistantId)
+                    val displayItems = remember(chatItems, streamingText, activeAssistantId, fallbackText) {
+                        computeDisplayItems(
+                            chatItems = chatItems,
+                            activeAssistantId = activeAssistantId,
+                            streamingText = streamingText,
+                            fallbackText = fallbackText
+                        )
+                    }
+
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
@@ -322,12 +358,13 @@ fun ChatScreen(
                         }
 
                         items(
-                            items = chatItems,
+                            items = displayItems,
                             key = { it.key }
                         ) { item ->
                             when (item) {
                                 is ChatListItem.Message -> ChatMessageItem(
                                     message = item.uiModel,
+                                    isStreaming = item.uiModel.id == activeAssistantId,
                                     onCopyMessage = { content ->
                                         coroutineScope.launch {
                                             clipboard.setPlainText(content)
@@ -360,29 +397,6 @@ fun ChatScreen(
                             }
                         }
 
-                        if (streamingText.isNotEmpty()) {
-                            item(key = activeAssistantId ?: ChatListKeys.STREAMING) {
-                                ChatMessageItem(
-                                    message = MessageUiModel(
-                                        id = activeAssistantId ?: "streaming",
-                                        role = "assistant",
-                                        content = streamingText,
-                                        timestamp = System.currentTimeMillis(),
-                                        showTimestamp = false
-                                    ),
-                                    isStreaming = true,
-                                    onCopyMessage = { content ->
-                                        coroutineScope.launch {
-                                            clipboard.setPlainText(content)
-                                            snackbarHostState.showSnackbar("Copied content to workspace clipboard")
-                                        }
-                                    },
-                                    onNavigateToContent = handleNavigateToContent,
-                                    onGraphicSelected = handleGraphicSelected
-                                )
-                            }
-                        }
-
                         item(key = ChatListKeys.BOTTOM_ANCHOR) {
                             Spacer(
                                 modifier = Modifier
@@ -401,9 +415,8 @@ fun ChatScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 ScrollToBottomFAB(
-                    visible = listState.canScrollForward,
+                    visible = listState.canScrollForward && !isGenerating,
                     onClick = {
-                        isFollowingBottom = true
                         coroutineScope.launch {
                             val count = listState.layoutInfo.totalItemsCount
                             if (count > 0) {
@@ -417,9 +430,21 @@ fun ChatScreen(
                 ChatInputBar(
                     state = textFieldState,
                     onSendMessage = { text ->
-                        isFollowingBottom = true
-                        viewModel.sendMessage(text)
-                        textFieldState.clearText()
+                        val trimmed = text.trim()
+                        if (trimmed.isBlank() || viewModel.currentConversationId.value == null) {
+                            return@ChatInputBar
+                        }
+                        val accepted = viewModel.sendMessage(trimmed)
+                        if (accepted) {
+                            textFieldState.clearText()
+                        } else {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    message = "AI generation is currently in progress. Please wait for it to finish.",
+                                    withDismissAction = true
+                                )
+                            }
+                        }
                     },
                     onCancel = { viewModel.cancelGeneration() },
                     isGenerating = isGenerating,

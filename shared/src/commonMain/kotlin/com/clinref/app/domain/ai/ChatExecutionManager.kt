@@ -50,8 +50,15 @@ class ChatExecutionManager(
     private val _activeAssistantMessageId = MutableStateFlow<String?>(null)
     val activeAssistantMessageId: StateFlow<String?> = _activeAssistantMessageId.asStateFlow()
 
+    internal class TurnContext(
+        val messageId: String,
+        var userCancelled: Boolean = false,
+        var terminalEventEmitted: Boolean = false
+    )
+
     private var activeJob: Job? = null
-    private var userCancelled = false
+    private var activeTurn: TurnContext? = null
+    private var idleCancelled = false
 
     private val _events = MutableSharedFlow<ChatExecutionEvent>(
         replay = 0,
@@ -66,53 +73,90 @@ class ChatExecutionManager(
     fun canSendMessage(conversationId: String): Boolean =
         activeJob?.isActive != true
 
-    fun sendMessage(conversationId: String, content: String) {
+    fun sendMessage(conversationId: String, content: String): Boolean {
         val trimmed = content.trim()
-        if (trimmed.isBlank()) return
+        if (trimmed.isBlank()) return false
         if (activeJob?.isActive == true) {
             secureLogger.log(
                 SecureLogger.Level.WARN,
                 "ChatExecutionManager",
                 "Rejected sendMessage for conversation $conversationId: synthesis session is currently active."
             )
-            return
+            return false
         }
 
         scope.launch {
-            val userMsg = MessageEntity(
-                id = UUID.randomUUID().toString(),
-                conversationId = conversationId,
-                role = "user",
-                content = trimmed,
-                timestamp = System.currentTimeMillis()
-            )
-            conversationRepository.addMessage(userMsg)
-            conversationRepository.updateLastPreview(conversationId, trimmed.take(100))
-            _events.tryEmit(ChatExecutionEvent.UserMessageAdded(conversationId, userMsg))
-
-            val patientProfile = conversationRepository.getPatientProfile(conversationId)
-            val config = securePreferences.configuration.value
-            if (!config.isConfigured) {
-                val errorMsg = MessageEntity(
-                    id = UUID.randomUUID().toString(),
-                    conversationId = conversationId,
-                    role = "assistant",
-                    content = "The clinical AI core is unconfigured. Please finalize provider keys in clinical settings.",
-                    timestamp = System.currentTimeMillis(),
-                    isError = true
-                )
-                conversationRepository.addMessage(errorMsg)
-                _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, errorMsg))
-                return@launch
-            }
-
+            streamingManager.reset()
             val pendingAssistantId = UUID.randomUUID().toString()
+            val turnContext = TurnContext(messageId = pendingAssistantId)
+            activeTurn = turnContext
+            idleCancelled = false
             _activeConversationId.value = conversationId
             _activeAssistantMessageId.value = pendingAssistantId
             _events.tryEmit(ChatExecutionEvent.GenerationStarted(conversationId, pendingAssistantId))
 
-            streamingManager.reset()
-            userCancelled = false
+            val patientProfile: PatientProfile?
+            val config: AiConfiguration
+            try {
+                val userMsg = MessageEntity(
+                    id = UUID.randomUUID().toString(),
+                    conversationId = conversationId,
+                    role = "user",
+                    content = trimmed,
+                    timestamp = System.currentTimeMillis()
+                )
+                conversationRepository.addMessage(userMsg)
+                conversationRepository.updateLastPreview(conversationId, trimmed.take(100))
+                _events.tryEmit(ChatExecutionEvent.UserMessageAdded(conversationId, userMsg))
+
+                patientProfile = conversationRepository.getPatientProfile(conversationId)
+                config = securePreferences.configuration.value
+                if (!config.isConfigured) {
+                    val errorMsg = MessageEntity(
+                        id = pendingAssistantId,
+                        conversationId = conversationId,
+                        role = "assistant",
+                        content = "The clinical AI core is unconfigured. Please finalize provider keys in clinical settings.",
+                        timestamp = System.currentTimeMillis(),
+                        isError = true
+                    )
+                    try {
+                        conversationRepository.addMessage(errorMsg)
+                    } catch (e: Exception) {
+                        secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist unconfigured error: ${e.message}")
+                    }
+                    _activeConversationId.value = null
+                    _activeAssistantMessageId.value = null
+                    streamingManager.reset()
+                    turnContext.terminalEventEmitted = true
+                    if (activeTurn === turnContext) activeTurn = null
+                    _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, errorMsg))
+                    return@launch
+                }
+            } catch (e: Exception) {
+                secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Initialization error in sendMessage: ${e.message}")
+                _activeConversationId.value = null
+                _activeAssistantMessageId.value = null
+                streamingManager.reset()
+                val initErrorMsg = MessageEntity(
+                    id = pendingAssistantId,
+                    conversationId = conversationId,
+                    role = "assistant",
+                    content = "Failed to initialize conversation message: ${e.message ?: "Unknown error"}",
+                    timestamp = System.currentTimeMillis(),
+                    isError = true
+                )
+                try {
+                    conversationRepository.addMessage(initErrorMsg)
+                } catch (_: Exception) {
+                    // Best effort persistence in case storage failure caused initialization error
+                }
+                turnContext.terminalEventEmitted = true
+                if (activeTurn === turnContext) activeTurn = null
+                _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, initErrorMsg))
+                return@launch
+            }
+
             val timeoutMs = reliabilityManager.getAgentTimeoutMs(config.provider)
 
             backgroundExecutionBridge?.onExecutionStarted(conversationId, trimmed)
@@ -148,16 +192,17 @@ class ChatExecutionManager(
                             )
                         }
                     }
-                    handleAgentResult(conversationId, pendingAssistantId, result.content)
+                    handleAgentResult(conversationId, pendingAssistantId, result.content, turnContext)
                 } catch (e: CancellationException) {
-                    if (userCancelled) {
+                    if (turnContext.userCancelled) {
                         throw e
                     }
                     handleAgentError(
                         conversationId = conversationId,
                         messageId = pendingAssistantId,
                         errorMessage = e.message ?: "Request timed out.",
-                        errorType = StreamingManager.ErrorType.TIMEOUT
+                        errorType = StreamingManager.ErrorType.TIMEOUT,
+                        turnContext = turnContext
                     )
                 } catch (e: Exception) {
                     secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Clinical runtime crash: ${e.message}")
@@ -165,16 +210,37 @@ class ChatExecutionManager(
                         conversationId = conversationId,
                         messageId = pendingAssistantId,
                         errorMessage = e.message ?: "General core execution error.",
-                        errorType = StreamingManager.ErrorType.UNKNOWN
+                        errorType = StreamingManager.ErrorType.UNKNOWN,
+                        turnContext = turnContext
                     )
                 } finally {
                     statusJob.cancel()
-                    userCancelled = true
-                    _activeConversationId.value = null
-                    _activeAssistantMessageId.value = null
+                    if (_activeAssistantMessageId.value == pendingAssistantId) {
+                        _activeConversationId.value = null
+                        _activeAssistantMessageId.value = null
+                        streamingManager.reset()
+                    }
+                    if (!turnContext.terminalEventEmitted && !turnContext.userCancelled) {
+                        turnContext.terminalEventEmitted = true
+                        val fallbackError = MessageEntity(
+                            id = pendingAssistantId,
+                            conversationId = conversationId,
+                            role = "assistant",
+                            content = "Clinical synthesis terminated without event.",
+                            timestamp = System.currentTimeMillis(),
+                            isError = true
+                        )
+                        try {
+                            conversationRepository.addMessage(fallbackError)
+                        } catch (_: Exception) {
+                            // Best effort persistence
+                        }
+                        _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, fallbackError))
+                    }
                 }
             }
         }
+        return true
     }
 
     fun cancelGeneration(conversationId: String) {
@@ -182,16 +248,22 @@ class ChatExecutionManager(
         if (currentActive != null && currentActive != conversationId) {
             return
         }
-        if (currentActive == null && userCancelled) {
+        val turn = activeTurn
+        if (currentActive == null && (turn == null && idleCancelled)) {
             return
         }
-        userCancelled = true
+        if (currentActive == null) {
+            idleCancelled = true
+        }
+        turn?.userCancelled = true
+        activeTurn = null
         val job = activeJob
         activeJob = null
         job?.cancel()
         val pendingId = _activeAssistantMessageId.value
         _activeConversationId.value = null
         _activeAssistantMessageId.value = null
+        streamingManager.reset()
 
         scope.launch {
             val cancelMsg = MessageEntity(
@@ -202,8 +274,12 @@ class ChatExecutionManager(
                 timestamp = System.currentTimeMillis(),
                 isError = true
             )
-            conversationRepository.addMessage(cancelMsg)
-            streamingManager.reset()
+            try {
+                conversationRepository.addMessage(cancelMsg)
+            } catch (e: Exception) {
+                secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist cancellation: ${e.message}")
+            }
+            turn?.terminalEventEmitted = true
             _events.tryEmit(ChatExecutionEvent.GenerationCancelled(conversationId, cancelMsg))
             backgroundExecutionBridge?.onExecutionCancelled(conversationId)
         }
@@ -216,7 +292,8 @@ class ChatExecutionManager(
     internal suspend fun handleAgentResult(
         conversationId: String,
         messageId: String,
-        result: String
+        result: String,
+        turnContext: TurnContext? = null
     ) {
         val cleanResult = ReasoningTokenSanitizer.stripReasoning(result)
         when (val state = streamingManager.agentState.value) {
@@ -230,7 +307,8 @@ class ChatExecutionManager(
                         messageId = messageId,
                         result = cleanResult,
                         validation = state.validation,
-                        usage = state.tokenUsage
+                        usage = state.tokenUsage,
+                        turnContext = turnContext
                     )
                 } else if (hasWrongNumbers && cleanResult.isNotBlank() && !cleanResult.startsWith(BLOCKED_MARKER)) {
                     val effectiveValidation = if (state.validation.warnings.isEmpty()) {
@@ -252,7 +330,8 @@ class ChatExecutionManager(
                         messageId = messageId,
                         result = cleanResult,
                         validation = effectiveValidation,
-                        usage = state.tokenUsage
+                        usage = state.tokenUsage,
+                        turnContext = turnContext
                     )
                 } else {
                     val blockedReason = state.validation.blockedReason
@@ -266,15 +345,15 @@ class ChatExecutionManager(
                     } else {
                         "$BLOCKED_MARKER$blockedReason"
                     }
-                    saveQuarantinedMessage(conversationId, messageId, content, state.validation)
+                    saveQuarantinedMessage(conversationId, messageId, content, state.validation, turnContext)
                 }
             }
             is StreamingManager.AgentState.Error -> {
-                handleAgentError(conversationId, messageId, state.message, state.type)
+                handleAgentError(conversationId, messageId, state.message, state.type, turnContext)
             }
             else -> {
                 secureLogger.log(SecureLogger.Level.WARN, "ChatExecutionManager", "handleAgentResult: unexpected state ${state::class.simpleName}")
-                saveFallbackMessage(conversationId, messageId, cleanResult)
+                saveFallbackMessage(conversationId, messageId, cleanResult, turnContext)
             }
         }
     }
@@ -284,7 +363,8 @@ class ChatExecutionManager(
         messageId: String,
         result: String,
         validation: SafetyValidator.ValidationResult,
-        usage: StreamingManager.TokenUsage
+        usage: StreamingManager.TokenUsage,
+        turnContext: TurnContext? = null
     ) {
         val assistantMsg = MessageEntity(
             id = messageId,
@@ -296,14 +376,20 @@ class ChatExecutionManager(
             topicRefsJson = json.encodeToString(validation.topicRefs),
             graphicRefsJson = json.encodeToString(validation.graphicRefs)
         )
-        conversationRepository.addMessage(assistantMsg)
-        conversationRepository.updateTokenCounts(
-            conversationId,
-            promptDelta = usage.promptTokens,
-            completionDelta = usage.completionTokens,
-            toolDelta = 0
-        )
-        conversationRepository.updateLastPreview(conversationId, result.take(100))
+        try {
+            conversationRepository.addMessage(assistantMsg)
+            conversationRepository.updateTokenCounts(
+                conversationId,
+                promptDelta = usage.promptTokens,
+                completionDelta = usage.completionTokens,
+                toolDelta = 0
+            )
+            conversationRepository.updateLastPreview(conversationId, result.take(100))
+        } catch (e: Exception) {
+            secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist completed message: ${e.message}")
+        }
+        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
+        effectiveTurn?.terminalEventEmitted = true
         _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, assistantMsg, validation.warnings))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, result.take(120), false)
     }
@@ -312,7 +398,8 @@ class ChatExecutionManager(
         conversationId: String,
         messageId: String,
         content: String,
-        validation: SafetyValidator.ValidationResult
+        validation: SafetyValidator.ValidationResult,
+        turnContext: TurnContext? = null
     ) {
         val blockedMsg = MessageEntity(
             id = messageId,
@@ -325,8 +412,14 @@ class ChatExecutionManager(
             graphicRefsJson = json.encodeToString(validation.graphicRefs),
             isError = true
         )
-        conversationRepository.addMessage(blockedMsg)
-        conversationRepository.updateLastPreview(conversationId, content.take(100))
+        try {
+            conversationRepository.addMessage(blockedMsg)
+            conversationRepository.updateLastPreview(conversationId, content.take(100))
+        } catch (e: Exception) {
+            secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist quarantined message: ${e.message}")
+        }
+        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
+        effectiveTurn?.terminalEventEmitted = true
         _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, blockedMsg, validation.warnings))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, "Output quarantined by safety rules.", false)
     }
@@ -334,7 +427,8 @@ class ChatExecutionManager(
     private suspend fun saveFallbackMessage(
         conversationId: String,
         messageId: String,
-        result: String
+        result: String,
+        turnContext: TurnContext? = null
     ) {
         val fallbackResult = result.ifBlank { "Clinical query response generated." }
         val fallbackMsg = MessageEntity(
@@ -344,8 +438,14 @@ class ChatExecutionManager(
             content = fallbackResult,
             timestamp = System.currentTimeMillis()
         )
-        conversationRepository.addMessage(fallbackMsg)
-        conversationRepository.updateLastPreview(conversationId, fallbackResult.take(100))
+        try {
+            conversationRepository.addMessage(fallbackMsg)
+            conversationRepository.updateLastPreview(conversationId, fallbackResult.take(100))
+        } catch (e: Exception) {
+            secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist fallback message: ${e.message}")
+        }
+        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
+        effectiveTurn?.terminalEventEmitted = true
         _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, fallbackMsg, emptyList()))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, fallbackResult.take(120), false)
     }
@@ -354,7 +454,8 @@ class ChatExecutionManager(
         conversationId: String,
         messageId: String,
         errorMessage: String,
-        errorType: StreamingManager.ErrorType
+        errorType: StreamingManager.ErrorType,
+        turnContext: TurnContext? = null
     ) {
         streamingManager.onError(errorMessage)
         val errorMsg = MessageEntity(
@@ -365,7 +466,13 @@ class ChatExecutionManager(
             timestamp = System.currentTimeMillis(),
             isError = true
         )
-        conversationRepository.addMessage(errorMsg)
+        try {
+            conversationRepository.addMessage(errorMsg)
+        } catch (e: Exception) {
+            secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist error message: ${e.message}")
+        }
+        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
+        effectiveTurn?.terminalEventEmitted = true
         _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, errorMsg))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, errorMessage, true)
     }
