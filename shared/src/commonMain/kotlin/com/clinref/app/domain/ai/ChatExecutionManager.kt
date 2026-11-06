@@ -1,7 +1,6 @@
 package com.clinref.app.domain.ai
 
 import com.clinref.app.data.local.entity.MessageEntity
-import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import com.clinref.shared.secure.SecurePreferences
 import kotlinx.coroutines.CancellationException
@@ -31,7 +30,6 @@ import java.util.UUID
  */
 class ChatExecutionManager(
     private val conversationRepository: ConversationRepository,
-    private val contentRepository: ContentRepository,
     private val koogAgentFactory: KoogAgentFactory,
     private val clinicalOrchestrator: ClinicalOrchestrator,
     private val streamingManager: StreamingManager,
@@ -215,11 +213,15 @@ class ChatExecutionManager(
                     )
                 } finally {
                     statusJob.cancel()
+                    if (activeTurn === turnContext) {
+                        activeTurn = null
+                    }
                     if (_activeAssistantMessageId.value == pendingAssistantId) {
                         _activeConversationId.value = null
                         _activeAssistantMessageId.value = null
                         streamingManager.reset()
                     }
+                    idleCancelled = true
                     if (!turnContext.terminalEventEmitted && !turnContext.userCancelled) {
                         turnContext.terminalEventEmitted = true
                         val fallbackError = MessageEntity(
@@ -255,9 +257,9 @@ class ChatExecutionManager(
         if (currentActive == null) {
             idleCancelled = true
         }
+        val job = activeJob
         turn?.userCancelled = true
         activeTurn = null
-        val job = activeJob
         activeJob = null
         job?.cancel()
         val pendingId = _activeAssistantMessageId.value
@@ -388,8 +390,7 @@ class ChatExecutionManager(
         } catch (e: Exception) {
             secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist completed message: ${e.message}")
         }
-        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
-        effectiveTurn?.terminalEventEmitted = true
+        markTurnTerminal(messageId, turnContext)
         _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, assistantMsg, validation.warnings))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, result.take(120), false)
     }
@@ -418,8 +419,7 @@ class ChatExecutionManager(
         } catch (e: Exception) {
             secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist quarantined message: ${e.message}")
         }
-        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
-        effectiveTurn?.terminalEventEmitted = true
+        markTurnTerminal(messageId, turnContext)
         _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, blockedMsg, validation.warnings))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, "Output quarantined by safety rules.", false)
     }
@@ -444,8 +444,7 @@ class ChatExecutionManager(
         } catch (e: Exception) {
             secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist fallback message: ${e.message}")
         }
-        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
-        effectiveTurn?.terminalEventEmitted = true
+        markTurnTerminal(messageId, turnContext)
         _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, fallbackMsg, emptyList()))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, fallbackResult.take(120), false)
     }
@@ -471,10 +470,14 @@ class ChatExecutionManager(
         } catch (e: Exception) {
             secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist error message: ${e.message}")
         }
-        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
-        effectiveTurn?.terminalEventEmitted = true
+        markTurnTerminal(messageId, turnContext)
         _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, errorMsg))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, errorMessage, true)
+    }
+
+    private fun markTurnTerminal(messageId: String, turnContext: TurnContext?) {
+        val effectiveTurn = turnContext ?: if (activeTurn?.messageId == messageId) activeTurn else null
+        effectiveTurn?.terminalEventEmitted = true
     }
 
     private fun mapErrorToUserMessage(type: StreamingManager.ErrorType, detail: String? = null): String {

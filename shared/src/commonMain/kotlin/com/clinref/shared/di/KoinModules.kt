@@ -87,7 +87,6 @@ val commonAiModule: Module = module {
     single {
         com.clinref.app.domain.ai.ChatExecutionManager(
             conversationRepository = get(),
-            contentRepository = get(),
             koogAgentFactory = get(),
             clinicalOrchestrator = get(),
             streamingManager = get(),

@@ -54,7 +54,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,7 +62,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboard
 import com.clinref.app.ui.common.setPlainText
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -103,57 +101,6 @@ private val ArticleSheetRequestSaver = listSaver<ArticleSheetRequest?, String?>(
         ArticleSheetRequest(topicId = topic, sectionId = list.getOrNull(1))
     }
 )
-
-/**
- * Pure function computing display items for the chat LazyColumn.
- * Guarantees zero dropped items across stream completion, resets, and error transitions.
- */
-fun computeDisplayItems(
-    chatItems: List<ChatListItem>,
-    activeAssistantId: String?,
-    streamingText: String,
-    fallbackText: String = ""
-): List<ChatListItem> {
-    if (activeAssistantId == null) return chatItems
-    val hasAssistantInPersisted = chatItems.any { it is ChatListItem.Message && it.uiModel.id == activeAssistantId }
-    val effectiveText = streamingText.ifEmpty { fallbackText }
-    if (!hasAssistantInPersisted && effectiveText.isNotEmpty()) {
-        return chatItems + ChatListItem.Message(
-            MessageUiModel(
-                id = activeAssistantId,
-                role = "assistant",
-                content = effectiveText,
-                timestamp = 0L,
-                showTimestamp = false
-            )
-        )
-    }
-    return chatItems
-}
-
-/**
- * Pure holder tracking streamed text continuity across resets and completion handoffs.
- */
-class ChatDisplayItemsHolder {
-    var lastStreamedText: String = ""
-        private set
-    var currentAssistantId: String? = null
-        private set
-
-    fun onStreamingText(assistantId: String?, text: String) {
-        if (assistantId != currentAssistantId) {
-            currentAssistantId = assistantId
-            lastStreamedText = ""
-        }
-        if (text.isNotEmpty()) {
-            lastStreamedText = text
-        }
-    }
-
-    fun getFallbackText(assistantId: String?): String {
-        return if (assistantId != null && assistantId == currentAssistantId) lastStreamedText else ""
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -315,18 +262,8 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    val holder = remember { ChatDisplayItemsHolder() }
-                    SideEffect {
-                        holder.onStreamingText(activeAssistantId, streamingText)
-                    }
-                    val fallbackText = holder.getFallbackText(activeAssistantId)
-                    val displayItems = remember(chatItems, streamingText, activeAssistantId, fallbackText) {
-                        computeDisplayItems(
-                            chatItems = chatItems,
-                            activeAssistantId = activeAssistantId,
-                            streamingText = streamingText,
-                            fallbackText = fallbackText
-                        )
+                    val hasAssistantInPersisted = remember(chatItems, activeAssistantId) {
+                        activeAssistantId != null && chatItems.any { it is ChatListItem.Message && it.uiModel.id == activeAssistantId }
                     }
 
                     LazyColumn(
@@ -358,7 +295,7 @@ fun ChatScreen(
                         }
 
                         items(
-                            items = displayItems,
+                            items = chatItems,
                             key = { it.key }
                         ) { item ->
                             when (item) {
@@ -393,6 +330,29 @@ fun ChatScreen(
                                     reasoningText = reasoningText,
                                     isReasoning = isReasoning,
                                     onSourceClick = { ref -> handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null }) }
+                                )
+                            }
+                        }
+
+                        if (activeAssistantId != null && !hasAssistantInPersisted && streamingText.isNotEmpty()) {
+                            item(key = activeAssistantId) {
+                                ChatMessageItem(
+                                    message = MessageUiModel(
+                                        id = activeAssistantId!!,
+                                        role = "assistant",
+                                        content = streamingText,
+                                        timestamp = 0L,
+                                        showTimestamp = false
+                                    ),
+                                    isStreaming = true,
+                                    onCopyMessage = { content ->
+                                        coroutineScope.launch {
+                                            clipboard.setPlainText(content)
+                                            snackbarHostState.showSnackbar("Copied content to workspace clipboard")
+                                        }
+                                    },
+                                    onNavigateToContent = handleNavigateToContent,
+                                    onGraphicSelected = handleGraphicSelected
                                 )
                             }
                         }

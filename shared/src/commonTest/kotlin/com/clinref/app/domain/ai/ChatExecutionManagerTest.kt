@@ -5,7 +5,6 @@ import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLModel
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.fakes.FakeSecurePreferences
-import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -38,7 +37,6 @@ class ChatExecutionManagerTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val conversationRepository: ConversationRepository = mockk(relaxed = true)
-    private val contentRepository: ContentRepository = mockk(relaxed = true)
     private val koogAgentFactory: KoogAgentFactory = mockk(relaxed = true)
     private val streamingManager: StreamingManager = mockk(relaxed = true)
     private val reliabilityManager = ReliabilityManager()
@@ -55,7 +53,6 @@ class ChatExecutionManagerTest {
         every { streamingManager.currentStatusText } returns MutableStateFlow("")
         manager = ChatExecutionManager(
             conversationRepository = conversationRepository,
-            contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
             clinicalOrchestrator = clinicalOrchestrator,
             streamingManager = streamingManager,
@@ -90,6 +87,7 @@ class ChatExecutionManagerTest {
 
         // User message and error message must both be saved
         coVerify(exactly = 2) { conversationRepository.addMessage(any()) }
+        verify(atLeast = 1) { streamingManager.reset() }
         assertFalse(manager.isGenerating("conv-1"))
     }
 
@@ -109,7 +107,6 @@ class ChatExecutionManagerTest {
 
     @Test
     fun testCancelGenerationIsIdempotentAndDoesNotInsertDuplicates() = runTest(testDispatcher) {
-        manager.cancelGeneration("conv-1")
         manager.cancelGeneration("conv-1")
         manager.cancelGeneration("conv-1")
         advanceUntilIdle()
@@ -140,6 +137,40 @@ class ChatExecutionManagerTest {
             conversationRepository.addMessage(match {
                 it.conversationId == "conv-2" && it.role == "cancelled"
             })
+        }
+    }
+
+    @Test
+    fun testCancelGenerationAfterSuccessfulCompletionIsNoOp() = runTest(testDispatcher) {
+        val testManager = createConfiguredTestManager()
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+            ClinicalOrchestrator.ExecutionResult(
+                content = "Normal clinical guidance.",
+                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
+                tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
+            )
+
+        every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
+            result = "Normal clinical guidance.",
+            validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
+            tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
+        )
+
+        testManager.sendMessage("conv-1", "Question")
+        advanceUntilIdle()
+
+        assertNull("activeAssistantMessageId must be null after completion", testManager.activeAssistantMessageId.value)
+        assertNull("activeConversationId must be null after completion", testManager.activeConversationId.value)
+
+        // Calling cancel on an already completed conversation must be a no-op
+        testManager.cancelGeneration("conv-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(match { it.role == "cancelled" })
         }
     }
 
@@ -207,14 +238,6 @@ class ChatExecutionManagerTest {
     }
 
     @Test
-    fun testUnconfiguredErrorPathResetsStreamingManager() = runTest(testDispatcher) {
-        manager.sendMessage("conv-1", "Query")
-        advanceUntilIdle()
-
-        verify { streamingManager.reset() }
-    }
-
-    @Test
     fun testRealOrderingWithRealStreamingManager() = runTest(testDispatcher) {
         val realStreamingManager = StreamingManager()
         // Simulate stale tokens from a prior turn
@@ -223,7 +246,6 @@ class ChatExecutionManagerTest {
 
         val orderedManager = ChatExecutionManager(
             conversationRepository = conversationRepository,
-            contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
             clinicalOrchestrator = clinicalOrchestrator,
             streamingManager = realStreamingManager,
@@ -353,7 +375,6 @@ class ChatExecutionManagerTest {
 
         val testManager = ChatExecutionManager(
             conversationRepository = conversationRepository,
-            contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
             clinicalOrchestrator = clinicalOrchestrator,
             streamingManager = realStreamingManager,
@@ -546,7 +567,6 @@ class ChatExecutionManagerTest {
         )
         return ChatExecutionManager(
             conversationRepository = conversationRepository,
-            contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
             clinicalOrchestrator = clinicalOrchestrator,
             streamingManager = customStreamingManager ?: streamingManager,

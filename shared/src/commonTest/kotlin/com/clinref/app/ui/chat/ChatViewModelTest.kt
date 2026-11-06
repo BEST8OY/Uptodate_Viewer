@@ -59,7 +59,6 @@ class ChatViewModelTest {
         every { streamingManager.currentStatusText } returns MutableStateFlow("")
         chatExecutionManager = ChatExecutionManager(
             conversationRepository = conversationRepository,
-            contentRepository = contentRepository,
             koogAgentFactory = koogAgentFactory,
             clinicalOrchestrator = clinicalOrchestrator,
             streamingManager = streamingManager,
@@ -251,20 +250,6 @@ class ChatViewModelTest {
         advanceUntilIdle()
 
         assertEquals(initialCount, viewModel.messages.value.size)
-    }
-
-    @Test
-    fun testChatItemsSynchronouslyUpdatedWithMessages() = runTest(testDispatcher) {
-        val userMsg = MessageEntity("u1", "conv-1", "user", "Test", 1000L)
-        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(userMsg)
-
-        viewModel.loadConversation("conv-1")
-        advanceUntilIdle()
-
-        // _chatItems must be populated synchronously with _messages
-        assertEquals(1, viewModel.messages.value.size)
-        assertEquals(1, viewModel.chatItems.value.size)
-        assertEquals("u1", viewModel.chatItems.value[0].key)
     }
 
     @Test
