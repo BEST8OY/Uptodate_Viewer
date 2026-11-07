@@ -152,7 +152,7 @@ class SettingsViewModel(
     }
 
     private suspend fun loadModels(provider: AiProvider, baseUrl: String) {
-        val models = koogAgentFactory.getAvailableModels(provider, baseUrl)
+        val models = koogAgentFactory.getAvailableModels(provider, baseUrl).distinct()
         _availableModels.value = models
         // Inherent package models serve as suggestions/defaults.
         // NEVER overwrite the user's custom-typed model for any provider!

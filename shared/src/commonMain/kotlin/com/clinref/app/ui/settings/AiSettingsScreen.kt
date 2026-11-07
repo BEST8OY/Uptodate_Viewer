@@ -60,9 +60,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.rememberSliderState
 import androidx.compose.material3.Surface
@@ -380,54 +377,7 @@ fun AiSettingsScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // Clinical Mode Presets (Segmented Buttons)
-                            val currentTemp = configuration.temperature
-                            val selectedPresetIndex = when {
-                                abs(currentTemp - 0.0f) < 0.05f -> 0
-                                abs(currentTemp - 0.3f) < 0.05f -> 1
-                                abs(currentTemp - 0.7f) < 0.05f -> 2
-                                else -> -1
-                            }
-
-                            val presets = listOf(
-                                "Strict (0.0)" to 0.0f,
-                                "Clinical (0.3)" to 0.3f,
-                                "Creative (0.7)" to 0.7f
-                            )
-
-                            SingleChoiceSegmentedButtonRow(
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                presets.forEachIndexed { index, (label, temp) ->
-                                    SegmentedButton(
-                                        selected = selectedPresetIndex == index,
-                                        onClick = { viewModel.updateTemperature(temp) },
-                                        shape = SegmentedButtonDefaults.itemShape(index = index, count = presets.size)
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = when {
-                                    currentTemp < 0.1f -> "Strict: Maximally deterministic for dosing, interactions, and guideline lookups."
-                                    currentTemp in 0.1f..0.5f -> "Clinical: Balanced reasoning for clinical summaries and differential evaluation."
-                                    else -> "Creative: Higher diversity for exploratory brainstorming; verify medical facts."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
                             val sliderState = rememberSliderState(
                                 value = configuration.temperature,
@@ -450,9 +400,9 @@ fun AiSettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("0.0 (Strict)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("0.5 (Balanced)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("1.0 (Creative)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("0.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("0.5", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("1.0", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
 

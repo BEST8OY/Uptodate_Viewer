@@ -90,6 +90,6 @@ class KoogAgentFactory(
     }
 
     suspend fun getAvailableModels(provider: AiProvider, baseUrl: String = ""): List<String> {
-        return getProvider(provider)?.getAvailableModels() ?: emptyList()
+        return getProvider(provider)?.getAvailableModels()?.distinct() ?: emptyList()
     }
 }

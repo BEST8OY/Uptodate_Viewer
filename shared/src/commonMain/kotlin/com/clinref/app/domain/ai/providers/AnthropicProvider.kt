@@ -54,9 +54,11 @@ class AnthropicProvider(
             capabilities = capabilities,
             contextLength = contextLength
         )
-        try {
-            AnthropicModels.addCustomModel(model)
-        } catch (_: Throwable) {}
+        if (predefined == null && AnthropicModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
+            try {
+                AnthropicModels.addCustomModel(model)
+            } catch (_: Throwable) {}
+        }
         return model
     }
 
@@ -101,6 +103,6 @@ class AnthropicProvider(
     }
 
     override fun getAvailableModels(): List<String> {
-        return AnthropicModels.models.map { it.id }
+        return AnthropicModels.models.map { it.id }.distinct()
     }
 }

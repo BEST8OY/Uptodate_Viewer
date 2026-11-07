@@ -48,9 +48,11 @@ class GoogleProvider(
             capabilities = capabilities,
             contextLength = contextLength
         )
-        try {
-            GoogleModels.addCustomModel(model)
-        } catch (_: Throwable) {}
+        if (predefined == null && GoogleModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
+            try {
+                GoogleModels.addCustomModel(model)
+            } catch (_: Throwable) {}
+        }
         return model
     }
 
@@ -100,6 +102,6 @@ class GoogleProvider(
     }
 
     override fun getAvailableModels(): List<String> {
-        return GoogleModels.models.map { it.id }
+        return GoogleModels.models.map { it.id }.distinct()
     }
 }

@@ -78,9 +78,7 @@ class MistralAIProvider(
 
         return OpenAIChatParams(
             temperature = temperature,
-            maxTokens = settings.maxTokens,
-            frequencyPenalty = settings.frequencyPenalty,
-            presencePenalty = settings.presencePenalty
+            maxTokens = settings.maxTokens
         )
     }
 
@@ -95,6 +93,6 @@ class MistralAIProvider(
             "mistral-large-latest",
             "open-mixtral-8x7b",
             "open-mixtral-8x22b"
-        )
+        ).distinct()
     }
 }

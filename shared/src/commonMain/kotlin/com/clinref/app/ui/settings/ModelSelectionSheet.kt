@@ -65,10 +65,11 @@ fun ModelSelectionSheet(
 
     val trimmedQuery = searchQuery.trim()
     val filteredModels = remember(availableModels, trimmedQuery) {
+        val uniqueModels = availableModels.distinct()
         if (trimmedQuery.isEmpty()) {
-            availableModels
+            uniqueModels
         } else {
-            availableModels.filter { it.contains(trimmedQuery, ignoreCase = true) }
+            uniqueModels.filter { it.contains(trimmedQuery, ignoreCase = true) }
         }
     }
 

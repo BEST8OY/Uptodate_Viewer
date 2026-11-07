@@ -55,10 +55,12 @@ class OpenRouterProvider(
             capabilities = capabilities,
             contextLength = contextLength
         )
-        try {
-            OpenRouterModels.addCustomModel(model)
-        } catch (_: Throwable) {
-            // Ignore if already registered
+        if (predefined == null && OpenRouterModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
+            try {
+                OpenRouterModels.addCustomModel(model)
+            } catch (_: Throwable) {
+                // Ignore if already registered
+            }
         }
         return model
     }
@@ -103,12 +105,7 @@ class OpenRouterProvider(
 
         return OpenRouterParams(
             temperature = temperature,
-            maxTokens = settings.maxTokens,
-            frequencyPenalty = settings.frequencyPenalty,
-            presencePenalty = settings.presencePenalty,
-            repetitionPenalty = settings.repetitionPenalty,
-            minP = settings.minP,
-            transforms = settings.transforms
+            maxTokens = settings.maxTokens
         )
     }
 

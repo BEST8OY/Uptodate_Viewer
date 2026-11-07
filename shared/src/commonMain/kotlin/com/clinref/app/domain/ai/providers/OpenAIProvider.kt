@@ -49,9 +49,11 @@ class OpenAIProvider(
             capabilities = capabilities,
             contextLength = contextLength
         )
-        try {
-            OpenAIModels.addCustomModel(model)
-        } catch (_: Throwable) {}
+        if (predefined == null && OpenAIModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
+            try {
+                OpenAIModels.addCustomModel(model)
+            } catch (_: Throwable) {}
+        }
         return model
     }
 
@@ -85,8 +87,6 @@ class OpenAIProvider(
         return OpenAIChatParams(
             temperature = temperature,
             maxTokens = settings.maxTokens,
-            frequencyPenalty = settings.frequencyPenalty,
-            presencePenalty = settings.presencePenalty,
             reasoningEffort = settings.reasoningEffort?.let {
                 when (it.lowercase()) {
                     "low" -> ReasoningEffort.LOW
@@ -102,6 +102,6 @@ class OpenAIProvider(
     }
 
     override fun getAvailableModels(): List<String> {
-        return OpenAIModels.models.map { it.id }
+        return OpenAIModels.models.map { it.id }.distinct()
     }
 }
