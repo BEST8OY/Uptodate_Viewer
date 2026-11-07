@@ -220,30 +220,32 @@ enough to be string-shared across stacks.
 ## 9. Evaluating the prompt
 
 Prompt quality here is not a matter of taste; it is the fraction of turns that satisfy rules the
-model was given. `python_prototype/eval_prompt.py` runs a case file (`eval_cases.jsonl`) through the
-real graph and scores each turn deterministically — no LLM judge, no network:
+model was given. `python_prototype/eval_prompt.py` runs a stratified case file (`eval_cases.jsonl`, 20 clinical scenarios across 10 categories) and scores each turn across a **4-Tier Clinical Decision Support Evaluation Engine**:
 
-| check | prompt rule it measures |
+| Evaluation Tier | Scored Properties & Contract |
 |---|---|
-| `grounded` | every clinical quantity in the answer appears in the retrieved text (Gate 2) |
-| `bluf` | answer opens with a bolded clinical conclusion |
-| `no_preamble` | no "Based on the retrieved evidence…" opener |
-| `refs` | at least one retrieved section backs the answer |
-| `no_doses` | an unanswerable question produced no dosing values |
-| `declared_unknown` | an unanswerable question was withheld or said the value is not in the sections |
+| **Tier 1: Clinical Safety (Blockers)** | 100% quantitative grounding (`SafetyValidator` Gate 2 set difference); anti-arithmetic (no calculated $mg/kg$ absolute doses); patient profile contraindication adherence; modality boundaries (zero visual interpretation of unparsed images/scans). |
+| **Tier 2: Epistemic & GRADE Fidelity** | Exact GRADE modal verb preservation (`recommend` vs `suggest` vs `may`); canonical abstention (`Not specified in retrieved UpToDate sections.`); quantitative entity binding (preventing threshold shifting). |
+| **Tier 3: Point-of-Care UX & Cognitive Load** | Direct Line 1 bold declarative clinical conclusion (`is_bluf()`, forbidding colon labels like `**Management:**`); zero conversational preambles (`PREAMBLE_RE`); empty heading prohibition (omitting unneeded or empty subheadings). |
+| **Tier 4: Output Mechanics** | Plain text formatting discipline; strict prohibition of Markdown ATX headings (`#`/`##`/`###`), markdown links, and hallucinated inline citation brackets (`[1]`). |
 
-There is no length rule: the prompt no longer sets a word budget, so the report prints `words`
-as an observation rather than a pass/fail check. Clinician-encoded `must_contain` /
-`must_not_contain` pins catch fluent answers that no numeric rule can reject.
+### Fast Synthesis vs Full Agentic Benchmark Modes
 
-`expect_no_answer: true` marks a question the corpus cannot answer — where either a withheld turn
-or a one-line "not in the retrieved sections" passes. Structure is not scored: the prompt sets no
-fixed shapes, so the report prints the bold headings each answer used for human review.
+The evaluation framework supports dual execution modes:
 
-```bash
-cd python_prototype
-uv run python eval_prompt.py --provider mistral --model ministral-14b-latest --verbose
-```
+1. **Fast Synthesis Mode (`--mode synthesis`, default)**: Rapidly benchmarks prompt variants directly against pre-accumulated evidence digests without tool overhead. Runs against real Gemini via the local pre-authenticated `agy` CLI bridge:
+   ```bash
+   cd python_prototype
+   ./benchmark_agy.sh                      # Full 20-case CDS evaluation suite
+   ./benchmark_agy.sh --verbose            # Full answers and diagnostic telemetry
+   ./benchmark_agy.sh --case <case-id>     # Run single case (e.g. pediatric-ceftriaxone)
+   ./benchmark_agy.sh --category <name>    # Run by category (e.g. patient_profile)
+   ```
+2. **Full Agentic Mode (`--mode agent`)**: Runs the multi-step retrieval graph over root SQLite databases:
+   ```bash
+   cd python_prototype
+   uv run python eval_prompt.py --mode agent --provider mistral --model ministral-14b-latest --verbose
+   ```
 
 A prompt change is an improvement only if this scorecard improves without regressing
 `grounded`/`abstain`. That is the rule for further prompt edits: measure, do not add adjectives.
