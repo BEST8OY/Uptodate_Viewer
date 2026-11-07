@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -92,29 +93,79 @@ CASES = [
         "initial_query_substring": "pneumon",
         "is_calculator": False,
     },
+    {
+        "id": "cha2ds2-vasc-calculator-short-circuit",
+        "category": "calculator_discipline",
+        "question": "What are the clinical criteria, point allocations, and risk stratification thresholds for the CHA2DS2-VASc score in nonvalvular atrial fibrillation?",
+        "expected_first_tool": "searchTopics",
+        "clean_query_terms": ["cha2ds2-vasc", "cha2ds2 vasc", "cha2ds2"],
+        "expected_topic_id": "99815",
+        "should_not_call_sections": True,
+        "is_calculator": True,
+    },
+    {
+        "id": "methotrexate-boxed-warning-monograph",
+        "category": "dose_provenance",
+        "question": "What is the initial oral dosing schedule and boxed warning for methotrexate in active rheumatoid arthritis?",
+        "expected_first_tool": "searchTopics",
+        "clean_query_terms": ["methotrexate"],
+        "expected_topic_type": "drug",
+        "expected_topic_id": "9630",
+        "should_fetch_sections": True,
+        "is_calculator": False,
+    },
+    {
+        "id": "enoxaparin-in-topic-section-search",
+        "category": "section_pinpointing",
+        "question": "In an adult patient with severe renal impairment (CrCl < 30 mL/min), what is the recommended dose adjustment for enoxaparin when treating deep vein thrombosis?",
+        "expected_first_tool": "searchTopics",
+        "clean_query_terms": ["enoxaparin"],
+        "expected_topic_id": "9407",
+        "allow_search_topic_sections": True,
+        "is_calculator": False,
+    },
+    {
+        "id": "cap-empiric-regimens-table-graphics",
+        "category": "table_graphics",
+        "question": "According to the inpatient community-acquired pneumonia treatment table, what are the preferred antibiotic regimens for hospitalized adults without risk factors for MRSA or Pseudomonas?",
+        "expected_first_tool": "searchTopics",
+        "clean_query_terms": ["community acquired pneumonia", "pneumonia"],
+        "expected_graphic_id": "150234",
+        "is_calculator": False,
+    },
 ]
 
 
-def call_gemini_via_agy(prompt: str, model: str = "gemini-3.8-flash-medium", timeout: int = 120) -> str:
-    """Spawns agy CLI in print mode to query Gemini directly."""
+def call_gemini_via_agy(
+    prompt: str,
+    model: Optional[str] = None,
+    timeout: int = 180,
+    retries: int = 1,
+) -> str:
+    """Spawns agy CLI in print mode to query Gemini directly with retry on timeout."""
     cmd = [
         "agy",
         "--dangerously-skip-permissions",
         "--disable-slash-commands",
         "--print",
         prompt,
-        "--model",
-        model,
     ]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if res.returncode != 0:
-            return f"[AGY ERROR: code {res.returncode}] {res.stderr.strip()}"
-        return res.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return "[AGY TIMEOUT: exceeded timeout]"
-    except Exception as e:
-        return f"[AGY EXCEPTION: {e}]"
+    if model and model not in ("default", "gemini-3.8-flash-medium"):
+        cmd.extend(["--model", model])
+
+    for attempt in range(retries + 1):
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            if res.returncode != 0:
+                return f"[AGY ERROR: code {res.returncode}] {res.stderr.strip()}"
+            return res.stdout.strip()
+        except subprocess.TimeoutExpired:
+            if attempt < retries:
+                time.sleep(2)
+                continue
+            return "[AGY TIMEOUT: exceeded timeout]"
+        except Exception as e:
+            return f"[AGY EXCEPTION: {e}]"
 
 
 def parse_tool_calls_from_response(raw: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
@@ -224,7 +275,7 @@ def run_single_benchmark_case(
     system_prompt: str,
     tools_by_name: Dict[str, Any],
     max_rounds: int = 4,
-    model: str = "gemini-3.8-flash-medium",
+    model: Optional[str] = None,
     verbose: bool = False,
 ) -> Dict[str, Any]:
     """Execute multi-round retrieval agent loop for one case and evaluate."""
@@ -255,7 +306,7 @@ def run_single_benchmark_case(
         done_hint = '{"done": true}'
         prompt = f"{turn_instructions}\n\n{messages_block}\nRespond with your next tool calls or {done_hint}:"
 
-        raw_resp = call_gemini_via_agy(prompt, model=model, timeout=120)
+        raw_resp = call_gemini_via_agy(prompt, model=model, timeout=180)
         tool_calls, preliminary_text = parse_tool_calls_from_response(raw_resp)
 
         if verbose:
@@ -398,6 +449,12 @@ def evaluate_retrieval_trace(
         )
         checks["targeted_topic_overview_fetched"] = called_overview
 
+    # Check 8: In-article pinpointing
+    if case.get("allow_search_topic_sections"):
+        called_section_search = any(c.get("name", "").lower() == "searchtopicsections" for c in calls)
+        called_sections = any(c.get("name", "").lower() == "gettopicsectionstext" for c in calls)
+        checks["pinpointed_via_searchTopicSections_or_sections"] = called_section_search or called_sections
+
     passed_cnt = sum(1 for v in checks.values() if v)
     total_cnt = len(checks)
     overall_pass = passed_cnt == total_cnt
@@ -419,7 +476,7 @@ def main():
     parser.add_argument("--prompt", choices=["baseline", "rewrite", "both"], default="both",
                         help="Prompt candidate to test: 'baseline', 'rewrite', or 'both'.")
     parser.add_argument("--case", default=None, help="Filter to a single case ID.")
-    parser.add_argument("--model", default="gemini-3.8-flash-medium", help="Gemini model override.")
+    parser.add_argument("--model", default=None, help="Gemini model override (omit to use user active model).")
     parser.add_argument("--verbose", action="store_true", help="Print verbose round execution details.")
     args = parser.parse_args()
 

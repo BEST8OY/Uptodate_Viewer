@@ -249,25 +249,35 @@ def check_content_pin(term: str, text: str) -> bool:
     return bool(re.search(pattern, text_clean))
 
 
-def call_gemini_via_agy(prompt: str, model: str = "gemini-3.8-flash-medium") -> str:
+def call_gemini_via_agy(
+    prompt: str,
+    model: Optional[str] = None,
+    timeout: int = 180,
+    retries: int = 1,
+) -> str:
     """Spawns agy CLI in print mode to query Gemini directly without an external API key."""
     cmd = [
         "agy",
         "--dangerously-skip-permissions",
+        "--disable-slash-commands",
         "--print",
         prompt,
-        "--model",
-        model,
     ]
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-        if res.returncode != 0:
-            return f"[AGY ERROR: code {res.returncode}] {res.stderr.strip()}"
-        return res.stdout.strip()
-    except subprocess.TimeoutExpired:
-        return "[AGY TIMEOUT: exceeded 90s]"
-    except Exception as e:
-        return f"[AGY EXCEPTION: {e}]"
+    if model and model not in ("default", "gemini-3.8-flash-medium"):
+        cmd.extend(["--model", model])
+    for attempt in range(retries + 1):
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            if res.returncode != 0:
+                return f"[AGY ERROR: code {res.returncode}] {res.stderr.strip()}"
+            return res.stdout.strip()
+        except subprocess.TimeoutExpired:
+            if attempt < retries:
+                time.sleep(2)
+                continue
+            return f"[AGY TIMEOUT: exceeded {timeout}s]"
+        except Exception as e:
+            return f"[AGY EXCEPTION: {e}]"
 
 
 def run_synthesis_benchmark(
@@ -301,8 +311,7 @@ CLINICAL INQUIRY:
 {case['question']}"""
 
         if provider == "gemini":
-            target_model = model or "gemini-3.8-flash-medium"
-            answer = call_gemini_via_agy(synthesis_prompt, model=target_model)
+            answer = call_gemini_via_agy(synthesis_prompt, model=model)
         else:
             from run import create_llm, resolve_api_key
             api_key = resolve_api_key(provider)

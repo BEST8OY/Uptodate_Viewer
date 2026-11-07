@@ -228,19 +228,31 @@ model was given. `python_prototype/eval_prompt.py` runs a stratified case file (
 | **Tier 3: Point-of-Care UX & Cognitive Load** | Direct Line 1 bold declarative clinical conclusion (`is_bluf()`, forbidding colon labels like `**Management:**`); zero conversational preambles (`PREAMBLE_RE`); empty heading prohibition (omitting unneeded or empty subheadings). |
 | **Tier 4: Output Mechanics** | Plain text formatting discipline; strict prohibition of Markdown ATX headings (`#`/`##`/`###`), markdown links, and hallucinated inline citation brackets (`[1]`). |
 
-### Fast Synthesis vs Full Agentic Benchmark Modes
+### Fast Synthesis, Retrieval & Remediation Benchmark Modes
 
-The evaluation framework supports dual execution modes:
+The evaluation framework supports three comprehensive benchmark harnesses:
 
-1. **Fast Synthesis Mode (`--mode synthesis`, default)**: Rapidly benchmarks prompt variants directly against pre-accumulated evidence digests without tool overhead. Runs against real Gemini via the local pre-authenticated `agy` CLI bridge:
+1. **Fast Synthesis Mode (`eval_prompt.py` / `./benchmark_agy.sh`)**: Rapidly benchmarks prompt variants directly against pre-accumulated evidence digests without tool overhead. Runs against real Gemini via the local pre-authenticated `agy` CLI bridge:
    ```bash
-   cd python_prototype
    ./benchmark_agy.sh                      # Full 20-case CDS evaluation suite
    ./benchmark_agy.sh --verbose            # Full answers and diagnostic telemetry
    ./benchmark_agy.sh --case <case-id>     # Run single case (e.g. pediatric-ceftriaxone)
    ./benchmark_agy.sh --category <name>    # Run by category (e.g. patient_profile)
    ```
-2. **Full Agentic Mode (`--mode agent`)**: Runs the multi-step retrieval graph over root SQLite databases:
+2. **Multi-Turn Tool Retrieval Benchmark (`eval_retrieval.py`)**: Tests Phase 1 query discipline, calculator short-circuiting on section `FULL`, Lexidrug monograph dosing provenance, and parallel retrieval against SQLite DBs:
+   ```bash
+   cd python_prototype && uv run python eval_retrieval.py --prompt rewrite
+   ```
+3. **Self-Correction & Remediation Loop Benchmark (`eval_remediation.py` / `./benchmark_remediation.sh`)**: Tests the closed-loop recovery immune system across three suites:
+   - **Suite A (Gate 1 Evidence Gate Pause)**: Verifies recovery when a turn ends without section text (`buildEvidenceGatePausePrompt`).
+   - **Suite B (Gate 2 Closed-Book Safety Revision)**: Injects clinical hallucinations (`UNVERIFIED_QTY`, synthetic math, unit conversions, visual interpretations) and validates 1-pass correction (`buildRevisionPrompt`).
+   - **Suite C (Loop C Missing Evidence Escalation)**: Verifies escalation back to tool-calling when an unretrieved drug dose was stated (`buildMissingEvidencePrompt`).
+   ```bash
+   ./benchmark_remediation.sh              # Run all 14 remediation scenarios across Suites A, B, C
+   ./benchmark_remediation.sh --suite suite_b # Test Gate 2 Safety Revision only
+   ./benchmark_remediation.sh --case rev-unit-conversion --verbose
+   ```
+4. **Full Agentic Mode (`--mode agent`)**: Runs the multi-step retrieval graph over root SQLite databases:
    ```bash
    cd python_prototype
    uv run python eval_prompt.py --mode agent --provider mistral --model ministral-14b-latest --verbose
@@ -252,8 +264,8 @@ A prompt change is an improvement only if this scorecard improves without regres
 ## 10. Verification
 
 ```bash
-./gradlew :shared:desktopTest          # 304 tests
-cd python_prototype && uv run pytest   # 412 tests
+./gradlew :shared:desktopTest          # 337 tests
+cd python_prototype && uv run pytest   # 421 tests
 ```
 
 Known flake, unrelated to the AI layer: `ReadingPositionRepositoryTest."save is visible immediately
