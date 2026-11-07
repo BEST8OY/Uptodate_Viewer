@@ -62,11 +62,10 @@ Two system messages, so provider-side prompt caching stays effective:
 
 The static block (≈2.6 KB, cache-eligible) has four sections:
 
-1. **Retrieve first (Database Schema & Tool Mechanics)** — the deterministic retrieval sequence
-   (`searchTopics` → `getTopicOverview` → `getTopicSectionsText` / `getGraphicContent`), query hygiene
-   (1–3 plain keywords, no demographics or lab values), auto-recovery from empty results via typeahead
-   `refine_with` vocabulary, topic type routing (`medical` vs `drug` vs `calc`), Dose Provenance rule,
-   in-article keyword section search (`searchTopicSections`), and tabular data retrieval (`graphic_table`).
+1. **Retrieve first (Database Schema & Tool Mechanics)** — zero internal memory directive, the deterministic retrieval pipeline
+   (`searchTopics` → `getTopicOverview` → `getTopicSectionsText` / `getGraphicContent`), query discipline
+   (1–3 plain keywords, no demographics, lab values, or conversational sentences; parallel searches for multi-drug/comparative entities),
+   zero-hit recovery via typeahead `refine_with` vocabulary, topic type routing (`medical` clinical reviews vs `drug` Lexidrug monographs vs `calc` scoring calculators with `FULL` section short-circuiting), actionable Dose Provenance rule (retrieving the dedicated `drug` topic for exact milligram dosing and organ cutoffs), section selection and batching (up to 10 section IDs per call, in-article section locator `searchTopicSections(topicId, query)`), tabular data retrieval (`graphic_table`), and the Outlines Are Not Evidence directive (headings contain zero evidence; section text or tables must be in context before answering).
 2. **Fidelity (Strict Closed-World Grounding)** — verbatim quantities character-for-character,
    preserved GRADE recommendation strength modal verbs (`recommend` vs `suggest` vs `may`), patient-profile
    cross-check, canonical abstention (`Not specified in retrieved UpToDate sections.`), strict evidence

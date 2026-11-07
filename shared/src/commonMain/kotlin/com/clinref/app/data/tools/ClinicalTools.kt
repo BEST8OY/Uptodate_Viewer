@@ -142,7 +142,7 @@ class SearchTopicSectionsTool(
         @JsonNames("topic_id")
         val topicId: String,
         @property:LLMDescription("1–2 clinical keywords to locate within the topic (e.g., 'renal dose', 'contraindications').")
-        @JsonNames("query", "search_query", "keyword")
+        @JsonNames("query", "search_query", "keyword", "keywords")
         val query: String
     )
 
