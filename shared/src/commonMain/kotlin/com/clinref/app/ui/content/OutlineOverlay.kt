@@ -61,6 +61,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -206,7 +210,12 @@ internal fun OutlineOverlay(
                             selectedTab = tab
                             searchQuery = ""
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics {
+                                role = Role.Tab
+                                selected = isSelected
+                            },
                         shape = CircleShape,
                         color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
                         tonalElevation = if (isSelected) 2.dp else 0.dp
@@ -420,7 +429,10 @@ internal fun OutlineOverlay(
             }
         }
     } else {
-        val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
+        val sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Expanded,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+        )
         ModalBottomSheet(
             onDismissRequest = onDismiss,
             sheetState = sheetState,

@@ -164,7 +164,7 @@ internal fun ContentFloatingToolbar(
                     if (isQueryNotEmpty) {
                         Surface(
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
                             modifier = Modifier
                                 .align(Alignment.CenterVertically)
                                 .padding(horizontal = 4.dp)

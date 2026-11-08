@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,9 +87,7 @@ private val CHIP_VERTICAL_PADDING = 4.dp           // M3 PaddingExtraSmall
 private val CHIP_ICON_SIZE = 16.dp                 // M3 Small Icon
 private val CHIP_BOTTOM_PADDING = 8.dp             // M3 PaddingSmall
 
-// Material 3 Expressive Shape Token: 32.dp
-private val CONTAINER_CORNER_RADIUS = 32.dp
-
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChatInputBar(
     state: TextFieldState,
@@ -103,7 +102,7 @@ fun ChatInputBar(
     val isTextNotBlank = textCharSequence.isNotBlank()
     val isMultiLine = textCharSequence.contains('\n')
 
-    val containerShape = RoundedCornerShape(CONTAINER_CORNER_RADIUS)
+    val containerShape = MaterialTheme.shapes.extraLarge
 
     Box(
         modifier = modifier
@@ -252,6 +251,7 @@ fun ChatInputBar(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ActionButtons(
     isGenerating: Boolean,
@@ -260,6 +260,8 @@ private fun ActionButtons(
     onCancel: () -> Unit,
     onVoiceInput: (() -> Unit)? = null
 ) {
+    val motionScheme = MaterialTheme.motionScheme
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ACTION_ROW_SPACING)
@@ -286,7 +288,8 @@ private fun ActionButtons(
         AnimatedContent(
             targetState = isGenerating,
             transitionSpec = {
-                fadeIn() togetherWith fadeOut()
+                fadeIn(animationSpec = motionScheme.fastEffectsSpec()) togetherWith
+                    fadeOut(animationSpec = motionScheme.fastEffectsSpec())
             },
             label = "ActionButtonTransition"
         ) { generating ->

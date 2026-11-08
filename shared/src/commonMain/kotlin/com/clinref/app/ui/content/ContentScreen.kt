@@ -4,9 +4,11 @@ import com.clinref.app.ui.common.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -206,6 +209,7 @@ fun ContentScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             ContentTopBar(
                 title = articleTitle,
@@ -218,6 +222,7 @@ fun ContentScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .nestedScroll(scrollState)
         ) {
             ContentFloatingToolbar(
@@ -247,7 +252,7 @@ fun ContentScreen(
                 },
                 onSearchClose = closeSearch,
                 searchFocusRequester = searchFocusRequester,
-                modifier = modifier
+                modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp)
                     .imePadding()
@@ -271,6 +276,7 @@ fun ContentScreen(
                         error?.let { errorMsg ->
                             ContentErrorView(
                                 errorMsg = errorMsg,
+                                onRetry = { viewModel.open(topicId, sectionId = sectionId) },
                                 modifier = Modifier.align(Alignment.Center)
                             )
                         }
@@ -329,13 +335,15 @@ private fun ContentLoadingView(
 @Composable
 private fun ContentErrorView(
     errorMsg: String,
+    onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .testTag("content_error")
             .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(
             imageVector = Icons.Default.ErrorOutline,
@@ -343,13 +351,15 @@ private fun ContentErrorView(
             modifier = Modifier.size(48.dp),
             tint = MaterialTheme.colorScheme.error
         )
-        Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = errorMsg,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center
         )
+        FilledTonalButton(onClick = onRetry) {
+            Text("Retry")
+        }
     }
 }
 

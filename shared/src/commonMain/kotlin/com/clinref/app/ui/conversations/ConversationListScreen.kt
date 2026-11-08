@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,6 +40,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
@@ -57,6 +59,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -109,6 +112,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -350,7 +356,7 @@ fun ConversationListContent(
         modifier = modifier
             .fillMaxSize()
             .testTag("conversation_list_screen"),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = {
             SnackbarHost(hostState = snackbarHostState)
         },
@@ -465,7 +471,8 @@ fun ConversationListContent(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding),
             contentAlignment = Alignment.TopCenter
         ) {
             when {
@@ -481,7 +488,6 @@ fun ConversationListContent(
                 uiState.filteredConversations.isEmpty() -> {
                     EmptySessionsView(
                         searchQuery = uiState.searchQuery,
-                        onNewSessionClick = onNewSessionClick,
                         onClearSearch = { textFieldState.clearText() }
                     )
                 }
@@ -576,6 +582,12 @@ fun ConversationListContent(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { isFabMenuExpanded = false }
+                        .semantics {
+                            onClick(label = "Dismiss consultation menu") {
+                                isFabMenuExpanded = false
+                                true
+                            }
+                        }
                 )
             }
         }
@@ -619,8 +631,7 @@ private fun ClinicalMessengerHeader(
                     IconButton(onClick = onRenameSingleSelected) {
                         Icon(
                             imageVector = Icons.Default.Edit,
-                            contentDescription = "Rename consultation",
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = "Rename consultation"
                         )
                     }
                 }
@@ -628,16 +639,14 @@ private fun ClinicalMessengerHeader(
                 IconButton(onClick = onTogglePinSelected) {
                     Icon(
                         imageVector = Icons.Default.PushPin,
-                        contentDescription = "Pin or unpin selected",
-                        tint = MaterialTheme.colorScheme.primary
+                        contentDescription = "Pin or unpin selected"
                     )
                 }
 
                 IconButton(onClick = onDeleteSelected) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete selected",
-                        tint = MaterialTheme.colorScheme.error
+                        contentDescription = "Delete selected"
                     )
                 }
 
@@ -648,8 +657,7 @@ private fun ClinicalMessengerHeader(
                     IconButton(onClick = onSelectAll) {
                         Icon(
                             imageVector = Icons.Outlined.CheckCircle,
-                            contentDescription = "Select All",
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = "Select All"
                         )
                     }
                 }
@@ -657,7 +665,8 @@ private fun ClinicalMessengerHeader(
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
             ),
             modifier = modifier
         )
@@ -665,7 +674,7 @@ private fun ClinicalMessengerHeader(
         Column(
             modifier = modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
+                .background(MaterialTheme.colorScheme.surface)
                 .padding(bottom = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -678,18 +687,16 @@ private fun ClinicalMessengerHeader(
                         Text(
                             text = "Consultations",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onBackground
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         if (uiState.filteredConversations.isNotEmpty()) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                            Badge(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             ) {
                                 Text(
                                     text = uiState.filteredConversations.size.toString(),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                                 )
                             }
                         }
@@ -705,7 +712,7 @@ private fun ClinicalMessengerHeader(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
 
@@ -741,7 +748,7 @@ private fun ClinicalMessengerHeader(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
+                        contentDescription = null,
                         tint = if (isSearchFocused || textFieldState.text.isNotEmpty())
                             MaterialTheme.colorScheme.primary
                         else
@@ -824,27 +831,22 @@ private fun SectionHeader(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(14.dp)
         )
         Text(
             text = title,
-            style = MaterialTheme.typography.labelMedium.copy(
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.1.sp
-            ),
-            color = MaterialTheme.colorScheme.primary
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        Badge(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 2.dp)
         ) {
             Text(
                 text = count.toString(),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.5.dp)
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
             )
         }
     }
@@ -982,15 +984,15 @@ private fun ClinicalSessionCard(
     val profile = conversation.patientProfile
 
     val containerColor = when {
-        isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        isSelected -> MaterialTheme.colorScheme.primaryContainer
         conversation.isPinned -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> MaterialTheme.colorScheme.surfaceContainerLow
     }
 
-    val borderColor = when {
-        isSelected -> MaterialTheme.colorScheme.primary
-        conversation.isPinned -> MaterialTheme.colorScheme.outlineVariant
-        else -> MaterialTheme.colorScheme.outlineVariant
+    val borderColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
     }
 
     Card(
@@ -999,7 +1001,6 @@ private fun ClinicalSessionCard(
         border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
         modifier = modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
             .combinedClickable(
                 onClick = if (isSelectionMode) onToggleSelect else onClick,
                 onLongClick = onLongClick
@@ -1064,7 +1065,7 @@ private fun ClinicalSessionCard(
                         Surface(
                             shape = MaterialTheme.shapes.extraSmall,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Text(
                                 text = cond,
@@ -1131,6 +1132,18 @@ private fun ClinicalDemographicAvatar(
         }
 
         val hasDemographics = demographicBadge.isNotBlank()
+        val avatarDescription = if (hasDemographics) {
+            val sexText = when (sexChar) {
+                "F" -> "Female"
+                "M" -> "Male"
+                else -> sexChar
+            }
+            if (ageDigits.isNotBlank() && sexText.isNotBlank()) "Patient: $ageDigits years old, $sexText"
+            else "Patient: $demographicBadge"
+        } else {
+            "Consultation"
+        }
+
         val containerColor = if (conversation.isPinned) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
@@ -1145,7 +1158,9 @@ private fun ClinicalDemographicAvatar(
         Surface(
             shape = MaterialTheme.shapes.medium,
             color = containerColor,
-            modifier = modifier.size(40.dp)
+            modifier = modifier
+                .size(40.dp)
+                .semantics { contentDescription = avatarDescription }
         ) {
             Box(contentAlignment = Alignment.Center) {
                 if (hasDemographics) {
@@ -1178,7 +1193,7 @@ private fun RenameSessionDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var title by rememberSaveable { mutableStateOf(initialTitle) }
+    val textFieldState = rememberTextFieldState(initialTitle)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1192,21 +1207,21 @@ private fun RenameSessionDialog(
         title = { Text("Rename Consultation") },
         text = {
             OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
+                state = textFieldState,
                 label = { Text("Consultation Title") },
-                singleLine = true,
+                lineLimits = TextFieldLineLimits.SingleLine,
                 modifier = Modifier.fillMaxWidth()
             )
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (title.isNotBlank()) {
-                        onConfirm(title.trim())
+                    val text = textFieldState.text.toString().trim()
+                    if (text.isNotBlank()) {
+                        onConfirm(text)
                     }
                 },
-                enabled = title.isNotBlank()
+                enabled = textFieldState.text.isNotBlank()
             ) {
                 Text("Save")
             }
@@ -1226,7 +1241,6 @@ private fun RenameSessionDialog(
 @Composable
 private fun EmptySessionsView(
     searchQuery: String,
-    onNewSessionClick: () -> Unit,
     onClearSearch: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -1258,7 +1272,7 @@ private fun EmptySessionsView(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(28.dp)
                     )
                 }
@@ -1280,27 +1294,10 @@ private fun EmptySessionsView(
 
             if (isSearch) {
                 Spacer(modifier = Modifier.height(4.dp))
-                OutlinedButton(
-                    onClick = onClearSearch,
-                    shape = MaterialTheme.shapes.medium
-                ) {
+                OutlinedButton(onClick = onClearSearch) {
                     Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Clear Search")
-                }
-            } else {
-                Spacer(modifier = Modifier.height(4.dp))
-                Button(
-                    onClick = onNewSessionClick,
-                    shape = MaterialTheme.shapes.medium,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    )
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Start Consultation", fontWeight = FontWeight.Bold)
                 }
             }
         }

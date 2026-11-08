@@ -34,6 +34,7 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +74,7 @@ fun ChatCardOrchestrationHeader(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 10.dp),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {
@@ -133,7 +134,7 @@ fun ChatCardOrchestrationHeader(
                     exit = fadeOut(animationSpec = motionScheme.fastEffectsSpec())
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
                         border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f))
                     ) {
@@ -151,7 +152,6 @@ fun ChatCardOrchestrationHeader(
                             Text(
                                 text = if (isRevised) "Revised after check" else "Draft: Verifying",
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold
                                 ),
                                 color = MaterialTheme.colorScheme.error
@@ -220,26 +220,25 @@ fun ChatCardOrchestrationHeader(
                 ) {
                     liveSources.forEach { source ->
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = MaterialTheme.shapes.extraSmall,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { onSourceClick(source) }
+                            onClick = { onSourceClick(source) },
+                            modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Description,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(10.dp)
+                                    modifier = Modifier.size(11.dp)
                                 )
                                 Text(
                                     text = source.topicTitle.ifBlank { "Topic #${source.topicId}" },
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -312,7 +311,7 @@ private fun PhaseStepItem(
                         Text(
                             text = stepNumber,
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 8.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -325,7 +324,6 @@ private fun PhaseStepItem(
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 11.sp,
                 fontWeight = if (isActive || isCompleted) FontWeight.SemiBold else FontWeight.Normal
             ),
             color = when {

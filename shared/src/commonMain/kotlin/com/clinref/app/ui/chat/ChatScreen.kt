@@ -24,12 +24,13 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.ModalBottomSheet
@@ -106,6 +107,7 @@ fun ChatScreen(
     conversationId: String,
     onNavigateToHome: () -> Unit,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     onNavigateToSettings: (() -> Unit)? = null,
     viewModel: ChatViewModel = koinViewModel()
 ) {
@@ -191,10 +193,10 @@ fun ChatScreen(
     }
 
     Scaffold(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             MediumFlexibleTopAppBar(
@@ -218,7 +220,7 @@ fun ChatScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onBackground
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
@@ -229,8 +231,8 @@ fun ChatScreen(
                             modifier = Modifier.minimumInteractiveComponentSize()
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = "AI Orchestration Settings",
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "AI Settings",
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -238,7 +240,7 @@ fun ChatScreen(
                 },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = MaterialTheme.colorScheme.surface,
                     scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             )
@@ -248,7 +250,6 @@ fun ChatScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .then(if (!isOverlayActive) Modifier.imePadding() else Modifier)
-                .background(MaterialTheme.colorScheme.background)
         ) {
             if (messages.isEmpty() && !isLoadingOlder) {
                 ChatEmptyState(
@@ -282,12 +283,11 @@ fun ChatScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(16.dp),
-                                    contentAlignment = Alignment.Center
+                                        contentAlignment = Alignment.Center
                                 ) {
-                                    CircularProgressIndicator(
+                                    LoadingIndicator(
                                         color = MaterialTheme.colorScheme.primary,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(28.dp)
                                     )
                                 }
                             }
@@ -487,7 +487,7 @@ private fun ChatEmptyState(
     ) {
         Surface(
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.size(56.dp)
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {

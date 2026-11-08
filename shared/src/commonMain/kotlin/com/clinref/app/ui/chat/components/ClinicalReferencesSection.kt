@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,7 +86,7 @@ fun ClinicalReferencesSection(
             .widthIn(max = AdaptiveTokens.MaxChatInputWidth)
             .fillMaxWidth()
             .padding(vertical = 6.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {
@@ -94,7 +95,7 @@ fun ClinicalReferencesSection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(MaterialTheme.shapes.large)
                     .clickable(role = Role.Button) { isExpanded = !isExpanded }
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -108,20 +109,18 @@ fun ClinicalReferencesSection(
                         text = "CLINICAL EVIDENCE SOURCES",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
                             letterSpacing = 0.6.sp
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = MaterialTheme.shapes.extraSmall,
                         color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Text(
                             text = if (totalCount == 1) "1 source" else "$totalCount sources",
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold
                             ),
                             color = MaterialTheme.colorScheme.primary,
@@ -219,7 +218,7 @@ private fun ArticleReferenceItem(
         ) {
             // Typographic Citation Index Badge (e.g. 1, 2)
             Surface(
-                shape = RoundedCornerShape(6.dp),
+                shape = MaterialTheme.shapes.extraSmall,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
                 modifier = Modifier
@@ -230,8 +229,7 @@ private fun ArticleReferenceItem(
                     Text(
                         text = "$citationNumber",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
+                            fontWeight = FontWeight.Bold
                         ),
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -244,9 +242,7 @@ private fun ArticleReferenceItem(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
+                        fontWeight = FontWeight.SemiBold
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -264,15 +260,16 @@ private fun ArticleReferenceItem(
                     ) {
                         sections.forEach { sec ->
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = MaterialTheme.shapes.extraSmall,
                                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                modifier = Modifier.clickable { onSectionClick(sec.sectionId) }
+                                onClick = { onSectionClick(sec.sectionId) },
+                                modifier = Modifier.minimumInteractiveComponentSize()
                             ) {
                                 Text(
                                     text = sec.sectionTitle.ifBlank { "Section" },
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
                         }
@@ -306,7 +303,7 @@ private fun TableReferenceItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Surface(
-            shape = RoundedCornerShape(6.dp),
+            shape = MaterialTheme.shapes.extraSmall,
             color = MaterialTheme.colorScheme.secondaryContainer,
             modifier = Modifier.size(24.dp)
         ) {
@@ -314,8 +311,7 @@ private fun TableReferenceItem(
                 Text(
                     text = "T$tableIndex",
                     style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp
+                        fontWeight = FontWeight.Bold
                     ),
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
@@ -328,8 +324,7 @@ private fun TableReferenceItem(
             Text(
                 text = table.tableTitle.ifBlank { "Clinical Reference Table" },
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 13.sp
+                    fontWeight = FontWeight.Medium
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -338,7 +333,7 @@ private fun TableReferenceItem(
             if (!table.parentTopicTitle.isNullOrBlank()) {
                 Text(
                     text = table.parentTopicTitle,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

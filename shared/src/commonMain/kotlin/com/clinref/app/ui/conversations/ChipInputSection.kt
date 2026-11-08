@@ -15,13 +15,12 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -58,23 +57,16 @@ fun ChipInputSection(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items.forEach { item ->
-                    FilterChip(
-                        selected = true,
-                        onClick = { },
-                        label = { Text(item) },
+                    InputChip(
+                        selected = false,
+                        onClick = { onRemove(item) },
+                        label = { Text(item, style = MaterialTheme.typography.labelMedium) },
                         trailingIcon = {
-                            IconButton(
-                                onClick = { onRemove(item) },
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .minimumInteractiveComponentSize()
-                            ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Remove $item",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Remove $item",
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     )
                 }
