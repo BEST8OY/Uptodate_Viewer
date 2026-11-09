@@ -98,6 +98,7 @@ import org.koin.compose.viewmodel.koinViewModel
 
 private object ChatListKeys {
     const val LOADING_OLDER = "loading_older_indicator"
+    const val BOTTOM_ANCHOR = "bottom_anchor"
 }
 
 data class ArticleSheetRequest(
@@ -190,6 +191,9 @@ fun ChatScreen(
                     val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
                     if (event.animated) {
                         listState.animateScrollToItem(lastIndex)
+                        if (listState.canScrollForward) {
+                            listState.scrollToItem(lastIndex)
+                        }
                     } else {
                         listState.scrollToItem(lastIndex)
                     }
@@ -221,12 +225,7 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
-            focusManager.clearFocus()
-            keyboardController?.hide()
-        }
-    }
+
 
     LaunchedEffect(isOverlayActive) {
         if (isOverlayActive) {
@@ -436,6 +435,14 @@ fun ChatScreen(
                                 )
                             }
                         }
+
+                        item(key = ChatListKeys.BOTTOM_ANCHOR) {
+                            Spacer(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -484,6 +491,9 @@ fun ChatScreen(
                             val count = listState.layoutInfo.totalItemsCount
                             if (count > 0) {
                                 listState.animateScrollToItem(count - 1)
+                                if (listState.canScrollForward) {
+                                    listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1)
+                                }
                             }
                         }
                     },

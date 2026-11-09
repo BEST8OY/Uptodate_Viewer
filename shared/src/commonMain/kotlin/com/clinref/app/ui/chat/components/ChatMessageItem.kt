@@ -299,7 +299,8 @@ fun ChatMessageItem(
 
                         val markdownState = rememberMarkdownState(
                             content = message.content,
-                            retainState = true
+                            retainState = true,
+                            immediate = !isStreaming
                         )
 
                         val markdownColors = markdownColor(
