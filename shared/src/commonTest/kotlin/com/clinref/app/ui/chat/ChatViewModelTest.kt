@@ -11,6 +11,7 @@ import com.clinref.app.fakes.FakeSecurePreferences
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -562,6 +563,80 @@ class ChatViewModelTest {
         assertFalse("Matching Q2 completion must clear isAwaitingResponse", vm.isAwaitingResponse.value)
         assertNull("Matching Q2 completion must clear activeAssistantMessageId", vm.activeAssistantMessageId.value)
         assertTrue("Q2 message must be appended to list", vm.messages.value.any { it.id == "asst-2" })
+    }
+
+    @Test
+    fun testLoadConversationTogglesIsLoadingConversation() = runTest(testDispatcher) {
+        val m1 = MessageEntity("m1", "conv-1", "user", "Hello", 1000L)
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(m1)
+
+        assertFalse(viewModel.isLoadingConversation.value)
+        viewModel.loadConversation("conv-1")
+        // After advancement, it should be loaded and loading state reset to false
+        advanceUntilIdle()
+        assertFalse(viewModel.isLoadingConversation.value)
+        assertEquals(1, viewModel.messages.value.size)
+    }
+
+    @Test
+    fun testRetryTurnDiscardsFailedRoundAndResubmitsPrompt() = runTest(testDispatcher) {
+        val m1 = MessageEntity("m1", "conv-1", "user", "What is the dose?", 1000L)
+        val m2 = MessageEntity("m2", "conv-1", "assistant", "Error timeout", 2000L, isError = true)
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(m2, m1)
+
+        viewModel.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        assertFalse("m1 should not be successful because m2 is an error", viewModel.isUserMessageSuccessful("m1"))
+
+        val retried = viewModel.retryTurn("m1")
+        assertTrue("Retry turn must successfully trigger sendMessage for the user prompt", retried)
+        assertTrue(viewModel.isAwaitingResponse.value)
+
+        advanceUntilIdle()
+        coVerify { conversationRepository.deleteMessages("conv-1", listOf("m1", "m2")) }
+    }
+
+    @Test
+    fun testSubmitEditedMessageTruncatesRoundAndSendsNewPrompt() = runTest(testDispatcher) {
+        val m1 = MessageEntity("m1", "conv-1", "user", "Dose of apixaban?", 1000L)
+        val m2 = MessageEntity("m2", "conv-1", "assistant", "10mg BID", 2000L)
+        val m3 = MessageEntity("m3", "conv-1", "user", "In renal failure?", 3000L)
+        val m4 = MessageEntity("m4", "conv-1", "assistant", "Dose reduction needed", 4000L)
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(m4, m3, m2, m1)
+
+        viewModel.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        assertTrue("m1 should be marked successful", viewModel.isUserMessageSuccessful("m1"))
+        assertTrue("m3 should be marked successful", viewModel.isUserMessageSuccessful("m3"))
+
+        // Edit turn 2 (m3)
+        val edited = viewModel.submitEditedMessage("m3", "In severe renal failure with CrCl 15?")
+        assertTrue("Submit edited message must succeed", edited)
+        assertTrue(viewModel.isAwaitingResponse.value)
+
+        advanceUntilIdle()
+        coVerify { conversationRepository.deleteMessages("conv-1", listOf("m3", "m4")) }
+    }
+
+    @Test
+    fun testIsUserMessageSuccessfulPreservesHistoricalTurnsWhileAwaitingResponse() = runTest(testDispatcher) {
+        val m1 = MessageEntity("m1", "conv-1", "user", "Dose of apixaban?", 1000L)
+        val m2 = MessageEntity("m2", "conv-1", "assistant", "10mg BID", 2000L)
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(m2, m1)
+
+        viewModel.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        assertTrue("m1 is successful initially", viewModel.isUserMessageSuccessful("m1"))
+
+        // Now initiate a new query (m3) which turns isAwaitingResponse = true
+        viewModel.sendMessage("Next question")
+        assertTrue(viewModel.isAwaitingResponse.value)
+
+        // Historical turn m1 must STILL be marked successful while the new turn is generating
+        assertTrue("Historical turn m1 must remain successful even while new turn awaits response", viewModel.isUserMessageSuccessful("m1"))
     }
 }
 

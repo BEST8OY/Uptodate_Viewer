@@ -1,18 +1,22 @@
 package com.clinref.app.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,7 +29,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -59,6 +62,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboard
 import com.clinref.app.ui.common.setPlainText
@@ -74,6 +79,7 @@ import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
+import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.common.ScrollToBottomFAB
 import com.clinref.app.ui.content.ContentScreen
 import com.clinref.app.ui.content.GraphicSheet
@@ -113,6 +119,7 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
+    val isLoadingConversation by viewModel.isLoadingConversation.collectAsStateWithLifecycle()
     val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
     val isAwaitingResponse by viewModel.isAwaitingResponse.collectAsStateWithLifecycle()
     val orchestrationPhase by viewModel.orchestrationPhase.collectAsStateWithLifecycle()
@@ -136,6 +143,7 @@ fun ChatScreen(
     val isGenerating = activeAssistantId != null || isAwaitingResponse
 
     val textFieldState = rememberTextFieldState()
+    var editingUserMessageId by remember { mutableStateOf<String?>(null) }
     var chatInputHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val chatInputHeightDp = remember(chatInputHeightPx, density) {
@@ -192,10 +200,16 @@ fun ChatScreen(
         }
     }
 
+    BackHandler(enabled = editingUserMessageId != null) {
+        editingUserMessageId = null
+        textFieldState.clearText()
+    }
+
     Scaffold(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
+        contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -249,13 +263,36 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding)
                 .then(if (!isOverlayActive) Modifier.imePadding() else Modifier)
+                .then(
+                    if (editingUserMessageId != null) {
+                        Modifier.pointerInput(editingUserMessageId, chatInputHeightPx) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                                if (down.position.y < size.height - chatInputHeightPx) {
+                                    editingUserMessageId = null
+                                    textFieldState.clearText()
+                                }
+                            }
+                        }
+                    } else Modifier
+                )
         ) {
-            if (messages.isEmpty() && !isLoadingOlder) {
+            if (isLoadingConversation) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    LoadingIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            } else if (messages.isEmpty() && !isLoadingOlder) {
                 ChatEmptyState(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 Box(
@@ -272,7 +309,7 @@ fun ChatScreen(
                             .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                             .fillMaxWidth(),
                         contentPadding = PaddingValues(
-                            top = padding.calculateTopPadding() + 8.dp,
+                            top = 8.dp,
                             bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -283,7 +320,7 @@ fun ChatScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(16.dp),
-                                        contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     LoadingIndicator(
                                         color = MaterialTheme.colorScheme.primary,
@@ -301,12 +338,20 @@ fun ChatScreen(
                                 is ChatListItem.Message -> ChatMessageItem(
                                     message = item.uiModel,
                                     isStreaming = item.uiModel.id == activeAssistantId,
+                                    isTurnSuccessful = if (item.uiModel.role == "user") {
+                                        viewModel.isUserMessageSuccessful(item.uiModel.id)
+                                    } else true,
                                     onCopyMessage = { content ->
                                         coroutineScope.launch {
                                             clipboard.setPlainText(content)
                                             snackbarHostState.showSnackbar("Copied content to workspace clipboard")
                                         }
                                     },
+                                    onEditMessage = { msg ->
+                                        editingUserMessageId = msg.id
+                                        textFieldState.edit { replace(0, length, msg.content) }
+                                    },
+                                    onRetryTurn = { id -> viewModel.retryTurn(id) },
                                     onNavigateToContent = handleNavigateToContent,
                                     onGraphicSelected = handleGraphicSelected
                                 )
@@ -387,7 +432,14 @@ fun ChatScreen(
                         if (trimmed.isBlank() || viewModel.currentConversationId.value == null) {
                             return@ChatInputBar
                         }
-                        val accepted = viewModel.sendMessage(trimmed)
+                        val editId = editingUserMessageId
+                        val accepted = if (editId != null) {
+                            viewModel.submitEditedMessage(editId, trimmed).also { ok ->
+                                if (ok) editingUserMessageId = null
+                            }
+                        } else {
+                            viewModel.sendMessage(trimmed)
+                        }
                         if (accepted) {
                             textFieldState.clearText()
                         } else {

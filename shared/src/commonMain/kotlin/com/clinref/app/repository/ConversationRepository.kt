@@ -105,4 +105,11 @@ class ConversationRepository(
     suspend fun updateLastPreview(id: String, preview: String) {
         conversationDao.updatePreview(id, preview)
     }
+
+    suspend fun deleteMessages(conversationId: String, ids: List<String>) {
+        if (ids.isEmpty()) return
+        messageDao.deleteByIds(ids)
+        val latest = messageDao.getLatestMessage(conversationId)
+        updateLastPreview(conversationId, latest?.content?.take(100) ?: "")
+    }
 }

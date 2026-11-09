@@ -126,6 +126,9 @@ class ChatViewModel(
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
 
+    private val _isLoadingConversation = MutableStateFlow(false)
+    val isLoadingConversation: StateFlow<Boolean> = _isLoadingConversation.asStateFlow()
+
     private val _isLoadingOlder = MutableStateFlow(false)
     val isLoadingOlder: StateFlow<Boolean> = _isLoadingOlder.asStateFlow()
 
@@ -215,15 +218,20 @@ class ChatViewModel(
             _activeAssistantMessageId.value = null
         }
 
+        _isLoadingConversation.value = true
         viewModelScope.launch {
-            val profile = conversationRepository.getPatientProfile(conversationId)
-            _patientProfile.value = profile
-            val messages = conversationRepository.getMessagesPage(conversationId, PAGE_SIZE, 0)
-            messageOffset = messages.size
-            _hasMoreMessages.value = messages.size >= PAGE_SIZE
-            val uiModels = messages.reversed().map { it.toUiModel() }
-            updateMessages(uiModels)
-            conversationRepository.markAsRead(conversationId)
+            try {
+                val profile = conversationRepository.getPatientProfile(conversationId)
+                _patientProfile.value = profile
+                val messages = conversationRepository.getMessagesPage(conversationId, PAGE_SIZE, 0)
+                messageOffset = messages.size
+                _hasMoreMessages.value = messages.size >= PAGE_SIZE
+                val uiModels = messages.reversed().map { it.toUiModel() }
+                updateMessages(uiModels)
+                conversationRepository.markAsRead(conversationId)
+            } finally {
+                _isLoadingConversation.value = false
+            }
         }
     }
 
@@ -260,6 +268,82 @@ class ChatViewModel(
         if (!accepted) {
             _isAwaitingResponse.value = false
             return false
+        }
+        return true
+    }
+
+    fun isUserMessageSuccessful(userMessageId: String): Boolean {
+        val currentList = _messages.value
+        val idx = currentList.indexOfFirst { it.id == userMessageId }
+        if (idx < 0) return true
+        val next = currentList.getOrNull(idx + 1)
+        if (next == null) {
+            val isGenerating = _activeAssistantMessageId.value != null || _isAwaitingResponse.value
+            return isGenerating
+        }
+        val isStreaming = _activeAssistantMessageId.value == next.id
+        if (isStreaming) return true
+        return next.role == "assistant" && !next.isError && next.role != "cancelled"
+    }
+
+    /**
+     * Submits an edited version of an existing user message.
+     * Discards the previous user message, agent answer, and all subsequent turns from that round onwards,
+     * then submits the newly edited prompt.
+     */
+    fun submitEditedMessage(editedUserMessageId: String, newContent: String): Boolean {
+        val conversationId = _currentConversationId.value ?: return false
+        val trimmed = newContent.trim()
+        if (trimmed.isBlank()) return false
+        if (!chatExecutionManager.canSendMessage(conversationId)) return false
+
+        val currentList = _messages.value
+        val targetIndex = currentList.indexOfFirst { it.id == editedUserMessageId }
+        if (targetIndex < 0) return false
+
+        val toDiscard = currentList.subList(targetIndex, currentList.size).map { it.id }
+        val remaining = currentList.subList(0, targetIndex)
+
+        messageOffset = remaining.size
+        updateMessages(remaining)
+        _isAwaitingResponse.value = true
+
+        viewModelScope.launch {
+            conversationRepository.deleteMessages(conversationId, toDiscard)
+            val accepted = chatExecutionManager.sendMessage(conversationId, trimmed)
+            if (!accepted) {
+                _isAwaitingResponse.value = false
+            }
+        }
+        return true
+    }
+
+    /**
+     * Retries a failed or uncompleted turn.
+     * Discards the failed round and re-runs synthesis for the original user query.
+     */
+    fun retryTurn(userMessageId: String): Boolean {
+        val conversationId = _currentConversationId.value ?: return false
+        if (!chatExecutionManager.canSendMessage(conversationId)) return false
+
+        val currentList = _messages.value
+        val targetIndex = currentList.indexOfFirst { it.id == userMessageId }
+        if (targetIndex < 0) return false
+
+        val userPrompt = currentList[targetIndex].content
+        val toDiscard = currentList.subList(targetIndex, currentList.size).map { it.id }
+        val remaining = currentList.subList(0, targetIndex)
+
+        messageOffset = remaining.size
+        updateMessages(remaining)
+        _isAwaitingResponse.value = true
+
+        viewModelScope.launch {
+            conversationRepository.deleteMessages(conversationId, toDiscard)
+            val accepted = chatExecutionManager.sendMessage(conversationId, userPrompt)
+            if (!accepted) {
+                _isAwaitingResponse.value = false
+            }
         }
         return true
     }

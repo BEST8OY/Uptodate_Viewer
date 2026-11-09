@@ -1,8 +1,13 @@
 package com.clinref.app.ui.chat.components
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,24 +25,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.CircularWavyProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
-import androidx.compose.material3.InputChipDefaults
-import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +55,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -61,7 +71,7 @@ import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatMessageItem(
     message: MessageUiModel,
@@ -72,8 +82,11 @@ fun ChatMessageItem(
     sectionsReadCount: Int = 0,
     isDraft: Boolean = false,
     isRevised: Boolean = false,
+    isTurnSuccessful: Boolean = true,
     onSourceClick: ((SafetyValidator.TopicRef) -> Unit)? = null,
     onCopyMessage: (String) -> Unit = {},
+    onEditMessage: ((MessageUiModel) -> Unit)? = null,
+    onRetryTurn: ((String) -> Unit)? = null,
     onNavigateToContent: (String, String?) -> Unit = { _, _ -> },
     onGraphicSelected: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -88,17 +101,124 @@ fun ChatMessageItem(
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
         if (isUser) {
-            Surface(
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 4.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.widthIn(min = 48.dp, max = 560.dp)
-            ) {
-                Text(
-                    text = message.content,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
-                )
+            val bubbleColor = MaterialTheme.colorScheme.surfaceContainerHighest
+            val bubbleTextColor = MaterialTheme.colorScheme.onSurface
+
+            var isExpanded by remember(message.id) { mutableStateOf(false) }
+            var hasOverflow by remember(message.id) { mutableStateOf(false) }
+            var showContextMenu by remember(message.id) { mutableStateOf(false) }
+
+            Box {
+                Surface(
+                    shape = MaterialTheme.shapes.large,
+                    color = bubbleColor,
+                    modifier = Modifier
+                        .widthIn(min = 48.dp, max = 560.dp)
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                        .clip(MaterialTheme.shapes.large)
+                        .combinedClickable(
+                            onClick = {
+                                if (hasOverflow || isExpanded) {
+                                    isExpanded = !isExpanded
+                                }
+                            },
+                            onLongClick = {
+                                showContextMenu = true
+                            }
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
+                    ) {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = bubbleTextColor,
+                            maxLines = if (isExpanded) Int.MAX_VALUE else 5,
+                            overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { textLayoutResult ->
+                                if (!isExpanded) {
+                                    hasOverflow = textLayoutResult.hasVisualOverflow || textLayoutResult.lineCount > 5
+                                }
+                            }
+                        )
+
+                        if (hasOverflow || isExpanded) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 6.dp)
+                            ) {
+                                Text(
+                                    text = if (isExpanded) "Show less" else "Show more",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = bubbleTextColor.copy(alpha = 0.85f)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = bubbleTextColor.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = showContextMenu,
+                    onDismissRequest = { showContextMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Copy", style = MaterialTheme.typography.bodyMedium) },
+                        onClick = {
+                            showContextMenu = false
+                            onCopyMessage(message.content)
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Edit", style = MaterialTheme.typography.bodyMedium) },
+                        onClick = {
+                            showContextMenu = false
+                            onEditMessage?.invoke(message)
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    )
+                    if (!isTurnSuccessful) {
+                        DropdownMenuItem(
+                            text = { Text("Retry", style = MaterialTheme.typography.bodyMedium) },
+                            onClick = {
+                                showContextMenu = false
+                                onRetryTurn?.invoke(message.id)
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        )
+                    }
+                }
             }
         } else {
             Column(
@@ -118,7 +238,7 @@ fun ChatMessageItem(
                     )
                 }
 
-                if (message.isError) {
+                if (message.isError && !isCancelled) {
                     Surface(
                         shape = MaterialTheme.shapes.medium,
                         color = MaterialTheme.colorScheme.errorContainer,
@@ -138,7 +258,8 @@ fun ChatMessageItem(
                             Text(
                                 text = message.content,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
                             )
                         }
                     }
@@ -239,62 +360,6 @@ fun ChatMessageItem(
             }
         }
     }
-}
-
-@Composable
-fun GraphicPill(label: String, graphicId: String, onClick: () -> Unit) {
-    InputChip(
-        selected = false,
-        onClick = onClick,
-        label = {
-            Text(
-                text = label,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.labelSmall
-            )
-        },
-        trailingIcon = {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Launch,
-                contentDescription = null,
-                modifier = Modifier.size(10.dp)
-            )
-        },
-        colors = InputChipDefaults.inputChipColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer
-        ),
-        border = null
-    )
-}
-
-@Composable
-fun TopicPill(label: String, onClick: () -> Unit) {
-    InputChip(
-        selected = false,
-        onClick = onClick,
-        label = {
-            Text(
-                text = label,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.labelSmall
-            )
-        },
-        trailingIcon = {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Launch,
-                contentDescription = null,
-                modifier = Modifier.size(10.dp)
-            )
-        },
-        colors = InputChipDefaults.inputChipColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            labelColor = MaterialTheme.colorScheme.onSecondaryContainer
-        ),
-        border = null
-    )
 }
 
 @Composable

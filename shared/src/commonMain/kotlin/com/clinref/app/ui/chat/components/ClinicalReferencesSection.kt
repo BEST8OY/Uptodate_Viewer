@@ -207,23 +207,26 @@ private fun ArticleReferenceItem(
     onSectionClick: (String) -> Unit
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(role = Role.Button, onClick = onTopicClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button, onClick = onTopicClick)
+                .padding(
+                    start = 14.dp,
+                    end = 14.dp,
+                    top = 10.dp,
+                    bottom = if (sections.isEmpty()) 10.dp else 4.dp
+                ),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             // Typographic Citation Index Badge (e.g. 1, 2)
             Surface(
                 shape = MaterialTheme.shapes.extraSmall,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
-                modifier = Modifier
-                    .size(24.dp)
-                    .padding(top = 1.dp)
+                modifier = Modifier.size(24.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
@@ -238,53 +241,52 @@ private fun ArticleReferenceItem(
 
             Spacer(modifier = Modifier.width(10.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
 
-                // Sub-Section Chips
-                if (sections.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        sections.forEach { sec ->
-                            Surface(
-                                shape = MaterialTheme.shapes.extraSmall,
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                onClick = { onSectionClick(sec.sectionId) },
-                                modifier = Modifier.minimumInteractiveComponentSize()
-                            ) {
-                                Text(
-                                    text = sec.sectionTitle.ifBlank { "Section" },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            Spacer(modifier = Modifier.width(8.dp))
 
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier
-                    .size(12.dp)
-                    .align(Alignment.CenterVertically)
+                modifier = Modifier.size(12.dp)
             )
+        }
+
+        // Sub-Section Chips (isolated from topic click target)
+        if (sections.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 48.dp, end = 14.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                sections.forEach { sec ->
+                    Surface(
+                        shape = MaterialTheme.shapes.extraSmall,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        onClick = { onSectionClick(sec.sectionId) },
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Text(
+                            text = sec.sectionTitle.ifBlank { "Section" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,11 +45,17 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,6 +108,7 @@ fun ChatInputBar(
     val textCharSequence = state.text
     val isTextNotBlank = textCharSequence.isNotBlank()
     val isMultiLine = textCharSequence.contains('\n')
+    var isFocused by remember { mutableStateOf(false) }
 
     val containerShape = MaterialTheme.shapes.extraLarge
 
@@ -131,6 +139,11 @@ fun ChatInputBar(
                 .fillMaxWidth(),
             shape = containerShape,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = if (isFocused) {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+            } else {
+                BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            },
             tonalElevation = SURFACE_TONAL_ELEVATION,
             shadowElevation = SURFACE_SHADOW_ELEVATION
         ) {
@@ -161,7 +174,9 @@ fun ChatInputBar(
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                            modifier = Modifier.padding(start = 4.dp, bottom = CHIP_BOTTOM_PADDING)
+                            modifier = Modifier
+                                .padding(start = 4.dp, bottom = CHIP_BOTTOM_PADDING)
+                                .semantics(mergeDescendants = true) { }
                         ) {
                             Row(
                                 modifier = Modifier.padding(
@@ -230,7 +245,9 @@ fun ChatInputBar(
                                     innerTextField()
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { isFocused = it.isFocused }
                         )
                     }
 
@@ -269,9 +286,7 @@ private fun ActionButtons(
         IconButton(
             onClick = { onVoiceInput?.invoke() },
             enabled = onVoiceInput != null,
-            modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .size(BUTTON_VISUAL_SIZE)
+            modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE)
         ) {
             Icon(
                 imageVector = Icons.Default.Mic,
@@ -296,12 +311,11 @@ private fun ActionButtons(
             if (generating) {
                 FilledIconButton(
                     onClick = onCancel,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(BUTTON_VISUAL_SIZE),
+                    modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE),
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) {
                     Icon(
@@ -314,9 +328,7 @@ private fun ActionButtons(
             } else {
                 FilledIconButton(
                     onClick = onSendMessage,
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .size(BUTTON_VISUAL_SIZE),
+                    modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE),
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = if (isTextNotBlank) {
@@ -324,7 +336,9 @@ private fun ActionButtons(
                         } else {
                             MaterialTheme.colorScheme.surfaceContainerHighest
                         },
-                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                     ),
                     enabled = isTextNotBlank
                 ) {
