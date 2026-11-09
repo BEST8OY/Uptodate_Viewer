@@ -1,8 +1,11 @@
 package com.clinref.app.ui.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.placeCursorAtEnd
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -61,11 +65,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import com.clinref.app.ui.common.setPlainText
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -136,6 +142,8 @@ fun ChatScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val inputFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -200,9 +208,20 @@ fun ChatScreen(
         }
     }
 
+    LaunchedEffect(editingUserMessageId) {
+        if (editingUserMessageId != null) {
+            try {
+                inputFocusRequester.requestFocus()
+            } catch (_: Throwable) {
+            }
+            keyboardController?.show()
+        }
+    }
+
     BackHandler(enabled = editingUserMessageId != null) {
         editingUserMessageId = null
         textFieldState.clearText()
+        keyboardController?.hide()
     }
 
     Scaffold(
@@ -266,19 +285,6 @@ fun ChatScreen(
                 .padding(padding)
                 .consumeWindowInsets(padding)
                 .then(if (!isOverlayActive) Modifier.imePadding() else Modifier)
-                .then(
-                    if (editingUserMessageId != null) {
-                        Modifier.pointerInput(editingUserMessageId, chatInputHeightPx) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(pass = PointerEventPass.Initial)
-                                if (down.position.y < size.height - chatInputHeightPx) {
-                                    editingUserMessageId = null
-                                    textFieldState.clearText()
-                                }
-                            }
-                        }
-                    } else Modifier
-                )
         ) {
             if (isLoadingConversation) {
                 Box(
@@ -349,7 +355,10 @@ fun ChatScreen(
                                     },
                                     onEditMessage = { msg ->
                                         editingUserMessageId = msg.id
-                                        textFieldState.edit { replace(0, length, msg.content) }
+                                        textFieldState.edit {
+                                            replace(0, length, msg.content)
+                                            placeCursorAtEnd()
+                                        }
                                     },
                                     onRetryTurn = { id -> viewModel.retryTurn(id) },
                                     onNavigateToContent = handleNavigateToContent,
@@ -406,6 +415,35 @@ fun ChatScreen(
                 }
             }
 
+            // Background overlay shadowing the chat messages when in editing mode
+            AnimatedVisibility(
+                visible = editingUserMessageId != null,
+                enter = fadeIn(animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()),
+                exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec())
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            editingUserMessageId = null
+                            textFieldState.clearText()
+                            keyboardController?.hide()
+                        }
+                        .semantics {
+                            onClick(label = "Cancel editing") {
+                                editingUserMessageId = null
+                                textFieldState.clearText()
+                                keyboardController?.hide()
+                                true
+                            }
+                        }
+                )
+            }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -413,7 +451,7 @@ fun ChatScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 ScrollToBottomFAB(
-                    visible = listState.canScrollForward && !isGenerating,
+                    visible = listState.canScrollForward && !isGenerating && editingUserMessageId == null,
                     onClick = {
                         coroutineScope.launch {
                             val count = listState.layoutInfo.totalItemsCount
@@ -435,7 +473,10 @@ fun ChatScreen(
                         val editId = editingUserMessageId
                         val accepted = if (editId != null) {
                             viewModel.submitEditedMessage(editId, trimmed).also { ok ->
-                                if (ok) editingUserMessageId = null
+                                if (ok) {
+                                    editingUserMessageId = null
+                                    keyboardController?.hide()
+                                }
                             }
                         } else {
                             viewModel.sendMessage(trimmed)
@@ -454,6 +495,7 @@ fun ChatScreen(
                     onCancel = { viewModel.cancelGeneration() },
                     isGenerating = isGenerating,
                     patientProfile = patientProfile,
+                    focusRequester = inputFocusRequester,
                     modifier = Modifier
                         .fillMaxWidth()
                         .onSizeChanged { chatInputHeightPx = it.height }
