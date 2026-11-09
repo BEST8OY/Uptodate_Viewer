@@ -11,6 +11,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -113,7 +114,7 @@ fun ChatMessageItem(
                     shape = MaterialTheme.shapes.large,
                     color = bubbleColor,
                     modifier = Modifier
-                        .widthIn(min = 48.dp, max = 560.dp)
+                        .widthIn(min = 48.dp, max = AdaptiveTokens.MaxDialogWidth)
                         .animateContentSize(
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
@@ -301,19 +302,24 @@ fun ChatMessageItem(
                             retainState = true
                         )
 
+                        val markdownColors = markdownColor(
+                            codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            dividerColor = MaterialTheme.colorScheme.outlineVariant,
+                            tableBackground = Color.Transparent
+                        )
+                        val markdownTypography = clinrefMarkdownTypography()
+                        val markdownDimens = clinrefMarkdownDimens()
+                        val markdownComponents = rememberClinrefMarkdownComponents()
+
                         CompositionLocalProvider(LocalUriHandler provides customUriHandler) {
                             Markdown(
                                 markdownState = markdownState,
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = markdownColor(
-                                    codeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    inlineCodeBackground = MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    dividerColor = MaterialTheme.colorScheme.outlineVariant,
-                                    tableBackground = Color.Transparent
-                                ),
-                                typography = clinrefMarkdownTypography(),
-                                dimens = clinrefMarkdownDimens(),
-                                components = clinrefMarkdownComponents()
+                                colors = markdownColors,
+                                typography = markdownTypography,
+                                dimens = markdownDimens,
+                                components = markdownComponents
                             )
                         }
                     }

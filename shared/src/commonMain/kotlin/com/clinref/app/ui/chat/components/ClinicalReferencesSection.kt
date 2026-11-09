@@ -83,7 +83,7 @@ fun ClinicalReferencesSection(
 
     Surface(
         modifier = modifier
-            .widthIn(max = AdaptiveTokens.MaxChatInputWidth)
+            .widthIn(max = AdaptiveTokens.MaxChatAssistantWidth)
             .fillMaxWidth()
             .padding(vertical = 6.dp),
         shape = MaterialTheme.shapes.large,

@@ -38,32 +38,43 @@ import com.mikepenz.markdown.compose.elements.MarkdownBlockQuote
 import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
 import com.mikepenz.markdown.compose.elements.MarkdownTableRow
+import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.MarkdownColors
 import com.mikepenz.markdown.model.MarkdownDimens
 import com.mikepenz.markdown.model.MarkdownTypography
 import com.mikepenz.markdown.model.markdownDimens
 
 @Composable
-fun clinrefMarkdownComponents(): MarkdownComponents = markdownComponents(
-    table = { model ->
-        ClinRefMarkdownTable(model = model)
-    },
-    blockQuote = { model ->
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.small)
-                .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                .padding(vertical = 4.dp, horizontal = 4.dp)
-        ) {
-            MarkdownBlockQuote(
-                content = model.content,
-                node = model.node,
-                style = model.typography.quote
-            )
-        }
+fun rememberClinrefMarkdownComponents(): MarkdownComponents {
+    val shapes = MaterialTheme.shapes
+    val containerLow = MaterialTheme.colorScheme.surfaceContainerLow
+    return remember(shapes, containerLow) {
+        markdownComponents(
+            table = { model ->
+                ClinRefMarkdownTable(model = model)
+            },
+            blockQuote = { model ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(shapes.small)
+                        .background(containerLow)
+                        .padding(vertical = 4.dp, horizontal = 4.dp)
+                ) {
+                    MarkdownBlockQuote(
+                        content = model.content,
+                        node = model.node,
+                        style = model.typography.quote
+                    )
+                }
+            }
+        )
     }
-)
+}
+
+@Composable
+fun clinrefMarkdownComponents(): MarkdownComponents = rememberClinrefMarkdownComponents()
 
 @Composable
 fun clinrefMarkdownDimens(): MarkdownDimens = markdownDimens(

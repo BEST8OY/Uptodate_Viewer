@@ -53,7 +53,10 @@ data class ResolvedGraphicRef(
 sealed interface ChatListItem {
     val key: String
 
-    data class Message(val uiModel: MessageUiModel) : ChatListItem {
+    data class Message(
+        val uiModel: MessageUiModel,
+        val isTurnSuccessful: Boolean = true
+    ) : ChatListItem {
         override val key: String get() = uiModel.id
     }
 
@@ -126,6 +129,9 @@ class ChatViewModel(
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
 
+    private val _conversationTitle = MutableStateFlow("")
+    val conversationTitle: StateFlow<String> = _conversationTitle.asStateFlow()
+
     private val _isLoadingConversation = MutableStateFlow(false)
     val isLoadingConversation: StateFlow<Boolean> = _isLoadingConversation.asStateFlow()
 
@@ -160,6 +166,7 @@ class ChatViewModel(
                     }
                     is ChatExecutionEvent.GenerationStarted -> {
                         _activeAssistantMessageId.value = event.messageId
+                        _chatItems.value = buildChatItems(_messages.value)
                     }
                     is ChatExecutionEvent.AssistantMessageCompleted -> {
                         if (_activeAssistantMessageId.value == event.message.id) {
@@ -223,6 +230,8 @@ class ChatViewModel(
             try {
                 val profile = conversationRepository.getPatientProfile(conversationId)
                 _patientProfile.value = profile
+                val conv = conversationRepository.getConversation(conversationId)
+                _conversationTitle.value = conv?.title.orEmpty()
                 val messages = conversationRepository.getMessagesPage(conversationId, PAGE_SIZE, 0)
                 messageOffset = messages.size
                 _hasMoreMessages.value = messages.size >= PAGE_SIZE
@@ -322,13 +331,18 @@ class ChatViewModel(
      * Retries a failed or uncompleted turn.
      * Discards the failed round and re-runs synthesis for the original user query.
      */
-    fun retryTurn(userMessageId: String): Boolean {
+    fun retryTurn(messageId: String): Boolean {
         val conversationId = _currentConversationId.value ?: return false
         if (!chatExecutionManager.canSendMessage(conversationId)) return false
 
         val currentList = _messages.value
-        val targetIndex = currentList.indexOfFirst { it.id == userMessageId }
+        var targetIndex = currentList.indexOfFirst { it.id == messageId }
         if (targetIndex < 0) return false
+
+        // If an assistant/error message ID was passed, find the preceding user message
+        if (currentList[targetIndex].role != "user") {
+            targetIndex = (targetIndex - 1 downTo 0).firstOrNull { currentList[it].role == "user" } ?: return false
+        }
 
         val userPrompt = currentList[targetIndex].content
         val toDiscard = currentList.subList(targetIndex, currentList.size).map { it.id }
@@ -357,8 +371,23 @@ class ChatViewModel(
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
         if (messages.isEmpty()) return emptyList()
         val result = ArrayList<ChatListItem>(messages.size * 2)
-        for (message in messages) {
-            result.add(ChatListItem.Message(message.copy(showTimestamp = true)))
+        val isGenerating = _activeAssistantMessageId.value != null || _isAwaitingResponse.value
+
+        for (i in messages.indices) {
+            val message = messages[i]
+            val isTurnSuccessful = if (message.role == "user") {
+                val next = messages.getOrNull(i + 1)
+                if (next == null) {
+                    isGenerating
+                } else {
+                    val isStreaming = _activeAssistantMessageId.value == next.id
+                    if (isStreaming) true else next.role == "assistant" && !next.isError && next.role != "cancelled"
+                }
+            } else {
+                true
+            }
+
+            result.add(ChatListItem.Message(message.copy(showTimestamp = true), isTurnSuccessful = isTurnSuccessful))
             if ((message.articles.isNotEmpty() || message.tables.isNotEmpty()) && message.role == "assistant") {
                 result.add(ChatListItem.ClinicalReferences(message.id, message.articles, message.tables))
             }

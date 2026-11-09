@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,7 +40,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,10 +51,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -70,7 +73,6 @@ private const val MAX_INPUT_LINES = 8
 
 // Material 3 Component & Target Tokens (Accessibility compliant touch targets >= 48.dp)
 private val BUTTON_INTERACTIVE_TARGET_SIZE = 48.dp // Accessibility compliant touch target (48.dp)
-private val BUTTON_VISUAL_SIZE = 40.dp             // Action button container visual size (40.dp)
 private val ACTION_ICON_SIZE = 20.dp               // Proportional action icon size
 private val ACTION_ROW_SPACING = 8.dp              // M3 PaddingSmall
 
@@ -79,17 +81,12 @@ private val CONTENT_VERTICAL_PADDING = 8.dp        // 8.dp vertical padding + 48
 private val CONTENT_START_PADDING = 24.dp          // M3 Grid Spacing (Large inset)
 private val CONTENT_END_PADDING = 12.dp            // M3 Grid Spacing
 
-private val TEXT_BOX_END_PADDING = 8.dp            // M3 PaddingSmall
 private val TEXT_BOX_VERTICAL_PADDING = 8.dp       // Centered text offset
 private val MAX_TEXT_BOX_HEIGHT = 200.dp
 
 private val OUTER_HORIZONTAL_PADDING = 16.dp       // M3 Screen Edge Margin (PaddingMedium)
 private val OUTER_TOP_PADDING = 12.dp              // M3 Grid Spacing
 private val OUTER_BOTTOM_PADDING = 16.dp           // M3 Screen Edge Margin (PaddingMedium)
-
-// Material 3 Surface & Chip Tokens (No drop shadows)
-private val SURFACE_SHADOW_ELEVATION = 0.dp        // Clean flat surface
-private val SURFACE_TONAL_ELEVATION = 0.dp         // Container color tinting only
 
 private val CHIP_HORIZONTAL_PADDING = 12.dp        // M3 AssistChip Standard Padding
 private val CHIP_VERTICAL_PADDING = 4.dp           // M3 PaddingExtraSmall
@@ -110,23 +107,23 @@ fun ChatInputBar(
 ) {
     val textCharSequence = state.text
     val isTextNotBlank = textCharSequence.isNotBlank()
-    val isMultiLine = textCharSequence.contains('\n')
-    var isFocused by remember { mutableStateOf(false) }
 
     val containerShape = MaterialTheme.shapes.extraLarge
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val gradientBrush = remember(surfaceColor) {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                surfaceColor.copy(alpha = 0.35f),
+                surfaceColor.copy(alpha = 0.85f)
+            )
+        )
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
-                    )
-                )
-            )
+            .background(brush = gradientBrush)
             .windowInsetsPadding(
                 WindowInsets.safeDrawing
                     .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
@@ -141,14 +138,7 @@ fun ChatInputBar(
                 .widthIn(max = AdaptiveTokens.MaxChatInputWidth)
                 .fillMaxWidth(),
             shape = containerShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            border = if (isFocused) {
-                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
-            } else {
-                BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-            },
-            tonalElevation = SURFACE_TONAL_ELEVATION,
-            shadowElevation = SURFACE_SHADOW_ELEVATION
+            color = MaterialTheme.colorScheme.surfaceContainerHigh
         ) {
             Column(
                 modifier = Modifier
@@ -207,22 +197,17 @@ fun ChatInputBar(
                     }
                 }
 
-                Box(
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(ACTION_ROW_SPACING)
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                end = if (isMultiLine) 0.dp else (BUTTON_INTERACTIVE_TARGET_SIZE * 2 + ACTION_ROW_SPACING + TEXT_BOX_END_PADDING),
-                                bottom = if (isMultiLine) (BUTTON_INTERACTIVE_TARGET_SIZE + 8.dp) else 0.dp,
-                                top = if (isMultiLine) TEXT_BOX_VERTICAL_PADDING else 0.dp
-                            )
-                            .heightIn(
-                                min = if (isMultiLine) 60.dp else BUTTON_INTERACTIVE_TARGET_SIZE,
-                                max = MAX_TEXT_BOX_HEIGHT
-                            ),
-                        contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart
+                            .weight(1f)
+                            .heightIn(min = BUTTON_INTERACTIVE_TARGET_SIZE, max = MAX_TEXT_BOX_HEIGHT)
+                            .padding(vertical = TEXT_BOX_VERTICAL_PADDING),
+                        contentAlignment = Alignment.CenterStart
                     ) {
                         BasicTextField(
                             state = state,
@@ -237,7 +222,7 @@ fun ChatInputBar(
                                 imeAction = ImeAction.Default
                             ),
                             decorator = { innerTextField ->
-                                Box(contentAlignment = if (isMultiLine) Alignment.TopStart else Alignment.CenterStart) {
+                                Box(contentAlignment = Alignment.CenterStart) {
                                     if (textCharSequence.isEmpty()) {
                                         Text(
                                             text = "Ask a clinical question...",
@@ -251,21 +236,32 @@ fun ChatInputBar(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(focusRequester)
-                                .onFocusChanged { isFocused = it.isFocused }
+                                .onPreviewKeyEvent { keyEvent ->
+                                    if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Enter) {
+                                        if (keyEvent.isShiftPressed) {
+                                            false
+                                        } else {
+                                            if (!isGenerating && isTextNotBlank) {
+                                                onSendMessage(textCharSequence.toString())
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                }
                         )
                     }
 
-                    Box(
-                        modifier = Modifier.align(Alignment.BottomEnd)
-                    ) {
-                        ActionButtons(
-                            isGenerating = isGenerating,
-                            isTextNotBlank = isTextNotBlank,
-                            onSendMessage = { if (isTextNotBlank) onSendMessage(textCharSequence.toString()) },
-                            onCancel = onCancel,
-                            onVoiceInput = onVoiceInput
-                        )
-                    }
+                    ActionButtons(
+                        isGenerating = isGenerating,
+                        isTextNotBlank = isTextNotBlank,
+                        onSendMessage = { if (isTextNotBlank) onSendMessage(textCharSequence.toString()) },
+                        onCancel = onCancel,
+                        onVoiceInput = onVoiceInput
+                    )
                 }
             }
         }
@@ -287,21 +283,18 @@ private fun ActionButtons(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(ACTION_ROW_SPACING)
     ) {
-        IconButton(
-            onClick = { onVoiceInput?.invoke() },
-            enabled = onVoiceInput != null,
-            modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = "Voice input",
-                tint = if (onVoiceInput != null) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                },
-                modifier = Modifier.size(ACTION_ICON_SIZE)
-            )
+        if (onVoiceInput != null) {
+            IconButton(
+                onClick = onVoiceInput,
+                modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice input",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(ACTION_ICON_SIZE)
+                )
+            }
         }
 
         AnimatedContent(

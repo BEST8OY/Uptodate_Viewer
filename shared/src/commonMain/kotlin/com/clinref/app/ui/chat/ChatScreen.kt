@@ -69,18 +69,21 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import com.clinref.app.ui.common.setPlainText
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
@@ -95,7 +98,6 @@ import org.koin.compose.viewmodel.koinViewModel
 
 private object ChatListKeys {
     const val LOADING_OLDER = "loading_older_indicator"
-    const val BOTTOM_ANCHOR = "bottom_anchor"
 }
 
 data class ArticleSheetRequest(
@@ -123,18 +125,11 @@ fun ChatScreen(
     onNavigateToSettings: (() -> Unit)? = null,
     viewModel: ChatViewModel = koinViewModel()
 ) {
-    val messages by viewModel.messages.collectAsStateWithLifecycle()
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
+    val conversationTitle by viewModel.conversationTitle.collectAsStateWithLifecycle()
     val isLoadingConversation by viewModel.isLoadingConversation.collectAsStateWithLifecycle()
     val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
     val isAwaitingResponse by viewModel.isAwaitingResponse.collectAsStateWithLifecycle()
-    val orchestrationPhase by viewModel.orchestrationPhase.collectAsStateWithLifecycle()
-    val sectionsReadCount by viewModel.sectionsReadCount.collectAsStateWithLifecycle()
-    val isDraft by viewModel.isDraft.collectAsStateWithLifecycle()
-    val isRevised by viewModel.isRevised.collectAsStateWithLifecycle()
-    val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
-    val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
-    val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
     val isLoadingOlder by viewModel.isLoadingOlder.collectAsStateWithLifecycle()
     val hasMoreMessages by viewModel.hasMoreMessages.collectAsStateWithLifecycle()
     val patientProfile by viewModel.patientProfile.collectAsStateWithLifecycle()
@@ -143,6 +138,7 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboard.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val inputFocusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -165,11 +161,15 @@ fun ChatScreen(
     var inArticleGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
     val isOverlayActive = activeArticle != null || activeGraphicId != null
 
-    val handleNavigateToContent: (String, String?) -> Unit = { topicId, sectionId ->
-        activeArticle = ArticleSheetRequest(topicId, sectionId)
+    val handleNavigateToContent: (String, String?) -> Unit = remember {
+        { topicId, sectionId ->
+            activeArticle = ArticleSheetRequest(topicId, sectionId)
+        }
     }
-    val handleGraphicSelected: (String) -> Unit = { graphicId ->
-        activeGraphicId = graphicId.removePrefix("Graphic-")
+    val handleGraphicSelected: (String) -> Unit = remember {
+        { graphicId ->
+            activeGraphicId = graphicId.removePrefix("Graphic-")
+        }
     }
 
     LaunchedEffect(conversationId) {
@@ -180,7 +180,13 @@ fun ChatScreen(
         viewModel.scrollEvents.collect { event ->
             when (event) {
                 is ChatScrollEvent.ScrollToBottom -> {
-                    snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+                    if (event.awaitMessageId != null) {
+                        snapshotFlow { chatItems }.first { items ->
+                            items.any { it is ChatListItem.Message && it.uiModel.id == event.awaitMessageId }
+                        }
+                    } else {
+                        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+                    }
                     val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
                     if (event.animated) {
                         listState.animateScrollToItem(lastIndex)
@@ -193,8 +199,21 @@ fun ChatScreen(
     }
 
     val imeBottom = WindowInsets.ime.getBottom(density)
-    LaunchedEffect(imeBottom, isOverlayActive) {
-        if (!isOverlayActive && imeBottom > 0 && !listState.canScrollForward) {
+    val isImeVisible = imeBottom > 0
+    var wasImeVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(isImeVisible) {
+        if (wasImeVisible && !isImeVisible) {
+            focusManager.clearFocus()
+            if (editingUserMessageId != null) {
+                editingUserMessageId = null
+                textFieldState.clearText()
+            }
+        }
+        wasImeVisible = isImeVisible
+    }
+
+    LaunchedEffect(isImeVisible, isOverlayActive) {
+        if (!isOverlayActive && isImeVisible && !listState.canScrollForward) {
             val count = listState.layoutInfo.totalItemsCount
             if (count > 0) {
                 listState.scrollToItem(count - 1)
@@ -202,10 +221,27 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(listState.firstVisibleItemIndex, hasMoreMessages) {
-        if (listState.firstVisibleItemIndex <= 1 && hasMoreMessages && !isLoadingOlder) {
-            viewModel.loadOlderMessages()
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            focusManager.clearFocus()
+            keyboardController?.hide()
         }
+    }
+
+    LaunchedEffect(isOverlayActive) {
+        if (isOverlayActive) {
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
+    }
+
+    LaunchedEffect(listState, hasMoreMessages) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { index ->
+                if (index <= 1 && hasMoreMessages && !isLoadingOlder) {
+                    viewModel.loadOlderMessages()
+                }
+            }
     }
 
     LaunchedEffect(editingUserMessageId) {
@@ -221,6 +257,7 @@ fun ChatScreen(
     BackHandler(enabled = editingUserMessageId != null) {
         editingUserMessageId = null
         textFieldState.clearText()
+        focusManager.clearFocus()
         keyboardController?.hide()
     }
 
@@ -235,10 +272,12 @@ fun ChatScreen(
             MediumFlexibleTopAppBar(
                 title = {
                     Text(
-                        text = "Clinical Workspace",
+                        text = conversationTitle.ifBlank { "Clinical Workspace" },
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold
-                        )
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 subtitle = {
@@ -296,9 +335,17 @@ fun ChatScreen(
                         modifier = Modifier.size(36.dp)
                     )
                 }
-            } else if (messages.isEmpty() && !isLoadingOlder) {
+            } else if (chatItems.isEmpty() && !isLoadingOlder) {
                 ChatEmptyState(
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        }
                 )
             } else {
                 Box(
@@ -344,9 +391,7 @@ fun ChatScreen(
                                 is ChatListItem.Message -> ChatMessageItem(
                                     message = item.uiModel,
                                     isStreaming = item.uiModel.id == activeAssistantId,
-                                    isTurnSuccessful = if (item.uiModel.role == "user") {
-                                        viewModel.isUserMessageSuccessful(item.uiModel.id)
-                                    } else true,
+                                    isTurnSuccessful = item.isTurnSuccessful,
                                     onCopyMessage = { content ->
                                         coroutineScope.launch {
                                             clipboard.setPlainText(content)
@@ -376,21 +421,9 @@ fun ChatScreen(
 
                         if (activeAssistantId != null && !hasAssistantInPersisted) {
                             item(key = activeAssistantId) {
-                                ChatMessageItem(
-                                    message = MessageUiModel(
-                                        id = activeAssistantId!!,
-                                        role = "assistant",
-                                        content = streamingText,
-                                        timestamp = 0L,
-                                        showTimestamp = false
-                                    ),
-                                    isStreaming = true,
-                                    orchestrationPhase = orchestrationPhase,
-                                    currentStatusText = currentStatusText,
-                                    liveSources = liveSources,
-                                    sectionsReadCount = sectionsReadCount,
-                                    isDraft = isDraft,
-                                    isRevised = isRevised,
+                                StreamingAssistantMessage(
+                                    activeAssistantId = activeAssistantId!!,
+                                    viewModel = viewModel,
                                     onSourceClick = { ref -> handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null }) },
                                     onCopyMessage = { content ->
                                         coroutineScope.launch {
@@ -402,14 +435,6 @@ fun ChatScreen(
                                     onGraphicSelected = handleGraphicSelected
                                 )
                             }
-                        }
-
-                        item(key = ChatListKeys.BOTTOM_ANCHOR) {
-                            Spacer(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                            )
                         }
                     }
                 }
@@ -431,12 +456,14 @@ fun ChatScreen(
                         ) {
                             editingUserMessageId = null
                             textFieldState.clearText()
+                            focusManager.clearFocus()
                             keyboardController?.hide()
                         }
                         .semantics {
                             onClick(label = "Cancel editing") {
                                 editingUserMessageId = null
                                 textFieldState.clearText()
+                                focusManager.clearFocus()
                                 keyboardController?.hide()
                                 true
                             }
@@ -467,7 +494,7 @@ fun ChatScreen(
                     state = textFieldState,
                     onSendMessage = { text ->
                         val trimmed = text.trim()
-                        if (trimmed.isBlank() || viewModel.currentConversationId.value == null) {
+                        if (trimmed.isBlank()) {
                             return@ChatInputBar
                         }
                         val editId = editingUserMessageId
@@ -475,11 +502,17 @@ fun ChatScreen(
                             viewModel.submitEditedMessage(editId, trimmed).also { ok ->
                                 if (ok) {
                                     editingUserMessageId = null
+                                    focusManager.clearFocus()
                                     keyboardController?.hide()
                                 }
                             }
                         } else {
-                            viewModel.sendMessage(trimmed)
+                            viewModel.sendMessage(trimmed).also { ok ->
+                                if (ok) {
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                }
+                            }
                         }
                         if (accepted) {
                             textFieldState.clearText()
@@ -510,7 +543,7 @@ fun ChatScreen(
             initialValue = SheetValue.Hidden,
             enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
         )
-        val articleStoreOwner = remember(currentArticle) {
+        val articleStoreOwner = remember(currentArticle.topicId) {
             object : ViewModelStoreOwner {
                 override val viewModelStore = ViewModelStore()
             }
@@ -614,4 +647,46 @@ private fun ChatEmptyState(
         )
     }
 }
+
+@Composable
+private fun StreamingAssistantMessage(
+    activeAssistantId: String,
+    viewModel: ChatViewModel,
+    onSourceClick: (SafetyValidator.TopicRef) -> Unit,
+    onCopyMessage: (String) -> Unit,
+    onNavigateToContent: (String, String?) -> Unit,
+    onGraphicSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
+    val orchestrationPhase by viewModel.orchestrationPhase.collectAsStateWithLifecycle()
+    val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
+    val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
+    val sectionsReadCount by viewModel.sectionsReadCount.collectAsStateWithLifecycle()
+    val isDraft by viewModel.isDraft.collectAsStateWithLifecycle()
+    val isRevised by viewModel.isRevised.collectAsStateWithLifecycle()
+
+    ChatMessageItem(
+        message = MessageUiModel(
+            id = activeAssistantId,
+            role = "assistant",
+            content = streamingText,
+            timestamp = 0L,
+            showTimestamp = false
+        ),
+        isStreaming = true,
+        orchestrationPhase = orchestrationPhase,
+        currentStatusText = currentStatusText,
+        liveSources = liveSources,
+        sectionsReadCount = sectionsReadCount,
+        isDraft = isDraft,
+        isRevised = isRevised,
+        onSourceClick = onSourceClick,
+        onCopyMessage = onCopyMessage,
+        onNavigateToContent = onNavigateToContent,
+        onGraphicSelected = onGraphicSelected,
+        modifier = modifier
+    )
+}
+
 
