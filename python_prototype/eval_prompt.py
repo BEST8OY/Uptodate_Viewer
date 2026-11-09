@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -43,9 +44,9 @@ NOT_FOUND_RE = re.compile(
     r"could not (?:find|locate)|isn't in the retrieved|is not in the retrieved)",
     re.IGNORECASE,
 )
-HEADER_RE = re.compile(r"^\s*(?:#{1,4}\s*)?\*\*(.+?)\*\*", re.MULTILINE)
+HEADER_RE = re.compile(r"^\s*(?:#{1,4}\s*(.+?)$|\*\*(.+?)\*\*)", re.MULTILINE)
 FIRST_BOLD_RE = re.compile(r"^\s*\*\*(.+?)\*\*", re.DOTALL)
-ATX_HEADER_RE = re.compile(r"^\s*#{1,4}\s+\w+", re.MULTILINE)
+DISALLOWED_ATX_HEADER_RE = re.compile(r"^\s*(?:#{1,2}|#{4,6})\s+\w+", re.MULTILINE)
 MARKDOWN_LINK_RE = re.compile(r"\[.+?\]\(.+?\)")
 INLINE_CITATION_RE = re.compile(r"\[\d+(?:,\s*\d+)*\]|\b(?:UpToDate|Lexidrug)\b", re.IGNORECASE)
 
@@ -55,10 +56,11 @@ def load_cases(path: Path = CASES_PATH) -> List[Dict[str, Any]]:
 
 
 def extract_headers(answer: str) -> List[str]:
-    """Extract bold section headers used in the answer."""
+    """Extract section headers (### or bold) used in the answer."""
     headers: List[str] = []
     for match in HEADER_RE.finditer(answer or ""):
-        label = match.group(1).strip().rstrip(":").strip()
+        raw = match.group(1) or match.group(2) or ""
+        label = raw.strip().strip("*").strip().rstrip(":").strip("*").strip()
         if not label or label.endswith(".") or len(label) > 60:
             continue
         if label not in headers:
@@ -120,7 +122,7 @@ def score_turn(case: Dict[str, Any], answer: str, passed: bool, section_count: i
 def check_empty_headers(answer: str) -> bool:
     """Detects forbidden empty headers or headers followed solely by abstention."""
     pattern = re.compile(
-        r"\*\*(.+?)\*\*\s*\n\s*(?:\*\s*|-\s*)?(?:Not specified|None|\bN/A\b|No information)",
+        r"(?:###|\*\*)\s*(.+?)(?:\*\*)?\s*\n\s*(?:\*\s*|-\s*)?(?:Not specified|None|\bN/A\b|No information)",
         re.IGNORECASE,
     )
     return not bool(pattern.search(answer or ""))
@@ -202,7 +204,7 @@ def score_clinical_turn(
     tiers["tier3_ux"]["empty_header_avoidance"] = check_empty_headers(answer)
 
     # ── Tier 4: Output Mechanics ───────────────────────────────────────
-    tiers["tier4_mechanics"]["no_atx_headers"] = not bool(ATX_HEADER_RE.search(answer))
+    tiers["tier4_mechanics"]["no_atx_headers"] = not bool(DISALLOWED_ATX_HEADER_RE.search(answer))
     tiers["tier4_mechanics"]["no_markdown_links"] = not bool(MARKDOWN_LINK_RE.search(answer))
 
     # Calculate scores per tier

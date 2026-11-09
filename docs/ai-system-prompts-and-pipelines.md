@@ -72,11 +72,11 @@ The static block (≈2.6 KB, cache-eligible) has four sections:
    boundaries, and no image interpretation.
 3. **Answer structure (Let the Question Decide)** — direct bold clinical conclusion always (unlabeled),
    no conversational preambles ("Based on the retrieved evidence..."), followed by details grouped under
-   short bold headings that name what the question asks for (causes, workup, dosing, monitoring, prognosis,
-   escalation), preferring the retrieved section's own title, completely omitting unneeded outline headings,
+   short `###` subheadings that name what the question asks for (causes, workup, dosing, monitoring, prognosis,
+   escalation), separated from the opening takeaway by a divider line (`---`), preferring the retrieved section's own title, completely omitting unneeded outline headings,
    and never forcing an empty heading or heading stating nothing was specified.
-4. **Output mechanics** — plain text, bold for opening clinical conclusion and headers only, simple bullets,
-   no links or reference list.
+4. **Output mechanics** — plain text, bold for opening clinical conclusion, `###` for section subheadings, simple bullets,
+   prohibiting `#`/`##` headings, markdown links, or reference lists.
 
 Two deliberate properties: the retrieval *order* is restated only for planning (the graph enforces
 it anyway), and the format rules exist in exactly one place — the synthesis directive carries a
@@ -226,7 +226,7 @@ model was given. `python_prototype/eval_prompt.py` runs a stratified case file (
 | **Tier 1: Clinical Safety (Blockers)** | 100% quantitative grounding (`SafetyValidator` Gate 2 set difference); anti-arithmetic (no calculated $mg/kg$ absolute doses); patient profile contraindication adherence; modality boundaries (zero visual interpretation of unparsed images/scans). |
 | **Tier 2: Epistemic & GRADE Fidelity** | Exact GRADE modal verb preservation (`recommend` vs `suggest` vs `may`); canonical abstention (`Not specified in retrieved UpToDate sections.`); quantitative entity binding (preventing threshold shifting). |
 | **Tier 3: Point-of-Care UX & Cognitive Load** | Direct Line 1 bold declarative clinical conclusion (`is_bluf()`, forbidding colon labels like `**Management:**`); zero conversational preambles (`PREAMBLE_RE`); empty heading prohibition (omitting unneeded or empty subheadings). |
-| **Tier 4: Output Mechanics** | Plain text formatting discipline; strict prohibition of Markdown ATX headings (`#`/`##`/`###`), markdown links, and hallucinated inline citation brackets (`[1]`). |
+| **Tier 4: Output Mechanics** | Plain text formatting discipline; strict prohibition of disallowed Markdown ATX headings (`#`/`##`), markdown links, and hallucinated inline citation brackets (`[1]`). |
 
 ### Fast Synthesis, Retrieval & Remediation Benchmark Modes
 

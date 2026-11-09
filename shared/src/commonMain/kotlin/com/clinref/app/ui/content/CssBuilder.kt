@@ -118,11 +118,14 @@ class CssBuilder(private val colors: ThemeColors) {
     fun resetAndBase(): String = """
 /* Reset & Base */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html {
+    font-size: 100%;
+    scroll-behavior: smooth;
+}
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 16px;
+    font-size: 1rem;
     line-height: 1.6;
     color: var(--text);
     background: var(--bg);
@@ -407,7 +410,7 @@ a:hover { text-decoration: underline; }
 /* Bullet Lists */
 .bulletIndent1, .bulletIndent2, .bulletIndent3 {
     position: relative;
-    margin: 12px 0;
+    margin: 6px 0;
 }
 
 .bulletIndent1 { padding-left: 28px; }
@@ -1064,9 +1067,16 @@ tr.border_top_thick td { border-top: 2px solid var(--border-emphasis) !important
         padding: 16px 12px 32px;
     }
 
-    h1 { font-size: 1.3rem; }
+    h1 { font-size: 1.35rem; }
     h1.topic-title { font-size: 1.5rem; }
-    h2.h2 { font-size: 1.1rem; }
+    h2.h2 { font-size: 1.15rem; }
+    h3.h3 { font-size: 1.02rem; }
+    h4.h4 { font-size: 0.92rem; }
+
+    table { font-size: 0.82rem; }
+    th, td { padding: 8px 10px; }
+    .graphic table, .figure table { font-size: 0.8rem; }
+    .graphic td, .figure td { padding: 7px 9px; }
 
     .grade { font-size: 0.7rem; padding: 1px 6px; }
     .graphic, .graphic_table, .graphic_figure { font-size: 0.75rem; padding: 2px 8px; }

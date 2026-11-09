@@ -87,23 +87,23 @@ fun clinrefMarkdownDimens(): MarkdownDimens = markdownDimens(
 
 @Composable
 fun clinrefMarkdownTypography(): MarkdownTypography = markdownTypography(
-    h1 = MaterialTheme.typography.titleLarge.copy(
+    h1 = MaterialTheme.typography.headlineMedium.copy(
         fontWeight = FontWeight.Bold
     ),
-    h2 = MaterialTheme.typography.titleMedium.copy(
+    h2 = MaterialTheme.typography.headlineSmall.copy(
         fontWeight = FontWeight.Bold
     ),
-    h3 = MaterialTheme.typography.titleSmall.copy(
+    h3 = MaterialTheme.typography.titleLarge.copy(
         fontWeight = FontWeight.Bold
     ),
-    h4 = MaterialTheme.typography.labelLarge.copy(
+    h4 = MaterialTheme.typography.titleMedium.copy(
+        fontWeight = FontWeight.Bold
+    ),
+    h5 = MaterialTheme.typography.titleSmall.copy(
         fontWeight = FontWeight.SemiBold
     ),
-    h5 = MaterialTheme.typography.labelMedium.copy(
+    h6 = MaterialTheme.typography.labelMedium.copy(
         fontWeight = FontWeight.SemiBold
-    ),
-    h6 = MaterialTheme.typography.labelSmall.copy(
-        fontWeight = FontWeight.Medium
     ),
     paragraph = MaterialTheme.typography.bodyLarge,
     text = MaterialTheme.typography.bodyLarge,
@@ -119,6 +119,10 @@ fun clinrefMarkdownTypography(): MarkdownTypography = markdownTypography(
     ),
     inlineCode = MaterialTheme.typography.bodySmall.copy(
         fontFamily = FontFamily.Monospace
+    ),
+    table = MaterialTheme.typography.bodySmall,
+    alertTitle = MaterialTheme.typography.titleSmall.copy(
+        fontWeight = FontWeight.Bold
     )
 )
 

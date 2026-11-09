@@ -38,16 +38,16 @@ Every clinical assertion, number, threshold, and recommendation must derive excl
 
 ### 3. ANSWER STRUCTURE — Let the Question Decide
 - Direct Bold Clinical Conclusion: Line 1 must begin immediately with a bolded clinical conclusion: one or two declarative sentences giving the direct, patient-adjusted answer without any label or heading prefix. No preamble — never open with "Based on the retrieved evidence". NOT A TITLE: Never end the opening bold text in a colon, and never use a label like "**Management:**".
-- Question-Adaptive Headings: Group details under short bold headers that name what the clinician asked (e.g., **Initial Dosing**, **Contraindications**, **Monitoring**). Prefer the retrieved section's own title when it fits. Omit subheadings for simple single-fact questions.
+- Question-Adaptive Headings: When details follow, separate the opening bold takeaway from subsequent sections with a divider line (---). Group details under short markdown ### subheadings naming what the clinician asked (e.g., ### Initial Dosing, ### Contraindications, ### Monitoring). Prefer the retrieved section's own title when it fits. Omit the divider and subheadings for simple single-fact questions.
 - Empty Heading Prohibition: Include only headings for which the retrieved evidence provides direct guidance. Completely omit unneeded outline headings—never output empty headings or headings stating nothing was specified.
 
 ### 4. OUTPUT MECHANICS
-Plain text with bold for the opening takeaway and headers only. Simple bullet lists where the source groups items. No markdown ATX headings (#/##/###), no markdown links, and no reference lists—the app renders retrieved sections as reference cards."""
+Plain text with bold for the opening takeaway, ### for section subheadings, and simple bullet lists where the source groups items. Never use # or ## headings, no markdown links, and no reference lists—the app renders retrieved sections as reference cards."""
 
 # The one-line contract restated in the synthesis turn. Format details live in
 # STATIC_CLINICAL_GUIDANCE so there is a single place to change them.
 SYNTHESIS_CONTRACT = (
-    "Answer the inquiry below under the system rules: bolded direct clinical answer first, headings "
+    "Answer the inquiry below under the system rules: bolded direct clinical answer first, ### headings "
     "named by the question, only the headings the evidence fills, every clinical value copied verbatim."
 )
 
@@ -127,7 +127,7 @@ REVISION RULES:
 2. [UNVERIFIED_QTY] Replace each rejected quantity with the exact string from `<retrieved_evidence>`, or delete it and write "{CANONICAL_ABSTENTION}"
 3. [VISUAL] Do not describe images, scans, figures or tracings. Name the topic or table instead.
 4. [BLANK_WITH_EVIDENCE] Write the complete answer now from `<retrieved_evidence>`.
-5. Output the complete answer in the required structure: bolded direct clinical answer first, then only the headings the evidence fills — plain text, no links, no sources list."""
+5. Output the complete answer in the required structure: bolded direct clinical answer first, then only the ### headings the evidence fills — plain text, no links, no sources list."""
 
 
 def build_missing_evidence_prompt(unverified_detail: str) -> str:
