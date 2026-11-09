@@ -45,6 +45,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -95,6 +96,8 @@ fun ContentScreen(
     val activeSectionId by viewModel.activeSectionId.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val navigateToGraphic by viewModel.onNavigateToGraphic.collectAsStateWithLifecycle()
+    val openExternalUrl by viewModel.onOpenExternalUrl.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
 
     var showSearch by remember { mutableStateOf(false) }
     val searchFieldState = rememberTextFieldState()
@@ -196,6 +199,15 @@ fun ContentScreen(
         navigateToGraphic?.let { graphicId ->
             onGraphicSelected(graphicId)
             viewModel.clearNavigationToGraphic()
+        }
+    }
+
+    LaunchedEffect(openExternalUrl) {
+        openExternalUrl?.let { url ->
+            try {
+                uriHandler.openUri(url)
+            } catch (_: Exception) {}
+            viewModel.clearOpenExternalUrl()
         }
     }
 

@@ -280,4 +280,177 @@ class ContentViewModelTest {
         assertEquals(listOf("sec-prognosis"), jumps)
         job.cancel()
     }
+
+    @Test
+    fun `handleAction cross-topic link forwards sectionId and bypasses stale saved position`() = runTest(testDispatcher) {
+        val currentTopic = "asthma-1"
+        val targetTopic = "copd-2"
+        val targetSection = "H55268797"
+
+        every { contentRepository.getTopicContent(currentTopic) } returns ContentRepository.TopicContent(
+            bodyHtml = """<a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;,&quot;section&quot;:&quot;$targetSection&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;$targetTopic&quot;,&quot;section&quot;:&quot;$targetSection&quot;}]});">See COPD</a>""",
+            title = "Asthma"
+        )
+        every { contentRepository.getTopicTitle(currentTopic) } returns "Asthma"
+        coEvery { readingPositionRepository.get(currentTopic) } returns null
+
+        every { contentRepository.getTopicContent(targetTopic) } returns ContentRepository.TopicContent(
+            bodyHtml = "<p>COPD content</p>",
+            title = "COPD"
+        )
+        every { contentRepository.getTopicTitle(targetTopic) } returns "COPD"
+        // Target topic has a stale saved reading position from a previous session
+        coEvery { readingPositionRepository.get(targetTopic) } returns ReadingPosition(
+            anchor = "b:5:0.1000",
+            progress = 0.20f,
+            sectionId = "H1",
+            contentRev = "oldRev"
+        )
+
+        val vm = createViewModel()
+        vm.loadTopic(currentTopic)
+        advanceUntilIdle()
+
+        // Clicking the rewritten appaction link
+        vm.handleAction("action_0")
+        advanceUntilIdle()
+
+        // Target topic must be loaded directly at targetSection, NOT resuming at stale anchor
+        assertEquals(targetTopic, vm.currentTopicId.value)
+        val doc = vm.document.value
+        assertNotNull(doc)
+        assertEquals(StartTarget.Section(targetSection), doc?.start)
+    }
+
+    @Test
+    fun `handleAction intra-topic link triggers scrollToSection`() = runTest(testDispatcher) {
+        val topicId = "asthma-1"
+        val sameTopicSection = "H7"
+
+        every { contentRepository.getTopicContent(topicId) } returns ContentRepository.TopicContent(
+            bodyHtml = """<a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;$topicId&quot;,&quot;section&quot;:&quot;$sameTopicSection&quot;}]});">Dosing</a>""",
+            title = "Asthma"
+        )
+        every { contentRepository.getTopicTitle(topicId) } returns "Asthma"
+        coEvery { readingPositionRepository.get(topicId) } returns null
+
+        val vm = createViewModel()
+        vm.loadTopic(topicId)
+        advanceUntilIdle()
+
+        val jumps = mutableListOf<String>()
+        val job = backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
+            vm.sectionJumps.collect { jumps.add(it) }
+        }
+
+        vm.handleAction("action_0")
+        advanceUntilIdle()
+
+        assertEquals(listOf(sameTopicSection), jumps)
+        job.cancel()
+    }
+
+    @Test
+    fun `handleAction graphic link updates onNavigateToGraphic`() = runTest(testDispatcher) {
+        val topicId = "asthma-1"
+        val graphicId = "116392"
+
+        every { contentRepository.getTopicContent(topicId) } returns ContentRepository.TopicContent(
+            bodyHtml = """<a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;graphic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;$graphicId&quot;,&quot;type&quot;:&quot;graphic&quot;}]});">Table 1</a>""",
+            title = "Asthma"
+        )
+        every { contentRepository.getTopicTitle(topicId) } returns "Asthma"
+        coEvery { readingPositionRepository.get(topicId) } returns null
+
+        val vm = createViewModel()
+        vm.loadTopic(topicId)
+        advanceUntilIdle()
+
+        vm.handleAction("action_0")
+
+        assertEquals(graphicId, vm.onNavigateToGraphic.value)
+    }
+
+    @Test
+    fun `handleAction external link updates onOpenExternalUrl`() = runTest(testDispatcher) {
+        val topicId = "asthma-1"
+        val externalUrl = "https://www.uptodate.com/external-redirect"
+
+        every { contentRepository.getTopicContent(topicId) } returns ContentRepository.TopicContent(
+            bodyHtml = """<a href="javascript:appAction({&quot;meta&quot;:{},&quot;data&quot;:[{&quot;type&quot;:&quot;external&quot;,&quot;url&quot;:&quot;$externalUrl&quot;}]});">External Link</a>""",
+            title = "Asthma"
+        )
+        every { contentRepository.getTopicTitle(topicId) } returns "Asthma"
+        coEvery { readingPositionRepository.get(topicId) } returns null
+
+        val vm = createViewModel()
+        vm.loadTopic(topicId)
+        advanceUntilIdle()
+
+        vm.handleAction("action_0")
+
+        assertEquals(externalUrl, vm.onOpenExternalUrl.value)
+    }
+
+    @Test
+    fun `handleAction with manual prefix parses direct JS bridge payload`() = runTest(testDispatcher) {
+        val topicId = "asthma-1"
+        every { contentRepository.getTopicContent(topicId) } returns ContentRepository.TopicContent(
+            bodyHtml = "<p>Asthma</p>",
+            title = "Asthma"
+        )
+        every { contentRepository.getTopicTitle(topicId) } returns "Asthma"
+        coEvery { readingPositionRepository.get(topicId) } returns null
+
+        val vm = createViewModel()
+        vm.loadTopic(topicId)
+        advanceUntilIdle()
+
+        val jumps = mutableListOf<String>()
+        val job = backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
+            vm.sectionJumps.collect { jumps.add(it) }
+        }
+
+        // Direct bridge invocation with manual_ prefix
+        val jsonPayload = """{"meta":{"assetType":"topic","section":"H99"},"data":[{"id":"$topicId"}]}"""
+        vm.handleAction("manual_$jsonPayload")
+        advanceUntilIdle()
+
+        assertEquals(listOf("H99"), jumps)
+        job.cancel()
+    }
+
+    @Test
+    fun `handleOutlineAction unescapes entities and navigates properly`() = runTest(testDispatcher) {
+        val currentTopic = "asthma-1"
+        val targetTopic = "steroids-3"
+        val targetSection = "H12"
+
+        every { contentRepository.getTopicContent(currentTopic) } returns ContentRepository.TopicContent(
+            bodyHtml = "<p>Asthma</p>",
+            title = "Asthma"
+        )
+        every { contentRepository.getTopicTitle(currentTopic) } returns "Asthma"
+        coEvery { readingPositionRepository.get(currentTopic) } returns null
+
+        every { contentRepository.getTopicContent(targetTopic) } returns ContentRepository.TopicContent(
+            bodyHtml = "<p>Steroids content</p>",
+            title = "Steroids"
+        )
+        every { contentRepository.getTopicTitle(targetTopic) } returns "Steroids"
+        coEvery { readingPositionRepository.get(targetTopic) } returns null
+
+        val vm = createViewModel()
+        vm.loadTopic(currentTopic)
+        advanceUntilIdle()
+
+        // Outline JSON often has escaped &quot;
+        val outlineJson = """{&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;,&quot;section&quot;:&quot;$targetSection&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;$targetTopic&quot;}]}"""
+        vm.handleOutlineAction(outlineJson)
+        advanceUntilIdle()
+
+        assertEquals(targetTopic, vm.currentTopicId.value)
+        val doc = vm.document.value
+        assertEquals(StartTarget.Section(targetSection), doc?.start)
+    }
 }

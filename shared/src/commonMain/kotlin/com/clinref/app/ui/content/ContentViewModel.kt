@@ -10,6 +10,7 @@ import com.clinref.app.repository.FavoriteRepository
 import com.clinref.app.repository.HistoryRepository
 import com.clinref.app.repository.ReadingPositionRepository
 import com.clinref.app.util.HtmlNormalizer
+import com.clinref.shared.platform.PlatformLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,9 @@ class ContentViewModel(
 
     private val _onNavigateToGraphic = MutableStateFlow<String?>(null)
     val onNavigateToGraphic: StateFlow<String?> = _onNavigateToGraphic
+
+    private val _onOpenExternalUrl = MutableStateFlow<String?>(null)
+    val onOpenExternalUrl: StateFlow<String?> = _onOpenExternalUrl.asStateFlow()
 
     private val _contributorsDialog = MutableStateFlow<List<ContributorGroup>?>(null)
     val contributorsDialog: StateFlow<List<ContributorGroup>?> = _contributorsDialog
@@ -251,9 +255,9 @@ class ContentViewModel(
             html = HtmlNormalizer.injectMetaLinks(html, content.contributors)
 
             actions.clear()
-            html = Regex("""href="javascript:appAction\((.*?)\);?"""", RegexOption.DOT_MATCHES_ALL)
+            html = Regex("""href\s*=\s*(["'])javascript:appAction\((.*?)\);?\1""", RegexOption.DOT_MATCHES_ALL)
                 .replace(html) { match ->
-                    val jsonStr = match.groupValues[1]
+                    val jsonStr = match.groupValues[2]
                     val actionId = "action_${actions.size}"
                     actions[actionId] = jsonStr
                     """href="appaction://$actionId""""
@@ -294,33 +298,54 @@ class ContentViewModel(
     }
 
     fun handleAction(actionId: String) {
-        val rawJsonStr = actions[actionId] ?: return
+        val rawJsonStr = if (actionId.startsWith("manual_")) {
+            actionId.removePrefix("manual_")
+        } else {
+            actions[actionId] ?: return
+        }
         try {
-            val jsonStr = rawJsonStr
-                .replace("&quot;", "\"")
-                .replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&#39;", "'")
+            val jsonStr = unescapeHtmlEntities(rawJsonStr)
             executeActionJson(jsonStr)
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            PlatformLogger.w("ContentViewModel", "Failed to parse action JSON: $rawJsonStr (${e.message})")
+        }
     }
 
     fun handleOutlineAction(json: String) {
         try {
-            executeActionJson(json)
-        } catch (_: Exception) { }
+            val jsonStr = unescapeHtmlEntities(json)
+            executeActionJson(jsonStr)
+        } catch (e: Exception) {
+            PlatformLogger.w("ContentViewModel", "Failed to parse outline action JSON: $json (${e.message})")
+        }
     }
+
+    private fun unescapeHtmlEntities(text: String): String = text
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
 
     private fun executeActionJson(jsonStr: String) {
         val data = Json.parseToJsonElement(jsonStr).jsonObject
         val meta = data["meta"]?.jsonObject
         val items = data["data"]?.jsonArray
 
-        val assetType = meta?.get("assetType")?.jsonPrimitive?.content
         val assetComponent = meta?.get("assetComponent")?.jsonPrimitive?.content
+        val assetType = meta?.get("assetType")?.jsonPrimitive?.content
+            ?: items?.firstOrNull()?.jsonObject?.get("type")?.jsonPrimitive?.content
+            ?: data["type"]?.jsonPrimitive?.content
+
         val section = meta?.get("section")?.jsonPrimitive?.content
             ?: items?.firstOrNull()?.jsonObject?.get("section")?.jsonPrimitive?.content
+            ?: data["section"]?.jsonPrimitive?.content
+
+        val targetTopicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+            ?: meta?.get("topicId")?.jsonPrimitive?.content
+            ?: meta?.get("id")?.jsonPrimitive?.content
+            ?: data["id"]?.jsonPrimitive?.content
 
         when {
             assetComponent in listOf("contributors", "disclosures") -> {
@@ -328,21 +353,31 @@ class ContentViewModel(
             }
             assetType == "graphic" -> {
                 val graphicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    ?: meta?.get("id")?.jsonPrimitive?.content
+                    ?: data["id"]?.jsonPrimitive?.content
                 if (graphicId != null) {
                     _onNavigateToGraphic.value = graphicId
                 }
             }
-            assetType == "topic" -> {
-                val targetTopicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
-                if (targetTopicId != null) {
-                    if (targetTopicId == _currentTopicId.value && section != null) {
-                        scrollToSection(section)
-                    } else {
-                        loadTopic(targetTopicId)
-                    }
+            assetType == "external" -> {
+                val url = items?.firstOrNull()?.jsonObject?.get("url")?.jsonPrimitive?.content
+                    ?: meta?.get("url")?.jsonPrimitive?.content
+                    ?: data["url"]?.jsonPrimitive?.content
+                if (url != null) {
+                    _onOpenExternalUrl.value = url
                 }
             }
+            targetTopicId != null && targetTopicId != _currentTopicId.value -> {
+                loadTopic(targetTopicId, sectionId = section)
+            }
+            section != null -> {
+                scrollToSection(section)
+            }
         }
+    }
+
+    fun clearOpenExternalUrl() {
+        _onOpenExternalUrl.value = null
     }
 
     fun toggleOutline() {
