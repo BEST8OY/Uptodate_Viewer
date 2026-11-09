@@ -54,4 +54,24 @@ class HtmlNormalizerTest {
         assertEquals("Risk factors for SSI", sections[1].title)
         assertEquals(SectionType.GRAPHIC, sections[1].sectionType)
     }
+
+    @Test
+    fun `parseOutline deduplicates sr-button shortcut and repeated sections`() {
+        val outlineHtml = """
+            <nav id="outlineSections">
+                <ul id="innerOutline">
+                    <li class="sr-button"><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;,&quot;section&quot;:&quot;H188821106&quot;},&quot;data&quot;:[{&quot;section&quot;:&quot;H188821106&quot;}]});"><span>SUMMARY AND RECOMMENDATIONS</span></a></li>
+                    <li><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;,&quot;section&quot;:&quot;H1&quot;},&quot;data&quot;:[{&quot;section&quot;:&quot;H1&quot;}]});">INTRODUCTION</a></li>
+                    <li><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;,&quot;section&quot;:&quot;H188821106&quot;},&quot;data&quot;:[{&quot;section&quot;:&quot;H188821106&quot;}]});">SUMMARY AND RECOMMENDATIONS</a></li>
+                </ul>
+            </nav>
+        """.trimIndent()
+
+        val sections = HtmlNormalizer.parseOutline(outlineHtml)
+
+        assertEquals(2, sections.size)
+        assertEquals(listOf("H1", "H188821106"), sections.map { it.id })
+        assertEquals("INTRODUCTION", sections[0].title)
+        assertEquals("SUMMARY AND RECOMMENDATIONS", sections[1].title)
+    }
 }

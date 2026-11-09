@@ -163,7 +163,8 @@ object HtmlNormalizer {
     fun parseOutline(html: String): List<OutlineSection> {
         if (html.isEmpty()) return emptyList()
 
-        val sections = mutableListOf<OutlineSection>()
+        val rawSections = mutableListOf<OutlineSection>()
+        val rawSectionIsSr = mutableListOf<Boolean>()
         val liPattern = Regex(
             """<li[^>]*><a[^>]*href="javascript:appAction\(([^)]+)\);"[^>]*>(.*?)</a>""",
             setOf(RegexOption.DOT_MATCHES_ALL)
@@ -190,6 +191,8 @@ object HtmlNormalizer {
             } else {
                 val match = liPattern.find(lines, i)
                 if (match != null && match.range.first == i) {
+                    val fullLiTag = match.value.substringBefore('>')
+                    val isSrButton = fullLiTag.contains("sr-button", ignoreCase = true)
                     val hrefContent = match.groupValues[1]
                     val rawTitle = match.groupValues[2]
                     val title = rawTitle
@@ -226,7 +229,7 @@ object HtmlNormalizer {
                             } else {
                                 title
                             }
-                            sections.add(OutlineSection(
+                            rawSections.add(OutlineSection(
                                 id = id,
                                 title = displayTitle,
                                 depth = depth,
@@ -235,12 +238,31 @@ object HtmlNormalizer {
                                 graphicSubtype = if (sectionType == SectionType.GRAPHIC) graphicSubtype else "",
                                 graphicLabel = if (sectionType == SectionType.GRAPHIC) graphicLabel else ""
                             ))
+                            rawSectionIsSr.add(isSrButton)
                         }
                     }
                     i = match.range.last + 1
                 } else {
                     i++
                 }
+            }
+        }
+
+        // A section rendered both in-flow and as an sr-button shortcut keeps the in-flow entry.
+        val nonSrSectionIds = rawSections
+            .filterIndexed { idx, sec -> !rawSectionIsSr[idx] && sec.sectionType == SectionType.TOPIC }
+            .map { it.id }
+            .toSet()
+
+        val sections = mutableListOf<OutlineSection>()
+        val seenKeys = mutableSetOf<Pair<SectionType, String>>()
+        for (idx in rawSections.indices) {
+            val sec = rawSections[idx]
+            if (rawSectionIsSr[idx] && sec.sectionType == SectionType.TOPIC && sec.id in nonSrSectionIds) {
+                continue
+            }
+            if (seenKeys.add(sec.sectionType to sec.id)) {
+                sections.add(sec)
             }
         }
 

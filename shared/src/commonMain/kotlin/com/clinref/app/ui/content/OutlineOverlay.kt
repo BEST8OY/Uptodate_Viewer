@@ -1,5 +1,6 @@
 package com.clinref.app.ui.content
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -42,8 +43,11 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetValue
@@ -93,13 +97,22 @@ internal fun OutlineOverlay(
     val isWideScreen = LocalIsWideScreen.current
 
     val allSections = remember(outlineSections) {
-        outlineSections.filter { it.sectionType == SectionType.TOPIC }
+        outlineSections.filter { it.sectionType == SectionType.TOPIC }.distinctBy { it.id }
     }
     val allGraphics = remember(outlineSections) {
-        outlineSections.filter { it.sectionType == SectionType.GRAPHIC }
+        outlineSections.filter { it.sectionType == SectionType.GRAPHIC }.distinctBy { it.id }
     }
     val allRelated = remember(outlineSections) {
-        outlineSections.filter { it.sectionType == SectionType.RELATED }
+        outlineSections.filter { it.sectionType == SectionType.RELATED }.distinctBy { it.id }
+    }
+
+    val summarySection = remember(allSections) {
+        allSections.firstOrNull { sec ->
+            val t = sec.title.trim().lowercase()
+            t == "summary" ||
+                t.startsWith("summary and recommendations") ||
+                t.startsWith("summary & recommendations")
+        }
     }
 
     val defaultTab = remember(outlineSections) {
@@ -122,8 +135,9 @@ internal fun OutlineOverlay(
     }
 
     val filteredSections = remember(allSections, searchQuery) {
-        if (searchQuery.isBlank()) allSections
+        val list = if (searchQuery.isBlank()) allSections
         else allSections.filter { it.title.contains(searchQuery, ignoreCase = true) }
+        list.distinctBy { it.id }
     }
 
     val filteredGraphics = remember(allGraphics, searchQuery, selectedGraphicSubtype) {
@@ -133,12 +147,13 @@ internal fun OutlineOverlay(
                 item.title.contains(searchQuery, ignoreCase = true) ||
                 item.graphicLabel.contains(searchQuery, ignoreCase = true)
             matchesSubtype && matchesQuery
-        }
+        }.distinctBy { it.id }
     }
 
     val filteredRelated = remember(allRelated, searchQuery) {
-        if (searchQuery.isBlank()) allRelated
+        val list = if (searchQuery.isBlank()) allRelated
         else allRelated.filter { it.title.contains(searchQuery, ignoreCase = true) }
+        list.distinctBy { it.id }
     }
 
     val sheetContent = @Composable {
@@ -322,6 +337,16 @@ internal fun OutlineOverlay(
                                 .padding(bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
+                            if (searchQuery.isBlank() && summarySection != null && allSections.indexOf(summarySection) > 0) {
+                                item(key = "shortcut_summary_and_recommendations") {
+                                    SummaryQuickJumpCard(
+                                        title = summarySection.title,
+                                        isActive = summarySection.id == activeSectionId,
+                                        onClick = { onSectionClick(summarySection) }
+                                    )
+                                }
+                            }
+
                             items(
                                 items = filteredSections,
                                 key = { "sec_${it.id}" }
@@ -463,6 +488,70 @@ internal fun OutlineOverlay(
                 sheetContent()
             }
         }
+    }
+}
+
+@Composable
+private fun SummaryQuickJumpCard(
+    title: String,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    OutlinedCard(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = if (isActive) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            }
+        ),
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isActive) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.outlineVariant
+            }
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+    ) {
+        ListItem(
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            overlineContent = {
+                Text(
+                    text = "QUICK JUMP",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                )
+            },
+            leadingContent = {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Article,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            trailingContent = {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = "Jump to summary",
+                    tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            content = {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        )
     }
 }
 
