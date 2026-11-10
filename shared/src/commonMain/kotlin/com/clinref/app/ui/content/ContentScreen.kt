@@ -89,6 +89,9 @@ fun ContentScreen(
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
     val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
+    val referenceDialog by viewModel.referenceDialog.collectAsStateWithLifecycle()
+    val gradeDialog by viewModel.gradeDialog.collectAsStateWithLifecycle()
+    val policyDialog by viewModel.policyDialog.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
     val canGoForward by viewModel.canGoForward.collectAsStateWithLifecycle()
@@ -330,6 +333,33 @@ fun ContentScreen(
         ContributorsDialog(
             contributors = data,
             onDismiss = { viewModel.dismissContributorsDialog() }
+        )
+    }
+
+    referenceDialog?.let { refData ->
+        ReferenceSheet(
+            data = refData,
+            onDismiss = { viewModel.dismissReferenceDialog() },
+            onJumpTo = { num -> viewModel.jumpToReference(num) },
+            onOpenUrl = { url ->
+                try {
+                    uriHandler.openUri(url)
+                } catch (_: Exception) {}
+            }
+        )
+    }
+
+    gradeDialog?.let { gData ->
+        GradeDialog(
+            data = gData,
+            onDismiss = { viewModel.dismissGradeDialog() }
+        )
+    }
+
+    policyDialog?.let { pData ->
+        PolicyDialog(
+            data = pData,
+            onDismiss = { viewModel.dismissPolicyDialog() }
         )
     }
 }

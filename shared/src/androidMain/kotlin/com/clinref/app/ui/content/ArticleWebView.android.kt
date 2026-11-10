@@ -65,9 +65,6 @@ actual fun HtmlContentWebView(
                 }
                 addJavascriptInterface(
                     JsBridge(
-                        onAction = { jsonStr ->
-                            controller.onAction?.invoke("manual_$jsonStr")
-                        },
                         onScrollReport = { payload ->
                             ArticleScrollJs.parsePosition(payload)?.let { position ->
                                 // Bridge callbacks arrive on a WebView-internal thread.

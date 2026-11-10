@@ -10,6 +10,7 @@ import com.clinref.app.repository.FavoriteRepository
 import com.clinref.app.repository.HistoryRepository
 import com.clinref.app.repository.ReadingPositionRepository
 import com.clinref.app.util.HtmlNormalizer
+import com.clinref.app.util.UrlUtils
 import com.clinref.shared.platform.PlatformLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,6 +25,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -80,6 +83,18 @@ class ContentViewModel(
 
     private val _contributorsDialog = MutableStateFlow<List<ContributorGroup>?>(null)
     val contributorsDialog: StateFlow<List<ContributorGroup>?> = _contributorsDialog
+
+    private val _topicReferences = MutableStateFlow<Map<Int, ReferenceItem>>(emptyMap())
+    val topicReferences: StateFlow<Map<Int, ReferenceItem>> = _topicReferences.asStateFlow()
+
+    private val _referenceDialog = MutableStateFlow<ReferenceDialogData?>(null)
+    val referenceDialog: StateFlow<ReferenceDialogData?> = _referenceDialog.asStateFlow()
+
+    private val _gradeDialog = MutableStateFlow<GradeDialogData?>(null)
+    val gradeDialog: StateFlow<GradeDialogData?> = _gradeDialog.asStateFlow()
+
+    private val _policyDialog = MutableStateFlow<PolicyDialogData?>(null)
+    val policyDialog: StateFlow<PolicyDialogData?> = _policyDialog.asStateFlow()
 
     /**
      * One-shot, imperative "scroll to this section now" commands (outline taps, same-topic links).
@@ -253,6 +268,9 @@ class ContentViewModel(
             var html = content.bodyHtml
             html = HtmlNormalizer.normalizeHeaders(html)
             html = HtmlNormalizer.injectMetaLinks(html, content.contributors)
+            val (htmlWithRefs, refsMap) = HtmlNormalizer.normalizeReferences(html)
+            html = htmlWithRefs
+            _topicReferences.value = refsMap
 
             actions.clear()
             html = Regex("""href\s*=\s*(["'])javascript:appAction\((.*?)\);?\1""", RegexOption.DOT_MATCHES_ALL)
@@ -298,13 +316,9 @@ class ContentViewModel(
     }
 
     fun handleAction(actionId: String) {
-        val rawJsonStr = if (actionId.startsWith("manual_")) {
-            actionId.removePrefix("manual_")
-        } else {
-            actions[actionId] ?: return
-        }
+        val rawJsonStr = actions[actionId] ?: return
         try {
-            val jsonStr = unescapeHtmlEntities(rawJsonStr)
+            val jsonStr = HtmlNormalizer.unescapeHtmlEntities(rawJsonStr)
             executeActionJson(jsonStr)
         } catch (e: Exception) {
             PlatformLogger.w("ContentViewModel", "Failed to parse action JSON: $rawJsonStr (${e.message})")
@@ -313,20 +327,29 @@ class ContentViewModel(
 
     fun handleOutlineAction(json: String) {
         try {
-            val jsonStr = unescapeHtmlEntities(json)
+            val jsonStr = HtmlNormalizer.unescapeHtmlEntities(json)
             executeActionJson(jsonStr)
         } catch (e: Exception) {
             PlatformLogger.w("ContentViewModel", "Failed to parse outline action JSON: $json (${e.message})")
         }
     }
 
-    private fun unescapeHtmlEntities(text: String): String = text
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
+    fun dismissReferenceDialog() {
+        _referenceDialog.value = null
+    }
+
+    fun dismissGradeDialog() {
+        _gradeDialog.value = null
+    }
+
+    fun dismissPolicyDialog() {
+        _policyDialog.value = null
+    }
+
+    fun jumpToReference(number: Int) {
+        dismissReferenceDialog()
+        scrollToSection("ref_$number")
+    }
 
     private fun executeActionJson(jsonStr: String) {
         val data = Json.parseToJsonElement(jsonStr).jsonObject
@@ -334,22 +357,23 @@ class ContentViewModel(
         val items = data["data"]?.jsonArray
 
         val assetComponent = meta?.get("assetComponent")?.jsonPrimitive?.content
-        val assetType = meta?.get("assetType")?.jsonPrimitive?.content
+        val rawAssetType = meta?.get("assetType")?.jsonPrimitive?.content
             ?: items?.firstOrNull()?.jsonObject?.get("type")?.jsonPrimitive?.content
             ?: data["type"]?.jsonPrimitive?.content
+        val assetType = rawAssetType?.lowercase()
 
         val section = meta?.get("section")?.jsonPrimitive?.content
             ?: items?.firstOrNull()?.jsonObject?.get("section")?.jsonPrimitive?.content
+            ?: meta?.get("v")?.jsonPrimitive?.content
+            ?: items?.firstOrNull()?.jsonObject?.get("v")?.jsonPrimitive?.content
             ?: data["section"]?.jsonPrimitive?.content
-
-        val targetTopicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
-            ?: meta?.get("topicId")?.jsonPrimitive?.content
-            ?: meta?.get("id")?.jsonPrimitive?.content
-            ?: data["id"]?.jsonPrimitive?.content
 
         when {
             assetComponent in listOf("contributors", "disclosures") -> {
                 _contributorsDialog.value = _topicContent.value?.contributors
+            }
+            assetType == "abstract" -> {
+                handleAbstractAction(items)
             }
             assetType == "graphic" -> {
                 val graphicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
@@ -360,20 +384,145 @@ class ContentViewModel(
                 }
             }
             assetType == "external" -> {
-                val url = items?.firstOrNull()?.jsonObject?.get("url")?.jsonPrimitive?.content
+                val rawUrl = items?.firstOrNull()?.jsonObject?.get("url")?.jsonPrimitive?.content
                     ?: meta?.get("url")?.jsonPrimitive?.content
                     ?: data["url"]?.jsonPrimitive?.content
-                if (url != null) {
-                    _onOpenExternalUrl.value = url
+                if (rawUrl != null) {
+                    _onOpenExternalUrl.value = UrlUtils.cleanExternalUrl(rawUrl)
                 }
             }
-            targetTopicId != null && targetTopicId != _currentTopicId.value -> {
-                loadTopic(targetTopicId, sectionId = section)
+            assetType == "resource" -> {
+                handleResourceAction(meta, items)
             }
-            section != null -> {
-                scrollToSection(section)
+            assetType == "topic" || assetType == null -> {
+                val targetTopicId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                    ?: meta?.get("topicId")?.jsonPrimitive?.content
+                    ?: meta?.get("id")?.jsonPrimitive?.content
+                    ?: data["id"]?.jsonPrimitive?.content
+
+                if (targetTopicId != null && targetTopicId != _currentTopicId.value) {
+                    loadTopic(targetTopicId, sectionId = section)
+                } else if (section != null) {
+                    scrollToSection(section)
+                }
             }
         }
+    }
+
+    private fun handleAbstractAction(items: JsonArray?) {
+        val currentRefs = _topicReferences.value
+        val numbers = items?.mapNotNull {
+            it.jsonObject["number"]?.jsonPrimitive?.content?.toIntOrNull()
+        } ?: emptyList()
+        val ids = items?.mapNotNull {
+            it.jsonObject["id"]?.jsonPrimitive?.content
+        } ?: emptyList()
+
+        val matched = mutableListOf<ReferenceItem>()
+        for (num in numbers) {
+            val ref = currentRefs[num]
+            if (ref != null) {
+                matched.add(ref)
+            } else {
+                matched.add(ReferenceItem(number = num, abstractId = null, citation = "Reference $num", title = "Reference $num"))
+            }
+        }
+
+        if (matched.isEmpty()) {
+            for (id in ids) {
+                val ref = currentRefs.values.firstOrNull { it.abstractId == id }
+                if (ref != null) {
+                    matched.add(ref)
+                } else {
+                    val num = id.toIntOrNull() ?: 0
+                    matched.add(
+                        ReferenceItem(
+                            number = num,
+                            abstractId = id,
+                            citation = "Reference ${if (num > 0) num else id}",
+                            title = "Reference ${if (num > 0) num else id}"
+                        )
+                    )
+                }
+            }
+        }
+
+        if (matched.isEmpty()) {
+            matched.add(
+                ReferenceItem(
+                    number = 0,
+                    abstractId = null,
+                    citation = "Reference citation not available in this article.",
+                    title = "Reference"
+                )
+            )
+        }
+
+        _referenceDialog.value = ReferenceDialogData(references = matched)
+    }
+
+    private fun handleResourceAction(meta: JsonObject?, items: JsonArray?) {
+        val gradeId = meta?.get("gradeId")?.jsonPrimitive?.content
+            ?: items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content?.let { id ->
+                Regex("""grades?(\d+)\.html""").find(id)?.groupValues?.get(1)
+            }
+
+        val type = items?.firstOrNull()?.jsonObject?.get("type")?.jsonPrimitive?.content
+        val itemId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+
+        if (gradeId != null || type == "grade") {
+            _gradeDialog.value = getGradeRecommendation(gradeId ?: "1")
+        } else if (type == "legal" || itemId?.contains("policy") == true) {
+            _policyDialog.value = PolicyDialogData(
+                title = "UpToDate Editorial Policy",
+                content = "UpToDate is committed to providing unbiased, evidence-based clinical information. All content is synthesized from peer-reviewed biomedical literature, guidelines, and clinical expertise, undergoing continuous editorial review by physician editors and independent peer reviewers."
+            )
+        }
+    }
+
+    private fun getGradeRecommendation(gradeId: String): GradeDialogData = when (gradeId) {
+        "1" -> GradeDialogData(
+            grade = "Grade 1A",
+            recommendationStrength = "Strong recommendation",
+            evidenceQuality = "High-quality evidence",
+            description = "Benefits clearly outweigh risk and burdens (or vice versa). Consistent evidence from well-performed randomized trials or overwhelming evidence of some other form."
+        )
+        "2" -> GradeDialogData(
+            grade = "Grade 1B",
+            recommendationStrength = "Strong recommendation",
+            evidenceQuality = "Moderate-quality evidence",
+            description = "Benefits clearly outweigh risk and burdens (or vice versa). Evidence from randomized trials with important limitations or very strong evidence of some other form."
+        )
+        "3" -> GradeDialogData(
+            grade = "Grade 1C",
+            recommendationStrength = "Strong recommendation",
+            evidenceQuality = "Low-quality evidence",
+            description = "Benefits appear to outweigh risk and burdens (or vice versa). Evidence from observational studies, unsystematic clinical experience, or randomized trials with serious flaws."
+        )
+        "4" -> GradeDialogData(
+            grade = "Grade 2A",
+            recommendationStrength = "Weak recommendation",
+            evidenceQuality = "High-quality evidence",
+            description = "Benefits closely balanced with risks and burdens. Consistent evidence from well-performed randomized trials or overwhelming evidence of some other form."
+        )
+        "5" -> GradeDialogData(
+            grade = "Grade 2B",
+            recommendationStrength = "Weak recommendation",
+            evidenceQuality = "Moderate-quality evidence",
+            description = "Benefits closely balanced with risks and burdens; some uncertainty in the estimates of benefits, risks, and burdens. Evidence from randomized trials with important limitations."
+        )
+        "6" -> GradeDialogData(
+            grade = "Grade 2C",
+            recommendationStrength = "Weak recommendation",
+            evidenceQuality = "Low-quality evidence",
+            description = "Uncertainty in the estimates of benefits, risks, and burdens; benefits may be closely balanced with risks and burdens. Evidence from observational studies or unsystematic clinical experience."
+        )
+        else -> GradeDialogData(
+            grade = "GRADE Recommendation",
+            recommendationStrength = "Clinical Recommendation",
+            evidenceQuality = "Graded Evidence",
+            description = "UpToDate applies the GRADE system (Grading of Recommendations Assessment, Development and Evaluation) to classify recommendation strength and evidence quality."
+        )
     }
 
     fun clearOpenExternalUrl() {

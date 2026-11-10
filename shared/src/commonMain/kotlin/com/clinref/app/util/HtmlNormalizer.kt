@@ -3,6 +3,7 @@ package com.clinref.app.util
 import com.clinref.app.data.Contributor
 import com.clinref.app.data.ContributorGroup
 import com.clinref.app.ui.content.OutlineSection
+import com.clinref.app.ui.content.ReferenceItem
 import com.clinref.app.ui.content.SectionType
 
 object HtmlNormalizer {
@@ -25,6 +26,90 @@ object HtmlNormalizer {
         )
 
         return result
+    }
+
+    fun unescapeHtmlEntities(text: String): String = text
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&nbsp;", " ")
+        .replace("&#160;", " ")
+        .replace("&ndash;", "–")
+        .replace("&mdash;", "—")
+        .replace("&hellip;", "…")
+
+    fun normalizeReferences(html: String): Pair<String, Map<Int, ReferenceItem>> {
+        if (html.isEmpty()) return html to emptyMap()
+
+        val refPattern = Regex("""<ol[^>]*id=["']reference["'][^>]*>(.*?)</ol>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val match = refPattern.find(html) ?: return html to emptyMap()
+
+        val innerHtml = match.groupValues[1]
+        val liPattern = Regex("""<li([^>]*)>(.*?)</li>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val numPattern = Regex("""&quot;number&quot;\s*:\s*&quot;(\d+)&quot;""")
+        val idPattern = Regex("""&quot;id&quot;\s*:\s*&quot;([^&]+)&quot;""")
+
+        val references = mutableMapOf<Int, ReferenceItem>()
+        var index = 0
+
+        val newInnerHtml = liPattern.replace(innerHtml) { liMatch ->
+            index++
+            val rawAttrs = liMatch.groupValues[1]
+            val content = liMatch.groupValues[2]
+
+            val number = numPattern.find(content)?.groupValues?.get(1)?.toIntOrNull() ?: index
+            val abstractId = idPattern.find(content)?.groupValues?.get(1)
+
+            val cleanCitation = unescapeHtmlEntities(
+                content.replace(Regex("<[^>]+>"), " ").replace(Regex("""\s+"""), " ").trim()
+            )
+
+            val (authors, title, journal) = decomposeCitation(cleanCitation)
+            val pubmedUrl = "https://pubmed.ncbi.nlm.nih.gov/?term=" + UrlUtils.urlEncode(cleanCitation)
+
+            val item = ReferenceItem(
+                number = number,
+                abstractId = abstractId,
+                citation = cleanCitation,
+                title = title,
+                authors = authors,
+                journal = journal,
+                pubmedUrl = pubmedUrl
+            )
+            references[number] = item
+
+            """<li id="ref_$number" data-ref="$number"$rawAttrs><a name="ref_$number"></a><a name="ref-$number"></a>$content</li>"""
+        }
+
+        val updatedHtml = html.substring(0, match.range.first) +
+                html.substring(match.range.first, match.range.last + 1).replace(innerHtml, newInnerHtml) +
+                html.substring(match.range.last + 1)
+
+        return updatedHtml to references
+    }
+
+    private fun decomposeCitation(citation: String): Triple<String, String, String> {
+        val parts = citation.split(Regex("""\.\s+(?=[A-Z])"""))
+        return when {
+            parts.size >= 3 -> Triple(
+                parts[0].trim(),
+                parts[1].trim(),
+                parts.drop(2).joinToString(". ").trim()
+            )
+            parts.size == 2 -> Triple(
+                parts[0].trim(),
+                parts[1].trim(),
+                ""
+            )
+            else -> Triple(
+                "",
+                citation.trim(),
+                ""
+            )
+        }
     }
 
     fun injectMetaLinks(html: String, contributors: List<ContributorGroup>? = null): String {

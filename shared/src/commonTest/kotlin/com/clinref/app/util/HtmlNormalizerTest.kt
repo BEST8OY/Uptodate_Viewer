@@ -74,4 +74,42 @@ class HtmlNormalizerTest {
         assertEquals("INTRODUCTION", sections[0].title)
         assertEquals("SUMMARY AND RECOMMENDATIONS", sections[1].title)
     }
+
+    @Test
+    fun `normalizeReferences parses ordered list and injects ref anchors`() {
+        val html = """
+            <p>Some text with inline ref [<a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;abstract&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;118701&quot;,&quot;number&quot;:&quot;1&quot;}]});">1</a>].</p>
+            <div id="references">
+                <h1>REFERENCES</h1>
+                <ol id="reference">
+                    <li><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;abstract&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;118701&quot;,&quot;number&quot;:&quot;1&quot;}]});" class="abstract_t">Sibai BM, Gordon T. Risk factors for preeclampsia. Am J Obstet Gynecol 1995; 172:642.</a></li>
+                    <li><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;abstract&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;118710&quot;,&quot;number&quot;:&quot;2&quot;}]});" class="abstract_t">Smith JA. Postoperative care. Lancet 2000; 355:100.</a></li>
+                </ol>
+            </div>
+        """.trimIndent()
+
+        val (modifiedHtml, refs) = HtmlNormalizer.normalizeReferences(html)
+
+        assertEquals(2, refs.size)
+        val ref1 = refs[1]!!
+        assertEquals(1, ref1.number)
+        assertEquals("118701", ref1.abstractId)
+        assertEquals("Sibai BM, Gordon T. Risk factors for preeclampsia. Am J Obstet Gynecol 1995; 172:642.", ref1.citation)
+        assertEquals("Sibai BM, Gordon T", ref1.authors)
+        assertEquals("Risk factors for preeclampsia", ref1.title)
+        assertEquals("Am J Obstet Gynecol 1995; 172:642.", ref1.journal)
+
+        // Check anchor injection
+        assert(modifiedHtml.contains("""id="ref_1""""))
+        assert(modifiedHtml.contains("""name="ref_1""""))
+        assert(modifiedHtml.contains("""id="ref_2""""))
+    }
+
+    @Test
+    fun `normalizeReferences returns unchanged when no reference list is present`() {
+        val html = "<p>No references here</p>"
+        val (modifiedHtml, refs) = HtmlNormalizer.normalizeReferences(html)
+        assertEquals(html, modifiedHtml)
+        assertEquals(0, refs.size)
+    }
 }

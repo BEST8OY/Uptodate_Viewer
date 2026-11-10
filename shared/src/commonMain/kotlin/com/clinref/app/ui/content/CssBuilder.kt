@@ -506,6 +506,7 @@ ${sharedTableStyles()}
     color: var(--text-secondary);
     font-size: 0.85rem;
     line-height: 1.5;
+    scroll-margin-top: 80px;
 }
 
 #reference li::before {
