@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -60,8 +62,10 @@ import com.clinref.app.domain.FavoriteEntry
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalBottomBarVisible
 import com.clinref.app.ui.common.showUndoSnackbar
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ListItemDefaults
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun FavoritesScreen(
     onTopicSelected: (String) -> Unit,
@@ -71,6 +75,7 @@ fun FavoritesScreen(
     viewModel: FavoritesViewModel = koinViewModel()
 ) {
     val listState = rememberLazyListState()
+    val motionScheme = MaterialTheme.motionScheme
     listState.bindReselectScrollToTop(reselectEvents, FavoritesRoute)
 
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
@@ -266,6 +271,7 @@ fun FavoritesScreen(
                             totalCount = favorites.size,
                             isSelected = isSelected,
                             isSelectionMode = isSelectionMode,
+                            shapes = ListItemDefaults.segmentedShapes(index = index, count = favorites.size),
                             onTopicSelected = {
                                 if (isSelectionMode) {
                                     selectedIds = if (isSelected) selectedIds - entry.topicId else selectedIds + entry.topicId
@@ -281,7 +287,22 @@ fun FavoritesScreen(
                             onSwipeToRemove = {
                                 viewModel.removeFavorite(entry.topicId)
                                 pendingDelete = listOf(entry)
-                            }
+                            },
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                ),
+                                placementSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    visibilityThreshold = IntOffset.VisibilityThreshold,
+                                ),
+                                fadeOutSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMedium,
+                                ),
+                            )
                         )
                     }
                 }

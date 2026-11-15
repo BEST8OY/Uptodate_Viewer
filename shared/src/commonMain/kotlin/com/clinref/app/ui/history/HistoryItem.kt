@@ -1,22 +1,20 @@
 package com.clinref.app.ui.history
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.SwipeToDismissBox
@@ -25,16 +23,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.HistoryEntry
+import com.clinref.app.ui.common.SegmentedDismissBackground
+import com.clinref.app.ui.common.clipDuringSwipe
 import com.clinref.app.util.formatTimestamp
 
 @Composable
@@ -62,7 +63,7 @@ fun EmptyHistoryState(modifier: Modifier = Modifier) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun HistoryItem(
     entry: HistoryEntry,
@@ -73,57 +74,61 @@ fun HistoryItem(
     onTopicSelected: () -> Unit,
     onLongPress: () -> Unit,
     onSwipeToDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shapes: ListItemShapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
 ) {
-    val dismissState = rememberSwipeToDismissBoxState()
+    val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { totalDistance -> totalDistance * 0.4f }
+    )
 
     LaunchedEffect(entry.topicId) {
         dismissState.snapTo(SwipeToDismissBoxValue.Settled)
     }
 
-    val itemClipShape = when {
-        totalCount == 1 -> RoundedCornerShape(16.dp)
-        index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-        index == totalCount - 1 -> RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
-        else -> RoundedCornerShape(0.dp)
+    LaunchedEffect(isSelectionMode) {
+        if (isSelectionMode && dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            dismissState.reset()
+        }
     }
+
+    val outerClipPath = remember { Path() }
 
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = !isSelectionMode,
         gesturesEnabled = !isSelectionMode,
         modifier = modifier
+            .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .semantics { contentDescription = "Delete from history" },
+            .clipDuringSwipe(
+                dismissState = dismissState,
+                shape = shapes.shape,
+                reusePath = outerClipPath,
+            )
+            .semantics {
+                contentDescription = "Delete ${entry.title} from history"
+                if (!isSelectionMode) {
+                    customActions = listOf(
+                        CustomAccessibilityAction(label = "Delete from history") {
+                            onSwipeToDelete()
+                            true
+                        }
+                    )
+                }
+            },
         onDismiss = { direction ->
             if (direction == SwipeToDismissBoxValue.EndToStart) {
                 onSwipeToDelete()
             }
         },
         backgroundContent = {
-            val color by animateColorAsState(
-                targetValue = when (dismissState.dismissDirection) {
-                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                    else -> Color.Transparent
-                },
-                label = "swipeBg"
+            SegmentedDismissBackground(
+                dismissState = dismissState,
+                shape = shapes.shape,
+                actionLabel = "Delete",
+                actionIcon = Icons.Default.DeleteSweep
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(itemClipShape)
-                    .background(color)
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteSweep,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-            }
         }
     ) {
         if (isSelectionMode) {
@@ -131,7 +136,7 @@ fun HistoryItem(
                 checked = isSelected,
                 onCheckedChange = { onTopicSelected() },
                 onLongClick = onLongPress,
-                shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
+                shapes = shapes,
                 leadingContent = {
                     Checkbox(
                         checked = isSelected,
@@ -167,7 +172,7 @@ fun HistoryItem(
             SegmentedListItem(
                 onClick = onTopicSelected,
                 onLongClick = onLongPress,
-                shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
+                shapes = shapes,
                 leadingContent = {
                     Icon(
                         imageVector = Icons.Default.History,
