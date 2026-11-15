@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -509,24 +508,22 @@ fun AiSettingsContent(
 
                         AnimatedVisibility(
                             visible = configuration.decisionSettings.mode != DecisionMode.OFF,
-                            enter = fadeIn(
-                                animationSpec = tween(durationMillis = 200)
-                            ) + expandVertically(
-                                expandFrom = Alignment.Top,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
+                            enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                expandVertically(
+                                    expandFrom = Alignment.Top,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                ),
+                            exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                shrinkVertically(
+                                    shrinkTowards = Alignment.Top,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
                                 )
-                            ),
-                            exit = fadeOut(
-                                animationSpec = tween(durationMillis = 150)
-                            ) + shrinkVertically(
-                                shrinkTowards = Alignment.Top,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            )
                         ) {
                             Column(
                                 modifier = Modifier
