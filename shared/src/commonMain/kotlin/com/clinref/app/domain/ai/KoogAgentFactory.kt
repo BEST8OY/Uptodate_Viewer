@@ -24,6 +24,7 @@ class KoogAgentFactory(
 
     private val httpClientFactory: ai.koog.http.client.KoogHttpClient.Factory = SafeKoogHttpClientFactory()
     private val executorCache = ConcurrentHashMap<String, PromptExecutor>()
+    private val decisionClientCache = ConcurrentHashMap<Int, DecisionClient>()
 
     private val providers: Map<AiProvider, AiProviderFactory> by lazy {
         mapOf(
@@ -54,8 +55,41 @@ class KoogAgentFactory(
         return Triple(executor, model, providerParams)
     }
 
-    suspend fun testConnection(config: AiConfiguration): Result<Unit> {
-        val apiKey = securePreferences.getApiKey(config.provider)
+    /**
+     * Resolves an optional [DecisionClient] when retrieval reranking is enabled and a
+     * Google AI Studio API key is configured. Returns `null` when disabled or unconfigured
+     * so primary clinical retrieval proceeds unimpeded (fail-open).
+     */
+    fun resolveDecisionClient(config: AiConfiguration): DecisionClient? {
+        if (config.decisionSettings.mode == DecisionMode.OFF) return null
+        val googleKey = securePreferences.getApiKey(AiProvider.GOOGLE).trim()
+        if (googleKey.isEmpty()) {
+            secureLogger?.log(
+                SecureLogger.Level.WARN,
+                "KoogAgentFactory",
+                "Decisions reranking enabled but no Google Gemini API key is configured; running without Decisions API"
+            )
+            return null
+        }
+        val keyHash = googleKey.hashCode()
+        return decisionClientCache.getOrPut(keyHash) {
+            DecisionClient(
+                apiKey = googleKey,
+                httpClientFactory = httpClientFactory,
+                failOpen = true
+            )
+        }
+    }
+
+    fun clearDecisionClients() {
+        decisionClientCache.values.forEach { client ->
+            try { client.close() } catch (_: Exception) {}
+        }
+        decisionClientCache.clear()
+    }
+
+    suspend fun testConnection(config: AiConfiguration, apiKeyOverride: String? = null): Result<Unit> {
+        val apiKey = apiKeyOverride ?: securePreferences.getApiKey(config.provider)
         if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) {
             return Result.failure(IllegalStateException("API key is not configured for ${config.provider.displayName}"))
         }

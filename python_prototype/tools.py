@@ -1,18 +1,17 @@
 """LangChain tools for medical database access.
 
-Mirrors Kotlin MedicalDatabaseTools — 5 tools:
+Mirrors Kotlin MedicalDatabaseTools — 4 tools:
 1. search_topics — unidex curated topic search
 2. get_topic_overview — Outline sections + table graphics + related topics (+ calculator markdown)
 3. get_topic_sections_text — Batch section retrieval
-4. search_topic_sections — In-topic keyword section locator
-5. get_graphic_content — Table data as markdown (or error for non-table)
+4. get_graphic_content — Table data as markdown (or error for non-table)
 """
 
 import re
 from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.tools import tool
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from database import ClinRefDatabase
 from html_parser import (
@@ -26,7 +25,7 @@ from html_parser import (
 _db: Optional[ClinRefDatabase] = None
 
 # Maximum sections returned per get_topic_sections_text call; extras land in omittedSections
-MAX_SECTIONS_PER_CALL = 10
+MAX_SECTIONS_PER_CALL = 20
 
 
 # ---------------------------------------------------------------------------
@@ -164,32 +163,6 @@ class GraphicContentResponse(BaseModel):
 GraphicContentResult = GraphicContentResponse
 
 
-class SectionSearchResult(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
-    sectionId: str = Field(..., alias="section_id")
-    sectionTitle: str = Field(..., alias="section_title")
-    level: int = 1
-    snippet: str
-
-    def __str__(self) -> str:
-        return self.model_dump_json()
-
-
-class SearchTopicSectionsResponse(BaseModel):
-    model_config = ConfigDict(populate_by_name=True, extra="ignore")
-    topicId: str = Field(default="", alias="topic_id")
-    query: str = ""
-    matches: List[SectionSearchResult] = Field(default_factory=list)
-    message: str = ""
-    error: Optional[str] = None
-
-    def __str__(self) -> str:
-        return self.model_dump_json()
-
-
-SearchTopicSectionsResult = SearchTopicSectionsResponse
-
-
 # ---------------------------------------------------------------------------
 # Tool Initialization & Helper Functions
 # ---------------------------------------------------------------------------
@@ -201,7 +174,6 @@ _CAMEL_TOOL_NAMES = {
     "search_topics": "searchTopics",
     "get_topic_overview": "getTopicOverview",
     "get_topic_sections_text": "getTopicSectionsText",
-    "search_topic_sections": "searchTopicSections",
     "get_graphic_content": "getGraphicContent",
 }
 
@@ -213,7 +185,6 @@ def init_tools(db: ClinRefDatabase) -> list:
     tool_list = [
         get_topic_overview,
         search_topics,
-        search_topic_sections,
         get_topic_sections_text,
         get_graphic_content,
     ]
@@ -321,11 +292,74 @@ def find_subsumed_sections(
 
 
 # ---------------------------------------------------------------------------
+# Retrieval Tool Arguments Schemas (Lean schemas for LLMs + transparent alias deserialization)
+# ---------------------------------------------------------------------------
+
+
+class SearchTopicsArgs(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    query: str = Field(
+        default="",
+        description="Core clinical entity or generic drug name (1–3 words, e.g., 'metformin', 'atrial fibrillation').",
+        validation_alias=AliasChoices(
+            "query", "search_query", "q", "keyword", "query_text", "queryText", "searchQuery"
+        ),
+    )
+
+
+class GetTopicOverviewArgs(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    topic_id: str = Field(
+        default="",
+        description="Exact numeric topic ID string returned by search_topics (e.g., '12345').",
+        validation_alias=AliasChoices("topic_id", "topicId", "id"),
+    )
+
+
+class GetTopicSectionsTextArgs(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    topic_id: str = Field(
+        default="",
+        description="Exact numeric topic ID string.",
+        validation_alias=AliasChoices("topic_id", "topicId", "id"),
+    )
+    section_ids: Union[list[str], str] = Field(
+        default_factory=list,
+        description="Array of 1 to 20 section ID strings copied from get_topic_overview (e.g., ['H12', 'H15']).",
+        validation_alias=AliasChoices(
+            "section_ids", "sectionIds", "section_id", "sectionId"
+        ),
+    )
+
+
+class GetGraphicContentArgs(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    graphic_id: str = Field(
+        default="",
+        description="Numeric graphic ID string (e.g., '12345').",
+        validation_alias=AliasChoices("graphic_id", "graphicId", "id"),
+    )
+
+
+def _pick(*vals: Any) -> str:
+    """Return the first non-empty string or value representation from candidates."""
+    for v in vals:
+        if v is not None:
+            if isinstance(v, str):
+                s = v.strip()
+                if s:
+                    return s
+            elif v:
+                return str(v).strip()
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Retrieval Tools
 # ---------------------------------------------------------------------------
 
 
-@tool
+@tool(args_schema=GetTopicOverviewArgs)
 def get_topic_overview(
     topic_id: str = "",
     topicId: Optional[str] = None,
@@ -341,8 +375,7 @@ def get_topic_overview(
     if _db is None:
         return TopicOverviewResponse(error="Database not initialized")
 
-    effective_topic_id = topic_id or topicId or kwargs.get("topicId") or kwargs.get("topic_id") or ""
-    clean_topic_id = str(effective_topic_id).strip()
+    clean_topic_id = _pick(topic_id, topicId, kwargs.get("topicId"), kwargs.get("topic_id"))
     if not clean_topic_id:
         return TopicOverviewResponse(error="Topic not found: ")
 
@@ -428,7 +461,7 @@ def _iter_related_topics(asset: dict):
             yield topic
 
 
-@tool
+@tool(args_schema=SearchTopicsArgs)
 def search_topics(
     query: str = "",
     search_query: Optional[str] = None,
@@ -449,25 +482,23 @@ def search_topics(
     if _db is None:
         return SearchTopicsResponse(error="Database not initialized")
 
-    effective_query = (
-        query
-        or search_query
-        or q
-        or keyword
-        or query_text
-        or queryText
-        or searchQuery
-        or kwargs.get("query")
-        or kwargs.get("search_query")
-        or kwargs.get("q")
-        or kwargs.get("keyword")
-        or kwargs.get("keywords")
-        or kwargs.get("query_text")
-        or kwargs.get("queryText")
-        or kwargs.get("searchQuery")
-        or ""
+    clean_query = _pick(
+        query,
+        search_query,
+        q,
+        keyword,
+        query_text,
+        queryText,
+        searchQuery,
+        kwargs.get("query"),
+        kwargs.get("search_query"),
+        kwargs.get("q"),
+        kwargs.get("keyword"),
+        kwargs.get("keywords"),
+        kwargs.get("query_text"),
+        kwargs.get("queryText"),
+        kwargs.get("searchQuery"),
     )
-    clean_query = str(effective_query).strip()
     if not clean_query:
         return SearchTopicsResponse(
             query="",
@@ -511,7 +542,7 @@ def search_topics(
     )
 
 
-@tool
+@tool(args_schema=GetTopicSectionsTextArgs)
 def get_topic_sections_text(
     topic_id: str = "",
     section_ids: Optional[Union[list[str], str]] = None,
@@ -521,19 +552,18 @@ def get_topic_sections_text(
     sectionId: Optional[Union[list[str], str]] = None,
     **kwargs,
 ) -> TopicSectionsResponse:
-    """Step 3 (Mandatory for clinical answers): Retrieve full, unredacted clinical text for up to 10 sectionIds within a single topicId.
+    """Step 3 (Mandatory for clinical answers): Retrieve full, unredacted clinical text for up to 20 sectionIds within a single topicId.
 
-    Select sections covering dosing, first-line and alternative regimens (especially if patient allergies exist), and renal/hepatic adjustments. Up to 10 sections are returned in full; extras are listed in omittedSections.
+    Select sections covering dosing, first-line and alternative regimens (especially if patient allergies exist), and renal/hepatic adjustments. Up to 20 sections are returned in full; extras are listed in omittedSections.
 
     Args:
         topic_id: Exact numeric topic ID string.
-        section_ids: Array of 1 to 10 section ID strings copied from get_topic_overview or search_topic_sections (e.g., ['H12', 'H15']).
+        section_ids: Array of 1 to 20 section ID strings copied from get_topic_overview (e.g., ['H12', 'H15']).
     """
     if _db is None:
         return TopicSectionsResponse(error="Database not initialized")
 
-    effective_topic_id = topic_id or topicId or kwargs.get("topic_id") or kwargs.get("topicId") or ""
-    clean_topic_id = str(effective_topic_id).strip()
+    clean_topic_id = _pick(topic_id, topicId, kwargs.get("topic_id"), kwargs.get("topicId"))
     if not clean_topic_id or ClinRefDatabase._extract_numeric_id(clean_topic_id) is None:
         return TopicSectionsResponse(topicId=clean_topic_id, error=f"Topic not found: {clean_topic_id}")
 
@@ -599,7 +629,7 @@ def get_topic_sections_text(
             topicTitle=topic_title,
             sectionTitles={},
             markdown="",
-            error="sectionIds cannot be empty. Specify 1 to 10 section IDs from get_topic_overview.",
+            error=f"sectionIds cannot be empty. Specify 1 to {MAX_SECTIONS_PER_CALL} section IDs from get_topic_overview.",
         )
 
     # Build section ID -> title map from outline
@@ -633,28 +663,33 @@ def get_topic_sections_text(
     sections_md = []
     section_titles = {}
     omitted_sections = []
+    successfully_extracted_ids = set()
+    extracted_content_count = 0
 
-    for index, section_id in enumerate(sorted_valid_ids):
-        # Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
-        # extra IDs are reported in omittedSections (never dropped silently).
-        if index >= MAX_SECTIONS_PER_CALL:
-            omitted_sections.append(section_id)
-            continue
-
+    for section_id in sorted_valid_ids:
         title = id_to_title.get(section_id, "")
         subsumed_by = subsumed_map.get(section_id)
-        if subsumed_by:
+        if subsumed_by and subsumed_by in successfully_extracted_ids:
             sec_entry = f"=== Section: {section_id} ===\n(Content included in section [{subsumed_by}] above)"
+            sections_md.append(sec_entry)
+            section_titles[section_id] = title
         else:
+            # Count guard: at most MAX_SECTIONS_PER_CALL content sections are returned per call
+            if extracted_content_count >= MAX_SECTIONS_PER_CALL:
+                omitted_sections.append(section_id)
+                continue
+
             section_html = extract_section_html(body_html, outline_html or "", section_id)
             if section_html:
+                successfully_extracted_ids.add(section_id)
+                extracted_content_count += 1
                 markdown = html_to_markdown(section_html)
                 sec_entry = f"=== Section: {section_id} ===\n{markdown}"
             else:
                 sec_entry = f"=== Section: {section_id} ===\nSection not found."
 
-        sections_md.append(sec_entry)
-        section_titles[section_id] = title
+            sections_md.append(sec_entry)
+            section_titles[section_id] = title
 
     return TopicSectionsResponse(
         topicId=clean_topic_id,
@@ -666,145 +701,7 @@ def get_topic_sections_text(
     )
 
 
-@tool
-def search_topic_sections(
-    topic_id: str = "",
-    query: str = "",
-    topicId: Optional[str] = None,
-    search_query: Optional[str] = None,
-    q: Optional[str] = None,
-    keyword: Optional[str] = None,
-    query_text: Optional[str] = None,
-    queryText: Optional[str] = None,
-    searchQuery: Optional[str] = None,
-    **kwargs,
-) -> SearchTopicSectionsResponse:
-    """Perform a targeted keyword search inside a single known topicId to locate specific section IDs and text snippets (e.g., 'renal', 'dosing', 'pregnancy', 'penicillin allergy').
-
-    Use this on large topics when get_topic_overview has dozens of sections and you need to pinpoint exact sectionIds before calling get_topic_sections_text.
-
-    Args:
-        topic_id: Exact numeric topic ID string.
-        query: 1–2 clinical keywords to locate within the topic (e.g., 'renal dose', 'contraindications').
-    """
-    if _db is None:
-        return SearchTopicSectionsResponse(error="Database not initialized")
-
-    effective_topic_id = topic_id or topicId or kwargs.get("topic_id") or kwargs.get("topicId") or ""
-    clean_topic_id = str(effective_topic_id).strip()
-
-    effective_query = (
-        query
-        or search_query
-        or q
-        or keyword
-        or query_text
-        or queryText
-        or searchQuery
-        or kwargs.get("query")
-        or kwargs.get("search_query")
-        or kwargs.get("q")
-        or kwargs.get("keyword")
-        or kwargs.get("keywords")
-        or kwargs.get("query_text")
-        or kwargs.get("queryText")
-        or kwargs.get("searchQuery")
-        or ""
-    )
-    clean_query = str(effective_query).strip()
-
-    if not clean_topic_id or not clean_query:
-        return SearchTopicSectionsResponse(
-            topicId=clean_topic_id,
-            query=clean_query,
-            matches=[],
-            message="Topic ID and query must be non-empty.",
-        )
-
-    if ClinRefDatabase._extract_numeric_id(clean_topic_id) is None:
-        return SearchTopicSectionsResponse(
-            topicId=clean_topic_id,
-            query=clean_query,
-            matches=[],
-            error=f"Topic not found: {clean_topic_id}",
-            message=f"Topic {clean_topic_id} not found.",
-        )
-
-    asset = _db.get_topic_asset(clean_topic_id)
-    if not asset:
-        return SearchTopicSectionsResponse(
-            topicId=clean_topic_id,
-            query=clean_query,
-            matches=[],
-            error=f"Topic not found: {clean_topic_id}",
-            message=f"Topic {clean_topic_id} not found.",
-        )
-
-    body_html = asset.get("bodyHtml", "")
-    outline_html = asset.get("outlineHtml", "")
-    raw_sections = extract_outline_sections(outline_html or "")
-    if not raw_sections:
-        return SearchTopicSectionsResponse(
-            topicId=clean_topic_id,
-            query=clean_query,
-            matches=[],
-            message="No sections found in topic outline.",
-        )
-
-    keywords = [k.lower() for k in clean_query.split() if k]
-    scored = []
-
-    for s in raw_sections:
-        sid = s["id"]
-        title = s["title"]
-        sec_html = extract_section_html(body_html, outline_html or "", sid) or ""
-        sec_text = re.sub(r"<[^>]+>", " ", sec_html)
-        sec_text = re.sub(r"\s+", " ", sec_text).strip()
-
-        text_lower = sec_text.lower()
-        title_lower = title.lower()
-
-        title_hits = sum(1 for kw in keywords if kw in title_lower)
-        text_hits = sum(1 for kw in keywords if kw in text_lower)
-
-        if title_hits > 0 or text_hits > 0:
-            first_idx = -1
-            matched_kw = ""
-            for kw in keywords:
-                idx = text_lower.find(kw)
-                if idx >= 0 and (first_idx < 0 or idx < first_idx):
-                    first_idx = idx
-                    matched_kw = kw
-
-            if first_idx >= 0:
-                start = max(0, first_idx - 60)
-                end = min(len(sec_text), first_idx + len(matched_kw) + 90)
-                snippet = ("..." if start > 0 else "") + sec_text[start:end].strip() + ("..." if end < len(sec_text) else "")
-            else:
-                snippet = sec_text[:150] + ("..." if len(sec_text) > 150 else "")
-
-            scored.append({
-                "item": SectionSearchResult(
-                    sectionId=sid,
-                    sectionTitle=title,
-                    level=s.get("level", 1),
-                    snippet=snippet,
-                ),
-                "score": title_hits * 3 + text_hits,
-            })
-
-    scored.sort(key=lambda m: m["score"], reverse=True)
-    top_matches = [m["item"] for m in scored[:8]]
-
-    return SearchTopicSectionsResponse(
-        topicId=clean_topic_id,
-        query=clean_query,
-        matches=top_matches,
-        message=f"Found {len(top_matches)} matching sections." if top_matches else f"No matching sections found for '{clean_query}'.",
-    )
-
-
-@tool
+@tool(args_schema=GetGraphicContentArgs)
 def get_graphic_content(
     graphic_id: str = "",
     graphicId: Optional[str] = None,
@@ -820,8 +717,7 @@ def get_graphic_content(
     if _db is None:
         return GraphicContentResponse(error="Database not initialized")
 
-    effective_graphic_id = graphic_id or graphicId or kwargs.get("graphic_id") or kwargs.get("graphicId") or ""
-    clean_id = str(effective_graphic_id).strip()
+    clean_id = _pick(graphic_id, graphicId, kwargs.get("graphic_id"), kwargs.get("graphicId"))
     # Mirror Kotlin MedicalDatabaseTools normalization: strip `graphic_`, `graphic-`,
     # `graphic_table_`, `graphic-table-`, `table_`/`table-` prefixes and fall back to the raw ID.
     raw_id = re.sub(r"(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)", "", clean_id)

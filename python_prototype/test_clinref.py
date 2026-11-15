@@ -1026,21 +1026,21 @@ class TestToolsInit:
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         assert isinstance(tool_list, list)
-        assert len(tool_list) == 5
+        assert len(tool_list) == 4
 
     def test_init_tools_includes_expected_names(self):
         import tools
         mock_db = MagicMock()
         tool_list = tools.init_tools(mock_db)
         names = [t.name for t in tool_list]
-        assert len(names) == 5
+        assert len(names) == 4
         assert set(names) == {
             "getTopicOverview",
             "searchTopics",
-            "searchTopicSections",
             "getTopicSectionsText",
             "getGraphicContent",
         }
+        assert "searchTopicSections" not in names
         assert "get_topic_brief" not in names
         assert "get_topic_outline" not in names
         assert "submit_clinical_answer" not in names
@@ -1069,14 +1069,6 @@ class TestSearchTopics:
         assert result.results == []
 
     def test_returns_results(self):
-        import tools
-        self.mock_db.search_topics.return_value = [{"id": "123", "title": "Aspirin"}]
-        self.mock_db.get_suggestions.return_value = ["aspirin dose"]
-        result = tools.search_topics.func(query="aspirin")
-        assert len(result.results) == 1
-        assert result.results[0].id == "123"
-
-    def test_search_topics_returns_pure_candidate_results(self):
         import tools
         self.mock_db.search_topics.return_value = [{"id": "123", "title": "Aspirin"}]
         self.mock_db.get_suggestions.return_value = ["aspirin dose"]
@@ -1168,26 +1160,55 @@ class TestGetTopicSectionText:
         assert long_text_2.rstrip() in md
         assert "[Section truncated due to token limit]" not in md
 
-    def test_sections_beyond_ten_per_call_omitted(self):
+    def test_sections_beyond_twenty_per_call_omitted(self):
         import tools
         self.mock_db.get_topic_asset.return_value = {
             "topicInfo": {"type": "medical"},
             "bodyHtml": "".join(
-                f"<h2 id='H{i}'>Sec {i}</h2><p>Content {i}.</p>" for i in range(1, 12)
+                f"<h2 id='H{i}'>Sec {i}</h2><p>Content {i}.</p>" for i in range(1, 22)
             ),
             "outlineHtml": "".join(
                 '<a href="appAction({&quot;section&quot;:&quot;H%d&quot;})">Sec %d</a>' % (i, i)
-                for i in range(1, 12)
+                for i in range(1, 22)
             ),
         }
         result = tools.get_topic_sections_text.func(
-            topic_id="123", section_ids=[f"H{i}" for i in range(1, 12)]
+            topic_id="123", section_ids=[f"H{i}" for i in range(1, 22)]
         )
-        # Count guard: at most 10 sections per call; the 11th is reported, never silently dropped
-        assert set(result.sectionTitles.keys()) == {f"H{i}" for i in range(1, 11)}
-        assert result.omittedSections == ["H11"]
+        # Count guard: at most 20 sections per call; the 21st is reported, never silently dropped
+        assert set(result.sectionTitles.keys()) == {f"H{i}" for i in range(1, 21)}
+        assert result.omittedSections == ["H21"]
         assert result.truncated is None
-        assert "=== Section: H11 ===" not in result.markdown
+        assert "=== Section: H21 ===" not in result.markdown
+
+    def test_get_topic_sections_text_does_not_count_subsumed_stubs_against_cap(self):
+        import tools
+        self.mock_db.get_topic_title.return_value = "Subsumption Cap Test"
+        outline_html = (
+            '<ul><li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">P1</a>'
+            '<ul>' + "".join(f'<li><a href="appAction({{&quot;section&quot;:&quot;H1_{i}&quot;}})">C{i}</a></li>' for i in range(1, 6)) + '</ul></li>'
+            + "".join(f'<li><a href="appAction({{&quot;section&quot;:&quot;H{i}&quot;}})">P{i}</a></li>' for i in range(2, 21)) + '</ul>'
+        )
+        body_html = (
+            '<p id="H1">Parent 1'
+            + "".join(f'<p id="H1_{i}">Child 1.{i}</p>' for i in range(1, 6))
+            + '</p>'
+            + "".join(f'<p id="H{i}">Parent {i}</p>' for i in range(2, 21))
+        )
+        self.mock_db.get_topic_asset.return_value = {
+            "topicInfo": {"type": "medical"},
+            "bodyHtml": body_html,
+            "outlineHtml": outline_html,
+        }
+        requested_ids = ["H1"] + [f"H1_{i}" for i in range(1, 6)] + [f"H{i}" for i in range(2, 21)]
+        assert len(requested_ids) == 25
+        result = tools.get_topic_sections_text.func(
+            topic_id="301", section_ids=requested_ids
+        )
+        assert not result.omittedSections
+        assert len(result.sectionTitles) == 25
+        assert "=== Section: H1_1 ===\n(Content included in section [H1] above)" in result.markdown
+        assert "=== Section: H20 ===" in result.markdown
 
     def test_calculator_returns_full_text_without_cap(self):
         import tools
@@ -2383,11 +2404,11 @@ class TestChange2TemplateRendering:
         prompt = build_premature_interception_prompt()
         assert "SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED." in prompt
         assert "Write no text. Respond ONLY with tool calls:" in prompt
-        # snake_case names matched to the Python Phase-1 tool registry
-        assert "search_topics(" in prompt
-        assert "get_topic_overview(" in prompt
-        assert "get_topic_sections_text(" in prompt
-        assert "get_graphic_content(" in prompt
+        # camelCase names matched to the Python Phase-1 tool registry
+        assert "searchTopics(" in prompt
+        assert "getTopicOverview(" in prompt
+        assert "getTopicSectionsText(" in prompt
+        assert "getGraphicContent(" in prompt
         assert "You will write the answer after the section text is in context." in prompt
         # The exact notice takes no argument and is consumer-agnostic to the model attempt
         assert "{attempt}" not in prompt
@@ -2503,3 +2524,74 @@ class TestPromptEvaluation:
 
         answer = "**Clinical conclusion:** start here.\n### **Common Etiologies**\n- malignancy\n## **Cautions**\n- none"
         assert eval_prompt.extract_headers(answer) == ["Clinical conclusion", "Common Etiologies", "Cautions"]
+
+
+class TestWhatsNewInjection:
+    """Verify What's New and Practice Changing Update injection and section extraction."""
+
+    def test_inject_whats_new_html(self):
+        from database import inject_whats_new_html
+
+        body_html = '<div id="topicWhatsNewContainer"></div><p id="H1">Intro</p>'
+        wn_info = [
+            {
+                "contentId": "152105",
+                "pcu": True,
+                "title": "Aspirin for VTE",
+                "html": '<p class="headingAnchor"><span class="h2">Aspirin for VTE</span></p><div class="collapseContent"><p>Aspirin alone (Grade 2B).</p></div>',
+            },
+            {
+                "contentId": "152038",
+                "pcu": False,
+                "title": "STITCH trial",
+                "html": '<p class="headingAnchor"><span class="h2">STITCH trial</span></p><div class="collapseContent"><p>Small bites closure.</p></div>',
+            },
+        ]
+        injected = inject_whats_new_html(body_html, wn_info)
+        assert '<div id="PCU0" class="utdCallout utdPCU">' in injected
+        assert "PRACTICE CHANGING UPDATE" in injected
+        assert "Aspirin alone (Grade 2B)." in injected
+        assert '<div id="WhatsNew0" class="utdCallout utdWhatsNew">' in injected
+        assert "WHAT'S NEW" in injected
+        assert "Small bites closure." in injected
+
+    def test_extract_section_html_pcu_and_whats_new(self):
+        from database import inject_whats_new_html
+        from html_parser import extract_section_html, html_to_markdown
+
+        outline_html = (
+            '<ul id="innerOutline">'
+            '<li id="pcuOutlineItem"><a href=\'javascript:appAction({"meta":{"assetType":"topic"},"data":[{"id":"500","section":"PCU0"}]});\'><span>PRACTICE CHANGING UPDATE</span></a></li>'
+            '<li id="whatsNewOutlineItem"><a href=\'javascript:appAction({"meta":{"assetType":"topic"},"data":[{"id":"500","section":"WhatsNew0"}]});\'><span>WHAT\'S NEW</span></a></li>'
+            '<li><a href=\'javascript:appAction({"meta":{"assetType":"topic"},"data":[{"id":"500","section":"H1"}]});\'><span>Intro</span></a></li>'
+            '</ul>'
+        )
+        body_html = '<div id="topicWhatsNewContainer"></div><div id="topicText"><h2 id="H1">Intro</h2><p>Intro text</p></div>'
+        wn_info = [
+            {
+                "contentId": "152105",
+                "pcu": True,
+                "title": "Aspirin for VTE",
+                "html": '<p class="headingAnchor"><span class="h2">Aspirin for VTE</span></p><div class="collapseContent"><p>Aspirin alone (Grade 2B).</p></div>',
+            },
+            {
+                "contentId": "152038",
+                "pcu": False,
+                "title": "STITCH trial",
+                "html": '<p class="headingAnchor"><span class="h2">STITCH trial</span></p><div class="collapseContent"><p>Small bites closure.</p></div>',
+            },
+        ]
+        injected = inject_whats_new_html(body_html, wn_info)
+
+        pcu_html = extract_section_html(injected, outline_html, "PCU0")
+        assert pcu_html is not None
+        pcu_md = html_to_markdown(pcu_html)
+        assert "Aspirin alone (Grade 2B)." in pcu_md
+        assert "Small bites closure." not in pcu_md
+
+        wn_html = extract_section_html(injected, outline_html, "WhatsNew0")
+        assert wn_html is not None
+        wn_md = html_to_markdown(wn_html)
+        assert "Small bites closure." in wn_md
+        assert "Intro text" not in wn_md
+

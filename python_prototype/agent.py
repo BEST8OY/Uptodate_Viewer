@@ -16,12 +16,19 @@ Two-Phase Isolated Graph Architecture:
 import json
 import re
 from typing import Annotated, Any, Callable, Optional, TypedDict, Union
+from typing_extensions import NotRequired
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
+from decision_gates import (
+    DecisionConfig,
+    inject_rerank_into_tool_json,
+    rank_overview_items,
+    rank_search_candidates,
+)
 from reasoning_sanitizer import strip_reasoning
 from router import (
     CANNED_SMALL_TALK_REPLY,
@@ -45,8 +52,47 @@ from system_prompt import (
     build_correction_prompt,
     build_evidence_gate_pause_prompt,
     build_premature_interception_prompt,
-    build_revision_prompt,
 )
+
+
+GRAPHIC_PREFIX_RE = re.compile(r"(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)")
+
+
+def _clean_graphic_id(gid: Any) -> str:
+    return GRAPHIC_PREFIX_RE.sub("", str(gid or "")).strip()
+
+
+def _lookup_db_topic_title(topic_id: str) -> Optional[str]:
+    """Fallback database lookup for topic title if title is missing or numeric."""
+    if not topic_id:
+        return None
+    try:
+        from tools import _db
+        if _db is not None:
+            db_title = _db.get_topic_title(topic_id)
+            if db_title and not str(db_title).isdigit():
+                return str(db_title)
+    except Exception:
+        pass
+    return None
+
+
+def _to_dict(obj: Any) -> dict[str, Any]:
+    """Convert a Pydantic model, dict, or JSON string to a plain dict."""
+    if obj is None:
+        return {}
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if isinstance(obj, dict):
+        return obj
+    if isinstance(obj, str):
+        try:
+            parsed = json.loads(obj)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    return {}
 
 
 # How many times a turn may be sent back to retrieval because its draft stated values that
@@ -66,31 +112,12 @@ class AgentState(TypedDict):
     validation_result: Optional[dict]
     tool_rounds: int  # Number of execute_tools passes this turn
     premature_retries: int  # Number of premature interception retries
+    decision_telemetry: NotRequired[dict]  # Phase 1 retrieval rerank telemetry
 
 
 def _build_tool_map(tools: list[BaseTool]) -> dict[str, Callable]:
     """Build name -> invoke mapping for manual tool execution."""
     return {t.name: t for t in tools}
-
-
-def estimate_tokens(text: str) -> int:
-    """Token estimation mirroring Koog SimpleRegexBasedTokenizer."""
-    if not text:
-        return 0
-    return len(re.findall(r"\w+|[^\w\s]", text))
-
-
-def estimate_messages_tokens(messages: list[BaseMessage]) -> int:
-    """Estimate total tokens across a list of LangChain messages."""
-    total = 0
-    for msg in messages:
-        content = msg.content if isinstance(msg.content, str) else str(msg.content)
-        total += estimate_tokens(content)
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            for tc in msg.tool_calls:
-                total += estimate_tokens(tc.get("name", ""))
-                total += estimate_tokens(json.dumps(tc.get("args", {})))
-    return total
 
 
 def extract_section_text_from_markdown(full_markdown: str, section_id: str) -> str:
@@ -144,6 +171,32 @@ def _build_evidence_summary(sections: list[FetchedSection]) -> str:
     return "\n---\n".join(evidence_lines) if evidence_lines else "No section text was successfully fetched in the prior turn."
 
 
+def _build_full_evidence_digest(tc: TurnContext) -> str:
+    """Combine fetched sections and fetched graphic tables into a single evidence digest."""
+    parts: list[str] = []
+    if tc.fetched_sections:
+        parts.append(_build_evidence_summary(tc.fetched_sections))
+    if tc.graphic_ids:
+        seen_tables: set[str] = set()
+        for call in tc.tool_calls:
+            if not call.success or _tool_key(call.tool_name) != "getgraphiccontent":
+                continue
+            gid = str(call.arguments.get("graphic_id") or call.arguments.get("graphicId") or "").strip()
+            clean_gid = re.sub(r"(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)", "", gid)
+            if clean_gid in seen_tables:
+                continue
+            seen_tables.add(clean_gid)
+            try:
+                parsed = json.loads(call.result)
+                table_md = parsed.get("markdown", "") if isinstance(parsed, dict) else ""
+            except Exception:
+                raw_res = (call.result or "").strip()
+                table_md = raw_res if raw_res.startswith("### Graphic Table:") or "|" in raw_res else ""
+            if table_md:
+                parts.append(table_md)
+    return "\n---\n".join(parts) if parts else "No section text was successfully fetched in the prior turn."
+
+
 def format_synthesis_prompt(pending_input: str, tc: TurnContext) -> str:
     """Format the closed-book synthesis directive: evidence digest plus output contract.
 
@@ -154,7 +207,7 @@ def format_synthesis_prompt(pending_input: str, tc: TurnContext) -> str:
     if pending_input and pending_input.startswith("SYSTEM NOTICE"):
         return pending_input
 
-    evidence_summary = _build_evidence_summary(tc.fetched_sections)
+    evidence_summary = _build_full_evidence_digest(tc)
     user_question = pending_input if pending_input and not pending_input.startswith("CLINICAL SYNTHESIS DIRECTIVE") else tc.user_question
 
     return f"""CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK — NO TOOLS ACTIVE)
@@ -188,7 +241,8 @@ def create_clinical_agent(
     max_premature_retries: int = 2,
     llm_with_tools: Any = None,
     llm_tool_free: Any = None,
-    history_compression_threshold: Optional[int] = None,
+    decision_client: Any = None,
+    decision_config: Optional[DecisionConfig] = None,
 ):
     """Create the phase-isolated clinical retrieval agent graph.
 
@@ -203,7 +257,10 @@ def create_clinical_agent(
         llm_with_tools: LangChain chat model with tools bound (Phase 1: Evidence Gathering)
         llm_tool_free: LangChain chat model with zero tools bound (Phase 2: Clinical Synthesis)
         history_compression_threshold: Token threshold for semantic history compression (default 128000)
+        decision_client: Optional DecisionClient for `gemini-decision-1` search/outline reranking
+        decision_config: Optional DecisionConfig controlling active Phase 1 reranking options
     """
+    dec_cfg = decision_config or DecisionConfig()
     if tools is None:
         tools = []
 
@@ -272,6 +329,365 @@ def create_clinical_agent(
             "premature_retries": current_retries,
         }
 
+    def _find_tool_by_key(target_key: str) -> Optional[tuple[str, Callable]]:
+        for reg_name, reg_tool in tool_map.items():
+            if _tool_key(reg_name) == target_key:
+                return reg_name, reg_tool
+        return None
+
+    def _run_and_record_tool(
+        name: str,
+        args: dict[str, Any],
+        tc: TurnContext,
+    ) -> tuple[Any, str, bool, bool]:
+        """Execute a tool call (with deduplication) and record evidence into TurnContext."""
+        args_key = json.dumps(args, sort_keys=True)
+        cached = next(
+            (tc2 for tc2 in tc.tool_calls
+             if tc2.tool_name == name and json.dumps(tc2.arguments, sort_keys=True) == args_key),
+            None,
+        )
+        if cached is not None:
+            return None, cached.result, cached.success, True
+
+        tc.tool_calls.append(
+            ToolCallRecord(
+                tool_name=name,
+                arguments=args,
+                result="",
+                success=True,
+            )
+        )
+
+        tool = tool_map.get(name)
+        if tool is None:
+            # Fall back to canonical key lookup if tool name case differs (e.g. snake_case vs camelCase)
+            tool_entry = _find_tool_by_key(_tool_key(name))
+            if tool_entry is not None:
+                tool = tool_entry[1]
+        if tool is None:
+            result_content = json.dumps({"error": f"Unknown tool: {name}"})
+            success = False
+            raw = None
+        else:
+            success = True
+            try:
+                raw = tool.invoke(args)
+                if hasattr(raw, "model_dump_json"):
+                    result_content = raw.model_dump_json()
+                elif isinstance(raw, str):
+                    result_content = raw
+                else:
+                    try:
+                        result_content = json.dumps(raw)
+                    except TypeError:
+                        result_content = str(raw)
+            except Exception as e:
+                result_content = json.dumps({"error": str(e)})
+                success = False
+                raw = None
+
+        raw_dict = _to_dict(raw)
+        if success and raw is not None:
+            has_error = bool(raw_dict.get("error"))
+            is_empty_sections = (
+                _tool_key(name) == "gettopicsectionstext"
+                and not raw_dict.get("markdown")
+                and bool(raw_dict.get("invalidSections") or raw_dict.get("invalid_sections"))
+            )
+            if has_error or is_empty_sections:
+                success = False
+
+        tc.tool_calls[-1].success = success
+        tc.tool_calls[-1].result = result_content
+        tc.tool_results.append(result_content)
+
+        # Track candidate topic titles from searchTopics
+        if _tool_key(name) == "searchtopics":
+            for item in (raw_dict.get("results") or []):
+                item_dict = _to_dict(item)
+                tid = str(item_dict.get("id") or "").strip()
+                title = str(item_dict.get("title") or "").strip()
+                if tid and title and not title.isdigit():
+                    tc.topic_titles[tid] = title
+
+        # Track topic overview bundling
+        if _tool_key(name) == "gettopicoverview":
+            topic_id = str(
+                raw_dict.get("topicId") or raw_dict.get("topic_id") or args.get("topic_id", args.get("topicId", ""))
+            ).strip()
+            topic_title = str(raw_dict.get("title") or raw_dict.get("topic_title") or "").strip()
+            if not topic_id:
+                topic_id = str(args.get("topic_id", args.get("topicId", ""))).strip()
+            if topic_id and topic_title and not topic_title.isdigit():
+                tc.topic_titles[topic_id] = topic_title
+
+            sections = raw_dict.get("sections") or raw_dict.get("outline") or []
+            if topic_id and sections:
+                tc.outline_sections[topic_id] = {
+                    str(_to_dict(s).get("id") or ""): str(_to_dict(s).get("title") or "").lstrip("-–— ")
+                    for s in sections
+                    if _to_dict(s).get("id")
+                }
+
+            graphics = raw_dict.get("graphics") or []
+            for g in graphics:
+                g_dict = _to_dict(g)
+                gid = str(g_dict.get("id") or "").strip()
+                if gid:
+                    tc.graphic_to_topic[gid] = topic_id
+                    clean_gid = _clean_graphic_id(gid)
+                    tc.graphic_to_topic[clean_gid] = topic_id
+                    g_title = g_dict.get("title")
+                    if g_title:
+                        tc.graphic_titles[gid] = str(g_title)
+                        tc.graphic_titles[clean_gid] = str(g_title)
+
+            topic_type = str(raw_dict.get("topicType") or raw_dict.get("topic_type") or "")
+            if topic_type == "calc" and success:
+                full_md = str(raw_dict.get("markdown") or "")
+                tc.fetched_sections.append(
+                    FetchedSection(
+                        topic_id=topic_id,
+                        topic_title=tc.topic_titles.get(topic_id, topic_title),
+                        section_id="FULL",
+                        section_title="Calculator Tool Content",
+                        content_snippet=full_md.strip(),
+                    )
+                )
+
+        # Batch section tracking
+        if _tool_key(name) == "gettopicsectionstext":
+            resp_tid = str(raw_dict.get("topicId") or raw_dict.get("topic_id") or "").strip()
+            topic_id = resp_tid or str(args.get("topic_id", args.get("topicId", ""))).strip()
+            topic_title = str(raw_dict.get("topicTitle") or raw_dict.get("topic_title") or "")
+            raw_section_titles = raw_dict.get("sectionTitles") or raw_dict.get("section_titles") or {}
+            section_titles = (
+                {str(k): str(v).lstrip("-–— ") for k, v in raw_section_titles.items()}
+                if isinstance(raw_section_titles, dict)
+                else {}
+            )
+            if topic_id and topic_title and not topic_title.isdigit():
+                tc.topic_titles[topic_id] = topic_title
+            if topic_id and section_titles:
+                tc.outline_sections.setdefault(topic_id, {}).update(section_titles)
+
+            if topic_id and (topic_id not in tc.topic_titles or str(tc.topic_titles[topic_id]).isdigit()):
+                db_title = _lookup_db_topic_title(topic_id)
+                if db_title:
+                    tc.topic_titles[topic_id] = db_title
+
+            section_map = tc.outline_sections.get(topic_id, section_titles)
+            section_ids = (
+                args.get("section_ids") or args.get("sectionIds")
+                or args.get("section_id") or args.get("sectionId") or []
+            )
+            if isinstance(section_ids, str):
+                section_ids = [section_ids]
+            raw_markdown = str(raw_dict.get("markdown") or "")
+            if success:
+                for sid in section_ids:
+                    if any(
+                        fs.topic_id == topic_id and (fs.section_id == sid or fs.section_id.upper() == "FULL")
+                        for fs in tc.fetched_sections
+                    ):
+                        continue
+                    snippet = extract_section_text_from_markdown(raw_markdown, sid)
+                    tc.fetched_sections.append(
+                        FetchedSection(
+                            topic_id=topic_id,
+                            topic_title=tc.topic_titles.get(topic_id, ""),
+                            section_id=sid,
+                            section_title=section_map.get(sid, "").lstrip("-–— "),
+                            content_snippet=snippet if snippet else result_content[:2000],
+                        )
+                    )
+
+        # Graphic tracking
+        if _tool_key(name) == "getgraphiccontent" and success:
+            graphic_id = str(args.get("graphic_id", args.get("graphicId", ""))).strip()
+            if graphic_id:
+                clean_gid = _clean_graphic_id(graphic_id)
+                if clean_gid not in tc.graphic_ids:
+                    tc.graphic_ids.append(clean_gid)
+                title = raw_dict.get("title")
+                if not title:
+                    m = re.match(r"### Graphic Table:\s*(.+)", result_content)
+                    if m:
+                        title = m.group(1).strip()
+                if title:
+                    tc.graphic_titles[graphic_id] = str(title)
+                    tc.graphic_titles[clean_gid] = str(title)
+                    tc.graphic_titles[clean_gid] = str(title)
+
+        return raw, result_content, success, False
+
+    def _apply_decision_rerank(
+        name: str,
+        args: dict[str, Any],
+        raw: Any,
+        result_content: str,
+        tc: TurnContext,
+        user_question: str,
+        telemetry: dict[str, Any],
+    ) -> str:
+        """Use `gemini-decision-1` to score search candidates or overview outlines (+ optional prefetch)."""
+        if decision_client is None or not dec_cfg.enable_retrieval_rerank or raw is None:
+            return result_content
+
+        t_key = _tool_key(name)
+        raw_dict = _to_dict(raw)
+        if t_key == "searchtopics":
+            cand_dicts = [
+                {
+                    "id": str(_to_dict(item).get("id") or "").strip(),
+                    "title": str(_to_dict(item).get("title") or "").strip(),
+                }
+                for item in (raw_dict.get("results") or [])
+            ]
+            if not cand_dicts:
+                return result_content
+            rerank = rank_search_candidates(
+                decision_client,
+                user_question,
+                cand_dicts,
+                query=str(args.get("query") or args.get("search_query") or "").strip(),
+                patient_profile=tc.patient_profile,
+                config=dec_cfg,
+            )
+            if rerank.ok and (rerank.ranked_topics or rerank.hint):
+                payload = {
+                    "topTopics": [r.model_dump() for r in (rerank.top_topics or rerank.ranked_topics[: dec_cfg.top_k_topics])],
+                    "requiresDrugMonograph": rerank.requires_drug_monograph,
+                    "requiresTableData": rerank.requires_table_data,
+                    "hint": rerank.hint,
+                }
+                telemetry.setdefault("search_reranks", []).append(payload)
+                updated = inject_rerank_into_tool_json(result_content, payload)
+                tc.tool_calls[-1].result = updated
+                tc.tool_results[-1] = updated
+                return updated
+
+        elif t_key == "gettopicoverview":
+            topic_id = str(
+                raw_dict.get("topicId") or raw_dict.get("topic_id") or args.get("topic_id", args.get("topicId", ""))
+            ).strip()
+            topic_title = str(raw_dict.get("title") or raw_dict.get("topic_title") or "").strip()
+            topic_type = str(raw_dict.get("topicType") or raw_dict.get("topic_type") or "").strip()
+            sections_raw = raw_dict.get("sections") or raw_dict.get("outline") or []
+            graphics_raw = raw_dict.get("graphics") or []
+            related_raw = raw_dict.get("relatedTopics") or raw_dict.get("related_topics") or []
+
+            sections = [
+                {
+                    "id": str(_to_dict(s).get("id") or "").strip(),
+                    "title": str(_to_dict(s).get("title") or "").strip(),
+                    "level": int(_to_dict(s).get("level") or 1),
+                    "parentId": _to_dict(s).get("parentId") or _to_dict(s).get("parent_id"),
+                }
+                for s in sections_raw
+            ]
+            graphics = [
+                {
+                    "id": str(_to_dict(g).get("id") or "").strip(),
+                    "title": str(_to_dict(g).get("title") or "").strip(),
+                    "isTable": bool(_to_dict(g).get("isTable", True)),
+                }
+                for g in graphics_raw
+            ]
+            related = [
+                {
+                    "id": str(_to_dict(r).get("id") or "").strip(),
+                    "title": str(_to_dict(r).get("title") or "").strip(),
+                }
+                for r in related_raw
+            ]
+
+            rerank = rank_overview_items(
+                decision_client,
+                user_question,
+                topic_id=topic_id,
+                topic_title=topic_title,
+                topic_type=topic_type,
+                sections=sections,
+                graphics=graphics,
+                related_topics=related,
+                patient_profile=tc.patient_profile,
+                config=dec_cfg,
+            )
+            if rerank.ok and (rerank.recommended_section_ids or rerank.recommended_graphic_ids or rerank.hint):
+                payload: dict[str, Any] = {
+                    "recommendedSectionIds": rerank.recommended_section_ids,
+                    "recommendedGraphicIds": rerank.recommended_graphic_ids,
+                    "recommendedRelatedTopics": [
+                        {"id": item.id, "title": item.title, "score": item.score}
+                        for item in rerank.related_topic_scores
+                        if item.id in rerank.recommended_related_topic_ids
+                    ],
+                    "needsDrugMonograph": rerank.needs_drug_monograph,
+                    "hint": rerank.hint,
+                }
+                if dec_cfg.auto_prefetch:
+                    prefetched_sections_md = ""
+                    if rerank.recommended_section_ids:
+                        sec_tool_entry = _find_tool_by_key("gettopicsectionstext")
+                        if sec_tool_entry is not None:
+                            sec_tool_name, _ = sec_tool_entry
+                            sec_raw, _, sec_ok, _ = _run_and_record_tool(
+                                sec_tool_name,
+                                {"topic_id": topic_id, "section_ids": rerank.recommended_section_ids},
+                                tc,
+                            )
+                            if sec_ok and sec_raw is not None:
+                                prefetched_sections_md = str(
+                                    getattr(sec_raw, "markdown", (sec_raw.get("markdown", "") if isinstance(sec_raw, dict) else ""))
+                                )
+                    prefetched_tables_md: list[str] = []
+                    if rerank.recommended_graphic_ids:
+                        gfx_tool_entry = _find_tool_by_key("getgraphiccontent")
+                        if gfx_tool_entry is not None:
+                            gfx_tool_name, _ = gfx_tool_entry
+                            for gid in rerank.recommended_graphic_ids:
+                                gfx_raw, _, gfx_ok, _ = _run_and_record_tool(
+                                    gfx_tool_name,
+                                    {"graphic_id": gid},
+                                    tc,
+                                )
+                                if gfx_ok and gfx_raw is not None:
+                                    md = str(getattr(gfx_raw, "markdown", (gfx_raw.get("markdown", "") if isinstance(gfx_raw, dict) else "")))
+                                    if md:
+                                        prefetched_tables_md.append(md)
+                    if prefetched_sections_md or prefetched_tables_md:
+                        payload["autoPrefetched"] = True
+                        if prefetched_sections_md:
+                            payload["prefetchedSectionsMarkdown"] = prefetched_sections_md
+                            payload["prefetchedSectionsChars"] = len(prefetched_sections_md)
+                        if prefetched_tables_md:
+                            joined_tbl = "\n\n".join(prefetched_tables_md)
+                            payload["prefetchedTablesMarkdown"] = joined_tbl
+                            payload["prefetchedTablesChars"] = len(joined_tbl)
+
+                telemetry.setdefault("overview_reranks", []).append(
+                    {
+                        "topicId": topic_id,
+                        "recommendedSectionIds": rerank.recommended_section_ids,
+                        "recommendedGraphicIds": rerank.recommended_graphic_ids,
+                        "needsDrugMonograph": rerank.needs_drug_monograph,
+                    }
+                )
+                updated = inject_rerank_into_tool_json(result_content, payload)
+                # Update the overview record (search backward in case prefetch appended records)
+                for idx_rev, call_rec in enumerate(reversed(tc.tool_calls)):
+                    if _tool_key(call_rec.tool_name) == "gettopicoverview":
+                        call_rec.result = updated
+                        actual_idx = len(tc.tool_calls) - 1 - idx_rev
+                        if actual_idx < len(tc.tool_results):
+                            tc.tool_results[actual_idx] = updated
+                        break
+                return updated
+
+        return result_content
+
     def execute_tools(state: AgentState) -> dict:
         """Execute requested tool calls with deduplication, strongly-typed Pydantic serialization,
         and direct attribute reading.
@@ -279,6 +695,8 @@ def create_clinical_agent(
         last_message = state["messages"][-1]
         tc = TurnContext(**state["turn_context"])
         new_messages: list[BaseMessage] = []
+        telemetry = dict(state.get("decision_telemetry") or {})
+        user_question = state.get("user_question", "")
 
         if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
             return {}
@@ -288,215 +706,31 @@ def create_clinical_agent(
             args = tool_call["args"]
             tool_call_id = tool_call.get("id", "")
 
-            # Deduplicate: check if same tool+args already called this turn
-            args_key = json.dumps(args, sort_keys=True)
-            cached = next(
-                (tc2 for tc2 in tc.tool_calls
-                 if tc2.tool_name == name and json.dumps(tc2.arguments, sort_keys=True) == args_key),
-                None,
-            )
-            if cached is not None:
-                new_messages.append(
-                    ToolMessage(content=cached.result, tool_call_id=tool_call_id)
+            raw, result_content, success, from_cache = _run_and_record_tool(name, args, tc)
+            if not from_cache and success:
+                result_content = _apply_decision_rerank(
+                    name, args, raw, result_content, tc, user_question, telemetry
                 )
-                continue
-
-            tc.tool_calls.append(
-                ToolCallRecord(
-                    tool_name=name,
-                    arguments=args,
-                    result="",
-                    success=True,
-                )
-            )
-
-            # Execute the tool
-            tool = tool_map.get(name)
-            if tool is None:
-                result_content = json.dumps({"error": f"Unknown tool: {name}"})
-                success = False
-                raw = None
-            else:
-                success = True
-                try:
-                    raw = tool.invoke(args)
-                    if hasattr(raw, "model_dump_json"):
-                        result_content = raw.model_dump_json()
-                    elif isinstance(raw, str):
-                        result_content = raw
-                    else:
-                        try:
-                            result_content = json.dumps(raw)
-                        except TypeError:
-                            result_content = str(raw)
-                except Exception as e:
-                    result_content = json.dumps({"error": str(e)})
-                    success = False
-                    raw = None
-
-            # Tool success evaluation without obsolete _is_logical_failure helper
-            if success and raw is not None:
-                has_error = bool(getattr(raw, "error", None))
-                if not has_error and isinstance(raw, dict):
-                    has_error = bool(raw.get("error"))
-                is_empty_sections = (
-                    _tool_key(name) == "gettopicsectionstext"
-                    and not getattr(raw, "markdown", (raw.get("markdown") if isinstance(raw, dict) else ""))
-                    and bool(getattr(raw, "invalid_sections", getattr(raw, "invalidSections", (raw.get("invalidSections") if isinstance(raw, dict) else []))))
-                )
-                if has_error or is_empty_sections:
-                    success = False
-
-            tc.tool_calls[-1].success = success
-            tc.tool_calls[-1].result = result_content
-            tc.tool_results.append(result_content)
-
-            # Track candidate topic titles from searchTopics
-            if _tool_key(name) == "searchtopics":
-                results = getattr(raw, "results", None)
-                if results is None and isinstance(raw, dict):
-                    results = raw.get("results", [])
-                for item in (results or []):
-                    tid = str(getattr(item, "id", item.get("id") if isinstance(item, dict) else "")).strip()
-                    title = str(getattr(item, "title", item.get("title") if isinstance(item, dict) else "")).strip()
-                    if tid and title and not title.isdigit():
-                        tc.topic_titles[tid] = title
-
-            # Related topic titles arrive inside the overview payload; they are navigation
-            # candidates, not evidence, so they are not recorded as citation titles.
-
-            # Track topic overview bundling
-            if _tool_key(name) == "gettopicoverview":
-                topic_id = str(
-                    getattr(raw, "topicId", getattr(raw, "topic_id", (raw.get("topicId", raw.get("topic_id")) if isinstance(raw, dict) else args.get("topic_id", args.get("topicId", "")))))
-                ).strip()
-                topic_title = str(
-                    getattr(raw, "title", getattr(raw, "topic_title", (raw.get("title", raw.get("topic_title")) if isinstance(raw, dict) else "")))
-                ).strip()
-                if not topic_id:
-                    topic_id = str(args.get("topic_id", args.get("topicId", ""))).strip()
-                if topic_id and topic_title and not topic_title.isdigit():
-                    tc.topic_titles[topic_id] = topic_title
-
-                # Outline sections
-                sections = getattr(raw, "sections", (raw.get("sections", raw.get("outline", [])) if isinstance(raw, dict) else []))
-                if topic_id and sections:
-                    tc.outline_sections[topic_id] = {
-                        str(getattr(s, "id", s.get("id") if isinstance(s, dict) else "")): str(getattr(s, "title", s.get("title") if isinstance(s, dict) else "")).lstrip("-–— ")
-                        for s in sections
-                        if (getattr(s, "id", None) or (isinstance(s, dict) and s.get("id")))
-                    }
-
-                # Graphics mapping
-                graphics = getattr(raw, "graphics", (raw.get("graphics", []) if isinstance(raw, dict) else []))
-                for g in (graphics or []):
-                    gid = str(getattr(g, "id", g.get("id") if isinstance(g, dict) else "")).strip()
-                    if gid:
-                        tc.graphic_to_topic[gid] = topic_id
-                        clean_gid = re.sub(r"(?i)^graphic-", "", gid)
-                        tc.graphic_to_topic[clean_gid] = topic_id
-                        g_title = getattr(g, "title", g.get("title") if isinstance(g, dict) else "")
-                        if g_title:
-                            tc.graphic_titles[gid] = str(g_title)
-                            tc.graphic_titles[clean_gid] = str(g_title)
-
-                # Calculator topic evidence — only a SUCCESSFUL overview carries the
-                # calculator's full markdown as evidence (successful-entry requirement).
-                topic_type = getattr(raw, "topicType", getattr(raw, "topic_type", (raw.get("topicType", raw.get("topic_type")) if isinstance(raw, dict) else "")))
-                if topic_type == "calc" and success:
-                    full_md = getattr(raw, "markdown", (raw.get("markdown", "") if isinstance(raw, dict) else ""))
-                    tc.fetched_sections.append(
-                        FetchedSection(
-                            topic_id=topic_id,
-                            topic_title=tc.topic_titles.get(topic_id, topic_title),
-                            section_id="FULL",
-                            section_title="Calculator Tool Content",
-                            content_snippet=full_md[:2000],
-                        )
-                    )
-
-            # Batch section tracking
-            if _tool_key(name) == "gettopicsectionstext":
-                resp_tid = str(getattr(raw, "topicId", getattr(raw, "topic_id", (raw.get("topicId", raw.get("topic_id")) if isinstance(raw, dict) else "")))).strip()
-                topic_id = resp_tid or str(args.get("topic_id", args.get("topicId", ""))).strip()
-                topic_title = getattr(raw, "topicTitle", getattr(raw, "topic_title", (raw.get("topicTitle", raw.get("topic_title")) if isinstance(raw, dict) else "")))
-                raw_section_titles = getattr(raw, "sectionTitles", getattr(raw, "section_titles", (raw.get("sectionTitles", raw.get("section_titles")) if isinstance(raw, dict) else {})))
-                section_titles = (
-                    {str(k): str(v).lstrip("-–— ") for k, v in raw_section_titles.items()}
-                    if isinstance(raw_section_titles, dict)
-                    else {}
-                )
-                if topic_id and topic_title and not str(topic_title).isdigit():
-                    tc.topic_titles[topic_id] = str(topic_title)
-                if topic_id and section_titles:
-                    tc.outline_sections[topic_id] = section_titles
-
-                # DB title fallback if still missing or numeric
-                if topic_id and (topic_id not in tc.topic_titles or str(tc.topic_titles[topic_id]).isdigit()):
-                    try:
-                        from tools import _db
-                        if _db is not None:
-                            db_title = _db.get_topic_title(topic_id)
-                            if db_title and not str(db_title).isdigit():
-                                tc.topic_titles[topic_id] = db_title
-                    except Exception:
-                        pass
-
-                section_map = tc.outline_sections.get(topic_id, section_titles)
-                section_ids = (
-                    args.get("section_ids") or args.get("sectionIds")
-                    or args.get("section_id") or args.get("sectionId") or []
-                )
-                if isinstance(section_ids, str):
-                    section_ids = [section_ids]
-                raw_markdown = getattr(raw, "markdown", (raw.get("markdown", "") if isinstance(raw, dict) else ""))
-                # Only a SUCCESSFUL batch call records fetched sections (successful-entry
-                # requirement for the Phase-1 text-exit rule); failed/invalid fetches are
-                # excluded from the evidence ledger.
-                if success:
-                    for sid in section_ids:
-                        snippet = extract_section_text_from_markdown(raw_markdown, sid)
-                        tc.fetched_sections.append(
-                            FetchedSection(
-                                topic_id=topic_id,
-                                topic_title=tc.topic_titles.get(topic_id, ""),
-                                section_id=sid,
-                                section_title=section_map.get(sid, "").lstrip("-–— "),
-                                content_snippet=snippet if snippet else result_content[:2000],
-                            )
-                        )
-
-            # Graphic tracking — only a SUCCESSFUL fetch adds the table to the evidence ledger
-            if _tool_key(name) == "getgraphiccontent" and success:
-                graphic_id = str(args.get("graphic_id", args.get("graphicId", ""))).strip()
-                if graphic_id:
-                    clean_gid = re.sub(r"(?i)^graphic-", "", graphic_id)
-                    if clean_gid not in tc.graphic_ids:
-                        tc.graphic_ids.append(clean_gid)
-                    title = getattr(raw, "title", (raw.get("title") if isinstance(raw, dict) else ""))
-                    if not title:
-                        m = re.match(r"### Graphic Table:\s*(.+)", result_content)
-                        if m:
-                            title = m.group(1).strip()
-                    if title:
-                        tc.graphic_titles[graphic_id] = str(title)
-                        tc.graphic_titles[clean_gid] = str(title)
 
             new_messages.append(
                 ToolMessage(content=result_content, tool_call_id=tool_call_id)
             )
 
-        return {
+        out: dict[str, Any] = {
             "messages": new_messages,
             "turn_context": tc.model_dump(),
-            "user_question": state.get("user_question", ""),
+            "user_question": user_question,
             "tool_rounds": state.get("tool_rounds", 0) + 1,
         }
+        if telemetry:
+            out["decision_telemetry"] = telemetry
+        return out
 
     def route_after_execute_tools(state: AgentState) -> str:
         """Route after tool execution: check round budget, proceed to evidence validation or loop."""
         if state.get("tool_rounds", 0) >= max_tool_retries:
             return "validate_evidence"
+
         return "node_evidence_gathering"
 
     # ── Dual Gate 1: Pre-Synthesis Evidence Gate ───────────────────────
@@ -505,6 +739,24 @@ def create_clinical_agent(
         """Phase-1 remediation evidence digest; "Nothing has been retrieved yet." when empty."""
         if tc.fetched_sections:
             return _build_evidence_summary(tc.fetched_sections)
+
+        parts = []
+        if tc.outline_sections:
+            parts.append("Discovered Section Outlines (call getTopicSectionsText with these IDs):")
+            for tid, s_map in tc.outline_sections.items():
+                title = tc.topic_titles.get(tid, tid)
+                items_str = ", ".join(f"{sid} ({stitle})" for sid, stitle in list(s_map.items())[:12])
+                parts.append(f"- Topic [{tid}] '{title}': {items_str}")
+        elif tc.topic_titles:
+            parts.append("Discovered Candidate Topics (call getTopicOverview with a topicId):")
+            for tid, title in list(tc.topic_titles.items())[:8]:
+                parts.append(f"- [{tid}] {title}")
+        if tc.graphic_titles:
+            parts.append("Discovered Tables (call getGraphicContent with a graphicId):")
+            for gid, title in list(tc.graphic_titles.items())[:6]:
+                parts.append(f"- [{gid}] {title}")
+        if parts:
+            return "\n".join(parts)
         return "Nothing has been retrieved yet."
 
     def validate_evidence(state: AgentState) -> dict:
@@ -587,28 +839,37 @@ def create_clinical_agent(
         last_message = state["messages"][-1]
         is_remediation = isinstance(last_message, HumanMessage) and str(last_message.content).startswith("SYSTEM NOTICE")
 
-        if is_remediation:
-            synthesis_messages = list(state["messages"])
+        current_user_question = str(state.get("user_question", "")).strip()
+        turn_start_idx = None
+        for i in range(len(state["messages"]) - 1, -1, -1):
+            m = state["messages"][i]
+            if isinstance(m, HumanMessage) and str(m.content).strip() == current_user_question:
+                turn_start_idx = i
+                break
+
+        if turn_start_idx is not None:
+            prior_history = [
+                m for m in state["messages"][:turn_start_idx]
+                if isinstance(m, (SystemMessage, HumanMessage)) or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
+            ]
         else:
-            synthesis_prompt = format_synthesis_prompt(str(state.get("user_question", "")), tc)
-            # Prior conversation history is everything before the current turn's user question
-            current_user_question = str(state.get("user_question", "")).strip()
-            turn_start_idx = None
-            for i in range(len(state["messages"]) - 1, -1, -1):
-                m = state["messages"][i]
-                if isinstance(m, HumanMessage) and str(m.content).strip() == current_user_question:
-                    turn_start_idx = i
-                    break
+            sys_msg = next((m for m in state["messages"] if isinstance(m, SystemMessage)), None)
+            prior_history = [sys_msg] if sys_msg else []
 
-            if turn_start_idx is not None:
-                prior_history = [
-                    m for m in state["messages"][:turn_start_idx]
-                    if isinstance(m, (SystemMessage, HumanMessage)) or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
-                ]
-            else:
-                sys_msg = next((m for m in state["messages"] if isinstance(m, SystemMessage)), None)
-                prior_history = [sys_msg] if sys_msg else []
-
+        if is_remediation:
+            # Cleanly pass through remediation conversation without leaking ToolMessages or Phase 1 premature notices
+            synthesis_messages = [
+                m for m in state["messages"]
+                if not isinstance(m, ToolMessage)
+                and not (isinstance(m, AIMessage) and getattr(m, "tool_calls", None))
+                and not (
+                    m is not last_message
+                    and isinstance(m, HumanMessage)
+                    and str(m.content).startswith("SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED")
+                )
+            ]
+        else:
+            synthesis_prompt = format_synthesis_prompt(current_user_question, tc)
             synthesis_messages = prior_history + [HumanMessage(content=synthesis_prompt)]
 
         config = {"callbacks": callbacks} if callbacks else {}
@@ -659,7 +920,7 @@ def create_clinical_agent(
             validation = validator.validate(tc)
 
         if not validation.passed and state.get("gate2_revisions", 0) < max_safety_retries:
-            evidence_summary = _build_evidence_summary(tc.fetched_sections)
+            evidence_summary = _build_full_evidence_digest(tc)
 
             # Reset answer state for correction turn (mirrors Kotlin prepareForCorrection)
             tc.answer = ""
@@ -803,14 +1064,7 @@ def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
             continue
         raw_title = tc.topic_titles.get(sec.topic_id) or sec.topic_title or ""
         if not raw_title or str(raw_title).isdigit():
-            try:
-                from tools import _db
-                if _db is not None:
-                    db_title = _db.get_topic_title(sec.topic_id)
-                    if db_title and not str(db_title).isdigit():
-                        raw_title = db_title
-            except Exception:
-                pass
+            raw_title = _lookup_db_topic_title(sec.topic_id) or ""
         topic_title = raw_title if raw_title and not str(raw_title).isdigit() else sec.topic_id
         label = sec_title.lstrip("-–— ")
         clean_sec_id = "" if sec.section_id.upper() == "FULL" else sec.section_id
@@ -824,19 +1078,12 @@ def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
         )
 
     for gid in tc.graphic_ids:
-        clean_gid = re.sub(r"(?i)^graphic-", "", gid)
+        clean_gid = _clean_graphic_id(gid)
         parent_topic_id = tc.graphic_to_topic.get(gid) or tc.graphic_to_topic.get(clean_gid)
         if parent_topic_id and not any(r.topic_id == parent_topic_id for r in topic_refs):
             raw_title = tc.topic_titles.get(parent_topic_id) or ""
             if not raw_title or str(raw_title).isdigit():
-                try:
-                    from tools import _db
-                    if _db is not None:
-                        db_title = _db.get_topic_title(parent_topic_id)
-                        if db_title and not str(db_title).isdigit():
-                            raw_title = db_title
-                except Exception:
-                    pass
+                raw_title = _lookup_db_topic_title(parent_topic_id) or ""
             topic_title = raw_title if raw_title and not str(raw_title).isdigit() else parent_topic_id
             topic_refs.append(
                 TopicRef(
@@ -853,7 +1100,7 @@ def _auto_populate_refs(tc: TurnContext, result: str = "") -> None:
         GraphicRef(
             graphic_id=gid,
             label=tc.graphic_titles.get(gid, f"Graphic {gid}"),
-            topic_id=tc.graphic_to_topic.get(gid) or tc.graphic_to_topic.get(re.sub(r"(?i)^graphic-", "", gid)),
+            topic_id=tc.graphic_to_topic.get(gid) or tc.graphic_to_topic.get(_clean_graphic_id(gid)),
         )
         for gid in tc.graphic_ids
     ]
@@ -886,4 +1133,5 @@ def create_initial_state(
         "validation_result": None,
         "tool_rounds": 0,
         "premature_retries": 0,
+        "decision_telemetry": {},
     }

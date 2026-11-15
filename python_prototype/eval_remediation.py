@@ -20,17 +20,17 @@ Usage:
 import argparse
 import json
 import re
-import subprocess
 import sys
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from agy_chat_model import call_gemini_via_agy
+from eval_prompt import PREAMBLE_RE, is_bluf
+from eval_retrieval import TOOL_DECLARATIONS, parse_tool_calls_from_response
 from safety_validator import (
     PatientProfile,
     SafetyValidator,
     TurnContext,
-    extract_quantities,
 )
 from system_prompt import (
     CANONICAL_ABSTENTION,
@@ -41,36 +41,6 @@ from system_prompt import (
     build_revision_prompt,
     static_clinical_guidance,
 )
-
-# ── Regexes for AST & Format Checking ──────────────────────────────────────────
-
-PREAMBLE_RE = re.compile(
-    r"^\s*(?:based on|certainly|sure|of course|according to|as an ai|in accordance with|here is|hello)",
-    re.IGNORECASE,
-)
-HEADER_RE = re.compile(r"^\s*(?:#{1,4}\s*)?\*\*(.+?)\*\*", re.MULTILINE)
-FIRST_BOLD_RE = re.compile(r"^\s*\*\*(.+?)\*\*", re.DOTALL)
-ATX_HEADER_RE = re.compile(r"^\s*#{1,4}\s+\w+", re.MULTILINE)
-MARKDOWN_LINK_RE = re.compile(r"\[.+?\]\(.+?\)")
-INLINE_CITATION_RE = re.compile(r"\[\d+(?:,\s*\d+)*\]|\b(?:UpToDate|Lexidrug)\b", re.IGNORECASE)
-
-TOOL_DECLARATIONS = """AVAILABLE TOOLS:
-1. searchTopics(query: string)
-   Search the UpToDate index by a single medical condition, syndrome, or generic drug name (1–3 words max).
-   Returns candidate {id, title} pairs and refine_with keywords.
-
-2. getTopicOverview(topicId: string)
-   Retrieve section outline hierarchy (sectionIds and titles), available table graphics (graphicIds), related topics, and topicType ('medical', 'drug', 'calc').
-   Note: For 'calc' topics, full formula markdown is returned directly under section 'FULL'. Standard topics return outline titles only.
-
-3. getTopicSectionsText(topicId: string, sectionIds: string[])
-   Retrieve full unredacted clinical text for up to 10 sectionIds within a single topicId.
-
-4. searchTopicSections(topicId: string, query: string)
-   Targeted 1-2 keyword search inside a single topicId to locate specific section IDs and snippets.
-
-5. getGraphicContent(graphicId: string)
-   Retrieve structured Markdown table content for items listed under graphics where isTable is true."""
 
 # ── Test Scenarios Grounded in Real SQLite Database Content ─────────────────────
 
@@ -369,79 +339,6 @@ SUITE_C_CASES = [
 ]
 
 ALL_CASES = SUITE_A_CASES + SUITE_B_CASES + SUITE_C_CASES
-
-
-# ── AGY Bridge Call ───────────────────────────────────────────────────────────
-
-def call_gemini_via_agy(
-    prompt: str,
-    model: Optional[str] = None,
-    timeout: int = 180,
-    retries: int = 1,
-) -> str:
-    """Spawns agy CLI in print mode to query Gemini directly with retry on timeout."""
-    cmd = [
-        "agy",
-        "--dangerously-skip-permissions",
-        "--disable-slash-commands",
-        "--print",
-        prompt,
-    ]
-    if model and model not in ("default", "gemini-3.8-flash-medium"):
-        cmd.extend(["--model", model])
-    for attempt in range(retries + 1):
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if res.returncode != 0:
-                return f"[AGY ERROR: code {res.returncode}] {res.stderr.strip()}"
-            return res.stdout.strip()
-        except subprocess.TimeoutExpired:
-            if attempt < retries:
-                time.sleep(2)
-                continue
-            return "[AGY TIMEOUT: exceeded timeout]"
-        except Exception as e:
-            return f"[AGY EXCEPTION: {e}]"
-
-
-# ── Response Parsing ──────────────────────────────────────────────────────────
-
-def parse_tool_calls_from_response(raw: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
-    """Extract tool calls and preliminary text from raw LLM output."""
-    raw = raw.strip()
-    code_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
-    json_str = code_match.group(1) if code_match else raw
-
-    if not code_match:
-        brace_match = re.search(r"(\{.*\})", raw, re.DOTALL)
-        if brace_match:
-            json_str = brace_match.group(1)
-
-    try:
-        data = json.loads(json_str)
-        if isinstance(data, dict):
-            calls = data.get("tool_calls") or []
-            if not calls and "tool_name" in data:
-                calls = [{"name": data["tool_name"], "args": data.get("arguments", {})}]
-            text = data.get("text") or data.get("message")
-            return calls, text
-    except Exception:
-        pass
-
-    return [], raw
-
-
-def is_bluf(answer: str) -> bool:
-    """Verifies that line 1 is a declarative clinical conclusion, not a title or label."""
-    text = (answer or "").lstrip()
-    if not text.startswith("**"):
-        return False
-    match = FIRST_BOLD_RE.match(text)
-    if not match:
-        return False
-    first = match.group(1).strip()
-    label_style = first.endswith(":") and len(first) > 25
-    return not label_style
 
 
 # ── Suite Evaluators ──────────────────────────────────────────────────────────

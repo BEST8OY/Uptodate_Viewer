@@ -30,10 +30,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Error
@@ -57,8 +59,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSliderState
@@ -71,6 +77,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -87,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
+import com.clinref.app.domain.ai.DecisionMode
 import com.clinref.app.domain.ai.ProviderSettings
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowWidthClass
@@ -107,6 +115,7 @@ fun AiSettingsScreen(
 ) {
     val configuration by viewModel.configuration.collectAsStateWithLifecycle()
     val apiKey by viewModel.apiKey.collectAsStateWithLifecycle()
+    val decisionApiKey by viewModel.decisionApiKey.collectAsStateWithLifecycle()
     val availableModels by viewModel.availableModels.collectAsStateWithLifecycle()
     val testResult by viewModel.testResult.collectAsStateWithLifecycle()
     val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
@@ -118,10 +127,7 @@ fun AiSettingsScreen(
         testResult = testResult,
         isSaving = isSaving,
         onBack = onBack,
-        onSave = {
-            viewModel.save()
-            onBack()
-        },
+        onSave = { viewModel.save(onSaved = onBack) },
         onTestConnection = { viewModel.testConnection() },
         onUpdateProvider = { viewModel.updateProvider(it) },
         onUpdateModel = { viewModel.updateModel(it) },
@@ -130,6 +136,9 @@ fun AiSettingsScreen(
         onUpdateTemperature = { viewModel.updateTemperature(it) },
         onUpdateMaxTokens = { viewModel.updateMaxTokens(it) },
         onUpdateProviderSettings = { viewModel.updateProviderSettings(it) },
+        decisionApiKey = decisionApiKey,
+        onUpdateDecisionMode = { viewModel.updateDecisionMode(it) },
+        onUpdateDecisionApiKey = { viewModel.updateDecisionApiKey(it) },
         modifier = modifier
     )
 }
@@ -155,9 +164,13 @@ fun AiSettingsContent(
     onUpdateTemperature: (Float) -> Unit,
     onUpdateMaxTokens: (Int) -> Unit,
     onUpdateProviderSettings: (ProviderSettings) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    decisionApiKey: String = "",
+    onUpdateDecisionMode: (DecisionMode) -> Unit = {},
+    onUpdateDecisionApiKey: (String) -> Unit = {}
 ) {
     var showApiKey by rememberSaveable { mutableStateOf(false) }
+    var showDecisionApiKey by rememberSaveable { mutableStateOf(false) }
     var showModelSheet by rememberSaveable { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -301,25 +314,12 @@ fun AiSettingsContent(
 
                         // API Key
                         if (configuration.provider != AiProvider.OLLAMA) {
-                            OutlinedTextField(
+                            ApiKeyField(
                                 value = apiKey,
                                 onValueChange = onUpdateApiKey,
-                                label = { Text("API Credential Key") },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = MaterialTheme.shapes.medium,
-                                visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Password,
-                                    imeAction = ImeAction.Done
-                                ),
-                                trailingIcon = {
-                                    IconButton(onClick = { showApiKey = !showApiKey }) {
-                                        Icon(
-                                            imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                            contentDescription = if (showApiKey) "Hide API key" else "Show API key"
-                                        )
-                                    }
-                                }
+                                label = "API Credential Key",
+                                visible = showApiKey,
+                                onToggleVisibility = { showApiKey = !showApiKey }
                             )
 
                             Row(
@@ -421,9 +421,21 @@ fun AiSettingsContent(
                         }
 
                         // Token Limits
+                        var maxTokensText by rememberSaveable(configuration.provider) {
+                            mutableStateOf(configuration.maxTokens.toString())
+                        }
+                        LaunchedEffect(configuration.maxTokens) {
+                            if (maxTokensText.toIntOrNull() != configuration.maxTokens && maxTokensText.isNotEmpty()) {
+                                maxTokensText = configuration.maxTokens.toString()
+                            }
+                        }
                         OutlinedTextField(
-                            value = configuration.maxTokens.toString(),
-                            onValueChange = { it.toIntOrNull()?.let { tokens -> onUpdateMaxTokens(tokens) } },
+                            value = maxTokensText,
+                            onValueChange = { raw ->
+                                val digitsOnly = raw.filter { it.isDigit() }
+                                maxTokensText = digitsOnly
+                                digitsOnly.toIntOrNull()?.coerceIn(256, 131_072)?.let(onUpdateMaxTokens)
+                            },
                             label = { Text("Max Output Tokens") },
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.medium,
@@ -447,6 +459,71 @@ fun AiSettingsContent(
                                 OpenRouterSettingsPanel(settings, onUpdate = onUpdateProviderSettings)
                             is ProviderSettings.Ollama ->
                                 OllamaSettingsPanel(settings, onUpdate = onUpdateProviderSettings)
+                        }
+                    }
+                }
+
+                // PANEL 2B: RETRIEVAL INTELLIGENCE (GEMINI DECISIONS API)
+                SettingsGroupCard(
+                    title = "Retrieval Intelligence",
+                    icon = Icons.Default.AutoAwesome
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            text = "Uses Gemini Decisions (gemini-decision-1) during search and topic overview " +
+                                "inspection to score candidate topics, sections, and clinical tables.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        val modes = DecisionMode.entries
+                        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                            modes.forEachIndexed { index, mode ->
+                                SegmentedButton(
+                                    selected = configuration.decisionSettings.mode == mode,
+                                    onClick = { onUpdateDecisionMode(mode) },
+                                    shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+                                    label = {
+                                        Text(
+                                            text = when (mode) {
+                                                DecisionMode.OFF -> "Off"
+                                                DecisionMode.RERANK -> "Rerank"
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = configuration.decisionSettings.mode != DecisionMode.OFF,
+                            enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                expandVertically(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
+                            exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
+                                shrinkVertically(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                if (configuration.provider != AiProvider.GOOGLE) {
+                                    ApiKeyField(
+                                        value = decisionApiKey,
+                                        onValueChange = onUpdateDecisionApiKey,
+                                        label = "Google Gemini API Key (Decisions API)",
+                                        visible = showDecisionApiKey,
+                                        onToggleVisibility = { showDecisionApiKey = !showDecisionApiKey }
+                                    )
+                                    Text(
+                                        text = "Saved locally as your Google Gemini credential so Decisions API works alongside ${configuration.provider.displayName}.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Uses your active Google Gemini API key configured above.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -804,4 +881,35 @@ private fun ProviderCard(
             )
         }
     }
+}
+
+@Composable
+private fun ApiKeyField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    visible: Boolean,
+    onToggleVisibility: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Done
+        ),
+        trailingIcon = {
+            IconButton(onClick = onToggleVisibility) {
+                Icon(
+                    imageVector = if (visible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (visible) "Hide API key" else "Show API key"
+                )
+            }
+        }
+    )
 }

@@ -89,11 +89,7 @@ class TestDirectiveComplianceNoFsearch:
             res4 = to_dict(tools.get_topic_sections_text.invoke({"topic_id": "1", "section_ids": ["Summary"]}))
             assert "error" not in res4, "get_topic_sections_text failed when fsearch.db was chmod 000!"
 
-            # 4. search_topic_sections
-            res5 = to_dict(tools.search_topic_sections.invoke({"topic_id": "1", "query": "dosing"}))
-            assert "matches" in res5, "search_topic_sections failed when fsearch.db was chmod 000!"
-
-            # 6. get_graphic_content (table)
+            # 4. get_graphic_content (table)
             res7 = tools.get_graphic_content.invoke({"graphic_id": "116392"})
             assert "Graphic Table:" in (res7.markdown or ""), "get_graphic_content failed when fsearch.db was chmod 000!"
 
@@ -158,11 +154,6 @@ class TestAdversarialInputsAndSQLInjection:
         res = to_dict(tools.get_topic_sections_text.invoke({"topic_id": bad_id, "section_ids": ["H1"]}))
         assert "error" in res, f"Expected error for sections text '{bad_id}', got: {res}"
 
-    @pytest.mark.parametrize("bad_id", MALFORMED_IDS)
-    def test_search_topic_sections_rejects_malformed_ids(self, bad_id):
-        res = to_dict(tools.search_topic_sections.invoke({"topic_id": bad_id, "query": "dosing"}))
-        assert len(res.get("matches", [])) == 0, f"Expected no matches for bad topic ID '{bad_id}'"
-
     def test_sections_text_malformed_section_ids(self):
         """Malformed section IDs (SQL injection, null bytes, non-existent) handled gracefully."""
         bad_sections = [
@@ -212,7 +203,7 @@ class TestConcurrencyAndThreadSafety:
         def worker(thread_idx: int):
             worker_errors = []
             for i in range(calls_per_thread):
-                op = (thread_idx * calls_per_thread + i) % 7
+                op = (thread_idx * calls_per_thread + i) % 6
                 try:
                     if op == 0:
                         r = to_dict(tools.get_topic_overview.invoke({"topic_id": "1"}))
@@ -230,9 +221,6 @@ class TestConcurrencyAndThreadSafety:
                         r = to_dict(tools.get_topic_sections_text.invoke({"topic_id": "1", "section_ids": ["Summary"]}))
                         assert r.get("topicId") == "1"
                     elif op == 5:
-                        r = to_dict(tools.search_topic_sections.invoke({"topic_id": "1", "query": "management"}))
-                        assert "matches" in r
-                    elif op == 6:
                         r = tools.get_graphic_content.invoke({"graphic_id": "116392"})
                         assert "Graphic Table:" in (r.markdown or "")
                 except Exception as e:
@@ -257,12 +245,12 @@ class TestDatabaseImmutability:
     def test_databases_unmodified_checksum_verification(self):
         # Known baseline hashes
         expected_hashes = {
-            "unidex.en.sqlite": "9144cd1f508ec1a56fc605fe97ca394d",
-            "utdasset.sqlite": "52f55c5ca1ba3b9dadd3e435a337189c",
+            "unidex.en.sqlite": "3fe9ba3d945f80f48e258f4b1b5b7bb2",
+            "utdasset.sqlite": "87a15a5f89569d1880d38044ee5ff3e3",
             "utdqf.sqlite": "7bceac354eb581c69eab9e051fba888b",
-            "fsearch.db": "5b68af4bafc2e3d6c4efc203954ea93b",
+            "fsearch.db": "981e3c56b5eb70de963437f7317bab77",
             "thumbs.db": "016b759647162f16f423ff1db9edacfb",
-            "utdtoc.db": "e3639e8a6122a69a8156e0afe9423374",
+            "utdtoc.db": "4e6786edb469303ffb9bc8a1e93c7c2e",
         }
 
         for db_name, expected_hash in expected_hashes.items():

@@ -69,13 +69,11 @@ fun ContentScreen(
     viewModel: ContentViewModel = koinViewModel(),
     modifier: Modifier = Modifier
 ) {
-    LaunchedEffect(topicId) {
-        viewModel.open(topicId, sectionId = sectionId)
-    }
-
-    LaunchedEffect(sectionId) {
-        if (sectionId != null) {
+    LaunchedEffect(topicId, sectionId) {
+        if (viewModel.currentTopicId.value == topicId && sectionId != null) {
             viewModel.scrollToSection(sectionId)
+        } else {
+            viewModel.open(topicId, sectionId = sectionId)
         }
     }
 
@@ -91,7 +89,6 @@ fun ContentScreen(
     val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
     val referenceDialog by viewModel.referenceDialog.collectAsStateWithLifecycle()
     val gradeDialog by viewModel.gradeDialog.collectAsStateWithLifecycle()
-    val policyDialog by viewModel.policyDialog.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
     val canGoForward by viewModel.canGoForward.collectAsStateWithLifecycle()
@@ -350,16 +347,9 @@ fun ContentScreen(
     }
 
     gradeDialog?.let { gData ->
-        GradeDialog(
+        GradeSheet(
             data = gData,
             onDismiss = { viewModel.dismissGradeDialog() }
-        )
-    }
-
-    policyDialog?.let { pData ->
-        PolicyDialog(
-            data = pData,
-            onDismiss = { viewModel.dismissPolicyDialog() }
         )
     }
 }

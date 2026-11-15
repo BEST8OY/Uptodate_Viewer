@@ -121,6 +121,8 @@ class CssBuilder(private val colors: ThemeColors) {
 html {
     font-size: 100%;
     scroll-behavior: smooth;
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 body {
@@ -131,9 +133,14 @@ body {
     background: var(--bg);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 ::selection { background: var(--selection); color: var(--on-primary); }
+::-moz-selection { background: var(--selection); color: var(--on-primary); }
+*::selection { background: var(--selection); color: var(--on-primary); }
+*::-moz-selection { background: var(--selection); color: var(--on-primary); }
 
 strong, b { font-weight: 600; }
 i, em { font-style: italic; }
@@ -169,8 +176,81 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     margin: 0 auto;
     padding: 24px 20px 48px;
     overflow-x: auto;
+    -webkit-user-select: text;
+    user-select: text;
 }
 #topicWhatsNewContainer { margin: 16px 0; min-height: 4px; }
+
+/* What's New & Practice Changing Update Callout Cards */
+.utdCallout {
+    margin: 20px 0;
+    padding: 16px 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.utdCallout.utdPCU {
+    border-left: 6px solid var(--caution);
+}
+
+.utdCallout.utdWhatsNew {
+    border-left: 6px solid var(--primary);
+}
+
+.calloutBadge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
+
+.utdPCU .calloutBadge {
+    background: var(--tertiary-container);
+    color: var(--on-tertiary-container);
+}
+
+.utdWhatsNew .calloutBadge {
+    background: var(--primary-container);
+    color: var(--on-primary-container);
+}
+
+.utdCallout .headingAnchor {
+    margin: 6px 0;
+}
+
+.utdCallout span.h1 {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.utdCallout span.h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.35;
+    color: var(--heading);
+    display: block;
+}
+
+.utdCallout .collapseContent {
+    margin-top: 10px;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: var(--text);
+}
+
+.utdCallout .collapseContent p {
+    margin: 8px 0;
+}
 #topicText { margin-top: 12px; }
 #topicText p { margin: 14px 0; text-align: left; }
 
@@ -629,7 +709,12 @@ ${sharedTableStyles()}
 }
 
 .collapsible-indication-title:hover { background: var(--bg); }
-.collapsible-indication-wrap, .collapsible-wrap { padding: 14px 18px; line-height: 1.6; }
+.collapsible-indication-wrap, .collapsible-wrap {
+    padding: 14px 18px;
+    line-height: 1.6;
+    -webkit-user-select: text;
+    user-select: text;
+}
 
 .ref-callout-list { display: inline; white-space: nowrap; }
 
@@ -898,7 +983,14 @@ body {
     color: var(--text);
     background: var(--bg);
     -webkit-font-smoothing: antialiased;
+    -webkit-user-select: text;
+    user-select: text;
 }
+
+::selection { background: var(--selection); color: var(--on-primary); }
+::-moz-selection { background: var(--selection); color: var(--on-primary); }
+*::selection { background: var(--selection); color: var(--on-primary); }
+*::-moz-selection { background: var(--selection); color: var(--on-primary); }
 
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -911,6 +1003,8 @@ a:hover { text-decoration: underline; }
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    -webkit-user-select: text;
+    user-select: text;
 }
 .figure { margin: 0; text-align: center; width: 100% !important; }
 
@@ -935,6 +1029,8 @@ a:hover { text-decoration: underline; }
     width: 100%;
     max-width: 100%;
     overflow-x: auto;
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 .cntnt img {

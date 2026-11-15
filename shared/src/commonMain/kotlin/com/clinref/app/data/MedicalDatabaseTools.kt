@@ -4,12 +4,8 @@ import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.app.repository.AssetRepository
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.SearchRepository
-import kotlinx.serialization.json.Json
-
-private const val TAG = "MedTools"
-
 // Maximum sections returned per getTopicSectionsText call; extras land in omittedSections
-private const val MAX_SECTIONS_PER_CALL = 10
+internal const val MAX_SECTIONS_PER_CALL = 20
 
 // SearchTopics result budget: hits returned, refine terms offered, and auto-refine retries.
 private const val MAX_SEARCH_RESULTS = 8
@@ -24,14 +20,12 @@ class MedicalDatabaseTools(
 
     val getTopicOverviewTool by lazy { com.clinref.app.data.tools.GetTopicOverviewTool(this) }
     val searchTopicsTool by lazy { com.clinref.app.data.tools.SearchTopicsTool(this) }
-    val searchTopicSectionsTool by lazy { com.clinref.app.data.tools.SearchTopicSectionsTool(this) }
     val getTopicSectionsTextTool by lazy { com.clinref.app.data.tools.GetTopicSectionsTextTool(this) }
     val getGraphicContentTool by lazy { com.clinref.app.data.tools.GetGraphicContentTool(this) }
 
     fun asToolList(): List<ai.koog.agents.core.tools.Tool<*, *>> = listOf(
         getTopicOverviewTool,
         searchTopicsTool,
-        searchTopicSectionsTool,
         getTopicSectionsTextTool,
         getGraphicContentTool
     )
@@ -39,11 +33,6 @@ class MedicalDatabaseTools(
     fun getTopicTitle(topicId: String): String? = contentRepository.getTopicTitle(topicId)
     fun getSectionTitle(topicId: String, sectionId: String): String? = contentRepository.getSectionTitle(topicId, sectionId)
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        explicitNulls = false
-        encodeDefaults = true
-    }
 
     companion object {
         private val A_TAG_REGEX = Regex(
@@ -82,6 +71,38 @@ class MedicalDatabaseTools(
         private val CITATION_BRACKETS_REGEX = Regex(
             """\[\s*\d+(?:\s*[-,–—]\s*\d+)*\s*\]"""
         )
+
+        // Precompiled heading replacement regexes
+        private val SPAN_H1_REGEX = Regex("""<span\s+[^>]*class=["']h1["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val SPAN_H2_REGEX = Regex("""<span\s+[^>]*class=["']h2["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val SPAN_H3_REGEX = Regex("""<span\s+[^>]*class=["']h3["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val SPAN_H4_6_REGEX = Regex("""<span\s+[^>]*class=["']h[4-6]["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val HEADING_END_MARK_REGEX = Regex("""<span\s+[^>]*class=["']headingEndMark["'][^>]*>.*?</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val FALLBACK_H1_REGEX = Regex("""</?h1\b[^>]*>""", RegexOption.IGNORE_CASE)
+        private val FALLBACK_H2_REGEX = Regex("""</?h2\b[^>]*>""", RegexOption.IGNORE_CASE)
+        private val FALLBACK_H3_6_REGEX = Regex("""</?h[3-6]\b[^>]*>""", RegexOption.IGNORE_CASE)
+
+        // Precompiled block element regexes
+        private val DT_REGEX = Regex("""<dt\b[^>]*>(.*?)</dt>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val DD_REGEX = Regex("""<dd\b[^>]*>(.*?)</dd>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val BULLET_INDENT_REGEX = Regex("""<p\b[^>]*class=["']bulletIndent\d*["'][^>]*>""", RegexOption.IGNORE_CASE)
+        private val GLYPH_REGEX = Regex("""<span\s+[^>]*class=["']glyph["'][^>]*>.*?</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val UL_OL_START_REGEX = Regex("<[uo]l\\b[^>]*>", RegexOption.IGNORE_CASE)
+        private val UL_OL_END_REGEX = Regex("</[uo]l>", RegexOption.IGNORE_CASE)
+        private val LI_START_REGEX = Regex("<li\\b[^>]*>", RegexOption.IGNORE_CASE)
+        private val LI_END_REGEX = Regex("</li>", RegexOption.IGNORE_CASE)
+        private val P_REGEX = Regex("</?p\\b[^>]*>", RegexOption.IGNORE_CASE)
+        private val BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
+        private val DIV_REGEX = Regex("</?div\\b[^>]*>", RegexOption.IGNORE_CASE)
+        private val STRONG_B_REGEX = Regex("</?(?:strong|b)\\b[^>]*>", RegexOption.IGNORE_CASE)
+        private val EM_I_REGEX = Regex("</?(?:em|i)\\b[^>]*>", RegexOption.IGNORE_CASE)
+
+        // Precompiled table conversion regexes
+        private val TABLE_REGEX = Regex("""<table\b[^>]*>(.*?)</table>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        private val TR_REGEX = Regex("""<tr\b[^>]*>(.*?)</tr>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        private val CELL_REGEX = Regex("""<(?:th|td)\b[^>]*>(.*?)</(?:th|td)>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        private val NEWLINE_REGEX = Regex("""[\r\n]+""")
+        private val RAW_GRAPHIC_PREFIX_REGEX = Regex("(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)")
     }
 
     fun searchTopics(query: String): SearchTopicsResponse {
@@ -182,8 +203,6 @@ class MedicalDatabaseTools(
             ?: return TopicSectionsResponse(topicId = cleanTopicId, topicTitle = "", markdown = "", error = "Topic not found: $cleanTopicId")
 
         val topicTitle = contentTitle(content, cleanTopicId)
-        val topicTitles = mutableMapOf<String, String>()
-        topicTitles[cleanTopicId] = topicTitle
 
         // Build section ID -> title map from parsed outline
         val sections = parseOutlineSections(content.outlineHtml)
@@ -192,9 +211,7 @@ class MedicalDatabaseTools(
         val cleanUpper = sectionIds.map { it.trim().uppercase() }
         val isCalc = content.topicType == "calc" || content.outlineHtml.isBlank()
         if (idToTitle.isEmpty() || isCalc || cleanUpper.contains("FULL") || cleanUpper.contains("ALL")) {
-            val markdown = htmlToMarkdown(content.bodyHtml) { tid ->
-                topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
-            }
+            val markdown = htmlToMarkdown(content.bodyHtml)
             val header = if (isCalc) "=== Calculator: $topicTitle ===" else "=== Section: FULL ==="
             val fullText = "$header\n$markdown"
             return TopicSectionsResponse(
@@ -211,7 +228,7 @@ class MedicalDatabaseTools(
                 topicTitle = topicTitle,
                 sectionTitles = emptyMap(),
                 markdown = "",
-                error = "sectionIds cannot be empty. Specify 1 to 10 section IDs from getTopicOverview."
+                error = "sectionIds cannot be empty. Specify 1 to $MAX_SECTIONS_PER_CALL section IDs from getTopicOverview."
             )
         }
 
@@ -270,34 +287,37 @@ class MedicalDatabaseTools(
         val sectionsMd = mutableListOf<String>()
         val sectionTitles = mutableMapOf<String, String>()
         val omittedSections = mutableListOf<String>()
+        val successfullyExtractedIds = mutableSetOf<String>()
+        var extractedContentCount = 0
 
-        sortedValidIds.forEachIndexed { index, sectionId ->
-
-            // Count guard: at most MAX_SECTIONS_PER_CALL sections are returned per call;
-            // extra IDs are reported in omittedSections (never dropped silently).
-            if (index >= MAX_SECTIONS_PER_CALL) {
-                omittedSections.add(sectionId)
-                return@forEachIndexed
-            }
-
+        for (sectionId in sortedValidIds) {
             val title = idToTitle[sectionId] ?: ""
             val subsumedBy = subsumedMap[sectionId]
-            val secEntry = if (subsumedBy != null) {
-                "=== Section: $sectionId ===\n(Content included in section [$subsumedBy] above)"
+
+            if (subsumedBy != null && subsumedBy in successfullyExtractedIds) {
+                // Subsumed subsection: lightweight pointer stub; does not consume an unextracted content slot.
+                val secEntry = "=== Section: $sectionId ===\n(Content included in section [$subsumedBy] above)"
+                sectionsMd.add(secEntry)
+                sectionTitles[sectionId] = title
             } else {
+                // Non-subsumed content section: check extraction budget
+                if (extractedContentCount >= MAX_SECTIONS_PER_CALL) {
+                    omittedSections.add(sectionId)
+                    continue
+                }
+
                 val sectionHtml = extractSectionHtml(content.bodyHtml, sections, sectionId)
                 val secMarkdown = if (sectionHtml != null) {
-                    htmlToMarkdown(sectionHtml) { tid ->
-                        topicTitles.getOrPut(tid) { contentRepository.getTopicTitle(tid) ?: tid }
-                    }
+                    successfullyExtractedIds.add(sectionId)
+                    extractedContentCount++
+                    htmlToMarkdown(sectionHtml)
                 } else {
                     "Section not found."
                 }
-                "=== Section: $sectionId ===\n$secMarkdown"
+                val secEntry = "=== Section: $sectionId ===\n$secMarkdown"
+                sectionsMd.add(secEntry)
+                sectionTitles[sectionId] = title
             }
-
-            sectionsMd.add(secEntry)
-            sectionTitles[sectionId] = title
         }
 
         return TopicSectionsResponse(
@@ -312,7 +332,7 @@ class MedicalDatabaseTools(
 
     fun getGraphicContent(graphicId: String): GraphicContentResponse {
         val cleanId = graphicId.trim()
-        val rawGraphicId = cleanId.replace(Regex("(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)"), "")
+        val rawGraphicId = cleanId.replace(RAW_GRAPHIC_PREFIX_REGEX, "")
 
         val graphicData = assetRepository.getGraphic(rawGraphicId)
             ?: (if (rawGraphicId != cleanId) assetRepository.getGraphic(cleanId) else null)
@@ -339,117 +359,6 @@ class MedicalDatabaseTools(
             markdown = fullMarkdown
         )
     }
-
-    /**
-     * Search within a topic's sections for clinical keywords, returning matching section IDs,
-     * titles, hierarchy level, and contextual snippets.
-     *
-     * Matching semantics (mirrors python_prototype/tools.py search_topic_sections): the query
-     * is split into whitespace-separated keywords and a section matches when ANY keyword occurs
-     * in its title or plain-text body — a multi-word query such as "acetaminophen dosing" must
-     * NOT be treated as a verbatim phrase. Keyword hits in the title rank above body-only hits
-     * (score = titleHits*3 + textHits); the top 8 are returned, snippets are cut from the
-     * earliest keyword occurrence in the plain-tag-stripped body text.
-     */
-    fun searchTopicSections(topicId: String, query: String): SearchTopicSectionsResponse {
-        val cleanTopicId = topicId.trim()
-        val cleanQuery = query.trim()
-
-        val content = contentRepository.getTopicContent(cleanTopicId)
-            ?: return SearchTopicSectionsResponse(topicId = cleanTopicId, query = cleanQuery, error = "Topic not found: $cleanTopicId")
-
-        if (cleanQuery.isEmpty()) {
-            return SearchTopicSectionsResponse(
-                topicId = cleanTopicId,
-                query = cleanQuery,
-                message = "Topic ID and query must be non-empty."
-            )
-        }
-
-        val sections = parseOutlineSections(content.outlineHtml)
-        if (sections.isEmpty()) {
-            return SearchTopicSectionsResponse(
-                topicId = cleanTopicId,
-                query = cleanQuery,
-                message = "No sections found in topic outline."
-            )
-        }
-
-        val keywords = cleanQuery.lowercase().split(WHITESPACE_REGEX).filter { it.isNotBlank() }
-        if (keywords.isEmpty()) {
-            return SearchTopicSectionsResponse(
-                topicId = cleanTopicId,
-                query = cleanQuery,
-                message = "Topic ID and query must be non-empty."
-            )
-        }
-
-        val scored = mutableListOf<ScoredMatch>()
-
-        for (section in sections) {
-            val sectionHtml = extractSectionHtml(content.bodyHtml, sections, section.id) ?: continue
-            val sectionText = STRIP_TAGS_REGEX.replace(sectionHtml, " ")
-                .replace(WHITESPACE_REGEX, " ")
-                .trim()
-            val titleLower = section.title.lowercase()
-            val textLower = sectionText.lowercase()
-
-            val titleHits = keywords.count { titleLower.contains(it) }
-            val textHits = keywords.count { textLower.contains(it) }
-            if (titleHits == 0 && textHits == 0) continue
-
-            var firstIdx = -1
-            var matchedKeyword = ""
-            for (keyword in keywords) {
-                val idx = textLower.indexOf(keyword)
-                if (idx >= 0 && (firstIdx < 0 || idx < firstIdx)) {
-                    firstIdx = idx
-                    matchedKeyword = keyword
-                }
-            }
-
-            val snippet = if (firstIdx >= 0) {
-                val start = maxOf(0, firstIdx - 60)
-                val end = minOf(sectionText.length, firstIdx + matchedKeyword.length + 90)
-                (if (start > 0) "..." else "") +
-                    sectionText.substring(start, end).trim() +
-                    (if (end < sectionText.length) "..." else "")
-            } else {
-                sectionText.take(150) + (if (sectionText.length > 150) "..." else "")
-            }
-
-            scored.add(
-                ScoredMatch(
-                    result = SectionSearchResult(
-                        sectionId = section.id,
-                        sectionTitle = section.title,
-                        level = section.level,
-                        snippet = snippet
-                    ),
-                    score = titleHits * 3 + textHits
-                )
-            )
-        }
-
-        scored.sortByDescending { it.score }
-        val topMatches = scored.take(8).map { it.result }
-
-        return SearchTopicSectionsResponse(
-            topicId = cleanTopicId,
-            query = cleanQuery,
-            matches = topMatches,
-            message = if (topMatches.isNotEmpty()) {
-                "Found ${topMatches.size} matching sections."
-            } else {
-                "No matching sections found for '$cleanQuery'."
-            }
-        )
-    }
-
-    private data class ScoredMatch(
-        val result: SectionSearchResult,
-        val score: Int
-    )
 
     internal data class ParsedSection(
         val id: String,
@@ -639,24 +548,24 @@ class MedicalDatabaseTools(
         s = SDI_LOOKUP_TABLES_REGEX.replace(s, "")
 
         // Convert UpToDate heading anchors to markdown headers
-        s = s.replace(Regex("""<span\s+[^>]*class=["']h1["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "\n\n## $1\n\n")
-        s = s.replace(Regex("""<span\s+[^>]*class=["']h2["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "\n\n### $1\n\n")
-        s = s.replace(Regex("""<span\s+[^>]*class=["']h3["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "\n\n#### $1\n\n")
-        s = s.replace(Regex("""<span\s+[^>]*class=["']h[4-6]["'][^>]*>(.*?)</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "\n\n##### $1\n\n")
-        s = s.replace(Regex("""<span\s+[^>]*class=["']headingEndMark["'][^>]*>.*?</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), " ")
+        s = s.replace(SPAN_H1_REGEX, "\n\n## $1\n\n")
+        s = s.replace(SPAN_H2_REGEX, "\n\n### $1\n\n")
+        s = s.replace(SPAN_H3_REGEX, "\n\n#### $1\n\n")
+        s = s.replace(SPAN_H4_6_REGEX, "\n\n##### $1\n\n")
+        s = s.replace(HEADING_END_MARK_REGEX, " ")
 
         // Standard headings fallback
-        s = s.replace(Regex("""</?h1\b[^>]*>""", RegexOption.IGNORE_CASE), "\n\n# ")
-        s = s.replace(Regex("""</?h2\b[^>]*>""", RegexOption.IGNORE_CASE), "\n\n## ")
-        s = s.replace(Regex("""</?h[3-6]\b[^>]*>""", RegexOption.IGNORE_CASE), "\n\n### ")
+        s = s.replace(FALLBACK_H1_REGEX, "\n\n# ")
+        s = s.replace(FALLBACK_H2_REGEX, "\n\n## ")
+        s = s.replace(FALLBACK_H3_6_REGEX, "\n\n### ")
 
         // Definition lists (<dt>, <dd>)
-        s = s.replace(Regex("""<dt\b[^>]*>(.*?)</dt>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "\n- **$1**: ")
-        s = s.replace(Regex("""<dd\b[^>]*>(.*?)</dd>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), "$1\n")
+        s = s.replace(DT_REGEX, "\n- **$1**: ")
+        s = s.replace(DD_REGEX, "$1\n")
 
         // Bullet indentations
-        s = s.replace(Regex("""<p\b[^>]*class=["']bulletIndent\d*["'][^>]*>""", RegexOption.IGNORE_CASE), "\n- ")
-        s = s.replace(Regex("""<span\s+[^>]*class=["']glyph["'][^>]*>.*?</span>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)), " ")
+        s = s.replace(BULLET_INDENT_REGEX, "\n- ")
+        s = s.replace(GLYPH_REGEX, " ")
 
         // Convert links
         s = A_TAG_REGEX.replace(s) { match ->
@@ -702,16 +611,16 @@ class MedicalDatabaseTools(
         s = convertHtmlTablesToMarkdown(s)
 
         // Block elements
-        s = s.replace(Regex("<[uo]l\\b[^>]*>", RegexOption.IGNORE_CASE), "\n")
-        s = s.replace(Regex("</[uo]l>", RegexOption.IGNORE_CASE), "\n")
-        s = s.replace(Regex("<li\\b[^>]*>", RegexOption.IGNORE_CASE), "\n- ")
-        s = s.replace(Regex("</li>", RegexOption.IGNORE_CASE), "")
-        s = s.replace(Regex("</?p\\b[^>]*>", RegexOption.IGNORE_CASE), "\n\n")
-        s = s.replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
-        s = s.replace(Regex("</?div\\b[^>]*>", RegexOption.IGNORE_CASE), "\n")
+        s = s.replace(UL_OL_START_REGEX, "\n")
+        s = s.replace(UL_OL_END_REGEX, "\n")
+        s = s.replace(LI_START_REGEX, "\n- ")
+        s = s.replace(LI_END_REGEX, "")
+        s = s.replace(P_REGEX, "\n\n")
+        s = s.replace(BR_REGEX, "\n")
+        s = s.replace(DIV_REGEX, "\n")
 
-        s = s.replace(Regex("</?(?:strong|b)\\b[^>]*>", RegexOption.IGNORE_CASE), "**")
-        s = s.replace(Regex("</?(?:em|i)\\b[^>]*>", RegexOption.IGNORE_CASE), "*")
+        s = s.replace(STRONG_B_REGEX, "**")
+        s = s.replace(EM_I_REGEX, "*")
 
         s = s.replace(STRIP_TAGS_REGEX, "")
 
@@ -735,20 +644,15 @@ class MedicalDatabaseTools(
     }
 
     private fun convertHtmlTablesToMarkdown(html: String): String {
-        val tableRegex = Regex("""<table\b[^>]*>(.*?)</table>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        val trRegex = Regex("""<tr\b[^>]*>(.*?)</tr>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        val cellRegex = Regex("""<(?:th|td)\b[^>]*>(.*?)</(?:th|td)>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        val tagStripRegex = Regex("""<[^>]+>""")
-
-        return tableRegex.replace(html) { matchResult ->
+        return TABLE_REGEX.replace(html) { matchResult ->
             val tableContent = matchResult.groupValues[1]
-            val rows = trRegex.findAll(tableContent).map { trMatch ->
-                cellRegex.findAll(trMatch.groupValues[1]).map { cellMatch ->
-                    var cellText = tagStripRegex.replace(cellMatch.groupValues[1], "")
+            val rows = TR_REGEX.findAll(tableContent).map { trMatch ->
+                CELL_REGEX.findAll(trMatch.groupValues[1]).map { cellMatch ->
+                    var cellText = STRIP_TAGS_REGEX.replace(cellMatch.groupValues[1], "")
                     cellText = decodeHtmlEntities(cellText)
                     // Keep each table row on a single line: replace newlines with space
-                    cellText = cellText.replace(Regex("""[\r\n]+"""), " ")
-                    cellText = cellText.replace(Regex("""\s+"""), " ")
+                    cellText = cellText.replace(NEWLINE_REGEX, " ")
+                    cellText = cellText.replace(WHITESPACE_REGEX, " ")
                     cellText = cellText.replace("|", "\\|").trim()
                     cellText
                 }.toList()

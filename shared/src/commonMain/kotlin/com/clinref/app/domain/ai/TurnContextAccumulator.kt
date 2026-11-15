@@ -2,7 +2,6 @@ package com.clinref.app.domain.ai
 
 import com.clinref.shared.platform.PlatformLogger as Log
 import com.clinref.app.data.GraphicContentResponse
-import com.clinref.app.data.SearchTopicSectionsResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
 import com.clinref.app.data.TopicSectionsResponse
@@ -28,6 +27,7 @@ class TurnContextAccumulator(
     private val toolCalls = CopyOnWriteArrayList<SafetyValidator.ToolCallRecord>()
     private val toolResults = CopyOnWriteArrayList<String>()
     private val fetchedSections = CopyOnWriteArrayList<SafetyValidator.FetchedSection>()
+    private val fetchedGraphics = CopyOnWriteArrayList<SafetyValidator.FetchedGraphic>()
     private val graphicIds = CopyOnWriteArraySet<String>()
     private val graphicTitles = ConcurrentHashMap<String, String>()
     private val topicTitles = ConcurrentHashMap<String, String>()
@@ -36,22 +36,27 @@ class TurnContextAccumulator(
     private var userQuestion: String = ""
     private var patientProfile: PatientProfile? = null
 
+    private val stateLock = Any()
     private val pendingToolArgs = ConcurrentHashMap<String, String>()
-    private val executedToolCalls = CopyOnWriteArrayList<Pair<String, String>>() // toolName, argsJson
+    private val executedToolCalls = mutableListOf<Pair<String, String>>() // toolName, argsJson (guarded by stateLock)
     private val json = AiJsonUtils.json
+    @Volatile
     private var lastTopicId: String = ""
 
     fun reset() {
         toolCalls.clear()
         toolResults.clear()
         fetchedSections.clear()
+        fetchedGraphics.clear()
         graphicIds.clear()
         graphicTitles.clear()
         topicTitles.clear()
         outlineSections.clear()
         graphicToTopic.clear()
         pendingToolArgs.clear()
-        executedToolCalls.clear()
+        synchronized(stateLock) {
+            executedToolCalls.clear()
+        }
         userQuestion = ""
         patientProfile = null
         lastTopicId = ""
@@ -73,6 +78,48 @@ class TurnContextAccumulator(
 
     fun getToolCalls(): List<SafetyValidator.ToolCallRecord> = toolCalls.toList()
     fun getFetchedSections(): List<SafetyValidator.FetchedSection> = fetchedSections.toList()
+    fun getFetchedGraphics(): List<SafetyValidator.FetchedGraphic> = fetchedGraphics.toList()
+
+    fun hasFetchedSection(topicId: String, sectionId: String): Boolean =
+        fetchedSections.any {
+            it.topicId == topicId &&
+                (it.sectionId == sectionId || it.sectionId.equals("FULL", ignoreCase = true))
+        }
+
+    fun hasFetchedGraphic(graphicId: String): Boolean =
+        graphicIds.contains(AiJsonUtils.cleanGraphicId(graphicId))
+
+    /**
+     * Formats a summary of candidate topics, outline sections, and table graphics
+     * discovered so far when no section text or table content has been fetched yet.
+     */
+    fun buildDiscoveredInventorySummary(): String {
+        val parts = mutableListOf<String>()
+        if (outlineSections.isNotEmpty()) {
+            parts.add("Discovered Section Outlines (call getTopicSectionsText with these IDs):")
+            outlineSections.forEach { (tid, sMap) ->
+                val title = topicTitles[tid] ?: tid
+                val itemsStr = sMap.entries.take(12).joinToString(", ") { "${it.key} (${it.value})" }
+                parts.add("- Topic [$tid] '$title': $itemsStr")
+            }
+        } else if (topicTitles.isNotEmpty()) {
+            parts.add("Discovered Candidate Topics (call getTopicOverview with a topicId):")
+            topicTitles.entries.take(8).forEach { (tid, title) ->
+                parts.add("- [$tid] $title")
+            }
+        }
+        if (graphicTitles.isNotEmpty()) {
+            parts.add("Discovered Tables (call getGraphicContent with a graphicId):")
+            graphicTitles.entries.take(6).forEach { (gid, title) ->
+                parts.add("- [$gid] $title")
+            }
+        }
+        return if (parts.isNotEmpty()) {
+            parts.joinToString("\n")
+        } else {
+            SystemPrompt.NOTHING_RETRIEVED_PLACEHOLDER
+        }
+    }
 
     fun onToolCallStarting(toolCallId: String, args: String) {
         if (toolCallId.isNotBlank()) {
@@ -97,34 +144,33 @@ class TurnContextAccumulator(
 
         // Deduplication: if same tool+args already executed, skip
         val argsKey = args.trim()
-        val alreadyExecuted = executedToolCalls.any { (name, cachedArgs) ->
-            name == canonicalName && cachedArgs == argsKey
-        }
-        if (alreadyExecuted) return
-
-        executedToolCalls.add(canonicalName to argsKey)
-
         val parsedArgs = AiJsonUtils.normalizeArgs(parseArguments(args))
-
         val logicalSuccess = success && !isLogicalFailure(result)
 
-        toolCalls.add(
-            SafetyValidator.ToolCallRecord(
-                toolName = canonicalName,
-                arguments = parsedArgs,
-                result = result,
-                success = logicalSuccess
-            )
-        )
-        toolResults.add(result)
+        synchronized(stateLock) {
+            val alreadyExecuted = executedToolCalls.any { (name, cachedArgs) ->
+                name == canonicalName && cachedArgs == argsKey
+            }
+            if (alreadyExecuted) return
+            executedToolCalls.add(canonicalName to argsKey)
 
-        if (logicalSuccess) {
-            when (canonicalName) {
-                "getTopicOverview" -> parseTopicOverviewResult(parsedArgs, result)
-                "searchTopics" -> parseSearchResults(result)
-                "searchTopicSections" -> parseSearchTopicSectionsResult(parsedArgs, result)
-                "getTopicSectionsText" -> parseBatchSectionResult(parsedArgs, result)
-                "getGraphicContent" -> parseGraphicResult(parsedArgs, result)
+            toolCalls.add(
+                SafetyValidator.ToolCallRecord(
+                    toolName = canonicalName,
+                    arguments = parsedArgs,
+                    result = result,
+                    success = logicalSuccess
+                )
+            )
+            toolResults.add(result)
+
+            if (logicalSuccess) {
+                when (canonicalName) {
+                    "getTopicOverview" -> parseTopicOverviewResult(parsedArgs, result)
+                    "searchTopics" -> parseSearchResults(result)
+                    "getTopicSectionsText" -> parseBatchSectionResult(parsedArgs, result)
+                    "getGraphicContent" -> parseGraphicResult(parsedArgs, result)
+                }
             }
         }
     }
@@ -183,11 +229,18 @@ class TurnContextAccumulator(
             SafetyValidator.GraphicRef(gid, title, parentTopicId)
         }
 
+        val resolvedGraphics = fetchedGraphics.map { fg ->
+            val resolvedTitle = fg.title.ifBlank { graphicTitles[fg.graphicId] ?: "" }
+            val resolvedTopic = fg.topicId.ifBlank { graphicToTopic[fg.graphicId] ?: "" }
+            fg.copy(title = resolvedTitle, topicId = resolvedTopic)
+        }
+
         return SafetyValidator.TurnContext(
             toolCalls = toolCalls.toList(),
             answer = cleanAnswer,
             toolResults = toolResults.toList(),
             fetchedSections = sectionsWithTitle,
+            fetchedGraphics = resolvedGraphics,
             graphicIds = graphicIds.toSet(),
             userQuestion = userQuestion,
             topicRefs = finalTopicRefs,
@@ -258,27 +311,6 @@ class TurnContextAccumulator(
             }
         } catch (e: Exception) {
             Log.w(TAG, "parseSearchResults: ${e.message}")
-        }
-    }
-
-    private fun parseSearchTopicSectionsResult(args: Map<String, String>, result: String) {
-        try {
-            val unquoted = AiJsonUtils.extractJsonString(result)
-            val res = json.decodeFromString<SearchTopicSectionsResponse>(unquoted)
-            val topicId = res.topicId.ifBlank { args["topicId"] ?: args["topic_id"] ?: return }
-            lastTopicId = topicId
-            val sectionMap = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
-            for (item in res.matches) {
-                val cleanTitle = AiJsonUtils.cleanSectionTitle(item.sectionTitle)
-                if (cleanTitle.isNotBlank()) {
-                    sectionMap[item.sectionId] = cleanTitle
-                }
-            }
-            if (sectionMap.isNotEmpty()) {
-                outlineSections[topicId] = sectionMap
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "parseSearchTopicSectionsResult: ${e.message}")
         }
     }
 
@@ -359,7 +391,7 @@ class TurnContextAccumulator(
         val finalTopicTitle = resolveTopicTitle(topicId, respTopicTitle)
 
         for (sectionId in sectionIds) {
-            if (sectionId.isNotEmpty()) {
+            if (sectionId.isNotEmpty() && !hasFetchedSection(topicId, sectionId)) {
                 val resolvedTitle = AiJsonUtils.cleanSectionTitle(
                     sectionMap[sectionId]
                         ?: outlineSections[topicId]?.get(sectionId)
@@ -411,6 +443,18 @@ class TurnContextAccumulator(
                     graphicTitles[graphicId] = title
                     graphicTitles[cleanId] = title
                 }
+                val markdown = res.markdown.trim()
+                if (markdown.isNotEmpty() && fetchedGraphics.none { it.graphicId == cleanId }) {
+                    val parentTopicId = graphicToTopic[graphicId] ?: graphicToTopic[cleanId] ?: ""
+                    fetchedGraphics.add(
+                        SafetyValidator.FetchedGraphic(
+                            graphicId = cleanId,
+                            title = title.ifEmpty { graphicTitles[cleanId] ?: "" },
+                            markdown = markdown,
+                            topicId = parentTopicId
+                        )
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "parseGraphicResult: ${e.message}")
@@ -418,12 +462,22 @@ class TurnContextAccumulator(
                 val cleanId = AiJsonUtils.cleanGraphicId(graphicIdFromArgs)
                 graphicIds.add(cleanId)
                 val match = AiJsonUtils.GRAPHIC_TABLE_REGEX.find(unquoted)
-                if (match != null) {
-                    val title = match.groupValues[1].trim()
-                    if (title.isNotEmpty()) {
-                        graphicTitles[graphicIdFromArgs] = title
-                        graphicTitles[cleanId] = title
-                    }
+                val title = match?.groupValues?.get(1)?.trim().orEmpty()
+                if (title.isNotEmpty()) {
+                    graphicTitles[graphicIdFromArgs] = title
+                    graphicTitles[cleanId] = title
+                }
+                val markdown = unquoted.trim()
+                if (markdown.isNotEmpty() && fetchedGraphics.none { it.graphicId == cleanId }) {
+                    val parentTopicId = graphicToTopic[graphicIdFromArgs] ?: graphicToTopic[cleanId] ?: ""
+                    fetchedGraphics.add(
+                        SafetyValidator.FetchedGraphic(
+                            graphicId = cleanId,
+                            title = title.ifEmpty { graphicTitles[cleanId] ?: "" },
+                            markdown = markdown,
+                            topicId = parentTopicId
+                        )
+                    )
                 }
             }
         }
@@ -467,7 +521,7 @@ class TurnContextAccumulator(
 
             // Calculator topic evidence
             val finalTopicTitle = resolveTopicTitle(topicId, title)
-            if (res.topicType == "calc") {
+            if (res.topicType == "calc" && !hasFetchedSection(topicId, "FULL")) {
                 fetchedSections.add(
                     SafetyValidator.FetchedSection(
                         topicId = topicId,

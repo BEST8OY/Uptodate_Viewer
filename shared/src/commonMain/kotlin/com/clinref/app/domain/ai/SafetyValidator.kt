@@ -43,6 +43,13 @@ class SafetyValidator {
         val contentSnippet: String = ""
     )
 
+    data class FetchedGraphic(
+        val graphicId: String,
+        val title: String = "",
+        val markdown: String = "",
+        val topicId: String = ""
+    )
+
     @Serializable
     data class TopicRef(
         val topicId: String,
@@ -63,6 +70,7 @@ class SafetyValidator {
         val answer: String,
         val toolResults: List<String> = emptyList(),
         val fetchedSections: List<FetchedSection> = emptyList(),
+        val fetchedGraphics: List<FetchedGraphic> = emptyList(),
         val graphicIds: Set<String> = emptySet(),
         val userQuestion: String = "",
         val topicRefs: List<TopicRef> = emptyList(),
@@ -112,9 +120,20 @@ class SafetyValidator {
         return context.toolCalls.any { it.success && it.toolName in CONTENT_TOOL_NAMES }
     }
 
-    /** Gate 2 — answer-content rules (verbatim quantities, no graphic interpretation). */
-    fun validateAnswer(context: TurnContext): List<Violation> =
-        unverifiedQuantityViolations(context) + graphicInterpretationViolations(context)
+    /** Gate 2 — answer-content rules (non-blank, verbatim quantities, no graphic interpretation). */
+    fun validateAnswer(context: TurnContext): List<Violation> {
+        if (context.answer.isBlank()) {
+            val hasEvidence = capturedContent(context)
+            return listOf(
+                Violation(
+                    code = if (hasEvidence) ViolationCodes.BLANK_WITH_EVIDENCE else ViolationCodes.BLANK_NO_EVIDENCE,
+                    detail = if (hasEvidence) BLANK_WITH_EVIDENCE_REASON else BLANK_NO_EVIDENCE_REASON,
+                    target = if (hasEvidence) ViolationTarget.PHASE_2 else ViolationTarget.PHASE_1
+                )
+            )
+        }
+        return unverifiedQuantityViolations(context) + graphicInterpretationViolations(context)
+    }
 
     companion object {
         const val NO_TOOLS_REASON = "Clinical recommendations require database verification. No database tools were executed."
@@ -127,11 +146,20 @@ class SafetyValidator {
          * vocabulary that actually occurs in the UpToDate corpus (dose masses, concentrations,
          * electrolytes, pressures, activity units, percentages, and durations).
          */
+        private const val NUM_PATTERN = """\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?"""
+
+        /**
+         * Matches numbers (including thousand-separated decimals like 1,500.5) and compound
+         * clinical units (e.g., mg/kg/day, mcg/kg/min, mg/dL, mL/min/1.73m2) before atomic units.
+         */
         val clinicalQuantityRegex = Regex(
-            """(?<![\w.])(\d+(?:[.,]\d+)?)(?:\s*(?:-|–|—|to)\s*(\d+(?:[.,]\d+)?))?\s*""" +
-                """([μµ]g|mcg|mg|mEq|mmol|mOsm|mU|mL|m2|IU|ng|pg|kg|dL|mmHg|cmH2O|g|L|%|percent|units?|years?|months?|weeks?|days?|hours?|minutes?|q\d+h?)(?!\w)""",
+            """(?<![\w.,])(""" + NUM_PATTERN + """)(?:\s*(?:-|–|—|to)\s*(""" + NUM_PATTERN + """))?\s*""" +
+                """((?:[μµ]g|ug|mcg|mg|g|mEq|mmol|mOsm|mU|IU|units?|mL|L|ng|pg)(?:\s*/\s*(?:kg|m2|m²|dL|L|mL|min|hr|h|day|d|1\.73\s*m[2²]))+(?:\s*/\s*(?:min|hr|h|day|d|1\.73\s*m[2²]))?|""" +
+                """[μµ]g|ug|mcg|mg|mEq|mmol|mOsm|mU|mL|m2|m²|IU|ng|pg|kg|dL|mmHg|cmH2O|g|L|%|percent|units?|years?|months?|weeks?|days?|hours?|minutes?|q\d+h?)(?![\w/])""",
             RegexOption.IGNORE_CASE
         )
+
+        private val THOUSAND_COMMA_REGEX = Regex("""^\d{1,3}(?:,\d{3})+(?:\.\d+)?$""")
 
         private val UNIT_ALIASES = mapOf(
             "percent" to "%",
@@ -159,17 +187,28 @@ class SafetyValidator {
 
         private val UNICODE_ESCAPE_REGEX = Regex("""\\u([0-9a-fA-F]{4})""")
 
-        /** "1,200" -> "1200", "2.0" -> "2", "10.50" -> "10.5". */
+        /**
+         * Normalizes thousand-separated numbers ("1,500" -> "1500") while preserving
+         * European decimal commas ("1,5" -> "1.5") so "1,5 mg" never canonicalizes to "15 mg".
+         */
         internal fun canonicalNumber(raw: String): String {
-            val noCommas = raw.replace(",", "")
-            if (!noCommas.contains('.')) return noCommas
-            return noCommas.trimEnd('0').trimEnd('.').ifEmpty { "0" }
+            val trimmed = raw.trim()
+            val dotNormalized = when {
+                trimmed.contains(',') && trimmed.contains('.') -> trimmed.replace(",", "")
+                THOUSAND_COMMA_REGEX.matches(trimmed) -> trimmed.replace(",", "")
+                trimmed.contains(',') -> trimmed.replace(',', '.')
+                else -> trimmed
+            }
+            if (!dotNormalized.contains('.')) return dotNormalized
+            return dotNormalized.trimEnd('0').trimEnd('.').ifEmpty { "0" }
         }
 
         internal fun canonicalUnit(raw: String): String {
-            val lower = raw.trim().lowercase()
-            VARIANT_UNIT_ALIASES[lower]?.let { return it }
-            return UNIT_ALIASES[lower] ?: lower
+            val parts = raw.trim().lowercase().replace(Regex("""\s*/\s*"""), "/").split("/")
+            val mapped = parts.joinToString("/") { part ->
+                VARIANT_UNIT_ALIASES[part] ?: part.replace("m²", "m2").replace(Regex("""\s+"""), "")
+            }
+            return UNIT_ALIASES[mapped] ?: mapped
         }
 
         /**
@@ -199,6 +238,7 @@ class SafetyValidator {
         val parts = mutableListOf<String>()
         parts += context.toolResults
         parts += context.fetchedSections.map { it.contentSnippet }.filter { it.isNotBlank() }
+        parts += context.fetchedGraphics.map { it.markdown }.filter { it.isNotBlank() }
         parts += context.fetchedSections.map { it.topicTitle }.filter { it.isNotBlank() }
         parts += context.fetchedSections.map { it.sectionTitle }.filter { it.isNotBlank() }
         parts += context.graphicRefs.map { it.label }.filter { it.isNotBlank() }

@@ -40,6 +40,55 @@ def clean_html_text(raw: Optional[str]) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def inject_whats_new_html(body_html: str, whats_new_info: Optional[list]) -> str:
+    """Inject What's New and Practice Changing Update (PCU) HTML cards into #topicWhatsNewContainer.
+
+    Ensures:
+    1. Readers see active clinical updates at the top of the article.
+    2. TOC outline anchors (PCU0, WhatsNew0) scroll directly to their respective cards.
+    3. extract_section_html can extract update text using standard outline boundaries.
+    """
+    if not body_html or not whats_new_info or not isinstance(whats_new_info, list):
+        return body_html
+
+    pcus = [x for x in whats_new_info if isinstance(x, dict) and x.get("pcu")]
+    wns = [x for x in whats_new_info if isinstance(x, dict) and not x.get("pcu")]
+
+    parts = []
+    if pcus:
+        inner = "".join(x.get("html", "") for x in pcus if x.get("html"))
+        if inner:
+            parts.append(
+                f'<div id="PCU0" class="utdCallout utdPCU"><div class="calloutBadge">PRACTICE CHANGING UPDATE</div>{inner}</div>'
+            )
+    if wns:
+        inner = "".join(x.get("html", "") for x in wns if x.get("html"))
+        if inner:
+            parts.append(
+                f'<div id="WhatsNew0" class="utdCallout utdWhatsNew"><div class="calloutBadge">WHAT\'S NEW</div>{inner}</div>'
+            )
+
+    if not parts:
+        return body_html
+
+    injected = "".join(parts)
+    if '<div id="topicWhatsNewContainer"></div>' in body_html:
+        return body_html.replace(
+            '<div id="topicWhatsNewContainer"></div>',
+            f'<div id="topicWhatsNewContainer">{injected}</div>',
+        )
+    elif 'id="topicWhatsNewContainer"' in body_html:
+        return re.sub(
+            r'<div\s+[^>]*id=["\']topicWhatsNewContainer["\'][^>]*>(\s*</div>)?',
+            f'<div id="topicWhatsNewContainer">{injected}</div>',
+            body_html,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    else:
+        return f'<div id="topicWhatsNewContainer">{injected}</div>{body_html}'
+
+
 class ClinRefDatabase:
     """Unified access to all ClinRef SQLite databases."""
 
@@ -406,7 +455,10 @@ class ClinRefDatabase:
                     decompressed = self._decompressor.decompress(row["payload"])
                 except Exception:
                     decompressed = self._decompressor.decompressobj().decompress(row["payload"])
-                return json.loads(decompressed)
+                data = json.loads(decompressed)
+                if data and "whatsNewInfo" in data and "bodyHtml" in data:
+                    data["bodyHtml"] = inject_whats_new_html(data["bodyHtml"], data.get("whatsNewInfo"))
+                return data
             except (zstandard.ZstdError, json.JSONDecodeError):
                 return None
 

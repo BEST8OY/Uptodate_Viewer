@@ -116,29 +116,3 @@ data class GraphicContentResponse(
     val error: String? = null
 )
 
-
-/**
- * Single section match in searchTopicSections.
- */
-@Serializable
-data class SectionSearchResult(
-    @JsonNames("section_id", "sectionId")
-    val sectionId: String,
-    @JsonNames("section_title", "sectionTitle")
-    val sectionTitle: String,
-    val level: Int = 1,
-    val snippet: String
-)
-
-/**
- * Strongly-typed result for searchTopicSections.
- */
-@Serializable
-data class SearchTopicSectionsResponse(
-    @JsonNames("topic_id", "topicId")
-    val topicId: String = "",
-    val query: String = "",
-    val matches: List<SectionSearchResult> = emptyList(),
-    val message: String = "",
-    val error: String? = null
-)

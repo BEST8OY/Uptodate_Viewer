@@ -14,12 +14,20 @@ import kotlinx.coroutines.delay
 import java.awt.Color
 import java.awt.Desktop
 import java.awt.Point
+import java.awt.Toolkit
+import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
 import java.awt.geom.Point2D
 import java.net.URI
 import javax.swing.JEditorPane
+import javax.swing.JMenuItem
+import javax.swing.JPopupMenu
 import javax.swing.JScrollPane
+import javax.swing.KeyStroke
 import javax.swing.Timer
 import javax.swing.event.HyperlinkEvent
+import javax.swing.text.DefaultCaret
 import javax.swing.text.DefaultHighlighter
 import javax.swing.text.html.HTMLEditorKit
 
@@ -34,6 +42,14 @@ private class RestoreState {
     var applied = false
 }
 
+private inline fun runOnEdt(crossinline block: () -> Unit) {
+    if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+        block()
+    } else {
+        javax.swing.SwingUtilities.invokeLater { block() }
+    }
+}
+
 @Composable
 actual fun HtmlContentWebView(
     document: ArticleDocument?,
@@ -41,7 +57,11 @@ actual fun HtmlContentWebView(
     modifier: Modifier
 ) {
     val bgColor = MaterialTheme.colorScheme.background
-    val awtBgColor = Color(bgColor.toArgb())
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+    val awtBgColor = remember(bgColor) { Color(bgColor.toArgb()) }
+    val awtSelectionColor = remember(primaryColor) { Color(primaryColor.toArgb()) }
+    val awtSelectedTextColor = remember(onPrimaryColor) { Color(onPrimaryColor.toArgb()) }
 
     val (editorPane, scrollPane) = remember {
         val pane = JEditorPane().apply {
@@ -50,6 +70,11 @@ actual fun HtmlContentWebView(
             val kit = HTMLEditorKit()
             editorKit = kit
             background = awtBgColor
+            selectionColor = awtSelectionColor
+            selectedTextColor = awtSelectedTextColor
+            (caret as? DefaultCaret)?.let { defaultCaret ->
+                defaultCaret.isSelectionVisible = true
+            }
             addHyperlinkListener { e ->
                 if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) {
                     val desc = e.description ?: e.url?.toString()
@@ -64,12 +89,52 @@ actual fun HtmlContentWebView(
                     }
                 }
             }
+            val popup = JPopupMenu().apply {
+                val copyItem = JMenuItem("Copy").apply {
+                    accelerator = KeyStroke.getKeyStroke(
+                        KeyEvent.VK_C,
+                        Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
+                    )
+                    addActionListener { copy() }
+                }
+                val selectAllItem = JMenuItem("Select All").apply {
+                    accelerator = KeyStroke.getKeyStroke(
+                        KeyEvent.VK_A,
+                        Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
+                    )
+                    addActionListener { selectAll() }
+                }
+                add(copyItem)
+                add(selectAllItem)
+            }
+            addMouseListener(object : MouseAdapter() {
+                override fun mousePressed(e: MouseEvent) = maybeShowPopup(e)
+                override fun mouseReleased(e: MouseEvent) = maybeShowPopup(e)
+                private fun maybeShowPopup(e: MouseEvent) {
+                    if (e.isPopupTrigger) {
+                        requestFocusInWindow()
+                        popup.getComponent(0).isEnabled = selectionStart != selectionEnd
+                        popup.show(this@apply, e.x, e.y)
+                    }
+                }
+            })
         }
         val sp = JScrollPane(pane).apply {
             border = null
             background = awtBgColor
+            viewport.background = awtBgColor
         }
         pane to sp
+    }
+
+    LaunchedEffect(awtBgColor, awtSelectionColor, awtSelectedTextColor) {
+        runOnEdt {
+            editorPane.background = awtBgColor
+            editorPane.selectionColor = awtSelectionColor
+            editorPane.selectedTextColor = awtSelectedTextColor
+            scrollPane.background = awtBgColor
+            scrollPane.viewport.background = awtBgColor
+        }
     }
 
     val currentDocument = rememberUpdatedState(document)
@@ -137,38 +202,46 @@ actual fun HtmlContentWebView(
         scrollPane.viewport.addChangeListener(listener)
         controller.bindPlatform(
             scrollToSection = { secId ->
-                try {
-                    editorPane.scrollToReference(secId)
-                } catch (_: Exception) {}
+                runOnEdt {
+                    try {
+                        editorPane.scrollToReference(secId)
+                    } catch (_: Exception) {}
+                }
             },
             findAll = { query ->
-                val text = editorPane.text ?: ""
-                val highlighter = editorPane.highlighter
-                highlighter.removeAllHighlights()
-                if (query.isNotEmpty()) {
-                    var count = 0
-                    var index = text.indexOf(query, 0, ignoreCase = true)
-                    val painter = DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW)
-                    while (index >= 0) {
-                        try {
-                            highlighter.addHighlight(index, index + query.length, painter)
-                            count++
-                        } catch (_: Exception) {}
-                        index = text.indexOf(query, index + query.length, ignoreCase = true)
+                runOnEdt {
+                    val text = editorPane.text ?: ""
+                    val highlighter = editorPane.highlighter
+                    highlighter.removeAllHighlights()
+                    if (query.isNotEmpty()) {
+                        var count = 0
+                        var index = text.indexOf(query, 0, ignoreCase = true)
+                        val painter = DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW)
+                        while (index >= 0) {
+                            try {
+                                highlighter.addHighlight(index, index + query.length, painter)
+                                count++
+                            } catch (_: Exception) {}
+                            index = text.indexOf(query, index + query.length, ignoreCase = true)
+                        }
+                        controller.onFindResult?.invoke(count, 0)
+                    } else {
+                        controller.onFindResult?.invoke(0, 0)
                     }
-                    controller.onFindResult?.invoke(count, 0)
-                } else {
-                    controller.onFindResult?.invoke(0, 0)
                 }
             },
             clearFindMatches = {
-                editorPane.highlighter.removeAllHighlights()
-                controller.onFindResult?.invoke(0, 0)
+                runOnEdt {
+                    editorPane.highlighter.removeAllHighlights()
+                    controller.onFindResult?.invoke(0, 0)
+                }
             },
             findNext = { /* forward match traversal */ },
             flushPosition = {
-                debounce.stop()
-                reportPosition()
+                runOnEdt {
+                    debounce.stop()
+                    reportPosition()
+                }
             }
         )
         onDispose {
@@ -184,11 +257,15 @@ actual fun HtmlContentWebView(
         restoreState.restoring = true
         restoreState.applied = false
         try {
-            editorPane.text = doc.html
+            runOnEdt {
+                editorPane.text = doc.html
+            }
             // Layout settles asynchronously; apply twice so the target survives the first pass.
             repeat(2) {
                 delay(LAYOUT_SETTLE_MS)
-                applyStart(doc)
+                runOnEdt {
+                    applyStart(doc)
+                }
             }
             restoreState.applied = true
         } finally {
@@ -200,6 +277,7 @@ actual fun HtmlContentWebView(
         factory = {
             scrollPane.apply {
                 background = awtBgColor
+                viewport.background = awtBgColor
             }
         },
         modifier = modifier

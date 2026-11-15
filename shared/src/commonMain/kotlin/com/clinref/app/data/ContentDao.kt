@@ -101,8 +101,11 @@ class ContentDao(
                 runCatching { it.jsonObject }.getOrNull()
             }
 
+            val rawBodyHtml = jsonObj.string("bodyHtml")
+            val finalBodyHtml = injectWhatsNewHtml(rawBodyHtml, jsonObj["whatsNewInfo"])
+
             TopicContent(
-                bodyHtml = jsonObj.string("bodyHtml"),
+                bodyHtml = finalBodyHtml,
                 outlineHtml = jsonObj.string("outlineHtml"),
                 title = extractTitleFromJson(jsonObj) ?: "",
                 topicType = topicInfo?.string("type") ?: "",
@@ -112,6 +115,67 @@ class ContentDao(
             )
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /**
+     * Injects What's New and Practice Changing Update (PCU) HTML cards into `#topicWhatsNewContainer`
+     * in [bodyHtml]. This ensures:
+     * 1. Readers see active clinical updates at the top of the article.
+     * 2. TOC outline anchors (`PCU0`, `WhatsNew0`) scroll directly to their respective cards.
+     * 3. [MedicalDatabaseTools.getTopicSectionsText] can extract update text using standard outline boundaries.
+     */
+    internal fun injectWhatsNewHtml(
+        bodyHtml: String,
+        whatsNewElement: kotlinx.serialization.json.JsonElement?
+    ): String {
+        val items = whatsNewElement as? JsonArray ?: return bodyHtml
+        if (items.isEmpty()) return bodyHtml
+
+        val pcus = mutableListOf<String>()
+        val whatsNews = mutableListOf<String>()
+
+        for (item in items) {
+            val obj = item as? JsonObject ?: continue
+            val html = obj.string("html")
+            if (html.isBlank()) continue
+            val isPcu = obj.boolean("pcu")
+            if (isPcu) {
+                pcus.add(html)
+            } else {
+                whatsNews.add(html)
+            }
+        }
+
+        if (pcus.isEmpty() && whatsNews.isEmpty()) return bodyHtml
+
+        val parts = StringBuilder()
+        if (pcus.isNotEmpty()) {
+            parts.append("""<div id="PCU0" class="utdCallout utdPCU"><div class="calloutBadge">PRACTICE CHANGING UPDATE</div>""")
+            for (h in pcus) {
+                parts.append(h)
+            }
+            parts.append("</div>")
+        }
+        if (whatsNews.isNotEmpty()) {
+            parts.append("""<div id="WhatsNew0" class="utdCallout utdWhatsNew"><div class="calloutBadge">WHAT'S NEW</div>""")
+            for (h in whatsNews) {
+                parts.append(h)
+            }
+            parts.append("</div>")
+        }
+
+        val injected = parts.toString()
+        return if (bodyHtml.contains("""<div id="topicWhatsNewContainer"></div>""")) {
+            bodyHtml.replace(
+                """<div id="topicWhatsNewContainer"></div>""",
+                """<div id="topicWhatsNewContainer">$injected</div>"""
+            )
+        } else if (bodyHtml.contains("""id="topicWhatsNewContainer"""")) {
+            Regex("""<div\s+[^>]*id=["']topicWhatsNewContainer["'][^>]*>(\s*</div>)?""", RegexOption.IGNORE_CASE)
+                .replaceFirst(bodyHtml, """<div id="topicWhatsNewContainer">$injected</div>""")
+        } else {
+            """<div id="topicWhatsNewContainer">$injected</div>$bodyHtml"""
         }
     }
 

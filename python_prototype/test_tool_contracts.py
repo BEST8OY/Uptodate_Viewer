@@ -57,18 +57,18 @@ class TestToolPreservation:
 
     def test_tool_count_and_identity(self, db):
         tool_list = tools.init_tools(db)
-        assert len(tool_list) == 5, f"Expected exactly 5 tools, found {len(tool_list)}"
+        assert len(tool_list) == 4, f"Expected exactly 4 tools, found {len(tool_list)}"
 
         expected_names = {
             "getTopicOverview",
             "searchTopics",
-            "searchTopicSections",
             "getTopicSectionsText",
             "getGraphicContent",
         }
         actual_names = {t.name for t in tool_list}
         assert "get_topic_outline" not in actual_names
         assert "get_topic_brief" not in actual_names
+        assert "searchTopicSections" not in actual_names
         assert actual_names == expected_names, f"Tool name mismatch: {actual_names} vs {expected_names}"
 
 
@@ -130,24 +130,7 @@ class TestCamelCaseAndSnakeCaseAliases:
         assert "H1" in data.sectionTitles
         assert len(data.markdown) > 0
 
-    # 5. search_topic_sections: topic_id/topicId and query/queryText/search_query/searchQuery (+ q/keyword)
-    @pytest.mark.parametrize("payload", [
-        {"topic_id": "1", "query": "dose"},
-        {"topicId": "1", "queryText": "dose"},
-        {"topic_id": "1", "search_query": "dose"},
-        {"topicId": "1", "searchQuery": "dose"},
-        {"topicId": "1", "query_text": "dose"},
-        {"topic_id": "1", "q": "dose"},
-        {"topic_id": "1", "keyword": "dose"},
-    ])
-    def test_search_topic_sections_parameter_aliases_invoke(self, payload):
-        raw = tools.search_topic_sections.invoke(payload)
-        data = to_model(tools.SearchTopicSectionsResponse, raw)
-        assert data.error is None, f"Unexpected error in search_topic_sections: {data}"
-        assert data.topicId == "1"
-        assert len(data.matches) > 0
-
-    # 6. get_graphic_content: graphic_id and graphicId
+    # 5. get_graphic_content: graphic_id and graphicId
     @pytest.mark.parametrize("payload", [
         {"graphic_id": "116392"},
         {"graphicId": "116392"},
@@ -174,10 +157,6 @@ class TestCamelCaseAndSnakeCaseAliases:
              {"topic_id": "1", "section_ids": ["H1"]},
              {"topicId": "1", "sectionIds": ["H1"]},
              ["sectionTitles", "markdown"]),
-            ("search_topic_sections",
-             {"topic_id": "1", "query": "dose"},
-             {"topicId": "1", "queryText": "dose"},
-             ["matches"]),
         ],
     )
     def test_tool_alias_equivalence_direct_func_call(self, tool_name, snake_args, camel_args, keys):

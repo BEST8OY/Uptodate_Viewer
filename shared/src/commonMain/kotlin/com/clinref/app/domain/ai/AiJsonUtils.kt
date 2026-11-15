@@ -43,7 +43,7 @@ object AiJsonUtils {
         return trimmed
     }
 
-    val GRAPHIC_PREFIX_REGEX = Regex("(?i)^graphic-")
+    val GRAPHIC_PREFIX_REGEX = Regex("""(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)""")
     val GRAPHIC_TABLE_REGEX = Regex("""### Graphic Table:\s*(.+)""")
     private val DASH_PREFIX_CHARS = charArrayOf('-', '–', '—', ' ')
     private val HTML_TAG_REGEX = Regex("""<[^>]+>""")
@@ -98,7 +98,6 @@ object AiJsonUtils {
         "search_topics", "searchTopics" -> "searchTopics"
         "get_topic_sections_text", "getTopicSectionsText" -> "getTopicSectionsText"
         "get_graphic_content", "getGraphicContent" -> "getGraphicContent"
-        "search_topic_sections", "searchTopicSections" -> "searchTopicSections"
         else -> rawName
     }
 

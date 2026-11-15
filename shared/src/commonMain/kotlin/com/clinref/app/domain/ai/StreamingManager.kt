@@ -1,7 +1,6 @@
 package com.clinref.app.domain.ai
 
 import com.clinref.app.data.GraphicContentResponse
-import com.clinref.app.data.SearchTopicSectionsResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
 import com.clinref.app.data.TopicSectionsResponse
@@ -18,7 +17,8 @@ class StreamingManager {
     data class TokenUsage(
         val promptTokens: Int = 0,
         val completionTokens: Int = 0,
-        val totalTokens: Int = 0
+        val totalTokens: Int = 0,
+        val toolTokens: Int = 0
     )
 
     enum class StepStatus {
@@ -117,32 +117,40 @@ class StreamingManager {
     private val pendingTagBuffer = StringBuilder()
     private var inReasoningBlock = false
 
+    private val stateLock = Any()
     private val knownTopicTitles = mutableMapOf<String, String>()
 
     fun onToolCallStarting(toolName: String, args: String, callId: String = "") {
-        stepCounter++
-        activeToolCalls++
+        val currentStepCounter: Int
+        val step: OrchestrationStep
+        synchronized(stateLock) {
+            stepCounter++
+            activeToolCalls++
+            currentStepCounter = stepCounter
 
-        // Pre-tool thought hygiene: reset streaming and reasoning buffers so intermediate thoughts don't contaminate response
-        streamingBuffer.clear()
-        reasoningBuffer.clear()
-        pendingTagBuffer.clear()
-        inReasoningBlock = false
+            // Pre-tool thought hygiene: reset streaming and reasoning buffers so intermediate thoughts don't contaminate response
+            streamingBuffer.clear()
+            reasoningBuffer.clear()
+            pendingTagBuffer.clear()
+            inReasoningBlock = false
+
+            val stepId = callId.ifBlank { "step_$currentStepCounter" }
+            val (title, detail) = getStepInfo(toolName, args)
+
+            step = OrchestrationStep(
+                id = stepId,
+                title = title,
+                detail = detail,
+                status = StepStatus.IN_PROGRESS,
+                toolName = toolName
+            )
+            _orchestrationSteps.value = _orchestrationSteps.value + step
+        }
+
         _streamingText.value = ""
         _reasoningText.value = ""
         _isReasoning.value = false
         _orchestrationPhase.value = OrchestrationPhase.EVIDENCE_RETRIEVAL
-
-        val stepId = callId.ifBlank { "step_$stepCounter" }
-        val (title, detail) = getStepInfo(toolName, args)
-
-        _orchestrationSteps.value = _orchestrationSteps.value + OrchestrationStep(
-            id = stepId,
-            title = title,
-            detail = detail,
-            status = StepStatus.IN_PROGRESS,
-            toolName = toolName
-        )
 
         val description = when (toolName) {
             "searchTopics" -> "Searching medical topics…"
@@ -153,26 +161,28 @@ class StreamingManager {
         }
         _currentStatusText.value = description
         _toolProgress.value = ToolProgress(toolName, description)
-        _agentState.value = AgentState.ToolCallInProgress(toolName, args, stepCounter)
+        _agentState.value = AgentState.ToolCallInProgress(toolName, args, currentStepCounter)
     }
 
     fun onToolCallCompleted(toolName: String, resultText: String = "", callId: String = "") {
-        activeToolCalls = (activeToolCalls - 1).coerceAtLeast(0)
+        synchronized(stateLock) {
+            activeToolCalls = (activeToolCalls - 1).coerceAtLeast(0)
 
-        // Parse any discovered source titles or tables
-        parseDiscoveredSources(toolName, resultText)
+            // Parse any discovered source titles or tables
+            parseDiscoveredSources(toolName, resultText)
 
-        // Mark the active step as completed
-        _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
-            val matches = if (callId.isNotBlank()) {
-                step.id == callId
-            } else {
-                step.toolName == toolName && step.status == StepStatus.IN_PROGRESS
+            // Mark the active step as completed
+            _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
+                val matches = if (callId.isNotBlank()) {
+                    step.id == callId
+                } else {
+                    step.toolName == toolName && step.status == StepStatus.IN_PROGRESS
+                }
+                if (matches) {
+                    val completionDetail = getCompletionDetail(toolName, resultText) ?: step.detail
+                    step.copy(status = StepStatus.COMPLETED, detail = completionDetail)
+                } else step
             }
-            if (matches) {
-                val completionDetail = getCompletionDetail(toolName, resultText) ?: step.detail
-                step.copy(status = StepStatus.COMPLETED, detail = completionDetail)
-            } else step
         }
 
         _currentStatusText.value = "Evaluating clinical evidence…"
@@ -180,35 +190,38 @@ class StreamingManager {
     }
 
     fun onSynthesisStarting() {
-        activeToolCalls = 0
-        // Complete any previously in-progress tool steps
-        _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
-            if (step.status == StepStatus.IN_PROGRESS) {
-                step.copy(status = StepStatus.COMPLETED)
-            } else step
+        synchronized(stateLock) {
+            activeToolCalls = 0
+            // Complete any previously in-progress tool steps
+            _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
+                if (step.status == StepStatus.IN_PROGRESS) {
+                    step.copy(status = StepStatus.COMPLETED)
+                } else step
+            }
+
+            val existingIndex = _orchestrationSteps.value.indexOfFirst { it.id == "step_synthesis" }
+            if (existingIndex >= 0) {
+                val updated = _orchestrationSteps.value.toMutableList()
+                updated[existingIndex] = updated[existingIndex].copy(
+                    status = StepStatus.IN_PROGRESS,
+                    detail = "Drafting evidence-grounded clinical recommendations"
+                )
+                _orchestrationSteps.value = updated
+            } else {
+                _orchestrationSteps.value = _orchestrationSteps.value + OrchestrationStep(
+                    id = "step_synthesis",
+                    title = "Synthesize Clinical Guidance",
+                    detail = "Drafting evidence-grounded clinical recommendations",
+                    status = StepStatus.IN_PROGRESS
+                )
+            }
+
+            streamingBuffer.clear()
+            reasoningBuffer.clear()
+            pendingTagBuffer.clear()
+            inReasoningBlock = false
         }
 
-        val existingIndex = _orchestrationSteps.value.indexOfFirst { it.id == "step_synthesis" }
-        if (existingIndex >= 0) {
-            val updated = _orchestrationSteps.value.toMutableList()
-            updated[existingIndex] = updated[existingIndex].copy(
-                status = StepStatus.IN_PROGRESS,
-                detail = "Drafting evidence-grounded clinical recommendations"
-            )
-            _orchestrationSteps.value = updated
-        } else {
-            _orchestrationSteps.value = _orchestrationSteps.value + OrchestrationStep(
-                id = "step_synthesis",
-                title = "Synthesize Clinical Guidance",
-                detail = "Drafting evidence-grounded clinical recommendations",
-                status = StepStatus.IN_PROGRESS
-            )
-        }
-
-        streamingBuffer.clear()
-        reasoningBuffer.clear()
-        pendingTagBuffer.clear()
-        inReasoningBlock = false
         _streamingText.value = ""
         _reasoningText.value = ""
         _isReasoning.value = false
@@ -349,7 +362,14 @@ class StreamingManager {
         )
     }
 
-    fun onCompleted(result: String, validation: SafetyValidator.ValidationResult) {
+    fun onCompleted(
+        result: String,
+        validation: SafetyValidator.ValidationResult,
+        usage: TokenUsage? = null
+    ) {
+        if (usage != null) {
+            accumulatedUsage = usage
+        }
         activeToolCalls = 0
         _toolProgress.value = null
         _currentStatusText.value = "Complete"
@@ -390,27 +410,29 @@ class StreamingManager {
     }
 
     fun reset() {
-        stepCounter = 0
-        activeToolCalls = 0
-        accumulatedUsage = TokenUsage()
-        totalSectionsReadCount = 0
-        _sectionsReadCount.value = 0
-        _orchestrationPhase.value = OrchestrationPhase.IDLE
-        _isDraft.value = false
-        _isRevised.value = false
-        streamingBuffer.clear()
-        reasoningBuffer.clear()
-        pendingTagBuffer.clear()
-        inReasoningBlock = false
-        _streamingText.value = ""
-        _reasoningText.value = ""
-        _isReasoning.value = false
-        _toolProgress.value = null
-        _orchestrationSteps.value = emptyList()
-        _liveDiscoveredSources.value = emptyList()
-        knownTopicTitles.clear()
-        _currentStatusText.value = "Initializing clinical core…"
-        _agentState.value = AgentState.Idle
+        synchronized(stateLock) {
+            stepCounter = 0
+            activeToolCalls = 0
+            accumulatedUsage = TokenUsage()
+            totalSectionsReadCount = 0
+            _sectionsReadCount.value = 0
+            _orchestrationPhase.value = OrchestrationPhase.IDLE
+            _isDraft.value = false
+            _isRevised.value = false
+            streamingBuffer.clear()
+            reasoningBuffer.clear()
+            pendingTagBuffer.clear()
+            inReasoningBlock = false
+            _streamingText.value = ""
+            _reasoningText.value = ""
+            _isReasoning.value = false
+            _toolProgress.value = null
+            _orchestrationSteps.value = emptyList()
+            _liveDiscoveredSources.value = emptyList()
+            knownTopicTitles.clear()
+            _currentStatusText.value = "Initializing clinical core…"
+            _agentState.value = AgentState.Idle
+        }
     }
 
     private fun getStepInfo(toolName: String, args: String): Pair<String, String?> {
@@ -421,18 +443,6 @@ class StreamingManager {
                 "searchTopics" -> {
                     val query = element?.get("query")?.jsonPrimitive?.content ?: ""
                     "Search Knowledge Base" to if (query.isNotBlank()) "Query: \"$query\"" else null
-                }
-                "searchTopicSections" -> {
-                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
-                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
-                    val query = element?.get("query")?.jsonPrimitive?.content ?: ""
-                    val resolvedTitle = knownTopicTitles[topicId]
-                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
-                        "Searching \"$query\" in \"$resolvedTitle\""
-                    } else if (query.isNotBlank()) {
-                        "Query: \"$query\""
-                    } else null
-                    "Search In-Topic Sections" to detail
                 }
                 "getTopicOverview" -> {
                     val topicId = element?.get("topicId")?.jsonPrimitive?.content
@@ -492,19 +502,6 @@ class StreamingManager {
                     } else {
                         "Topic overview loaded ($count $sectionWord)"
                     }
-                }
-                "searchTopicSections" -> {
-                    val res = json.decodeFromString<SearchTopicSectionsResponse>(resultText)
-                    val count = res.matches.size
-                    val resolvedTitle = knownTopicTitles[res.topicId]
-                    val sectionWord = if (count == 1) "section" else "sections"
-                    if (count > 0 && !resolvedTitle.isNullOrBlank()) {
-                        "$count matching $sectionWord in \"$resolvedTitle\""
-                    } else if (count > 0) {
-                        "$count matching $sectionWord found"
-                    } else if (!resolvedTitle.isNullOrBlank()) {
-                        "0 matching sections in \"$resolvedTitle\""
-                    } else "0 matching sections found"
                 }
                 "getTopicSectionsText" -> {
                     val res = json.decodeFromString<TopicSectionsResponse>(resultText)
@@ -587,26 +584,6 @@ class StreamingManager {
                             )
                         }
                         _liveDiscoveredSources.value = current
-                    }
-                }
-                "searchTopicSections" -> {
-                    val res = json.decodeFromString<SearchTopicSectionsResponse>(resultText)
-                    val topicId = res.topicId
-                    if (res.matches.isNotEmpty() && topicId.isNotBlank()) {
-                        val current = _liveDiscoveredSources.value.toMutableList()
-                        val existingIndex = current.indexOfFirst { it.topicId == topicId }
-                        if (existingIndex < 0) {
-                            val resolvedTitle = knownTopicTitles[topicId] ?: "Clinical Topic #$topicId"
-                            current.add(
-                                SafetyValidator.TopicRef(
-                                    topicId = topicId,
-                                    sectionId = "",
-                                    label = resolvedTitle,
-                                    topicTitle = resolvedTitle
-                                )
-                            )
-                            _liveDiscoveredSources.value = current
-                        }
                     }
                 }
                 "getGraphicContent" -> {

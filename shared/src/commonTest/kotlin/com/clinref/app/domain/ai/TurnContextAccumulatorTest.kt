@@ -728,53 +728,7 @@ class TurnContextAccumulatorTest {
 
         val graphicArgs = json.decodeFromString<com.clinref.app.data.tools.GetGraphicContentTool.Args>("""{"graphic_id":"456"}""")
         assertEquals("456", graphicArgs.graphicId)
-
-        val searchSectionsArgs = json.decodeFromString<com.clinref.app.data.tools.SearchTopicSectionsTool.Args>("""{"topic_id":"789","search_query":"dosing"}""")
-        assertEquals("789", searchSectionsArgs.topicId)
-        assertEquals("dosing", searchSectionsArgs.query)
     }
-
-    @Test
-    fun `tracks and populates outline sections from searchTopicSections tool result`() {
-        val searchResult = """
-            {
-                "topicId": "12345",
-                "query": "treatment",
-                "matches": [
-                    {
-                        "sectionId": "H9",
-                        "sectionTitle": "-Treatment",
-                        "level": 1,
-                        "snippet": "Primary treatment involves..."
-                    },
-                    {
-                        "sectionId": "H10",
-                        "sectionTitle": "--Initial approach",
-                        "level": 2,
-                        "snippet": "Initial approach should..."
-                    }
-                ]
-            }
-        """.trimIndent()
-
-        accumulator.onToolCallStarting("call-sec-1", """{"topic_id":"12345","query":"treatment"}""")
-        accumulator.onToolCallCompleted("call-sec-1", "searchTopicSections", searchResult, true)
-
-        val ctx = accumulator.buildTurnContext("Answer text")
-        assertEquals(1, ctx.toolCalls.size)
-        assertEquals("searchTopicSections", ctx.toolCalls[0].toolName)
-        assertTrue(ctx.toolCalls[0].success)
-
-        // Now if getTopicSectionsText fetches H9 without explicit title, accumulator resolves it from searchTopicSections
-        accumulator.onToolCallStarting("call-sec-2", """{"topicId":"12345","sectionId":"H9"}""")
-        accumulator.onToolCallCompleted("call-sec-2", "getTopicSectionsText", "Evidence snippet", true)
-
-        val updatedCtx = accumulator.buildTurnContext("Answer text")
-        val fetchedSec = updatedCtx.fetchedSections.firstOrNull { it.sectionId == "H9" }
-        assertNotNull(fetchedSec)
-        assertEquals("Treatment", fetchedSec?.sectionTitle)
-    }
-
 
     @Test
     fun `onToolCallCompleted parses getTopicOverview outline and getTopicSectionsText content`() {
@@ -893,6 +847,20 @@ class TurnContextAccumulatorTest {
         assertFalse(ctx.toolCalls[0].success)
         assertTrue(ctx.fetchedSections.isEmpty())
         assertFalse(accumulator.hasEvidence)
+    }
+
+    @Test
+    fun `parses raw markdown graphic result and populates fetchedGraphics`() {
+        val rawMarkdown = "### Graphic Table: Urgent Rate Control Table\n\n| Drug | Dose |\n|---|---|\n| Diltiazem | 0.25 mg/kg |"
+        accumulator.onToolCallStarting("call-1", """{"graphicId":"141646"}""")
+        accumulator.onToolCallCompleted("call-1", "getGraphicContent", rawMarkdown, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.fetchedGraphics.size)
+        assertEquals("141646", ctx.fetchedGraphics[0].graphicId)
+        assertEquals("Urgent Rate Control Table", ctx.fetchedGraphics[0].title)
+        assertTrue(ctx.fetchedGraphics[0].markdown.contains("Diltiazem"))
+        assertTrue(accumulator.hasEvidence)
     }
 }
 

@@ -740,10 +740,10 @@ class TestPrematureInterceptionGraphE2E:
         assert len(interceptions) == 2
         notice = interceptions[0].content
         assert "Write no text. Respond ONLY with tool calls:" in notice
-        assert "search_topics(" in notice
-        assert "get_topic_overview(" in notice
-        assert "get_topic_sections_text(" in notice
-        assert "get_graphic_content(" in notice
+        assert "searchTopics(" in notice
+        assert "getTopicOverview(" in notice
+        assert "getTopicSectionsText(" in notice
+        assert "getGraphicContent(" in notice
         assert "MANDATORY CLINICAL DIRECTIVE" not in notice
         # 3. Terminal NO_TOOLS block (the safe response was still tool-free)
         last_msg = final_state["messages"][-1]

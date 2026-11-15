@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -588,11 +589,13 @@ class ContentViewModelTest {
         val gradeData = vm.gradeDialog.value
         assertNotNull(gradeData)
         assertEquals("Grade 1B", gradeData?.grade)
-        assertEquals("Strong recommendation", gradeData?.recommendationStrength)
+        assertTrue(gradeData?.summary?.startsWith("A Grade 1B recommendation is a strong recommendation") == true)
+        assertTrue(gradeData?.tierExplanation?.startsWith("A Grade 1 recommendation is a strong recommendation") == true)
+        assertTrue(gradeData?.letterExplanation?.startsWith("Grade B means") == true)
     }
 
     @Test
-    fun `handleAction editorial policy opens policyDialog and does not load topic`() = runTest(testDispatcher) {
+    fun `handleAction legal link is a no-op and does not load topic`() = runTest(testDispatcher) {
         val topicId = "topic-100"
         val bodyHtml = """
             <p><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;resource&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;editorial-policy.html&quot;,&quot;type&quot;:&quot;legal&quot;}]});">Editorial Policy</a></p>
@@ -614,9 +617,7 @@ class ContentViewModelTest {
 
         assertEquals(null, vm.error.value)
         assertEquals(topicId, vm.currentTopicId.value)
-        val policyData = vm.policyDialog.value
-        assertNotNull(policyData)
-        assertEquals("UpToDate Editorial Policy", policyData?.title)
+        assertFalse(vm.isLoading.value)
     }
 
     @Test

@@ -11,10 +11,19 @@ import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.message.ResponseMetaInfo
 import ai.koog.prompt.streaming.StreamFrame
 import ai.koog.utils.time.KoogClock
+import com.clinref.app.data.GraphicContentResponse
 import com.clinref.app.data.MedicalDatabaseTools
+import com.clinref.app.data.OutlineGraphicItem
+import com.clinref.app.data.OutlineSectionItem
 import com.clinref.app.data.SearchResultTopicItem
 import com.clinref.app.data.SearchTopicsResponse
+import com.clinref.app.data.TopicOverviewResponse
 import com.clinref.app.data.TopicSectionsResponse
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -304,8 +313,242 @@ class ClinicalOrchestratorTest {
             streamingManager = streamingManager
         )
 
-        // Loop terminated at MAX_RETRIEVAL_ROUNDS (10) + 1 retry = 11 execute calls
-        assertEquals(ClinicalOrchestrator.MAX_RETRIEVAL_ROUNDS + 1, executor.executedPrompts.size)
+        // Loop terminated at MAX_RETRIEVAL_ROUNDS (10)
+        assertEquals(ClinicalOrchestrator.MAX_RETRIEVAL_ROUNDS, executor.executedPrompts.size)
         assertEquals(SystemPrompt.CANONICAL_ABSTENTION, result.content)
+    }
+
+    @Test
+    fun testSmallTalkMakesZeroDecisionCalls() = runTest {
+        var decisionCalls = 0
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport {
+                decisionCalls++
+                "{}"
+            }
+        )
+
+        val result = orchestrator.runTurn(
+            question = "Thanks so much!",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true)
+        )
+
+        assertEquals(QuestionRouter.CANNED_FALLBACK_REPLY, result.content)
+        assertEquals(0, decisionCalls)
+        assertEquals(0, executor.executedPrompts.size)
+    }
+
+    @Test
+    fun testDecisionsRerankAndAutoPrefetchLoadsSectionsAndTablesIntoSynthesis() = runTest {
+        val json = AiJsonUtils.json
+        val meta = ResponseMetaInfo(
+            timestamp = KoogClock.System.now(),
+            inputTokensCount = 40,
+            outputTokensCount = 15
+        )
+
+        coEvery { medicalDatabaseTools.searchTopics("sepsis dosing") } returns SearchTopicsResponse(
+            query = "sepsis dosing",
+            results = listOf(
+                SearchResultTopicItem(id = "Topic-Noise", title = "Differential diagnosis of fever"),
+                SearchResultTopicItem(id = "Topic-Sepsis", title = "Evaluation and management of suspected sepsis")
+            )
+        )
+        coEvery { medicalDatabaseTools.getTopicOverview("Topic-Sepsis") } returns TopicOverviewResponse(
+            topicId = "Topic-Sepsis",
+            title = "Evaluation and management of suspected sepsis",
+            topicType = "medical",
+            sections = listOf(
+                OutlineSectionItem(id = "S1", title = "Empiric antimicrobial therapy", level = 1),
+                OutlineSectionItem(id = "S2", title = "Pathogenesis", level = 1)
+            ),
+            graphics = listOf(
+                OutlineGraphicItem(id = "G_TBL1", title = "Empiric IV Antimicrobial Dosing", isTable = true)
+            )
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("Topic-Sepsis", listOf("S1")) } returns TopicSectionsResponse(
+            topicId = "Topic-Sepsis",
+            topicTitle = "Evaluation and management of suspected sepsis",
+            sectionTitles = mapOf("S1" to "Empiric antimicrobial therapy"),
+            markdown = "=== Section: S1 ===\nGive broad-spectrum empiric therapy within 1 hour."
+        )
+        coEvery { medicalDatabaseTools.getGraphicContent("G_TBL1") } returns GraphicContentResponse(
+            graphicId = "G_TBL1",
+            title = "Empiric IV Antimicrobial Dosing",
+            markdown = "| Agent | Dose |\n|---|---|\n| Vancomycin | 15 mg/kg IV |"
+        )
+        every { medicalDatabaseTools.getTopicTitle("Topic-Sepsis") } returns "Evaluation and management of suspected sepsis"
+        every { medicalDatabaseTools.getSectionTitle("Topic-Sepsis", "S1") } returns "Empiric antimicrobial therapy"
+
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport { reqJson ->
+                val qs = json.parseToJsonElement(reqJson).jsonObject["questions"]!!.jsonObject
+                val answers = buildJsonObject {
+                    qs.keys.forEach { k ->
+                        when (k) {
+                            "requires_drug_monograph", "requires_table_data", "needs_drug_monograph" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.85); put("confidence", 0.9) })
+                            else -> {
+                                val score = if (k.contains("Topic-Sepsis") || k.contains("S1") || k.contains("G_TBL1")) 2.8 else 0.4
+                                put(
+                                    k,
+                                    buildJsonObject {
+                                        put("type", "score")
+                                        put("score", score)
+                                        put("legend", buildJsonObject { put("0", "0"); put("1", "1"); put("2", "2"); put("3", "3") })
+                                        put("confidence", 0.9)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                json.encodeToString(
+                    JsonObject.serializer(),
+                    buildJsonObject {
+                        put("answers", answers)
+                        put("usage", buildJsonObject { put("total_input_tokens", 200); put("total_tokens", 200) })
+                    }
+                )
+            }
+        )
+
+        var step = 0
+        executor.executeHandler = { _, _, _ ->
+            step++
+            when (step) {
+                1 -> Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "c1", tool = "searchTopics", args = """{"query":"sepsis dosing"}""")),
+                    metaInfo = meta
+                )
+                2 -> Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "c2", tool = "getTopicOverview", args = """{"topicId":"Topic-Sepsis"}""")),
+                    metaInfo = meta
+                )
+                else -> Message.Assistant(parts = listOf(MessagePart.Text("Retrieval complete.")), metaInfo = meta)
+            }
+        }
+
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Give vancomycin 15 mg/kg IV within 1 hour."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Empiric vancomycin dose in sepsis?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true)
+        )
+
+        assertEquals("Give vancomycin 15 mg/kg IV within 1 hour.", result.content)
+        assertTrue(result.validation.passed)
+
+        // Stage-1 LLM saw decisionRerank in searchTopics and autoPrefetched in getTopicOverview
+        val round2PromptText = executor.executedPrompts[1].messages.joinToString("\n") { msg ->
+            msg.parts.joinToString("\n") { it.toString() }
+        }
+        assertTrue(round2PromptText.contains("decisionRerank"))
+        assertTrue(round2PromptText.contains("Topic-Sepsis"))
+
+        val round3PromptText = executor.executedPrompts[2].messages.joinToString("\n") { msg ->
+            msg.parts.joinToString("\n") { it.toString() }
+        }
+        assertTrue(round3PromptText.contains("autoPrefetched"))
+
+        // Stage-2 synthesis prompt received both prefetched section prose AND table markdown
+        val synthesisUserMsg = executor.streamingPrompts.first().messages.last().parts.joinToString("\n") { it.toString() }
+        assertTrue(synthesisUserMsg.contains("within 1 hour"))
+        assertTrue(synthesisUserMsg.contains("| Vancomycin | 15 mg/kg IV |"))
+
+        // Decision token usage (2 decision calls x 200 input tokens = 400) decoupled into toolTokens
+        // Stage 1: 3 * 40 = 120, Stage 2: 40 -> promptTokens = 160, toolTokens = 400
+        assertEquals(160, result.tokenUsage.promptTokens)
+        assertEquals(400, result.tokenUsage.toolTokens)
+    }
+
+    @Test
+    fun testDecisionsFailOpenStillCompletesRetrieval() = runTest {
+        val meta = ResponseMetaInfo(
+            timestamp = KoogClock.System.now(),
+            inputTokensCount = 30,
+            outputTokensCount = 10
+        )
+
+        coEvery { medicalDatabaseTools.searchTopics("apixaban") } returns SearchTopicsResponse(
+            query = "apixaban",
+            results = listOf(SearchResultTopicItem(id = "Topic-Apix", title = "Apixaban"))
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("Topic-Apix", listOf("S1")) } returns TopicSectionsResponse(
+            topicId = "Topic-Apix",
+            topicTitle = "Apixaban",
+            sectionTitles = mapOf("S1" to "Dosing"),
+            markdown = "=== Section: S1 ===\nStandard dose is 5 mg twice daily."
+        )
+        every { medicalDatabaseTools.getTopicTitle("Topic-Apix") } returns "Apixaban"
+        every { medicalDatabaseTools.getSectionTitle("Topic-Apix", "S1") } returns "Dosing"
+
+        val failingDecisionClient = DecisionClient(
+            transport = DecisionTransport { throw IllegalStateException("503 Service Unavailable") },
+            failOpen = true
+        )
+
+        var step = 0
+        executor.executeHandler = { _, _, _ ->
+            step++
+            when (step) {
+                1 -> Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "c1", tool = "searchTopics", args = """{"query":"apixaban"}""")),
+                    metaInfo = meta
+                )
+                2 -> Message.Assistant(
+                    parts = listOf(
+                        MessagePart.Tool.Call(
+                            id = "c2",
+                            tool = "getTopicSectionsText",
+                            args = """{"topicId":"Topic-Apix","sectionIds":["S1"]}"""
+                        )
+                    ),
+                    metaInfo = meta
+                )
+                else -> Message.Assistant(parts = listOf(MessagePart.Text("Done")), metaInfo = meta)
+            }
+        }
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Standard dose is 5 mg twice daily."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Standard apixaban dose?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = failingDecisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true)
+        )
+
+        assertEquals("Standard dose is 5 mg twice daily.", result.content)
+        assertTrue(result.validation.passed)
+        assertEquals(1, failingDecisionClient.failedCalls)
     }
 }

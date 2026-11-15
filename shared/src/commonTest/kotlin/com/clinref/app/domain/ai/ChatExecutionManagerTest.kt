@@ -51,6 +51,7 @@ class ChatExecutionManagerTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         every { streamingManager.currentStatusText } returns MutableStateFlow("")
+        every { koogAgentFactory.resolveDecisionClient(any()) } returns null
         manager = ChatExecutionManager(
             conversationRepository = conversationRepository,
             koogAgentFactory = koogAgentFactory,
@@ -146,7 +147,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Normal clinical guidance.",
                 validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
@@ -414,7 +415,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Normal clinical guidance.",
                 validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
@@ -449,7 +450,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Blocked response.",
                 validation = SafetyValidator.ValidationResult(passed = false, warnings = emptyList(), blockedReason = "Safety violation"),
@@ -484,7 +485,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Fallback text.",
                 validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
@@ -515,7 +516,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             testManager.cancelGeneration("conv-1")
             throw kotlinx.coroutines.CancellationException("Cancelled by test")
         }
@@ -593,7 +594,7 @@ class ChatExecutionManagerTest {
         val q2Running = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         coEvery {
-            clinicalOrchestrator.runTurn(match { it == "Q1" }, any(), any(), any(), any(), any(), any(), any())
+            clinicalOrchestrator.runTurn(match { it == "Q1" }, any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             q1Running.complete(Unit)
             try {
@@ -606,7 +607,7 @@ class ChatExecutionManagerTest {
         }
 
         coEvery {
-            clinicalOrchestrator.runTurn(match { it == "Q2" }, any(), any(), any(), any(), any(), any(), any())
+            clinicalOrchestrator.runTurn(match { it == "Q2" }, any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             q2Running.complete(Unit)
             kotlinx.coroutines.awaitCancellation()
@@ -656,6 +657,46 @@ class ChatExecutionManagerTest {
         )
 
         eventsJob.cancel()
+    }
+
+    @Test
+    fun testSendMessageWithDecisionsEnabledPassesDecisionClientWithoutClosingPersistentClient() = runTest(testDispatcher) {
+        val testManager = createConfiguredTestManager()
+        securePreferences.saveConfiguration(
+            AiConfiguration(
+                provider = AiProvider.ANTHROPIC,
+                model = "claude-3-5-sonnet",
+                isConfigured = true,
+                decisionSettings = DecisionSettings(mode = DecisionMode.RERANK)
+            )
+        )
+
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        val mockDecisionClient: DecisionClient = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+        every { koogAgentFactory.resolveDecisionClient(any()) } returns mockDecisionClient
+
+        var capturedDecisionClient: DecisionClient? = null
+        var capturedDecisionConfig: DecisionConfig? = null
+        coEvery {
+            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } coAnswers {
+            capturedDecisionClient = arg(8)
+            capturedDecisionConfig = arg(9)
+            ClinicalOrchestrator.ExecutionResult(
+                content = "Guidance with Decisions.",
+                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
+                tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
+            )
+        }
+
+        testManager.sendMessage("conv-1", "Sepsis dose?")
+        advanceUntilIdle()
+
+        assertEquals(mockDecisionClient, capturedDecisionClient)
+        assertEquals(DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true), capturedDecisionConfig)
+        io.mockk.verify(exactly = 0) { mockDecisionClient.close() }
     }
 }
 

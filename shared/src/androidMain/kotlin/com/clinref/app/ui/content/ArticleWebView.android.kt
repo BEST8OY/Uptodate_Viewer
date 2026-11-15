@@ -28,6 +28,9 @@ actual fun HtmlContentWebView(
             val mainHandler = Handler(Looper.getMainLooper())
             NestedScrollWebView(context).apply {
                 setBackgroundColor(backgroundColor)
+                isFocusable = true
+                isFocusableInTouchMode = true
+                isLongClickable = true
                 setOnApplyWindowInsetsListener { _, insets ->
                     insets
                 }

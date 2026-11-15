@@ -196,15 +196,15 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `asToolList returns the 5 class-based retrieval tools`() {
+    fun `asToolList returns the 4 class-based retrieval tools`() {
         val toolList = tools.asToolList()
-        assertEquals(5, toolList.size)
+        assertEquals(4, toolList.size)
         val names = toolList.map { it.name }.toSet()
         assertTrue(names.contains("getTopicOverview"))
         assertTrue(names.contains("searchTopics"))
-        assertTrue(names.contains("searchTopicSections"))
         assertTrue(names.contains("getTopicSectionsText"))
         assertTrue(names.contains("getGraphicContent"))
+        assertFalse(names.contains("searchTopicSections"))
         assertFalse(names.contains("getTopicBrief"))
         assertFalse(names.contains("getTopicOutline"))
         assertFalse(names.contains("submitClinicalAnswer"))
@@ -427,117 +427,6 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `searchTopicSections finds matching sections and snippets`() {
-        val outlineHtml = """
-            <ul id="innerOutline">
-                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
-                <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Renal Impairment</a></li>
-            </ul>
-        """.trimIndent()
-        val bodyHtml = """
-            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>General disease overview.</p>
-            <p class="headingAnchor" id="H2"><span class="h1">Renal Impairment</span><span class="headingEndMark">—</span>Dose adjustment: For eGFR &lt; 30 mL/min, reduce dose by 50%.</p>
-        """.trimIndent()
-
-        every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
-        every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
-
-        val res = tools.searchTopicSections("700", "eGFR")
-        val matches = res.matches
-
-        assertEquals(1, matches.size)
-        assertEquals("H2", matches[0].sectionId)
-        assertEquals("Renal Impairment", matches[0].sectionTitle)
-        assertTrue(matches[0].snippet.contains("reduce dose by 50%"))
-    }
-
-    @Test
-    fun `searchTopicSections matches any keyword of multi-word query and ranks title hits first`() {
-        // Parity regression vs python_prototype/tools.py search_topic_sections: the whole-phrase
-        // substring match returned 0 sections on-device for "acetaminophen dosing" while python
-        // returned 7 on the same databases — sections mention either word separately (e.g. an
-        // "Analgesics" section whose body contains "acetaminophen" and "dosing" independently).
-        val outlineHtml = """
-            <ul id="innerOutline">
-                <li><a href="appAction({&quot;section&quot;:&quot;H0&quot;})">Dosing and Administration</a></li>
-                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Analgesics</a></li>
-                <li><a href="appAction({&quot;section&quot;:&quot;H2&quot;})">Therapies that may be effective</a></li>
-                <li><a href="appAction({&quot;section&quot;:&quot;H3&quot;})">Selected hygiene measures</a></li>
-            </ul>
-        """.trimIndent()
-        val bodyHtml = """
-            <p class="headingAnchor" id="H0">For adults and children.</p>
-            <p class="headingAnchor" id="H1"><span class="h1">Analgesics</span><span class="headingEndMark">—</span>Acetaminophen provides mild relief; no dosing schedule is listed.</p>
-            <p class="headingAnchor" id="H2"><span class="h1">Therapies that may be effective</span><span class="headingEndMark">—</span>Dosing of intranasal ipratropium reduces symptoms.</p>
-            <p class="headingAnchor" id="H3"><span class="h1">Selected hygiene measures</span><span class="headingEndMark">—</span>Hand washing plus masks prevent transmission.</p>
-        """.trimIndent()
-
-        every { contentRepository.getTopicContent("6868") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
-        every { contentRepository.getTopicTitle("6868") } returns "The common cold in adults"
-
-        val res = tools.searchTopicSections("6868", "acetaminophen dosing")
-        val matches = res.matches
-
-        assertEquals(3, matches.size)
-        // Score 3x titleHit + 1x bodyHit: title-only H0 (3) ranks above two-body-hit H1 (2),
-        // then one-body-hit H2 (1); the keyword-free H3 section never matches.
-        assertEquals("H0", matches[0].sectionId)
-        // Title-only match falls back to the head-of-body snippet (no keyword window).
-        assertEquals("For adults and children.", matches[0].snippet)
-        assertEquals("H1", matches[1].sectionId)
-        // Snippet is cut around the earliest keyword occurrence in plain body text.
-        assertTrue(matches[1].snippet.contains("Acetaminophen provides mild relief"))
-        assertEquals("H2", matches[2].sectionId)
-        assertEquals("Found 3 matching sections.", res.message)
-    }
-
-    @Test
-    fun `searchTopicSections caps results at eight with capped count message`() {
-        val outlineLi = (1..9).joinToString("") { i ->
-            """<li><a href="appAction({&quot;section&quot;:&quot;H$i&quot;})">Dosing section $i</a></li>"""
-        }
-        val outlineHtml = "<ul id=\"innerOutline\">$outlineLi</ul>"
-        val bodyParagraph = (1..9).joinToString("\n") { i ->
-            """<p class="headingAnchor" id="H$i"><span class="h1">Dosing section $i</span><span class="headingEndMark">—</span>Dosing topic content $i.</p>"""
-        }
-
-        every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(
-            outlineHtml = outlineHtml,
-            bodyHtml = bodyParagraph
-        )
-        every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
-
-        val res = tools.searchTopicSections("700", "dosing")
-
-        assertEquals(8, res.matches.size)
-        // Python counts the capped top_matches in the message, not every match found.
-        assertEquals("Found 8 matching sections.", res.message)
-    }
-
-    @Test
-    fun `searchTopicSections mirrors python messages for no hits and blank input`() {
-        val outlineHtml = """
-            <ul id="innerOutline">
-                <li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a></li>
-            </ul>
-        """.trimIndent()
-        val bodyHtml = """
-            <p class="headingAnchor" id="H1"><span class="h1">Overview</span><span class="headingEndMark">—</span>General overview text.</p>
-        """.trimIndent()
-
-        every { contentRepository.getTopicContent("700") } returns ContentRepository.TopicContent(outlineHtml = outlineHtml, bodyHtml = bodyHtml)
-        every { contentRepository.getTopicTitle("700") } returns "Drug Overview"
-
-        val noHit = tools.searchTopicSections("700", "unobtainium")
-        assertEquals(0, noHit.matches.size)
-        assertEquals("No matching sections found for 'unobtainium'.", noHit.message)
-
-        // Blank query does not touch the repository (python checks emptiness first).
-        val blank = tools.searchTopicSections("700", "   ")
-        assertEquals("Topic ID and query must be non-empty.", blank.message)
-    }
-
-    @Test
     fun `getTopicOverview returns outline and graphics for articles`() {
         val outlineHtml = """
             <ul id="innerOutline">
@@ -614,11 +503,11 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicSectionsText returns at most ten sections per call`() {
-        val outlineHtml = (1..11).joinToString("") {
+    fun `getTopicSectionsText returns at most twenty sections per call`() {
+        val outlineHtml = (1..21).joinToString("") {
             """<li><a href="appAction({&quot;section&quot;:&quot;H$it&quot;})">Sec $it</a></li>"""
         }
-        val bodyHtml = (1..11).joinToString("") {
+        val bodyHtml = (1..21).joinToString("") {
             """<p class="headingAnchor" id="H$it"><span class="h1">Sec $it</span><span class="headingEndMark">—</span>Short text $it.</p>"""
         }
         every { contentRepository.getTopicContent("300") } returns ContentRepository.TopicContent(
@@ -627,18 +516,57 @@ class MedicalDatabaseToolsTest {
         )
         every { contentRepository.getTopicTitle("300") } returns "Topic 300"
 
-        val res = tools.getTopicSectionsText("300", (1..11).map { "H$it" })
+        val res = tools.getTopicSectionsText("300", (1..21).map { "H$it" })
 
-        // Count guard: at most 10 sections per call; the 11th is reported, never silently dropped
+        // Count guard: at most 20 sections per call; the 21st is reported, never silently dropped
         val titles = res.sectionTitles
-        (1..10).forEach { assertTrue(titles.containsKey("H$it")) }
-        assertFalse(titles.containsKey("H11"))
+        (1..20).forEach { assertTrue(titles.containsKey("H$it")) }
+        assertFalse(titles.containsKey("H21"))
         assertNull(res.truncated)
         val omitted = res.omittedSections
-        assertEquals(listOf("H11"), omitted)
+        assertEquals(listOf("H21"), omitted)
         val md = res.markdown
-        assertTrue(md.contains("=== Section: H10 ==="))
-        assertFalse(md.contains("=== Section: H11 ==="))
+        assertTrue(md.contains("=== Section: H20 ==="))
+        assertFalse(md.contains("=== Section: H21 ==="))
+    }
+
+    @Test
+    fun `getTopicSectionsText does not count subsumed pointer stubs against MAX_SECTIONS_PER_CALL limit`() {
+        val outlineHtml = buildString {
+            append("""<li><a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Parent 1</a><ul>""")
+            (1..5).forEach {
+                append("""<li><a href="appAction({&quot;section&quot;:&quot;H1_$it&quot;})">Child 1.$it</a></li>""")
+            }
+            append("""</ul></li>""")
+            (2..20).forEach {
+                append("""<li><a href="appAction({&quot;section&quot;:&quot;H$it&quot;})">Parent $it</a></li>""")
+            }
+        }
+        val bodyHtml = buildString {
+            append("""<p class="headingAnchor" id="H1"><span class="h1">Parent 1</span><span class="headingEndMark">—</span>P1 content.""")
+            (1..5).forEach {
+                append("""<p class="headingAnchor" id="H1_$it"><span class="h2">Child 1.$it</span><span class="headingEndMark">—</span>C1.$it content.</p>""")
+            }
+            append("</p>")
+            (2..20).forEach {
+                append("""<p class="headingAnchor" id="H$it"><span class="h1">Parent $it</span><span class="headingEndMark">—</span>Text $it.</p>""")
+            }
+        }
+        every { contentRepository.getTopicContent("301") } returns ContentRepository.TopicContent(
+            outlineHtml = """<ul id="innerOutline">$outlineHtml</ul>""",
+            bodyHtml = bodyHtml
+        )
+        every { contentRepository.getTopicTitle("301") } returns "Topic 301"
+
+        val requestedIds = listOf("H1") + (1..5).map { "H1_$it" } + (2..20).map { "H$it" }
+        assertEquals(25, requestedIds.size)
+
+        val res = tools.getTopicSectionsText("301", requestedIds)
+
+        assertNull(res.omittedSections)
+        assertEquals(25, res.sectionTitles.size)
+        assertTrue(res.markdown.contains("=== Section: H1_1 ===\n(Content included in section [H1] above)"))
+        assertTrue(res.markdown.contains("=== Section: H20 ==="))
     }
 
     @Test
@@ -762,6 +690,75 @@ class MedicalDatabaseToolsTest {
         }
         // The `^(?:topic-)?(\d+)$` regex gate must reject everything before any database access.
         verify(exactly = 0) { dbManager.getAssetsDb() }
+    }
+
+    @Test
+    fun `injectWhatsNewHtml injects PCU and WhatsNew cards into topicWhatsNewContainer`() {
+        val dbManager = mockk<DatabaseManager>(relaxed = true)
+        val contentDao = ContentDao(dbManager)
+
+        val whatsNewJson = kotlinx.serialization.json.buildJsonArray {
+            add(kotlinx.serialization.json.buildJsonObject {
+                put("contentId", kotlinx.serialization.json.JsonPrimitive("152105"))
+                put("pcu", kotlinx.serialization.json.JsonPrimitive(true))
+                put("title", kotlinx.serialization.json.JsonPrimitive("Aspirin for VTE"))
+                put("html", kotlinx.serialization.json.JsonPrimitive("<p class=\"headingAnchor\"><span class=\"h2\">Aspirin for VTE</span></p><div class=\"collapseContent\"><p>We suggest aspirin alone (Grade 2B).</p></div>"))
+            })
+            add(kotlinx.serialization.json.buildJsonObject {
+                put("contentId", kotlinx.serialization.json.JsonPrimitive("152038"))
+                put("pcu", kotlinx.serialization.json.JsonPrimitive(false))
+                put("title", kotlinx.serialization.json.JsonPrimitive("STITCH trial"))
+                put("html", kotlinx.serialization.json.JsonPrimitive("<p class=\"headingAnchor\"><span class=\"h2\">STITCH trial</span></p><div class=\"collapseContent\"><p>Small bites technique reduced hernias.</p></div>"))
+            })
+        }
+
+        val bodyHtml = """
+            <div id="topicLastUpdated">Jul 08, 2026.</div>
+            <div id="topicWhatsNewContainer"></div>
+            <div id="topicText"><p class="headingAnchor" id="H1"><span class="h1">Introduction</span></p><p>Content</p></div>
+        """.trimIndent()
+
+        val injected = contentDao.injectWhatsNewHtml(bodyHtml, whatsNewJson)
+        assertTrue(injected.contains("""<div id="PCU0" class="utdCallout utdPCU">"""))
+        assertTrue(injected.contains("""PRACTICE CHANGING UPDATE"""))
+        assertTrue(injected.contains("""We suggest aspirin alone (Grade 2B)."""))
+        assertTrue(injected.contains("""<div id="WhatsNew0" class="utdCallout utdWhatsNew">"""))
+        assertTrue(injected.contains("""WHAT'S NEW"""))
+        assertTrue(injected.contains("""Small bites technique reduced hernias."""))
+    }
+
+    @Test
+    fun `getTopicSectionsText extracts PCU0 and WhatsNew0 sections`() = runBlocking {
+        val outlineHtml = """
+            <ul id="innerOutline">
+                <li id="pcuOutlineItem" class="topicChanged"><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;500&quot;,&quot;section&quot;:&quot;PCU0&quot;}]});"><span>PRACTICE CHANGING UPDATE</span></a></li>
+                <li id="whatsNewOutlineItem" class="topicChanged"><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;500&quot;,&quot;section&quot;:&quot;WhatsNew0&quot;}]});"><span>WHAT'S NEW</span></a></li>
+                <li><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;topic&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;500&quot;,&quot;section&quot;:&quot;H1&quot;}]});"><span>Introduction</span></a></li>
+            </ul>
+        """.trimIndent()
+
+        val bodyHtml = """
+            <div id="topicWhatsNewContainer">
+                <div id="PCU0" class="utdCallout utdPCU"><div class="calloutBadge">PRACTICE CHANGING UPDATE</div><p class="headingAnchor"><span class="h2">Aspirin for VTE</span></p><div class="collapseContent"><p>We suggest aspirin alone.</p></div></div>
+                <div id="WhatsNew0" class="utdCallout utdWhatsNew"><div class="calloutBadge">WHAT'S NEW</div><p class="headingAnchor"><span class="h2">STITCH trial</span></p><div class="collapseContent"><p>Small bites closure.</p></div></div>
+            </div>
+            <div id="topicText"><p class="headingAnchor" id="H1"><span class="h1">Introduction</span></p><p>Standard intro prose.</p></div>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent("500") } returns ContentRepository.TopicContent(
+            outlineHtml = outlineHtml,
+            bodyHtml = bodyHtml
+        )
+
+        val res = tools.getTopicSectionsText("500", listOf("PCU0", "WhatsNew0"))
+        assertEquals("500", res.topicId)
+        assertTrue(res.markdown.contains("PRACTICE CHANGING UPDATE"))
+        assertTrue(res.markdown.contains("We suggest aspirin alone."))
+        assertTrue(res.markdown.contains("WHAT'S NEW"))
+        assertTrue(res.markdown.contains("Small bites closure."))
+        assertFalse(res.markdown.contains("Standard intro prose."))
+        assertEquals("PRACTICE CHANGING UPDATE", res.sectionTitles["PCU0"])
+        assertEquals("WHAT'S NEW", res.sectionTitles["WhatsNew0"])
     }
 }
 

@@ -1,14 +1,12 @@
 package com.clinref.app.ui.settings
 
-import ai.koog.agents.core.agent.AIAgent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
+import com.clinref.app.domain.ai.DecisionMode
 import com.clinref.app.domain.ai.KoogAgentFactory
-import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.domain.ai.ReliabilityManager
-import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.domain.ai.defaultSettingsForProvider
 import com.clinref.shared.secure.SecurePreferences
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +27,9 @@ class SettingsViewModel(
     private val _apiKey = MutableStateFlow("")
     val apiKey: StateFlow<String> = _apiKey.asStateFlow()
 
+    private val _decisionApiKey = MutableStateFlow("")
+    val decisionApiKey: StateFlow<String> = _decisionApiKey.asStateFlow()
+
     private val _availableModels = MutableStateFlow<List<String>>(emptyList())
     val availableModels: StateFlow<List<String>> = _availableModels.asStateFlow()
 
@@ -43,6 +44,7 @@ class SettingsViewModel(
             _configuration.value = securePreferences.configuration.first()
             val config = _configuration.value
             _apiKey.value = securePreferences.getApiKey(config.provider)
+            _decisionApiKey.value = securePreferences.getApiKey(AiProvider.GOOGLE)
             loadModels(config.provider, config.baseUrl)
         }
     }
@@ -58,17 +60,35 @@ class SettingsViewModel(
         }
         _configuration.value = _configuration.value.copy(
             provider = provider,
+            baseUrl = "",
             model = defaultModel,
             providerSettings = defaultSettingsForProvider(provider)
         )
         viewModelScope.launch {
             _apiKey.value = securePreferences.getApiKey(provider)
-            loadModels(provider, _configuration.value.baseUrl)
+            loadModels(provider, "")
         }
     }
 
     fun updateApiKey(key: String) {
         _apiKey.value = key
+        if (_configuration.value.provider == AiProvider.GOOGLE) {
+            _decisionApiKey.value = key
+        }
+    }
+
+    fun updateDecisionMode(mode: DecisionMode) {
+        val current = _configuration.value
+        _configuration.value = current.copy(
+            decisionSettings = current.decisionSettings.copy(mode = mode)
+        )
+    }
+
+    fun updateDecisionApiKey(key: String) {
+        _decisionApiKey.value = key
+        if (_configuration.value.provider == AiProvider.GOOGLE) {
+            _apiKey.value = key
+        }
     }
 
     fun updateBaseUrl(url: String) {
@@ -114,11 +134,9 @@ class SettingsViewModel(
             _testResult.value = TestResult.Loading
             try {
                 val config = _configuration.value
-                securePreferences.saveApiKey(config.provider, _apiKey.value)
-
                 val testConfig = config.copy(isConfigured = true)
                 val result = reliabilityManager.runWithTimeout(timeoutMs = 15_000L) {
-                    koogAgentFactory.testConnection(testConfig)
+                    koogAgentFactory.testConnection(testConfig, apiKeyOverride = _apiKey.value)
                 }
 
                 _testResult.value = result.fold(
@@ -137,14 +155,22 @@ class SettingsViewModel(
         }
     }
 
-    fun save() {
+    fun save(onSaved: () -> Unit = {}) {
         viewModelScope.launch {
             _isSaving.value = true
             try {
                 val config = _configuration.value.copy(isConfigured = true)
                 securePreferences.saveApiKey(config.provider, _apiKey.value)
+                if (config.provider != AiProvider.GOOGLE) {
+                    val trimmedDecisionKey = _decisionApiKey.value.trim()
+                    if (trimmedDecisionKey.isNotEmpty() || securePreferences.getApiKey(AiProvider.GOOGLE).isNotEmpty()) {
+                        securePreferences.saveApiKey(AiProvider.GOOGLE, _decisionApiKey.value)
+                    }
+                }
                 securePreferences.saveConfiguration(config)
+                koogAgentFactory.clearDecisionClients()
                 _testResult.value = null
+                onSaved()
             } finally {
                 _isSaving.value = false
             }

@@ -148,11 +148,14 @@ class ValidationResult(BaseModel):
 
 # A number, an optional range separator, and a measurement unit. Units are the
 # vocabulary that actually occurs in the UpToDate corpus.
+NUM_PATTERN = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?"
 CLINICAL_QUANTITY_REGEX = re.compile(
-    r"(?<![\w.])(\d+(?:[.,]\d+)?)(?:\s*(?:-|–|—|to)\s*(\d+(?:[.,]\d+)?))?\s*"
-    r"([μµ]g|mcg|mg|mEq|mmol|mOsm|mU|mL|m2|IU|ng|pg|kg|dL|mmHg|cmH2O|g|L|%|percent|units?|years?|months?|weeks?|days?|hours?|minutes?|q\d+h?)(?!\w)",
+    r"(?<![\w.,])(" + NUM_PATTERN + r")(?:\s*(?:-|–|—|to)\s*(" + NUM_PATTERN + r"))?\s*"
+    r"((?:[μµ]g|ug|mcg|mg|g|mEq|mmol|mOsm|mU|IU|units?|mL|L|ng|pg)(?:\s*/\s*(?:kg|m2|m²|dL|L|mL|min|hr|h|day|d|1\.73\s*m[2²]))+(?:\s*/\s*(?:min|hr|h|day|d|1\.73\s*m[2²]))?|"
+    r"[μµ]g|ug|mcg|mg|mEq|mmol|mOsm|mU|mL|m2|m²|IU|ng|pg|kg|dL|mmHg|cmH2O|g|L|%|percent|units?|years?|months?|weeks?|days?|hours?|minutes?|q\d+h?)(?![\w/])",
     re.IGNORECASE,
 )
+THOUSAND_COMMA_REGEX = re.compile(r"^\d{1,3}(?:,\d{3})+(?:\.\d+)?$")
 
 _UNIT_ALIASES = {
     "percent": "%",
@@ -208,19 +211,29 @@ def _decode_unicode_escape(match: "re.Match[str]") -> str:
 
 
 def canonical_number(raw: str) -> str:
-    """'1,200' -> '1200', '2.0' -> '2', '10.50' -> '10.5'."""
-    no_commas = raw.replace(",", "")
-    if "." not in no_commas:
-        return no_commas
-    trimmed = no_commas.rstrip("0").rstrip(".")
-    return trimmed or "0"
+    """Normalizes thousand-separated numbers while preserving decimal commas."""
+    trimmed = raw.strip()
+    if "," in trimmed and "." in trimmed:
+        dot_normalized = trimmed.replace(",", "")
+    elif THOUSAND_COMMA_REGEX.match(trimmed):
+        dot_normalized = trimmed.replace(",", "")
+    elif "," in trimmed:
+        dot_normalized = trimmed.replace(",", ".")
+    else:
+        dot_normalized = trimmed
+    if "." not in dot_normalized:
+        return dot_normalized
+    trimmed_num = dot_normalized.rstrip("0").rstrip(".")
+    return trimmed_num or "0"
 
 
 def canonical_unit(raw: str) -> str:
-    lower = raw.strip().lower()
-    if lower in _VARIANT_UNIT_ALIASES:
-        return _VARIANT_UNIT_ALIASES[lower]
-    return _UNIT_ALIASES.get(lower, lower)
+    parts = re.sub(r"\s*/\s*", "/", raw.strip().lower()).split("/")
+    mapped = "/".join(
+        _VARIANT_UNIT_ALIASES.get(part, part.replace("m²", "m2").replace(" ", ""))
+        for part in parts
+    )
+    return _UNIT_ALIASES.get(mapped, mapped)
 
 
 def extract_quantities(text: str) -> dict[str, str]:

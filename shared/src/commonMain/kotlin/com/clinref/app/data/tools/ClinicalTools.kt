@@ -7,7 +7,6 @@ import ai.koog.agents.core.tools.annotations.LLMDescription
 import ai.koog.serialization.typeToken
 import com.clinref.app.data.GraphicContentResponse
 import com.clinref.app.data.MedicalDatabaseTools
-import com.clinref.app.data.SearchTopicSectionsResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
 import com.clinref.app.data.TopicSectionsResponse
@@ -75,16 +74,16 @@ class GetTopicSectionsTextTool(
     argsType = typeToken<Args>(),
     resultType = typeToken<TopicSectionsResponse>(),
     name = "getTopicSectionsText",
-    description = "Step 3 (Mandatory for clinical answers): Retrieve full, unredacted clinical text for up to 10 sectionIds within a single topicId. " +
+    description = "Step 3 (Mandatory for clinical answers): Retrieve full, unredacted clinical text for up to ${com.clinref.app.data.MAX_SECTIONS_PER_CALL} sectionIds within a single topicId. " +
         "Select sections covering dosing, first-line and alternative regimens (especially if patient allergies exist), and renal/hepatic adjustments. " +
-        "Up to 10 sections are returned in full; extras are listed in omittedSections."
+        "Up to ${com.clinref.app.data.MAX_SECTIONS_PER_CALL} sections are returned in full; extras are listed in omittedSections."
 ) {
     @Serializable
     data class Args(
         @property:LLMDescription("Exact numeric topic ID string.")
         @JsonNames("topic_id")
         val topicId: String,
-        @property:LLMDescription("Array of 1 to 10 section ID strings copied from getTopicOverview or searchTopicSections (e.g., ['H12', 'H15']).")
+        @property:LLMDescription("Array of 1 to ${com.clinref.app.data.MAX_SECTIONS_PER_CALL} section ID strings copied from getTopicOverview (e.g., ['H12', 'H15']).")
         @JsonNames("section_ids")
         val sectionIds: List<String> = emptyList()
     )
@@ -124,36 +123,5 @@ class GetGraphicContentTool(
             )
         }
         return databaseTools.getGraphicContent(cleanGraphicId)
-    }
-}
-
-class SearchTopicSectionsTool(
-    private val databaseTools: MedicalDatabaseTools
-) : Tool<SearchTopicSectionsTool.Args, SearchTopicSectionsResponse>(
-    argsType = typeToken<Args>(),
-    resultType = typeToken<SearchTopicSectionsResponse>(),
-    name = "searchTopicSections",
-    description = "Perform a targeted keyword search inside a single known topicId to locate specific section IDs and text snippets (e.g., 'renal', 'dosing', 'pregnancy', 'penicillin allergy'). " +
-        "Use this on large topics when getTopicOverview has dozens of sections and you need to pinpoint exact sectionIds before calling getTopicSectionsText."
-) {
-    @Serializable
-    data class Args(
-        @property:LLMDescription("Exact numeric topic ID string.")
-        @JsonNames("topic_id")
-        val topicId: String,
-        @property:LLMDescription("1–2 clinical keywords to locate within the topic (e.g., 'renal dose', 'contraindications').")
-        @JsonNames("query", "search_query", "keyword", "keywords")
-        val query: String
-    )
-
-    override suspend fun execute(args: Args): SearchTopicSectionsResponse {
-        val cleanTopicId = args.topicId.trim()
-        val cleanQuery = args.query.trim()
-        if (cleanTopicId.isEmpty() || cleanQuery.isEmpty()) {
-            return SearchTopicSectionsResponse(
-                error = "Both topicId and query are required to search sections within a topic."
-            )
-        }
-        return databaseTools.searchTopicSections(cleanTopicId, cleanQuery)
     }
 }

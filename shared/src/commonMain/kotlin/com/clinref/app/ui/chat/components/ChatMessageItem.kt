@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.ContentCopy
@@ -32,12 +33,14 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -171,53 +174,62 @@ fun ChatMessageItem(
                     }
                 }
 
-                DropdownMenu(
+                val itemCount = if (!isTurnSuccessful) 3 else 2
+                DropdownMenuPopup(
                     expanded = showContextMenu,
                     onDismissRequest = { showContextMenu = false }
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Copy", style = MaterialTheme.typography.bodyMedium) },
-                        onClick = {
-                            showContextMenu = false
-                            onCopyMessage(message.content)
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Edit", style = MaterialTheme.typography.bodyMedium) },
-                        onClick = {
-                            showContextMenu = false
-                            onEditMessage?.invoke(message)
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    )
-                    if (!isTurnSuccessful) {
+                    DropdownMenuGroup(
+                        shapes = MenuDefaults.groupShape(0, 1),
+                        containerColor = MenuDefaults.groupStandardContainerColor
+                    ) {
                         DropdownMenuItem(
-                            text = { Text("Retry", style = MaterialTheme.typography.bodyMedium) },
                             onClick = {
                                 showContextMenu = false
-                                onRetryTurn?.invoke(message.id)
+                                onCopyMessage(message.content)
                             },
+                            text = { Text("Copy", style = MaterialTheme.typography.bodyMedium) },
+                            shape = MenuDefaults.leadingItemShape,
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Default.Refresh,
+                                    imageVector = Icons.Default.ContentCopy,
                                     contentDescription = null,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
                         )
+                        DropdownMenuItem(
+                            onClick = {
+                                showContextMenu = false
+                                onEditMessage?.invoke(message)
+                            },
+                            text = { Text("Edit", style = MaterialTheme.typography.bodyMedium) },
+                            shape = if (itemCount == 2) MenuDefaults.trailingItemShape else MenuDefaults.middleItemShape,
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        )
+                        if (!isTurnSuccessful) {
+                            DropdownMenuItem(
+                                onClick = {
+                                    showContextMenu = false
+                                    onRetryTurn?.invoke(message.id)
+                                },
+                                text = { Text("Retry", style = MaterialTheme.typography.bodyMedium) },
+                                shape = MenuDefaults.trailingItemShape,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -256,20 +268,23 @@ fun ChatMessageItem(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = message.content,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                modifier = Modifier.weight(1f)
-                            )
+                            SelectionContainer(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = message.content,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
                         }
                     }
                 } else if (isCancelled) {
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    SelectionContainer {
+                        Text(
+                            text = message.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 } else {
                     if (message.content.isNotBlank()) {
                         val currentUriHandler = LocalUriHandler.current
@@ -313,15 +328,17 @@ fun ChatMessageItem(
                         val markdownDimens = clinrefMarkdownDimens()
                         val markdownComponents = rememberClinrefMarkdownComponents()
 
-                        CompositionLocalProvider(LocalUriHandler provides customUriHandler) {
-                            Markdown(
-                                markdownState = markdownState,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = markdownColors,
-                                typography = markdownTypography,
-                                dimens = markdownDimens,
-                                components = markdownComponents
-                            )
+                        SelectionContainer {
+                            CompositionLocalProvider(LocalUriHandler provides customUriHandler) {
+                                Markdown(
+                                    markdownState = markdownState,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = markdownColors,
+                                    typography = markdownTypography,
+                                    dimens = markdownDimens,
+                                    components = markdownComponents
+                                )
+                            }
                         }
                     }
                 }

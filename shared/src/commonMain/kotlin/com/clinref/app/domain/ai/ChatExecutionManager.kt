@@ -69,12 +69,12 @@ class ChatExecutionManager(
         _activeConversationId.value == conversationId && activeJob?.isActive == true
 
     fun canSendMessage(conversationId: String): Boolean =
-        activeJob?.isActive != true
+        activeTurn == null && activeJob?.isActive != true
 
     fun sendMessage(conversationId: String, content: String): Boolean {
         val trimmed = content.trim()
         if (trimmed.isBlank()) return false
-        if (activeJob?.isActive == true) {
+        if (activeTurn != null || activeJob?.isActive == true) {
             secureLogger.log(
                 SecureLogger.Level.WARN,
                 "ChatExecutionManager",
@@ -83,21 +83,23 @@ class ChatExecutionManager(
             return false
         }
 
-        scope.launch {
+        val pendingAssistantId = UUID.randomUUID().toString()
+        val turnContext = TurnContext(messageId = pendingAssistantId)
+        activeTurn = turnContext
+        idleCancelled = false
+        _activeConversationId.value = conversationId
+        _activeAssistantMessageId.value = pendingAssistantId
+
+        activeJob = scope.launch {
             streamingManager.reset()
-            val pendingAssistantId = UUID.randomUUID().toString()
-            val turnContext = TurnContext(messageId = pendingAssistantId)
-            activeTurn = turnContext
-            idleCancelled = false
-            _activeConversationId.value = conversationId
-            _activeAssistantMessageId.value = pendingAssistantId
             _events.tryEmit(ChatExecutionEvent.GenerationStarted(conversationId, pendingAssistantId))
 
             val patientProfile: PatientProfile?
             val config: AiConfiguration
+            val userMessageId = UUID.randomUUID().toString()
             try {
                 val userMsg = MessageEntity(
-                    id = UUID.randomUUID().toString(),
+                    id = userMessageId,
                     conversationId = conversationId,
                     role = "user",
                     content = trimmed,
@@ -167,78 +169,88 @@ class ChatExecutionManager(
                 }
             }
 
-            activeJob = launch {
-                try {
-                    val result = kotlinx.coroutines.withContext(ioDispatcher) {
-                        reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
-                            val runtime = koogAgentFactory.resolveRuntime(config)
-                                ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
-                            val history = conversationRepository.getMessagesPage(
-                                conversationId,
-                                ClinicalOrchestrator.MAX_CHAT_HISTORY_TURNS,
-                                0
-                            )
-                            clinicalOrchestrator.runTurn(
-                                question = trimmed,
-                                patientProfile = patientProfile,
-                                chatHistory = history.reversed(),
-                                executor = runtime.first,
-                                model = runtime.second,
-                                providerParams = runtime.third,
-                                streamingManager = streamingManager,
-                                isAnthropic = config.provider == AiProvider.ANTHROPIC
-                            )
+            try {
+                val result = kotlinx.coroutines.withContext(ioDispatcher) {
+                    reliabilityManager.runWithTimeout(timeoutMs = timeoutMs) {
+                        val runtime = koogAgentFactory.resolveRuntime(config)
+                            ?: throw IllegalStateException("Failed to bind agent model. Verify API keys and network interfaces.")
+                        val history = conversationRepository.getMessagesPage(
+                            conversationId,
+                            ClinicalOrchestrator.MAX_CHAT_HISTORY_TURNS,
+                            0
+                        ).filterNot { it.id == userMessageId }
+                        val decisionClient = if (config.decisionSettings.mode != DecisionMode.OFF) {
+                            koogAgentFactory.resolveDecisionClient(config)
+                        } else {
+                            null
                         }
-                    }
-                    handleAgentResult(conversationId, pendingAssistantId, result.content, turnContext)
-                } catch (e: CancellationException) {
-                    if (turnContext.userCancelled) {
-                        throw e
-                    }
-                    handleAgentError(
-                        conversationId = conversationId,
-                        messageId = pendingAssistantId,
-                        errorMessage = e.message ?: "Request timed out.",
-                        errorType = StreamingManager.ErrorType.TIMEOUT,
-                        turnContext = turnContext
-                    )
-                } catch (e: Exception) {
-                    secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Clinical runtime crash: ${e.message}")
-                    handleAgentError(
-                        conversationId = conversationId,
-                        messageId = pendingAssistantId,
-                        errorMessage = e.message ?: "General core execution error.",
-                        errorType = StreamingManager.ErrorType.UNKNOWN,
-                        turnContext = turnContext
-                    )
-                } finally {
-                    statusJob.cancel()
-                    if (activeTurn === turnContext) {
-                        activeTurn = null
-                    }
-                    if (_activeAssistantMessageId.value == pendingAssistantId) {
-                        _activeConversationId.value = null
-                        _activeAssistantMessageId.value = null
-                        streamingManager.reset()
-                    }
-                    idleCancelled = true
-                    if (!turnContext.terminalEventEmitted && !turnContext.userCancelled) {
-                        turnContext.terminalEventEmitted = true
-                        val fallbackError = MessageEntity(
-                            id = pendingAssistantId,
-                            conversationId = conversationId,
-                            role = "assistant",
-                            content = "Clinical synthesis terminated without event.",
-                            timestamp = System.currentTimeMillis(),
-                            isError = true
+                        val decisionConfig = if (decisionClient != null) {
+                            config.decisionSettings.toDecisionConfig()
+                        } else {
+                            null
+                        }
+                        clinicalOrchestrator.runTurn(
+                            question = trimmed,
+                            patientProfile = patientProfile,
+                            chatHistory = history.reversed(),
+                            executor = runtime.first,
+                            model = runtime.second,
+                            providerParams = runtime.third,
+                            streamingManager = streamingManager,
+                            isAnthropic = config.provider == AiProvider.ANTHROPIC,
+                            decisionClient = decisionClient,
+                            decisionConfig = decisionConfig
                         )
-                        try {
-                            conversationRepository.addMessage(fallbackError)
-                        } catch (_: Exception) {
-                            // Best effort persistence
-                        }
-                        _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, fallbackError))
                     }
+                }
+                handleAgentResult(conversationId, pendingAssistantId, result.content, turnContext)
+            } catch (e: CancellationException) {
+                if (turnContext.userCancelled) {
+                    throw e
+                }
+                handleAgentError(
+                    conversationId = conversationId,
+                    messageId = pendingAssistantId,
+                    errorMessage = e.message ?: "Request timed out.",
+                    errorType = StreamingManager.ErrorType.TIMEOUT,
+                    turnContext = turnContext
+                )
+            } catch (e: Exception) {
+                secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Clinical runtime crash: ${e.message}")
+                handleAgentError(
+                    conversationId = conversationId,
+                    messageId = pendingAssistantId,
+                    errorMessage = e.message ?: "General core execution error.",
+                    errorType = StreamingManager.ErrorType.UNKNOWN,
+                    turnContext = turnContext
+                )
+            } finally {
+                statusJob.cancel()
+                if (activeTurn === turnContext) {
+                    activeTurn = null
+                }
+                if (_activeAssistantMessageId.value == pendingAssistantId) {
+                    _activeConversationId.value = null
+                    _activeAssistantMessageId.value = null
+                    streamingManager.reset()
+                }
+                idleCancelled = true
+                if (!turnContext.terminalEventEmitted && !turnContext.userCancelled) {
+                    turnContext.terminalEventEmitted = true
+                    val fallbackError = MessageEntity(
+                        id = pendingAssistantId,
+                        conversationId = conversationId,
+                        role = "assistant",
+                        content = "Clinical synthesis terminated without event.",
+                        timestamp = System.currentTimeMillis(),
+                        isError = true
+                    )
+                    try {
+                        conversationRepository.addMessage(fallbackError)
+                    } catch (_: Exception) {
+                        // Best effort persistence
+                    }
+                    _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, fallbackError))
                 }
             }
         }
@@ -300,7 +312,8 @@ class ChatExecutionManager(
         val cleanResult = ReasoningTokenSanitizer.stripReasoning(result)
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
-                val hasWrongNumbers = state.validation.violations.any {
+                val violations = state.validation.violations
+                val onlyWrongNumbers = violations.isNotEmpty() && violations.all {
                     it.code == ViolationCodes.UNVERIFIED_QTY || it.code == ViolationCodes.UNRETRIEVED_DOSES
                 }
                 if (state.validation.passed && !cleanResult.startsWith(BLOCKED_MARKER)) {
@@ -312,7 +325,7 @@ class ChatExecutionManager(
                         usage = state.tokenUsage,
                         turnContext = turnContext
                     )
-                } else if (hasWrongNumbers && cleanResult.isNotBlank() && !cleanResult.startsWith(BLOCKED_MARKER)) {
+                } else if (onlyWrongNumbers && cleanResult.isNotBlank() && !cleanResult.startsWith(BLOCKED_MARKER)) {
                     val effectiveValidation = if (state.validation.warnings.isEmpty()) {
                         state.validation.copy(
                             warnings = listOf(
@@ -384,7 +397,7 @@ class ChatExecutionManager(
                 conversationId,
                 promptDelta = usage.promptTokens,
                 completionDelta = usage.completionTokens,
-                toolDelta = 0
+                toolDelta = usage.toolTokens
             )
             conversationRepository.updateLastPreview(conversationId, result.take(100))
         } catch (e: Exception) {

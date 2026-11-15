@@ -7,13 +7,11 @@ and evidence retrieval against root SQLite databases using Gemini via local agy 
 import argparse
 import json
 import re
-import subprocess
-import sys
-import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from agy_chat_model import call_gemini_via_agy
 from database import ClinRefDatabase
+from system_prompt import STATIC_CLINICAL_GUIDANCE
 import tools as tools_module
 
 CASES = [
@@ -136,38 +134,6 @@ CASES = [
 ]
 
 
-def call_gemini_via_agy(
-    prompt: str,
-    model: Optional[str] = None,
-    timeout: int = 180,
-    retries: int = 1,
-) -> str:
-    """Spawns agy CLI in print mode to query Gemini directly with retry on timeout."""
-    cmd = [
-        "agy",
-        "--dangerously-skip-permissions",
-        "--disable-slash-commands",
-        "--print",
-        prompt,
-    ]
-    if model and model not in ("default", "gemini-3.8-flash-medium"):
-        cmd.extend(["--model", model])
-
-    for attempt in range(retries + 1):
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if res.returncode != 0:
-                return f"[AGY ERROR: code {res.returncode}] {res.stderr.strip()}"
-            return res.stdout.strip()
-        except subprocess.TimeoutExpired:
-            if attempt < retries:
-                time.sleep(2)
-                continue
-            return "[AGY TIMEOUT: exceeded timeout]"
-        except Exception as e:
-            return f"[AGY EXCEPTION: {e}]"
-
-
 def parse_tool_calls_from_response(raw: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """Extract tool calls and preliminary text from raw LLM output."""
     raw = raw.strip()
@@ -233,23 +199,10 @@ Follow the deterministic retrieval sequence: `searchTopics(query)` → `getTopic
   - `drug` (Lexidrug Monographs): Mandatory for pharmacotherapy. Provides granular dosing, administration, organ adjustments, adverse reactions, and contraindications.
   - `calc` (Clinical Calculators): Returns full scoring algorithms and formulas directly in `getTopicOverview` under section `FULL`. Do not call section retrieval for calculators.
 - Dose Provenance Rule: Before stating any milligram dose, infusion rate, or interval, ensure it is verified in the retrieved section text, attached table (`graphic_table`), or the dedicated `drug` monograph topic that owns it.
-- Section Selection & In-Article Search: Copy section IDs verbatim from the overview; never invent or renumber them. For lengthy articles with dozens of sections, call `searchTopicSections(topicId, keywords)` to pinpoint relevant section IDs and snippets.
+- Section Selection & Batching: Copy section IDs verbatim from `getTopicOverview`; never invent or renumber them. Batch up to 20 relevant section IDs in a single `getTopicSectionsText` call.
 - Tabular Data: Clinical tables (diagnostic criteria, risk scores, treatment algorithms, dosing matrices, drug interactions) are indexed under `graphics` (`isTable: true`). Fetch them using `getGraphicContent(graphicId)`. Never request non-table graphics."""
 
-PROMPT_REWRITE = """You are ClinRef AI, an evidence-grounded clinical reference for clinicians. You possess zero internal medical memory—every clinical assertion, dose, and recommendation must be retrieved from UpToDate database tools in this turn. Never emit clinical text until relevant section text or tables are in context.
-
-### 1. RETRIEVE FIRST — Database Schema & Tool Mechanics
-Retrieval Pipeline: `searchTopics(query)` → `getTopicOverview(topicId)` → `getTopicSectionsText(topicId, sectionIds)` or `getGraphicContent(graphicId)`.
-- Query Discipline: Search 1–3 plain clinical keywords naming a single condition or drug (e.g., "atrial fibrillation", "apixaban"). Never include patient demographics ("65yo male"), lab values ("eGFR 28"), questions, or conversational sentences. For multi-drug or comparative queries, issue parallel searches for each individual entity.
-- Zero-Hit Recovery: If results is empty, immediately retry using terms from refine_with or a broader single clinical noun.
-- Topic Type Routing:
-  - `medical` (Disease Topics): Comprehensive clinical reviews and GRADE recommendations.
-  - `drug` (Lexidrug Monographs): Authoritative source for pharmacotherapy. Mandatory for exact milligram dosing, titration, organ impairment adjustments, and contraindications.
-  - `calc` (Calculators): `getTopicOverview` already delivers the complete algorithm, point scoring, and risk stratification under section `FULL`. When a calculator topic is retrieved for a scoring query, stop retrieval immediately—do not fetch disease articles or call `getTopicSectionsText`.
-- Actionable Dose Provenance: Disease topics often recommend an agent without giving exact doses or renal cutoffs. When specific dosing, titration, or renal/hepatic adjustments are required, retrieve the dedicated drug monograph (`topicType: drug`).
-- Section Selection & Batching: Copy section IDs verbatim from `getTopicOverview` or `searchTopicSections`; never invent or renumber them. Batch up to 10 relevant section IDs in a single `getTopicSectionsText` call. For long articles (>15 sections), call `searchTopicSections(topicId, query)` to pinpoint exact section IDs.
-- Tabular Data: Clinical tables (risk scores, staging criteria, dosing matrices) are indexed in `graphics` (`isTable: true`). Retrieve them using `getGraphicContent(graphicId)`. Never request non-table graphics.
-- Outlines Are Not Evidence: Topic overviews contain only section headings, not clinical text. You must fetch section text via `getTopicSectionsText` or tables via `getGraphicContent` before answering."""
+PROMPT_REWRITE = STATIC_CLINICAL_GUIDANCE
 
 TOOL_DECLARATIONS = """AVAILABLE TOOLS:
 1. searchTopics(query: string)
@@ -261,12 +214,9 @@ TOOL_DECLARATIONS = """AVAILABLE TOOLS:
    Note: For 'calc' topics, full formula markdown is returned directly under section 'FULL'. Standard topics return outline titles only.
 
 3. getTopicSectionsText(topicId: string, sectionIds: string[])
-   Retrieve full unredacted clinical text for up to 10 sectionIds within a single topicId.
+   Retrieve full unredacted clinical text for up to 20 sectionIds within a single topicId.
 
-4. searchTopicSections(topicId: string, query: string)
-   Targeted 1-2 keyword search inside a single topicId to locate specific section IDs and snippets.
-
-5. getGraphicContent(graphicId: string)
+4. getGraphicContent(graphicId: string)
    Retrieve structured Markdown table content for items listed under graphics where isTable is true."""
 
 
@@ -358,9 +308,6 @@ def run_single_benchmark_case(
             elif name.lower() == "gettopicsectionstext":
                 titles = res.get("sectionTitles") or {}
                 summary = f"getTopicSectionsText fetched sections {list(titles.keys())} ({len(res.get('markdown', ''))} chars text)."
-            elif name.lower() == "searchtopicsections":
-                matches = res.get("matches") or []
-                summary = f"searchTopicSections matched {len(matches)} sections: " + json.dumps([{"id": m.get("sectionId"), "title": m.get("sectionTitle")} for m in matches[:5]])
             elif name.lower() == "getgraphiccontent":
                 summary = f"getGraphicContent fetched table [{res.get('graphicId')}] ({len(res.get('markdown', ''))} chars table markdown)."
             else:
@@ -451,9 +398,8 @@ def evaluate_retrieval_trace(
 
     # Check 8: In-article pinpointing
     if case.get("allow_search_topic_sections"):
-        called_section_search = any(c.get("name", "").lower() == "searchtopicsections" for c in calls)
         called_sections = any(c.get("name", "").lower() == "gettopicsectionstext" for c in calls)
-        checks["pinpointed_via_searchTopicSections_or_sections"] = called_section_search or called_sections
+        checks["pinpointed_via_sections"] = called_sections
 
     passed_cnt = sum(1 for v in checks.values() if v)
     total_cnt = len(checks)

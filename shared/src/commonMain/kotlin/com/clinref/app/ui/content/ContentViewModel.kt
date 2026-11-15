@@ -90,11 +90,8 @@ class ContentViewModel(
     private val _referenceDialog = MutableStateFlow<ReferenceDialogData?>(null)
     val referenceDialog: StateFlow<ReferenceDialogData?> = _referenceDialog.asStateFlow()
 
-    private val _gradeDialog = MutableStateFlow<GradeDialogData?>(null)
-    val gradeDialog: StateFlow<GradeDialogData?> = _gradeDialog.asStateFlow()
-
-    private val _policyDialog = MutableStateFlow<PolicyDialogData?>(null)
-    val policyDialog: StateFlow<PolicyDialogData?> = _policyDialog.asStateFlow()
+    private val _gradeDialog = MutableStateFlow<GradeSheetData?>(null)
+    val gradeDialog: StateFlow<GradeSheetData?> = _gradeDialog.asStateFlow()
 
     /**
      * One-shot, imperative "scroll to this section now" commands (outline taps, same-topic links).
@@ -342,10 +339,6 @@ class ContentViewModel(
         _gradeDialog.value = null
     }
 
-    fun dismissPolicyDialog() {
-        _policyDialog.value = null
-    }
-
     fun jumpToReference(number: Int) {
         dismissReferenceDialog()
         scrollToSection("ref_$number")
@@ -468,61 +461,10 @@ class ContentViewModel(
             }
 
         val type = items?.firstOrNull()?.jsonObject?.get("type")?.jsonPrimitive?.content
-        val itemId = items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
 
         if (gradeId != null || type == "grade") {
-            _gradeDialog.value = getGradeRecommendation(gradeId ?: "1")
-        } else if (type == "legal" || itemId?.contains("policy") == true) {
-            _policyDialog.value = PolicyDialogData(
-                title = "UpToDate Editorial Policy",
-                content = "UpToDate is committed to providing unbiased, evidence-based clinical information. All content is synthesized from peer-reviewed biomedical literature, guidelines, and clinical expertise, undergoing continuous editorial review by physician editors and independent peer reviewers."
-            )
+            _gradeDialog.value = GradeSheetData.fromGradeId(gradeId ?: "1")
         }
-    }
-
-    private fun getGradeRecommendation(gradeId: String): GradeDialogData = when (gradeId) {
-        "1" -> GradeDialogData(
-            grade = "Grade 1A",
-            recommendationStrength = "Strong recommendation",
-            evidenceQuality = "High-quality evidence",
-            description = "Benefits clearly outweigh risk and burdens (or vice versa). Consistent evidence from well-performed randomized trials or overwhelming evidence of some other form."
-        )
-        "2" -> GradeDialogData(
-            grade = "Grade 1B",
-            recommendationStrength = "Strong recommendation",
-            evidenceQuality = "Moderate-quality evidence",
-            description = "Benefits clearly outweigh risk and burdens (or vice versa). Evidence from randomized trials with important limitations or very strong evidence of some other form."
-        )
-        "3" -> GradeDialogData(
-            grade = "Grade 1C",
-            recommendationStrength = "Strong recommendation",
-            evidenceQuality = "Low-quality evidence",
-            description = "Benefits appear to outweigh risk and burdens (or vice versa). Evidence from observational studies, unsystematic clinical experience, or randomized trials with serious flaws."
-        )
-        "4" -> GradeDialogData(
-            grade = "Grade 2A",
-            recommendationStrength = "Weak recommendation",
-            evidenceQuality = "High-quality evidence",
-            description = "Benefits closely balanced with risks and burdens. Consistent evidence from well-performed randomized trials or overwhelming evidence of some other form."
-        )
-        "5" -> GradeDialogData(
-            grade = "Grade 2B",
-            recommendationStrength = "Weak recommendation",
-            evidenceQuality = "Moderate-quality evidence",
-            description = "Benefits closely balanced with risks and burdens; some uncertainty in the estimates of benefits, risks, and burdens. Evidence from randomized trials with important limitations."
-        )
-        "6" -> GradeDialogData(
-            grade = "Grade 2C",
-            recommendationStrength = "Weak recommendation",
-            evidenceQuality = "Low-quality evidence",
-            description = "Uncertainty in the estimates of benefits, risks, and burdens; benefits may be closely balanced with risks and burdens. Evidence from observational studies or unsystematic clinical experience."
-        )
-        else -> GradeDialogData(
-            grade = "GRADE Recommendation",
-            recommendationStrength = "Clinical Recommendation",
-            evidenceQuality = "Graded Evidence",
-            description = "UpToDate applies the GRADE system (Grading of Recommendations Assessment, Development and Evaluation) to classify recommendation strength and evidence quality."
-        )
     }
 
     fun clearOpenExternalUrl() {

@@ -65,7 +65,7 @@ The static block (≈2.6 KB, cache-eligible) has four sections:
 1. **Retrieve first (Database Schema & Tool Mechanics)** — zero internal memory directive, the deterministic retrieval pipeline
    (`searchTopics` → `getTopicOverview` → `getTopicSectionsText` / `getGraphicContent`), query discipline
    (1–3 plain keywords, no demographics, lab values, or conversational sentences; parallel searches for multi-drug/comparative entities),
-   zero-hit recovery via typeahead `refine_with` vocabulary, topic type routing (`medical` clinical reviews vs `drug` Lexidrug monographs vs `calc` scoring calculators with `FULL` section short-circuiting), actionable Dose Provenance rule (retrieving the dedicated `drug` topic for exact milligram dosing and organ cutoffs), section selection and batching (up to 10 section IDs per call, in-article section locator `searchTopicSections(topicId, query)`), tabular data retrieval (`graphic_table`), and the Outlines Are Not Evidence directive (headings contain zero evidence; section text or tables must be in context before answering).
+   zero-hit recovery via typeahead `refine_with` vocabulary, topic type routing (`medical` clinical reviews vs `drug` Lexidrug monographs vs `calc` scoring calculators with `FULL` section short-circuiting), actionable Dose Provenance rule (retrieving the dedicated `drug` topic for exact milligram dosing and organ cutoffs), section selection and batching (up to 20 section IDs per call), tabular data retrieval (`graphic_table`), and the Outlines Are Not Evidence directive (headings contain zero evidence; section text or tables must be in context before answering).
 2. **Fidelity (Strict Closed-World Grounding)** — verbatim quantities character-for-character,
    preserved GRADE recommendation strength modal verbs (`recommend` vs `suggest` vs `may`), patient-profile
    cross-check, canonical abstention (`Not specified in retrieved UpToDate sections.`), strict evidence
@@ -112,18 +112,18 @@ The terminal message keeps the stable `Clinical Response Verification Blocked: `
 that the draft is withheld and points at the attached reference cards, so a blocked turn is
 actionable rather than a dead end.
 
-## 4. Retrieval tools (5)
+## 4. Retrieval tools (4)
 
 | # | Tool | Args | Contract |
 |---|---|---|---|
 | 1 | `searchTopics` | `query` | Candidate `{id, title}` pairs; auto-refines through the typeahead vocabulary when the direct hit is empty |
 | 2 | `getTopicOverview` | `topicId` | Section outline, `graphic_table` ids, related topics, `topicType`; calculator topics return full content |
-| 3 | `getTopicSectionsText` | `topicId`, `sectionIds[]` | Verbatim section text, ≤ 10 sections per call (extras reported in `omittedSections`); applies parent-child section subsumption in outline order to eliminate redundant descendant text |
-| 4 | `searchTopicSections` | `topicId`, `query` | Section ids + snippets for one narrow topic inside a long article |
-| 5 | `getGraphicContent` | `graphicId` | Markdown table for `graphic_table` assets; non-tables return an error envelope |
+| 3 | `getTopicSectionsText` | `topicId`, `sectionIds[]` | Verbatim section text, ≤ 20 sections per call (extras reported in `omittedSections`); applies parent-child section subsumption in outline order to eliminate redundant descendant text |
+| 4 | `getGraphicContent` | `graphicId` | Markdown table for `graphic_table` assets; non-tables return an error envelope |
 
-`getRelatedTopics` was removed: related topics are already part of the overview bundle, so a second
-round trip only added latency and tool-selection ambiguity.
+`getRelatedTopics` and `searchTopicSections` were removed: related topics and the complete section
+outline hierarchy are already part of the overview bundle, eliminating redundant round trips,
+150-character Gate 1 evidence stalls, and tool-selection ambiguity.
 
 ## 5. Database facts the contracts rely on
 

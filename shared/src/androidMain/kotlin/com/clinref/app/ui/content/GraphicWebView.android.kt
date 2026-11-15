@@ -52,6 +52,9 @@ actual fun GraphicWebView(
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
+                    isFocusable = true
+                    isFocusableInTouchMode = true
+                    isLongClickable = true
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             onPageFinished()

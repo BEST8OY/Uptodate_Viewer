@@ -33,10 +33,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,13 +46,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.clinref.app.ui.adaptive.LocalIsWideScreen
+import com.clinref.app.ui.common.setPlainText
 import com.clinref.app.util.UrlUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -86,7 +87,10 @@ fun ReferenceSheet(
             }
         }
     } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+        )
         ModalBottomSheet(
             onDismissRequest = onDismiss,
             sheetState = sheetState,
@@ -114,12 +118,12 @@ private fun ReferenceSheetContent(
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val coroutineScope = rememberCoroutineScope()
     var copiedRefNumber by remember { mutableStateOf<Int?>(null) }
 
     fun copyCitation(ref: ReferenceItem) {
-        clipboardManager.setText(AnnotatedString(ref.citation))
+        clipboard.setPlainText(ref.citation)
         copiedRefNumber = ref.number
         coroutineScope.launch {
             delay(2000)

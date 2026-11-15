@@ -16,11 +16,11 @@ Usage:
 import argparse
 import json
 import re
-import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from agy_chat_model import call_gemini_via_agy
 
 from safety_validator import extract_quantities
 from system_prompt import (
@@ -48,7 +48,7 @@ HEADER_RE = re.compile(r"^\s*(?:#{1,4}\s*(.+?)$|\*\*(.+?)\*\*)", re.MULTILINE)
 FIRST_BOLD_RE = re.compile(r"^\s*\*\*(.+?)\*\*", re.DOTALL)
 DISALLOWED_ATX_HEADER_RE = re.compile(r"^\s*(?:#{1,2}|#{4,6})\s+\w+", re.MULTILINE)
 MARKDOWN_LINK_RE = re.compile(r"\[.+?\]\(.+?\)")
-INLINE_CITATION_RE = re.compile(r"\[\d+(?:,\s*\d+)*\]|\b(?:UpToDate|Lexidrug)\b", re.IGNORECASE)
+INLINE_CITATION_RE = re.compile(r"\[\s*\d+(?:\s*[-,–—]\s*\d+)*\s*\]")
 
 
 def load_cases(path: Path = CASES_PATH) -> List[Dict[str, Any]]:
@@ -98,7 +98,7 @@ def score_turn(case: Dict[str, Any], answer: str, passed: bool, section_count: i
     else:
         checks = {"grounded": bool(passed)}
         if not withheld:
-            checks["bluf"] = _is_bluf(answer)
+            checks["bluf"] = is_bluf(answer)
             checks["no_preamble"] = bool(answer.strip()) and not bool(PREAMBLE_RE.match(answer))
             checks["refs"] = section_count > 0
             if case.get("must_contain"):
@@ -122,10 +122,14 @@ def score_turn(case: Dict[str, Any], answer: str, passed: bool, section_count: i
 def check_empty_headers(answer: str) -> bool:
     """Detects forbidden empty headers or headers followed solely by abstention."""
     pattern = re.compile(
-        r"(?:###|\*\*)\s*(.+?)(?:\*\*)?\s*\n\s*(?:\*\s*|-\s*)?(?:Not specified|None|\bN/A\b|No information)",
-        re.IGNORECASE,
+        r"^\s*(?:###\s+([^\n]{1,60})|\*\*([^*\n]{1,60})\*\*)\s*$\s*\n\s*(?:\*\s*|-\s*)?(?:Not specified|None|\bN/A\b|No information)",
+        re.IGNORECASE | re.MULTILINE,
     )
-    return not bool(pattern.search(answer or ""))
+    for match in pattern.finditer(answer or ""):
+        heading = (match.group(1) or match.group(2) or "").strip()
+        if not heading.endswith("."):
+            return False
+    return True
 
 
 def check_grade_fidelity(case: Dict[str, Any], answer: str) -> bool:
@@ -251,37 +255,6 @@ def check_content_pin(term: str, text: str) -> bool:
     return bool(re.search(pattern, text_clean))
 
 
-def call_gemini_via_agy(
-    prompt: str,
-    model: Optional[str] = None,
-    timeout: int = 180,
-    retries: int = 1,
-) -> str:
-    """Spawns agy CLI in print mode to query Gemini directly without an external API key."""
-    cmd = [
-        "agy",
-        "--dangerously-skip-permissions",
-        "--disable-slash-commands",
-        "--print",
-        prompt,
-    ]
-    if model and model not in ("default", "gemini-3.8-flash-medium"):
-        cmd.extend(["--model", model])
-    for attempt in range(retries + 1):
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if res.returncode != 0:
-                return f"[AGY ERROR: code {res.returncode}] {res.stderr.strip()}"
-            return res.stdout.strip()
-        except subprocess.TimeoutExpired:
-            if attempt < retries:
-                time.sleep(2)
-                continue
-            return f"[AGY TIMEOUT: exceeded {timeout}s]"
-        except Exception as e:
-            return f"[AGY EXCEPTION: {e}]"
-
-
 def run_synthesis_benchmark(
     provider: str,
     model: Optional[str],
@@ -312,7 +285,7 @@ CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK — NO TOOLS ACTIVE)
 CLINICAL INQUIRY:
 {case['question']}"""
 
-        if provider == "gemini":
+        if provider in ("gemini", "agy"):
             answer = call_gemini_via_agy(synthesis_prompt, model=model)
         else:
             from run import create_llm, resolve_api_key
@@ -347,22 +320,34 @@ def run_agentic_live(
     model: Optional[str],
     cases: List[Dict[str, Any]],
     verbose: bool,
+    decision_agent_mode: str = "off",
+    decision_prefetch: bool = False,
+    agent_decision_client: Any = None,
 ) -> List[Dict[str, Any]]:
     """Runs full multi-step retrieval agent loop over real SQLite databases."""
     from agent import create_clinical_agent, create_initial_state
     from database import ClinRefDatabase
+    from decision_client import DecisionClient
+    from decision_gates import DecisionConfig
     from run import create_llm, resolve_api_key
     from token_tracker import TokenTracker
     import tools as tools_module
 
-    api_key = resolve_api_key(provider)
-    if api_key is None and provider not in ("ollama", "gemini"):
+    llm_provider = "agy" if provider in ("gemini", "agy") else provider
+    api_key = resolve_api_key(llm_provider)
+    if api_key is None and llm_provider not in ("ollama", "agy"):
         print(f"No API key found for provider '{provider}'.", file=sys.stderr)
         return []
 
     db = ClinRefDatabase()
     tool_list = tools_module.init_tools(db)
-    llm = create_llm(provider, model, api_key)
+    llm = create_llm(llm_provider, model, api_key)
+
+    dec_cfg = DecisionConfig.from_mode(decision_agent_mode, auto_prefetch=decision_prefetch)
+    agent_dec_client = (
+        agent_decision_client
+        or (DecisionClient.from_env(fail_open=True) if dec_cfg is not None else None)
+    )
 
     rows = []
     print(f"\nRunning {len(cases)} cases in FULL AGENTIC mode over SQLite (Provider: {provider})...\n")
@@ -372,7 +357,13 @@ def run_agentic_live(
         print(f"[{i:2d}/{len(cases):2d}] {case['id']:<35} ... ", end="", flush=True)
 
         system_prompt = build_system_prompt(patient_context=extract_patient_context(case.get("patient_profile")))
-        agent = create_clinical_agent(llm=llm, tools=tool_list, system_prompt=system_prompt)
+        agent = create_clinical_agent(
+            llm=llm,
+            tools=tool_list,
+            system_prompt=system_prompt,
+            decision_client=agent_dec_client,
+            decision_config=dec_cfg,
+        )
         state = create_initial_state(user_message=case["question"], system_prompt=system_prompt)
 
         final = agent.invoke(state, config={"callbacks": [tracker]})
@@ -384,7 +375,10 @@ def run_agentic_live(
 
         validation = final.get("validation_result") or {}
         turn_context = final.get("turn_context") or {}
-        evidence_text = " ".join(s.content_snippet for s in turn_context.get("fetched_sections") or [])
+        evidence_text = " ".join(
+            s.get("content_snippet", "") if isinstance(s, dict) else s.content_snippet
+            for s in (turn_context.get("fetched_sections") or [])
+        )
 
         row = score_clinical_turn(
             case=case,
@@ -394,6 +388,7 @@ def run_agentic_live(
             section_count=len(turn_context.get("fetched_sections") or []),
         )
         row["usage"] = tracker.get_summary()
+        row["decision_telemetry"] = final.get("decision_telemetry") or {}
         row["answer_full"] = answer
         rows.append(row)
 
@@ -411,11 +406,12 @@ def run_agentic_live(
 # ── Diagnostic Matrix Reporting ────────────────────────────────────────────────
 
 def print_benchmark_matrix(rows: List[Dict[str, Any]]):
-    print("\n" + "=" * 90)
+    width = 90
+    print("\n" + "=" * width)
     print("CLINREF CLINICAL DECISION SUPPORT EVALUATION REPORT")
-    print("=" * 90)
+    print("=" * width)
     print(f"{'Case ID':<32} | {'Category':<18} | {'Safety':<7} | {'Epistemic':<9} | {'UX':<5} | {'Status'}")
-    print("-" * 90)
+    print("-" * width)
 
     total_passed = 0
     categories: Dict[str, List[bool]] = {}
@@ -433,7 +429,7 @@ def print_benchmark_matrix(rows: List[Dict[str, Any]]):
         categories.setdefault(r["category"], []).append(r["passed"])
         print(f"{cid:<32} | {cat:<18} | {s_score:<7} | {e_score:<9} | {u_score:<5} | {status}")
 
-    print("-" * 90)
+    print("-" * width)
     print(f"OVERALL BENCHMARK PASS RATE: {total_passed}/{len(rows)} ({total_passed/len(rows)*100:.1f}%)")
     print("\nPerformance by Clinical Category:")
     for cat, results in categories.items():
@@ -451,7 +447,7 @@ def print_benchmark_matrix(rows: List[Dict[str, Any]]):
                 print(f"      Unverified: {', '.join(r['unverified_quantities'][:5])}")
     else:
         print("\n✓ Perfect 100% adherence across all clinical safety, epistemic, and UX tiers.")
-    print("=" * 90)
+    print("=" * width)
 
 
 # ── Main Entrypoint ────────────────────────────────────────────────────────────
@@ -461,12 +457,23 @@ def main() -> int:
     parser.add_argument("--mode", choices=["synthesis", "agent"], default="synthesis",
                         help="Benchmark mode: 'synthesis' (prompt/evidence test) or 'agent' (full SQLite retrieval).")
     parser.add_argument("--provider", default="gemini",
-                        help="Provider: 'gemini' (uses local agy bridge), 'openai', 'anthropic', 'mistral', 'ollama'.")
+                        help="Provider: 'gemini'/'agy' (local agy bridge), 'openai', 'anthropic', 'mistral', 'ollama'.")
     parser.add_argument("--model", default=None, help="Model override.")
     parser.add_argument("--case", default=None, help="Filter to a single case ID.")
     parser.add_argument("--category", default=None, help="Filter to a specific clinical category.")
     parser.add_argument("--verbose", action="store_true", help="Print full answers and diagnostics.")
     parser.add_argument("--out", default="eval_report.json", help="Path to write JSON report.")
+    parser.add_argument(
+        "--decision-agent",
+        choices=["off", "rerank"],
+        default="off",
+        help="Enable gemini-decision-1 search & outline reranking during --mode agent.",
+    )
+    parser.add_argument(
+        "--decision-prefetch",
+        action="store_true",
+        help="When --decision-agent rerank is active, auto-prefetch top ranked sections/tables.",
+    )
     args = parser.parse_args()
 
     cases = load_cases()
@@ -479,10 +486,33 @@ def main() -> int:
         print("No cases matched filter.", file=sys.stderr)
         return 1
 
+    agent_dec_client = None
+    if args.decision_agent != "off":
+        from decision_client import DecisionClient
+        agent_dec_client = DecisionClient.from_env(fail_open=True)
+        if not agent_dec_client.is_configured():
+            print(
+                "Warning: GOOGLE_API_KEY/GEMINI_API_KEY not configured; Decision reranking will fail-open.",
+                file=sys.stderr,
+            )
+
     if args.mode == "synthesis":
-        rows = run_synthesis_benchmark(args.provider, args.model, cases, args.verbose)
+        rows = run_synthesis_benchmark(
+            args.provider,
+            args.model,
+            cases,
+            args.verbose,
+        )
     else:
-        rows = run_agentic_live(args.provider, args.model, cases, args.verbose)
+        rows = run_agentic_live(
+            args.provider,
+            args.model,
+            cases,
+            args.verbose,
+            decision_agent_mode=args.decision_agent,
+            decision_prefetch=args.decision_prefetch,
+            agent_decision_client=agent_dec_client,
+        )
 
     if not rows:
         return 1

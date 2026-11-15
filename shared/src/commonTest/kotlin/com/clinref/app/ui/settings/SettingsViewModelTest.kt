@@ -2,6 +2,8 @@ package com.clinref.app.ui.settings
 
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
+import com.clinref.app.domain.ai.DecisionMode
+import com.clinref.app.domain.ai.DecisionSettings
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.providers.AnthropicProvider
@@ -160,5 +162,63 @@ class SettingsViewModelTest {
         val ollamaModel = ollama.resolveModel(AiConfiguration(provider = AiProvider.OLLAMA, model = "deepseek-coder:33b"))
         assertEquals("deepseek-coder:33b", ollamaModel.id)
         assertEquals(ai.koog.prompt.llm.LLMProvider.Ollama, ollamaModel.provider)
+    }
+
+    @Test
+    fun `Decisions settings update mode autoPrefetch and save separate Google key when using OpenAI`() = runTest {
+        val securePreferences = FakeSecurePreferences(
+            AiConfiguration(provider = AiProvider.OPENAI, model = "gpt-4o", isConfigured = true)
+        )
+        securePreferences.saveApiKey(AiProvider.OPENAI, "sk-openai-key")
+        val koogAgentFactory = mockk<KoogAgentFactory>(relaxed = true)
+        coEvery { koogAgentFactory.getAvailableModels(any(), any()) } returns listOf("gpt-4o")
+
+        val viewModel = SettingsViewModel(
+            securePreferences = securePreferences,
+            koogAgentFactory = koogAgentFactory,
+            reliabilityManager = ReliabilityManager()
+        )
+        advanceUntilIdle()
+
+        viewModel.updateDecisionMode(DecisionMode.RERANK)
+        viewModel.updateDecisionApiKey("AIza-gemini-decisions-key")
+        viewModel.save()
+        advanceUntilIdle()
+
+        val saved = securePreferences.loadConfiguration()
+        assertEquals(DecisionMode.RERANK, saved.decisionSettings.mode)
+        assertEquals("sk-openai-key", securePreferences.getApiKey(AiProvider.OPENAI))
+        assertEquals("AIza-gemini-decisions-key", securePreferences.getApiKey(AiProvider.GOOGLE))
+    }
+
+    @Test
+    fun `KoogAgentFactory resolveDecisionClient respects mode and Google API key presence`() {
+        val securePreferences = FakeSecurePreferences(
+            AiConfiguration(
+                provider = AiProvider.ANTHROPIC,
+                decisionSettings = DecisionSettings(mode = DecisionMode.RERANK)
+            )
+        )
+        val factory = KoogAgentFactory(securePreferences = securePreferences)
+
+        // Missing Google key -> returns null gracefully (fail-open)
+        assertEquals(null, factory.resolveDecisionClient(securePreferences.loadConfiguration()))
+
+        // Mode OFF even with Google key -> returns null
+        securePreferences.saveApiKey(AiProvider.GOOGLE, "AIza-test-key")
+        assertEquals(
+            null,
+            factory.resolveDecisionClient(
+                AiConfiguration(
+                    provider = AiProvider.ANTHROPIC,
+                    decisionSettings = DecisionSettings(mode = DecisionMode.OFF)
+                )
+            )
+        )
+
+        // Mode RERANK + Google key -> returns DecisionClient
+        val client = factory.resolveDecisionClient(securePreferences.loadConfiguration())
+        assertTrue(client != null)
+        client?.close()
     }
 }
