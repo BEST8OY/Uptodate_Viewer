@@ -1,8 +1,10 @@
 package com.clinref.app.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -468,13 +470,23 @@ fun AiSettingsContent(
                     title = "Retrieval Intelligence",
                     icon = Icons.Default.AutoAwesome
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
+                    ) {
                         Text(
                             text = "Uses Gemini Decisions (gemini-decision-1) during search and topic overview " +
                                 "inspection to score candidate topics, sections, and clinical tables.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
 
                         val modes = DecisionMode.entries
                         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -497,12 +509,31 @@ fun AiSettingsContent(
 
                         AnimatedVisibility(
                             visible = configuration.decisionSettings.mode != DecisionMode.OFF,
-                            enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
-                                expandVertically(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
-                            exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
-                                shrinkVertically(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec())
+                            enter = fadeIn(
+                                animationSpec = tween(durationMillis = 200)
+                            ) + expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ),
+                            exit = fadeOut(
+                                animationSpec = tween(durationMillis = 150)
+                            ) + shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
                         ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
                                 if (configuration.provider != AiProvider.GOOGLE) {
                                     ApiKeyField(
                                         value = decisionApiKey,
@@ -575,9 +606,16 @@ fun AiSettingsContent(
                 AnimatedVisibility(
                     visible = testResult != null,
                     enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
-                        expandVertically(animationSpec = MaterialTheme.motionScheme.fastSpatialSpec()),
+                        expandVertically(
+                            expandFrom = Alignment.Top,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ),
                     exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
                         shrinkVertically(
+                            shrinkTowards = Alignment.Top,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioNoBouncy,
                                 stiffness = Spring.StiffnessMediumLow
