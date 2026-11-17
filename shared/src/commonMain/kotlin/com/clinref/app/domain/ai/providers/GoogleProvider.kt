@@ -25,15 +25,22 @@ class GoogleProvider(
         val modelId = config.model.trim().ifEmpty { GoogleModels.Gemini2_5Flash.id }
         val predefined = GoogleModels.models.find { it.id.equals(modelId, ignoreCase = true) }
         val settings = config.providerSettings as? ProviderSettings.Google
+
+        // All modern Gemini models (Gemini 2.0+, 2.5+, 3.x, 4.x) and custom Google endpoints support thinking.
+        // For Gemini 4 (e.g. gemini-4-hydrogen), thinking is active by default and thought signatures
+        // are required on tool calls; failing to advertise Thinking capability causes Koog to emit null signatures.
         val isThinkingModel = settings?.includeThoughts == true ||
+            predefined == null ||
             modelId.contains("thinking", ignoreCase = true) ||
-            modelId.contains("2.5", ignoreCase = true) ||
-            modelId.contains("3", ignoreCase = true)
+            modelId.contains("2", ignoreCase = true) ||
+            modelId.contains("3", ignoreCase = true) ||
+            modelId.contains("4", ignoreCase = true)
 
         val baseCapabilities = predefined?.capabilities ?: listOf(
             ai.koog.prompt.llm.LLMCapability.Completion,
             ai.koog.prompt.llm.LLMCapability.Tools,
-            ai.koog.prompt.llm.LLMCapability.Temperature
+            ai.koog.prompt.llm.LLMCapability.Temperature,
+            ai.koog.prompt.llm.LLMCapability.Thinking
         )
         val capabilities = if (isThinkingModel && ai.koog.prompt.llm.LLMCapability.Thinking !in baseCapabilities) {
             baseCapabilities + ai.koog.prompt.llm.LLMCapability.Thinking
@@ -41,19 +48,15 @@ class GoogleProvider(
             baseCapabilities
         }
 
-        val contextLength = predefined?.contextLength ?: 1_000_000L
-        val model = LLModel(
+        val contextLength = predefined?.contextLength ?: 1_048_576L
+        val maxOutputTokens = predefined?.maxOutputTokens ?: 65_536L
+        return LLModel(
             provider = LLMProvider.Google,
             id = modelId,
             capabilities = capabilities,
-            contextLength = contextLength
+            contextLength = contextLength,
+            maxOutputTokens = maxOutputTokens
         )
-        if (predefined == null && GoogleModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
-            try {
-                GoogleModels.addCustomModel(model)
-            } catch (_: Throwable) {}
-        }
-        return model
     }
 
     override suspend fun createExecutor(config: AiConfiguration, apiKey: String): PromptExecutor? {

@@ -49,11 +49,6 @@ class OpenAIProvider(
             capabilities = capabilities,
             contextLength = contextLength
         )
-        if (predefined == null && OpenAIModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
-            try {
-                OpenAIModels.addCustomModel(model)
-            } catch (_: Throwable) {}
-        }
         return model
     }
 

@@ -221,4 +221,40 @@ class SettingsViewModelTest {
         assertTrue(client != null)
         client?.close()
     }
+
+    @Test
+    fun `reload discards uncommitted in-memory changes and restores persisted state`() = runTest {
+        val initialConfig = AiConfiguration(
+            provider = AiProvider.GOOGLE,
+            model = "gemini-2.5-flash",
+            isConfigured = true
+        )
+        val securePreferences = FakeSecurePreferences(initialConfig)
+        securePreferences.saveApiKey(AiProvider.GOOGLE, "AIza-persisted-key")
+        coEvery { koogAgentFactory.getAvailableModels(any(), any()) } returns listOf("gemini-2.5-flash")
+
+        val viewModel = SettingsViewModel(
+            securePreferences = securePreferences,
+            koogAgentFactory = koogAgentFactory,
+            reliabilityManager = reliabilityManager
+        )
+        advanceUntilIdle()
+
+        assertEquals("gemini-2.5-flash", viewModel.configuration.value.model)
+        assertEquals("AIza-persisted-key", viewModel.apiKey.value)
+
+        // User makes uncommitted edits
+        viewModel.updateModel("gemini-custom-uncommitted")
+        viewModel.updateApiKey("AIza-uncommitted-key")
+        assertEquals("gemini-custom-uncommitted", viewModel.configuration.value.model)
+        assertEquals("AIza-uncommitted-key", viewModel.apiKey.value)
+
+        // User navigates away and re-enters settings screen without saving -> reload() is triggered
+        viewModel.reload()
+        advanceUntilIdle()
+
+        // Uncommitted edits are discarded and persisted state is restored
+        assertEquals("gemini-2.5-flash", viewModel.configuration.value.model)
+        assertEquals("AIza-persisted-key", viewModel.apiKey.value)
+    }
 }

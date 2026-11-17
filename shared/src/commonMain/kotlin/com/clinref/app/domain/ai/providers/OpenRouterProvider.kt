@@ -55,13 +55,6 @@ class OpenRouterProvider(
             capabilities = capabilities,
             contextLength = contextLength
         )
-        if (predefined == null && OpenRouterModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
-            try {
-                OpenRouterModels.addCustomModel(model)
-            } catch (_: Throwable) {
-                // Ignore if already registered
-            }
-        }
         return model
     }
 

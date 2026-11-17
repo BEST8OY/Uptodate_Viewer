@@ -54,11 +54,6 @@ class AnthropicProvider(
             capabilities = capabilities,
             contextLength = contextLength
         )
-        if (predefined == null && AnthropicModels.models.none { it.id.equals(modelId, ignoreCase = true) }) {
-            try {
-                AnthropicModels.addCustomModel(model)
-            } catch (_: Throwable) {}
-        }
         return model
     }
 

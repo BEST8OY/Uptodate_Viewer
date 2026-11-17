@@ -40,12 +40,17 @@ class SettingsViewModel(
     val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
 
     init {
+        reload()
+    }
+
+    fun reload() {
         viewModelScope.launch {
             _configuration.value = securePreferences.configuration.first()
             val config = _configuration.value
             _apiKey.value = securePreferences.getApiKey(config.provider)
             _decisionApiKey.value = securePreferences.getApiKey(AiProvider.GOOGLE)
             loadModels(config.provider, config.baseUrl)
+            _testResult.value = null
         }
     }
 

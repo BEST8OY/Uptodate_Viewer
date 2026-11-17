@@ -121,6 +121,10 @@ fun AiSettingsScreen(
     val testResult by viewModel.testResult.collectAsStateWithLifecycle()
     val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) {
+        viewModel.reload()
+    }
+
     AiSettingsContent(
         configuration = configuration,
         apiKey = apiKey,
