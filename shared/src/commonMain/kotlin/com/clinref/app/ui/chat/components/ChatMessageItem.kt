@@ -57,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.Role
@@ -234,11 +235,13 @@ fun ChatMessageItem(
                 }
             }
         } else {
-            Column(
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxChatAssistantWidth)
-                    .fillMaxWidth()
-            ) {
+            val deduplicatedTextToolbar = rememberDeduplicatedTextToolbar()
+            CompositionLocalProvider(LocalTextToolbar provides deduplicatedTextToolbar) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = AdaptiveTokens.MaxChatAssistantWidth)
+                        .fillMaxWidth()
+                ) {
                 if (isStreaming) {
                     ChatCardOrchestrationHeader(
                         phase = orchestrationPhase,
@@ -380,6 +383,7 @@ fun ChatMessageItem(
                             }
                         }
                     }
+                }
                 }
             }
         }
