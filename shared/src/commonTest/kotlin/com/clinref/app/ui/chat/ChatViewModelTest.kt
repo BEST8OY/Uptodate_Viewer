@@ -290,7 +290,7 @@ class ChatViewModelTest {
             content = "Completed guidance.",
             timestamp = 2000L
         )
-        executionEvents.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", assistantMsg, emptyList<String>()))
+        executionEvents.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", assistantMsg))
         advanceUntilIdle()
 
         assertFalse("AssistantMessageCompleted must NOT emit scroll events", scrollEventEmitted)
@@ -335,7 +335,7 @@ class ChatViewModelTest {
 
         // AssistantMessageCompleted emission
         val assistantMsg = MessageEntity("asst-1", "conv-1", "assistant", "Guidance", 2000L)
-        executionEvents.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", assistantMsg, emptyList()))
+        executionEvents.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", assistantMsg))
         advanceUntilIdle()
         assertTrue("chatItems must contain assistant message", vm.chatItems.value.any { it.key == "asst-1" })
         assertNull("activeAssistantMessageId must be cleared", vm.activeAssistantMessageId.value)
@@ -526,7 +526,7 @@ class ChatViewModelTest {
             content = "Q0 completed",
             timestamp = 50L
         )
-        eventsFlow.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", staleCompletedMsg, emptyList()))
+        eventsFlow.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", staleCompletedMsg))
         advanceUntilIdle()
 
         assertTrue("Stale Q0 completion must NOT clear Q2 isAwaitingResponse", vm.isAwaitingResponse.value)
@@ -557,7 +557,7 @@ class ChatViewModelTest {
             content = "Q2 answer",
             timestamp = 200L
         )
-        eventsFlow.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", q2CompletedMsg, emptyList()))
+        eventsFlow.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", q2CompletedMsg))
         advanceUntilIdle()
 
         assertFalse("Matching Q2 completion must clear isAwaitingResponse", vm.isAwaitingResponse.value)
@@ -681,7 +681,7 @@ class ChatViewModelTest {
             content = "Clinical treatment guidance.",
             timestamp = 3000L
         )
-        executionEvents.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", successMsg, emptyList()))
+        executionEvents.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", successMsg))
         advanceUntilIdle()
 
         val messages = vm.messages.value

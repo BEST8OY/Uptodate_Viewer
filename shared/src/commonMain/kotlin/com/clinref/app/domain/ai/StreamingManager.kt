@@ -31,7 +31,6 @@ class StreamingManager {
         IDLE,
         EVIDENCE_RETRIEVAL,
         SYNTHESIS,
-        VERIFICATION,
         COMPLETED,
         ERROR
     }
@@ -54,7 +53,8 @@ class StreamingManager {
         data class WaitingForLlm(val stepIndex: Int) : AgentState()
         data class Completed(
             val result: String,
-            val validation: SafetyValidator.ValidationResult,
+            val topicRefs: List<TopicRef> = emptyList(),
+            val graphicRefs: List<GraphicRef> = emptyList(),
             val tokenUsage: TokenUsage = TokenUsage()
         ) : AgentState()
         data class Error(
@@ -84,8 +84,8 @@ class StreamingManager {
     private val _currentStatusText = MutableStateFlow("Initializing clinical core…")
     val currentStatusText: StateFlow<String> = _currentStatusText.asStateFlow()
 
-    private val _liveDiscoveredSources = MutableStateFlow<List<SafetyValidator.TopicRef>>(emptyList())
-    val liveDiscoveredSources: StateFlow<List<SafetyValidator.TopicRef>> = _liveDiscoveredSources.asStateFlow()
+    private val _liveDiscoveredSources = MutableStateFlow<List<TopicRef>>(emptyList())
+    val liveDiscoveredSources: StateFlow<List<TopicRef>> = _liveDiscoveredSources.asStateFlow()
 
     private val _streamingText = MutableStateFlow("")
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
@@ -232,16 +232,6 @@ class StreamingManager {
         _agentState.value = AgentState.WaitingForLlm(stepCounter)
     }
 
-    fun onVerificationStarting() {
-        _orchestrationPhase.value = OrchestrationPhase.VERIFICATION
-        _currentStatusText.value = "Verifying clinical quantities against sources…"
-    }
-
-    fun onRevisionStarting() {
-        _isRevised.value = true
-        _currentStatusText.value = "Rechecking values against evidence…"
-    }
-
     fun onWaitingForLlm() {
         if (activeToolCalls > 0) return
         val inSynthesis = _orchestrationSteps.value.any { it.id == "step_synthesis" && it.status == StepStatus.IN_PROGRESS }
@@ -364,7 +354,8 @@ class StreamingManager {
 
     fun onCompleted(
         result: String,
-        validation: SafetyValidator.ValidationResult,
+        topicRefs: List<TopicRef> = emptyList(),
+        graphicRefs: List<GraphicRef> = emptyList(),
         usage: TokenUsage? = null
     ) {
         if (usage != null) {
@@ -386,7 +377,7 @@ class StreamingManager {
         _streamingText.value = result
         _reasoningText.value = ""
         _isReasoning.value = false
-        _agentState.value = AgentState.Completed(result, validation, accumulatedUsage)
+        _agentState.value = AgentState.Completed(result, topicRefs, graphicRefs, accumulatedUsage)
     }
 
     fun onError(error: String) {
@@ -554,7 +545,7 @@ class StreamingManager {
                         if (existingIndex >= 0) {
                             current[existingIndex] = current[existingIndex].copy(label = title, topicTitle = title)
                         } else {
-                            current.add(SafetyValidator.TopicRef(topicId = topicId, label = title, topicTitle = title))
+                            current.add(TopicRef(topicId = topicId, label = title, topicTitle = title))
                         }
                         _liveDiscoveredSources.value = current
                     }
@@ -575,7 +566,7 @@ class StreamingManager {
                             }
                         } else {
                             current.add(
-                                SafetyValidator.TopicRef(
+                                TopicRef(
                                     topicId = topicId,
                                     sectionId = "",
                                     label = topicTitle,
@@ -597,7 +588,7 @@ class StreamingManager {
                         }
                         if (existingIndex < 0) {
                             current.add(
-                                SafetyValidator.TopicRef(
+                                TopicRef(
                                     topicId = graphicId,
                                     sectionId = "",
                                     label = title,

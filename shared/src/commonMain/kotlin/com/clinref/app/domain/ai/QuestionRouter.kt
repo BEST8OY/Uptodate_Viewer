@@ -4,7 +4,7 @@ package com.clinref.app.domain.ai
  * Entry guard for non-clinical turns.
  *
  * A turn that asks no clinical question must not enter the evidence graph: Gate 1
- * ([SafetyValidator.validateEvidence]) hard-fails any answer produced without a tool call, so a
+ * The clinical pipeline hard-fails any answer produced without evidence retrieval, so a
  * greeting routed through retrieval is intercepted, retried, and finally withheld — burning three
  * LLM calls to produce an error message. The guard therefore answers small talk deterministically
  * before the model runs: zero calls, zero tokens.

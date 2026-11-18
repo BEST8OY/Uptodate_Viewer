@@ -83,7 +83,7 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import com.clinref.app.domain.ai.SafetyValidator
+import com.clinref.app.domain.ai.TopicRef
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
@@ -662,7 +662,7 @@ private fun ChatEmptyState(
 private fun StreamingAssistantMessage(
     activeAssistantId: String,
     viewModel: ChatViewModel,
-    onSourceClick: (SafetyValidator.TopicRef) -> Unit,
+    onSourceClick: (TopicRef) -> Unit,
     onCopyMessage: (String) -> Unit,
     onNavigateToContent: (String, String?) -> Unit,
     onGraphicSelected: (String) -> Unit,

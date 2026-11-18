@@ -47,62 +47,11 @@ class ReasoningTokenSanitizerTest {
     }
 
     @Test
-    fun `prevents number validation false positives in SafetyValidator`() {
-        val validator = SafetyValidator()
-        // Evidence text only has 250 mg
-        val toolResult = "Dosing in renal impairment: 250 mg orally every 12 hours."
-        val toolCall = SafetyValidator.ToolCallRecord(
-            toolName = "getTopicSectionsText",
-            arguments = mapOf("topicId" to "123"),
-            result = toolResult,
-            success = true
-        )
-
-        // Raw output has hypothetical 1000 mg in thought
+    fun `strips intermediate thought numbers from output so final response contains only clean clinical answer`() {
         val rawLlmAnswer = "<thought>Standard dose is 1000 mg, but patient eGFR is 20 mL/min. Adjust to 250 mg.</thought>Give 250 mg orally."
-
-        // Without sanitization: Fails because 1000 mg is not in toolResult
-        val unhygienicContext = SafetyValidator.TurnContext(
-            toolCalls = listOf(toolCall),
-            answer = rawLlmAnswer,
-            toolResults = listOf(toolResult)
-        )
-        val unhygienicResult = validator.validate(unhygienicContext)
-        assertFalse("Unhygienic output must fail invented numbers", unhygienicResult.passed)
-        assertTrue(unhygienicResult.blockedReason?.let { it.contains("1000 mg") || it.contains("Unverified") } == true)
-
-        // With sanitization: Passes because 1000 mg is stripped from answer
         val cleanAnswer = ReasoningTokenSanitizer.stripReasoning(rawLlmAnswer)
-        val hygienicContext = SafetyValidator.TurnContext(
-            toolCalls = listOf(toolCall),
-            answer = cleanAnswer,
-            toolResults = listOf(toolResult)
-        )
-        val hygienicResult = validator.validate(hygienicContext)
-        assertTrue("Hygienic output must pass safety validation: ${hygienicResult.blockedReason}", hygienicResult.passed)
-    }
-
-    @Test
-    fun `greeting without tools is a NO_TOOLS violation no matter how the answer reads`() {
-        // Change 1/2: the former isNonClinicalResponse bypass is deleted — a soap-safe
-        // small-talk draft with zero tool calls NEVER passes Rule 0 (the entry router
-        // owns small talk; the validator only ever sees clinical-graph turns).
-        val validator = SafetyValidator()
-        // Model thinks with numbers/% and then writes a pure greeting.
-        val rawLlmAnswer = "<thought>Friendly greeting. 100% confidence. No dosing needed.</thought>Hello! How can I assist you today?"
-
-        val cleanAnswer = ReasoningTokenSanitizer.stripReasoning(rawLlmAnswer)
-        assertEquals("Hello! How can I assist you today?", cleanAnswer)
-
-        val cleanResult = validator.validate(
-            SafetyValidator.TurnContext(
-                toolCalls = emptyList(),
-                answer = cleanAnswer,
-                userQuestion = "Hello"
-            )
-        )
-        assertFalse("Non-clinical replies no longer bypass Rule 0", cleanResult.passed)
-        assertEquals(ViolationCodes.NO_TOOLS, cleanResult.violations.single().code)
-        assertEquals(SafetyValidator.NO_TOOLS_REASON, cleanResult.blockedReason)
+        assertEquals("Give 250 mg orally.", cleanAnswer)
+        assertFalse(cleanAnswer.contains("1000 mg"))
+        assertFalse(cleanAnswer.contains("<thought>"))
     }
 }

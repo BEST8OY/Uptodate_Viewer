@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenuPopup
@@ -67,8 +66,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.StreamingManager
+import com.clinref.app.domain.ai.TopicRef
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.MessageUiModel
 import com.mikepenz.markdown.m3.Markdown
@@ -83,12 +82,12 @@ fun ChatMessageItem(
     isStreaming: Boolean = message.id == "streaming",
     orchestrationPhase: StreamingManager.OrchestrationPhase = StreamingManager.OrchestrationPhase.COMPLETED,
     currentStatusText: String = "",
-    liveSources: List<SafetyValidator.TopicRef> = emptyList(),
+    liveSources: List<TopicRef> = emptyList(),
     sectionsReadCount: Int = 0,
     isDraft: Boolean = false,
     isRevised: Boolean = false,
     isTurnSuccessful: Boolean = true,
-    onSourceClick: ((SafetyValidator.TopicRef) -> Unit)? = null,
+    onSourceClick: ((TopicRef) -> Unit)? = null,
     onCopyMessage: (String) -> Unit = {},
     onEditMessage: ((MessageUiModel) -> Unit)? = null,
     onRetryTurn: ((String) -> Unit)? = null,
@@ -346,13 +345,6 @@ fun ChatMessageItem(
                     }
                 }
 
-                if (message.warnings.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    message.warnings.forEach { warning ->
-                        ChatWarningAlert(warning = warning)
-                    }
-                }
-
                 if (!message.isError && !isCancelled && !isStreaming) {
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -386,63 +378,6 @@ fun ChatMessageItem(
                 }
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun ChatWarningAlert(warning: String) {
-    val warnColor = MaterialTheme.colorScheme.error
-    val annotatedText = remember(warning) {
-        val builder = AnnotatedString.Builder()
-        val parts = warning.split("**")
-        parts.forEachIndexed { index, part ->
-            if (index % 2 == 1) {
-                builder.pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                builder.append(part)
-                builder.pop()
-            } else {
-                builder.append(part)
-            }
-        }
-        builder.toAnnotatedString()
-    }
-
-    Surface(
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = BorderStroke(1.dp, warnColor.copy(alpha = 0.35f)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .drawBehind {
-                    val strokeWidth = 3.5.dp.toPx()
-                    val halfStroke = strokeWidth / 2f
-                    drawLine(
-                        color = warnColor,
-                        start = Offset(halfStroke, 0f),
-                        end = Offset(halfStroke, size.height),
-                        strokeWidth = strokeWidth
-                    )
-                }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            Icon(
-                imageVector = Icons.Default.Warning,
-                contentDescription = "Safety Warning",
-                tint = warnColor,
-                modifier = Modifier
-                    .size(16.dp)
-                    .padding(top = 2.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = annotatedText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface
-            )
         }
     }
 }

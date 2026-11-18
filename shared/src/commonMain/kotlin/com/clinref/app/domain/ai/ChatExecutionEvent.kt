@@ -21,8 +21,7 @@ sealed interface ChatExecutionEvent {
 
     data class AssistantMessageCompleted(
         override val conversationId: String,
-        val message: MessageEntity,
-        val warnings: List<String> = emptyList()
+        val message: MessageEntity
     ) : ChatExecutionEvent
 
     data class GenerationError(

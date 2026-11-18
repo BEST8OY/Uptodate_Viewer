@@ -24,10 +24,10 @@ class TurnContextAccumulator(
         private const val TAG = "TurnCtxAccum"
     }
 
-    private val toolCalls = CopyOnWriteArrayList<SafetyValidator.ToolCallRecord>()
+    private val toolCalls = CopyOnWriteArrayList<ToolCallRecord>()
     private val toolResults = CopyOnWriteArrayList<String>()
-    private val fetchedSections = CopyOnWriteArrayList<SafetyValidator.FetchedSection>()
-    private val fetchedGraphics = CopyOnWriteArrayList<SafetyValidator.FetchedGraphic>()
+    private val fetchedSections = CopyOnWriteArrayList<FetchedSection>()
+    private val fetchedGraphics = CopyOnWriteArrayList<FetchedGraphic>()
     private val graphicIds = CopyOnWriteArraySet<String>()
     private val graphicTitles = ConcurrentHashMap<String, String>()
     private val topicTitles = ConcurrentHashMap<String, String>()
@@ -76,9 +76,9 @@ class TurnContextAccumulator(
     val graphicCount: Int get() = graphicIds.size
     val hasEvidence: Boolean get() = fetchedSections.isNotEmpty() || graphicIds.isNotEmpty()
 
-    fun getToolCalls(): List<SafetyValidator.ToolCallRecord> = toolCalls.toList()
-    fun getFetchedSections(): List<SafetyValidator.FetchedSection> = fetchedSections.toList()
-    fun getFetchedGraphics(): List<SafetyValidator.FetchedGraphic> = fetchedGraphics.toList()
+    fun getToolCalls(): List<ToolCallRecord> = toolCalls.toList()
+    fun getFetchedSections(): List<FetchedSection> = fetchedSections.toList()
+    fun getFetchedGraphics(): List<FetchedGraphic> = fetchedGraphics.toList()
 
     fun hasFetchedSection(topicId: String, sectionId: String): Boolean =
         fetchedSections.any {
@@ -155,7 +155,7 @@ class TurnContextAccumulator(
             executedToolCalls.add(canonicalName to argsKey)
 
             toolCalls.add(
-                SafetyValidator.ToolCallRecord(
+                ToolCallRecord(
                     toolName = canonicalName,
                     arguments = parsedArgs,
                     result = result,
@@ -178,7 +178,7 @@ class TurnContextAccumulator(
     /** The question that opened this turn, as supplied by the caller. */
     val question: String get() = userQuestion
 
-    fun buildTurnContext(answer: String): SafetyValidator.TurnContext {
+    fun buildTurnContext(answer: String): TurnContext {
         val cleanAnswer = ReasoningTokenSanitizer.stripReasoning(answer)
 
         // Populate topicTitle and sectionTitle on fetched sections from accumulated state or resolvers
@@ -196,7 +196,7 @@ class TurnContextAccumulator(
             .map { sec ->
                 val label = sec.sectionTitle.ifBlank { sec.topicTitle }
                 val cleanSectionId = if (sec.sectionId.equals("FULL", ignoreCase = true)) "" else sec.sectionId
-                SafetyValidator.TopicRef(
+                TopicRef(
                     topicId = sec.topicId,
                     sectionId = cleanSectionId,
                     label = label,
@@ -212,7 +212,7 @@ class TurnContextAccumulator(
             if (!parentTopicId.isNullOrBlank() && finalTopicRefs.none { it.topicId == parentTopicId }) {
                 val resolvedTitle = resolveTopicTitle(parentTopicId)
                 finalTopicRefs.add(
-                    SafetyValidator.TopicRef(
+                    TopicRef(
                         topicId = parentTopicId,
                         sectionId = "",
                         label = resolvedTitle,
@@ -226,7 +226,7 @@ class TurnContextAccumulator(
             val cleanGid = AiJsonUtils.cleanGraphicId(gid)
             val title = graphicTitles[gid] ?: graphicTitles[cleanGid] ?: "Graphic $gid"
             val parentTopicId = graphicToTopic[gid] ?: graphicToTopic[cleanGid]
-            SafetyValidator.GraphicRef(gid, title, parentTopicId)
+            GraphicRef(gid, title, parentTopicId)
         }
 
         val resolvedGraphics = fetchedGraphics.map { fg ->
@@ -235,7 +235,7 @@ class TurnContextAccumulator(
             fg.copy(title = resolvedTitle, topicId = resolvedTopic)
         }
 
-        return SafetyValidator.TurnContext(
+        return TurnContext(
             toolCalls = toolCalls.toList(),
             answer = cleanAnswer,
             toolResults = toolResults.toList(),
@@ -401,7 +401,7 @@ class TurnContextAccumulator(
                         ?: ""
                 )
                 fetchedSections.add(
-                    SafetyValidator.FetchedSection(
+                    FetchedSection(
                         topicId = topicId,
                         topicTitle = finalTopicTitle,
                         sectionId = sectionId,
@@ -447,7 +447,7 @@ class TurnContextAccumulator(
                 if (markdown.isNotEmpty() && fetchedGraphics.none { it.graphicId == cleanId }) {
                     val parentTopicId = graphicToTopic[graphicId] ?: graphicToTopic[cleanId] ?: ""
                     fetchedGraphics.add(
-                        SafetyValidator.FetchedGraphic(
+                        FetchedGraphic(
                             graphicId = cleanId,
                             title = title.ifEmpty { graphicTitles[cleanId] ?: "" },
                             markdown = markdown,
@@ -471,7 +471,7 @@ class TurnContextAccumulator(
                 if (markdown.isNotEmpty() && fetchedGraphics.none { it.graphicId == cleanId }) {
                     val parentTopicId = graphicToTopic[graphicIdFromArgs] ?: graphicToTopic[cleanId] ?: ""
                     fetchedGraphics.add(
-                        SafetyValidator.FetchedGraphic(
+                        FetchedGraphic(
                             graphicId = cleanId,
                             title = title.ifEmpty { graphicTitles[cleanId] ?: "" },
                             markdown = markdown,
@@ -523,7 +523,7 @@ class TurnContextAccumulator(
             val finalTopicTitle = resolveTopicTitle(topicId, title)
             if (res.topicType == "calc" && !hasFetchedSection(topicId, "FULL")) {
                 fetchedSections.add(
-                    SafetyValidator.FetchedSection(
+                    FetchedSection(
                         topicId = topicId,
                         topicTitle = finalTopicTitle,
                         sectionId = "FULL",

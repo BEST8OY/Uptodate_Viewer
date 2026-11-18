@@ -619,8 +619,8 @@ class TurnContextAccumulatorTest {
     @Test
     fun `ClinicalSource sanitizes HTML tags and entities in topic and section titles`() {
         val topicRefs = listOf(
-            SafetyValidator.TopicRef("100", "secA", "<b>Diagnosis&nbsp;&amp;&nbsp;Workup</b>", "Gonorrhea (<i>Neisseria&nbsp;</i>Infection)"),
-            SafetyValidator.TopicRef("100", "secB", "Treatment", "Gonorrhea (<i>Neisseria&nbsp;</i>Infection)")
+            TopicRef("100", "secA", "<b>Diagnosis&nbsp;&amp;&nbsp;Workup</b>", "Gonorrhea (<i>Neisseria&nbsp;</i>Infection)"),
+            TopicRef("100", "secB", "Treatment", "Gonorrhea (<i>Neisseria&nbsp;</i>Infection)")
         )
         val articles = ClinicalSource.fromTopicRefs(topicRefs)
         assertEquals(1, articles.size)
@@ -629,11 +629,11 @@ class TurnContextAccumulatorTest {
     }
 
     @Test
-    fun `ClinicalSource converts to and from SafetyValidator refs and Resolved refs`() {
+    fun `ClinicalSource converts to and from TopicRef and Resolved refs`() {
         val topicRefs = listOf(
-            SafetyValidator.TopicRef("100", "secA", "Section A", "Topic 100 Title"),
-            SafetyValidator.TopicRef("100", "secB", "Section B", "Topic 100 Title"),
-            SafetyValidator.TopicRef("200", "secC", "Section C", "Topic 200 Title")
+            TopicRef("100", "secA", "Section A", "Topic 100 Title"),
+            TopicRef("100", "secB", "Section B", "Topic 100 Title"),
+            TopicRef("200", "secC", "Section C", "Topic 200 Title")
         )
         val articles = ClinicalSource.fromTopicRefs(topicRefs)
         assertEquals(2, articles.size)
@@ -655,7 +655,7 @@ class TurnContextAccumulatorTest {
         assertEquals("Topic 100 Title", resolvedTopicRefs[0].topicTitle)
 
         val graphicRefs = listOf(
-            SafetyValidator.GraphicRef("g123", "Table 1 Dosing", "100")
+            GraphicRef("g123", "Table 1 Dosing", "100")
         )
         val tables = ClinicalSource.fromGraphicRefs(graphicRefs, mapOf("100" to "Topic 100 Title"))
         assertEquals(1, tables.size)

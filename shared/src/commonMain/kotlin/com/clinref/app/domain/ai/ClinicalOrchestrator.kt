@@ -39,7 +39,6 @@ import kotlinx.serialization.json.put
  */
 class ClinicalOrchestrator(
     private val medicalDatabaseTools: MedicalDatabaseTools,
-    private val safetyValidator: SafetyValidator = SafetyValidator(),
     private val secureLogger: SecureLogger? = null
 ) {
     companion object {
@@ -51,8 +50,9 @@ class ClinicalOrchestrator(
 
     data class ExecutionResult(
         val content: String,
-        val validation: SafetyValidator.ValidationResult,
-        val tokenUsage: StreamingManager.TokenUsage
+        val topicRefs: List<TopicRef> = emptyList(),
+        val graphicRefs: List<GraphicRef> = emptyList(),
+        val tokenUsage: StreamingManager.TokenUsage = StreamingManager.TokenUsage()
     )
 
     private val json = AiJsonUtils.json
@@ -78,10 +78,9 @@ class ClinicalOrchestrator(
             Log.d(TAG, "Small talk detected: returning canned reply with zero LLM calls")
             val canned = QuestionRouter.CANNED_FALLBACK_REPLY
             streamingManager.onStreamingTextDelta(canned)
-            val validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList())
             val usage = StreamingManager.TokenUsage()
-            streamingManager.onCompleted(canned, validation)
-            return ExecutionResult(canned, validation, usage)
+            streamingManager.onCompleted(canned, emptyList(), emptyList(), usage)
+            return ExecutionResult(canned, emptyList(), emptyList(), usage)
         }
 
         val accumulator = TurnContextAccumulator(
@@ -192,7 +191,6 @@ class ClinicalOrchestrator(
             Log.w(TAG, "Zero evidence retrieved after retrieval loop; returning canonical abstention")
             val abstention = SystemPrompt.CANONICAL_ABSTENTION
             streamingManager.onStreamingTextDelta(abstention)
-            val validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList())
             val decTokens = synchronized(tokenLock) { decisionPromptTokens }
             val usage = StreamingManager.TokenUsage(
                 promptTokens = totalPromptTokens,
@@ -200,8 +198,8 @@ class ClinicalOrchestrator(
                 totalTokens = totalPromptTokens + totalCompletionTokens + decTokens,
                 toolTokens = decTokens
             )
-            streamingManager.onCompleted(abstention, validation, usage)
-            return ExecutionResult(abstention, validation, usage)
+            streamingManager.onCompleted(abstention, emptyList(), emptyList(), usage)
+            return ExecutionResult(abstention, emptyList(), emptyList(), usage)
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -209,15 +207,11 @@ class ClinicalOrchestrator(
         // ════════════════════════════════════════════════════════════════════
         streamingManager.onSynthesisStarting()
 
-        val evidenceSummary = SystemPrompt.evidenceSummaryFrom(
-            sections = accumulator.getFetchedSections(),
-            graphics = accumulator.getFetchedGraphics()
-        )
-
         val synthesisDirective = SystemPrompt.formatSynthesisPrompt(
             pendingInput = trimmedQuestion,
             userQuestion = trimmedQuestion,
-            turnContext = accumulator.buildTurnContext("")
+            turnContext = accumulator.buildTurnContext(""),
+            patientProfile = patientProfile
         )
 
         val synthesisPrompt = buildSynthesisPrompt(
@@ -233,51 +227,14 @@ class ClinicalOrchestrator(
         totalPromptTokens += stage2Usage.promptTokens
         totalCompletionTokens += stage2Usage.completionTokens
 
-        // ════════════════════════════════════════════════════════════════════
-        // GATE 2: Safety Validation & 1-Pass Revision on Unverified Quantities
-        // ════════════════════════════════════════════════════════════════════
-        streamingManager.onVerificationStarting()
-        var turnContext = accumulator.buildTurnContext(draftText)
-        var validation = safetyValidator.validate(turnContext)
-
-        val hasRevisableViolation = validation.violations.any {
-            it.code == ViolationCodes.UNVERIFIED_QTY ||
-                it.code == ViolationCodes.UNRETRIEVED_DOSES ||
-                it.code == ViolationCodes.VISUAL ||
-                it.code == ViolationCodes.BLANK_WITH_EVIDENCE
+        // If the model produced blank text (e.g. thinking budget exhaustion), fall back safely
+        if (draftText.isBlank()) {
+            Log.w(TAG, "Stage 2 produced blank synthesis (e.g. thinking budget exhaustion); falling back to canonical abstention")
+            draftText = SystemPrompt.CANONICAL_ABSTENTION
+            streamingManager.onStreamingTextDelta(draftText)
         }
 
-        if (!validation.passed && hasRevisableViolation) {
-            Log.w(TAG, "Gate 2 detected revisable violations: ${validation.violations.map { it.code }}; issuing 1 revision pass")
-            streamingManager.onRevisionStarting()
-            val revisionDirective = SystemPrompt.buildRevisionPrompt(
-                violations = validation.violations,
-                draft = draftText,
-                evidenceSummary = evidenceSummary
-            )
-
-            val revisionPrompt = buildPromptWithHistory(
-                id = "clinref-revision",
-                finalUserContent = "CLINICAL INQUIRY:\n$trimmedQuestion\n\n$revisionDirective",
-                patientProfile = patientProfile,
-                chatHistory = chatHistory,
-                providerParams = providerParams,
-                isAnthropic = isAnthropic,
-                questionToDeduplicate = trimmedQuestion
-            )
-
-            streamingManager.onSynthesisStarting()
-            val (revisedText, revisionUsage) = streamSynthesisCall(revisionPrompt, model, executor, streamingManager)
-            totalPromptTokens += revisionUsage.promptTokens
-            totalCompletionTokens += revisionUsage.completionTokens
-
-            if (revisedText.isNotBlank()) {
-                draftText = revisedText
-                turnContext = accumulator.buildTurnContext(draftText)
-                validation = safetyValidator.validate(turnContext)
-            }
-        }
-
+        val finalContext = accumulator.buildTurnContext(draftText)
         val decTokens = synchronized(tokenLock) { decisionPromptTokens }
         val totalUsage = StreamingManager.TokenUsage(
             promptTokens = totalPromptTokens,
@@ -286,8 +243,18 @@ class ClinicalOrchestrator(
             toolTokens = decTokens
         )
 
-        streamingManager.onCompleted(draftText, validation, totalUsage)
-        return ExecutionResult(draftText, validation, totalUsage)
+        streamingManager.onCompleted(
+            result = draftText,
+            topicRefs = finalContext.topicRefs,
+            graphicRefs = finalContext.graphicRefs,
+            usage = totalUsage
+        )
+        return ExecutionResult(
+            content = draftText,
+            topicRefs = finalContext.topicRefs,
+            graphicRefs = finalContext.graphicRefs,
+            tokenUsage = totalUsage
+        )
     }
 
     private suspend fun streamSynthesisCall(
@@ -396,8 +363,8 @@ class ClinicalOrchestrator(
                                 toolJson = rawJson,
                                 rerank = rerank,
                                 autoPrefetched = prefetch.didPrefetch,
-                                prefetchedSectionsMarkdown = prefetch.sectionsMarkdown,
-                                prefetchedTablesMarkdown = prefetch.tablesMarkdown,
+                                prefetchedSectionsMarkdown = null,
+                                prefetchedTablesMarkdown = null,
                                 json = json
                             )
                         } else {
@@ -553,13 +520,16 @@ class ClinicalOrchestrator(
         chatHistory: List<MessageEntity>,
         providerParams: LLMParams?,
         isAnthropic: Boolean,
-        questionToDeduplicate: String? = null
+        questionToDeduplicate: String? = null,
+        systemInstruction: String = SystemPrompt.RETRIEVAL_SYSTEM_PROMPT,
+        maxHistoryTurns: Int = MAX_CHAT_HISTORY_TURNS,
+        truncateAssistantHistoryChars: Int? = null
     ): Prompt {
         val cache = if (isAnthropic) AnthropicCacheControl.Default else null
         val patientBlock = SystemPrompt.patientContextBlock(patientProfile)
         val trimmedTurns = chatHistory
             .filter { (it.role == "user" || it.role == "assistant") && !it.isError && it.role != "cancelled" }
-            .takeLast(MAX_CHAT_HISTORY_TURNS)
+            .takeLast(maxHistoryTurns)
         val historyTurns = if (questionToDeduplicate != null && trimmedTurns.lastOrNull()?.role == "user" && trimmedTurns.lastOrNull()?.content == questionToDeduplicate) {
             trimmedTurns.dropLast(1)
         } else {
@@ -567,7 +537,7 @@ class ClinicalOrchestrator(
         }
 
         return prompt(id = id, params = providerParams ?: LLMParams()) {
-            system(SystemPrompt.STATIC_CLINICAL_GUIDANCE, cache = cache)
+            system(systemInstruction, cache = cache)
             if (patientBlock.isNotBlank()) {
                 system(patientBlock)
             }
@@ -575,7 +545,12 @@ class ClinicalOrchestrator(
                 if (msg.role == "user") {
                     user(msg.content)
                 } else {
-                    assistant(msg.content)
+                    val content = if (truncateAssistantHistoryChars != null && msg.content.length > truncateAssistantHistoryChars) {
+                        msg.content.take(truncateAssistantHistoryChars) + "…"
+                    } else {
+                        msg.content
+                    }
+                    assistant(content)
                 }
             }
             user(finalUserContent)
@@ -595,7 +570,9 @@ class ClinicalOrchestrator(
         chatHistory = chatHistory,
         providerParams = providerParams,
         isAnthropic = isAnthropic,
-        questionToDeduplicate = question
+        questionToDeduplicate = question,
+        systemInstruction = SystemPrompt.RETRIEVAL_SYSTEM_PROMPT,
+        maxHistoryTurns = 10
     )
 
     private fun buildSynthesisPrompt(
@@ -612,7 +589,10 @@ class ClinicalOrchestrator(
         chatHistory = chatHistory,
         providerParams = providerParams,
         isAnthropic = isAnthropic,
-        questionToDeduplicate = question
+        questionToDeduplicate = question,
+        systemInstruction = SystemPrompt.SYNTHESIS_SYSTEM_PROMPT,
+        maxHistoryTurns = 4,
+        truncateAssistantHistoryChars = 300
     )
 
     private fun extractQueryArg(argsStr: String): String {

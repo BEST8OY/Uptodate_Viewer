@@ -46,8 +46,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.StreamingManager
+import com.clinref.app.domain.ai.TopicRef
 
 /**
  * High-precision, clinical 3-phase orchestration header embedded directly
@@ -61,11 +61,11 @@ import com.clinref.app.domain.ai.StreamingManager
 fun ChatCardOrchestrationHeader(
     phase: StreamingManager.OrchestrationPhase,
     currentStatusText: String,
-    liveSources: List<SafetyValidator.TopicRef>,
+    liveSources: List<TopicRef>,
     sectionsReadCount: Int,
     isDraft: Boolean,
     isRevised: Boolean,
-    onSourceClick: (SafetyValidator.TopicRef) -> Unit,
+    onSourceClick: (TopicRef) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val motionScheme = MaterialTheme.motionScheme
@@ -90,7 +90,7 @@ fun ChatCardOrchestrationHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // 3-Phase Stepper
+                // 2-Phase Stepper
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -100,7 +100,6 @@ fun ChatCardOrchestrationHeader(
                         stepNumber = "1",
                         label = "Evidence",
                         isCompleted = phase == StreamingManager.OrchestrationPhase.SYNTHESIS ||
-                            phase == StreamingManager.OrchestrationPhase.VERIFICATION ||
                             phase == StreamingManager.OrchestrationPhase.COMPLETED,
                         isActive = phase == StreamingManager.OrchestrationPhase.EVIDENCE_RETRIEVAL
                     )
@@ -111,19 +110,8 @@ fun ChatCardOrchestrationHeader(
                     PhaseStepItem(
                         stepNumber = "2",
                         label = "Synthesis",
-                        isCompleted = phase == StreamingManager.OrchestrationPhase.VERIFICATION ||
-                            phase == StreamingManager.OrchestrationPhase.COMPLETED,
-                        isActive = phase == StreamingManager.OrchestrationPhase.SYNTHESIS
-                    )
-
-                    StepperSeparator()
-
-                    // Step 3: Verify
-                    PhaseStepItem(
-                        stepNumber = "3",
-                        label = "Verify",
                         isCompleted = phase == StreamingManager.OrchestrationPhase.COMPLETED,
-                        isActive = phase == StreamingManager.OrchestrationPhase.VERIFICATION
+                        isActive = phase == StreamingManager.OrchestrationPhase.SYNTHESIS
                     )
                 }
 
@@ -175,9 +163,6 @@ fun ChatCardOrchestrationHeader(
                     } else {
                         "Drafting point-of-care guidance…"
                     }
-                }
-                StreamingManager.OrchestrationPhase.VERIFICATION -> {
-                    "Verifying clinical quantities and dosages against evidence…"
                 }
                 StreamingManager.OrchestrationPhase.COMPLETED -> {
                     "Guidance grounded and verified"
@@ -249,8 +234,7 @@ fun ChatCardOrchestrationHeader(
 
             // Material 3 Expressive subtle linear wavy progress during active generation
             if (phase == StreamingManager.OrchestrationPhase.EVIDENCE_RETRIEVAL ||
-                phase == StreamingManager.OrchestrationPhase.SYNTHESIS ||
-                phase == StreamingManager.OrchestrationPhase.VERIFICATION
+                phase == StreamingManager.OrchestrationPhase.SYNTHESIS
             ) {
                 LinearWavyProgressIndicator(
                     modifier = Modifier

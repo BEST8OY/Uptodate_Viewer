@@ -11,7 +11,6 @@ import com.clinref.app.data.TocDao
 import com.clinref.app.data.local.AppDatabase
 import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.ReliabilityManager
-import com.clinref.app.domain.ai.SafetyValidator
 import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.repository.AssetRepository
@@ -60,7 +59,6 @@ val commonRepositoryModule: Module = module {
 }
 
 val commonAiModule: Module = module {
-    single { SafetyValidator() }
     single { StreamingManager() }
     single { ReliabilityManager() }
     single { SecureLogger() }
@@ -80,7 +78,6 @@ val commonAiModule: Module = module {
     single {
         com.clinref.app.domain.ai.ClinicalOrchestrator(
             medicalDatabaseTools = get(),
-            safetyValidator = get(),
             secureLogger = get()
         )
     }

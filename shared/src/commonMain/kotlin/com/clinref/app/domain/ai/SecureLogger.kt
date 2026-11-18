@@ -10,7 +10,7 @@ class SecureLogger {
         Regex("\\b\\d{1,2}/\\d{1,2}/\\d{2,4}\\b")
     )
 
-    private val patientProfileStart = "## Patient Profile"
+    private val patientProfileMarkers = listOf("## Active Patient Profile", "## Patient Profile")
 
     fun log(level: Level, tag: String, message: String) {
         val scrubbed = scrubPhi(message)
@@ -24,15 +24,17 @@ class SecureLogger {
 
     private fun scrubPhi(message: String): String {
         // Remove entire patient profile block
-        val profileStart = message.indexOf(patientProfileStart)
-        if (profileStart >= 0) {
-            val afterProfile = message.indexOf("\n\n", profileStart + patientProfileStart.length)
-            val cleanMessage = if (afterProfile >= 0) {
-                message.substring(0, profileStart) + message.substring(afterProfile)
-            } else {
-                message.substring(0, profileStart)
+        for (marker in patientProfileMarkers) {
+            val profileStart = message.indexOf(marker)
+            if (profileStart >= 0) {
+                val afterProfile = message.indexOf("\n\n", profileStart + marker.length)
+                val cleanMessage = if (afterProfile >= 0) {
+                    message.substring(0, profileStart) + message.substring(afterProfile)
+                } else {
+                    message.substring(0, profileStart)
+                }
+                return applyRegexScrubbing(cleanMessage)
             }
-            return applyRegexScrubbing(cleanMessage)
         }
         return applyRegexScrubbing(message)
     }

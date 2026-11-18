@@ -9,7 +9,8 @@ import com.clinref.app.domain.ai.ChatExecutionEvent
 import com.clinref.app.domain.ai.ChatExecutionManager
 import com.clinref.app.domain.ai.ClinicalSource
 import com.clinref.app.domain.ai.PatientProfile
-import com.clinref.app.domain.ai.SafetyValidator
+import com.clinref.app.domain.ai.GraphicRef
+import com.clinref.app.domain.ai.TopicRef
 import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.repository.ContentRepository
@@ -74,7 +75,6 @@ data class MessageUiModel(
     val role: String,
     val content: String,
     val timestamp: Long,
-    val warnings: List<String> = emptyList(),
     val isError: Boolean = false,
     val showTimestamp: Boolean = false,
     val topicRefs: List<ResolvedTopicRef> = emptyList(),
@@ -124,7 +124,7 @@ class ChatViewModel(
     val streamingText: StateFlow<String> = streamingManager.streamingText
     val reasoningText: StateFlow<String> = streamingManager.reasoningText
     val isReasoning: StateFlow<Boolean> = streamingManager.isReasoning
-    val liveDiscoveredSources: StateFlow<List<SafetyValidator.TopicRef>> = streamingManager.liveDiscoveredSources
+    val liveDiscoveredSources: StateFlow<List<TopicRef>> = streamingManager.liveDiscoveredSources
 
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
@@ -186,7 +186,7 @@ class ChatViewModel(
                         } else {
                             current
                         }
-                        updateMessages(cleanMessages + event.message.toUiModel(warnings = event.warnings))
+                        updateMessages(cleanMessages + event.message.toUiModel())
                     }
                     is ChatExecutionEvent.GenerationError -> {
                         if (_activeAssistantMessageId.value == event.message.id) {
@@ -408,16 +408,11 @@ class ChatViewModel(
     }
 
     private fun MessageEntity.toUiModel(
-        warnings: List<String> = emptyList(),
         isError: Boolean = false
     ): MessageUiModel {
-        val parsedWarnings = if (warnings.isEmpty() && !warningsJson.isNullOrBlank()) {
-            try { json.decodeFromString<List<String>>(warningsJson) } catch (_: Exception) { emptyList() }
-        } else warnings
-
         val topicRefs = if (!topicRefsJson.isNullOrBlank()) {
             try {
-                json.decodeFromString<List<SafetyValidator.TopicRef>>(topicRefsJson).map {
+                json.decodeFromString<List<TopicRef>>(topicRefsJson).map {
                     val resolvedTopicTitle = contentRepository.getTopicTitle(it.topicId)?.takeIf { title ->
                         !AiJsonUtils.isNumericOnly(title)
                     } ?: it.topicTitle.takeIf { title ->
@@ -437,7 +432,7 @@ class ChatViewModel(
 
         val graphicRefs = if (!graphicRefsJson.isNullOrBlank()) {
             try {
-                json.decodeFromString<List<SafetyValidator.GraphicRef>>(graphicRefsJson).map { ref ->
+                json.decodeFromString<List<GraphicRef>>(graphicRefsJson).map { ref ->
                     val parentTopicTitle = ref.topicId?.let { tid ->
                         contentRepository.getTopicTitle(tid)?.takeIf { title -> !AiJsonUtils.isNumericOnly(title) }
                             ?: topicRefs.find { t -> t.topicId == tid }?.topicTitle
@@ -459,7 +454,6 @@ class ChatViewModel(
             role = role,
             content = content,
             timestamp = timestamp,
-            warnings = parsedWarnings,
             isError = isError || this.isError || role == "cancelled",
             topicRefs = topicRefs,
             graphicRefs = graphicRefs,

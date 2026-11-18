@@ -42,7 +42,6 @@ import org.junit.Test
 class ClinicalOrchestratorTest {
 
     private val medicalDatabaseTools: MedicalDatabaseTools = mockk(relaxed = true)
-    private val safetyValidator = SafetyValidator()
     private val streamingManager = StreamingManager()
     private val model = LLModel(provider = LLMProvider.OpenAI, id = "test-model")
 
@@ -82,8 +81,7 @@ class ClinicalOrchestratorTest {
         executor = FakePromptExecutor()
         every { medicalDatabaseTools.asToolList() } returns emptyList()
         orchestrator = ClinicalOrchestrator(
-            medicalDatabaseTools = medicalDatabaseTools,
-            safetyValidator = safetyValidator
+            medicalDatabaseTools = medicalDatabaseTools
         )
     }
 
@@ -100,7 +98,7 @@ class ClinicalOrchestratorTest {
         )
 
         assertEquals(QuestionRouter.CANNED_FALLBACK_REPLY, result.content)
-        assertTrue(result.validation.passed)
+        assertTrue(result.topicRefs.isEmpty())
         assertEquals(0, result.tokenUsage.totalTokens)
 
         // Verifies zero LLM calls were made
@@ -172,7 +170,7 @@ class ClinicalOrchestratorTest {
         )
 
         assertEquals("Amoxicillin is prescribed at 500 mg every 8 hours.", result.content)
-        assertTrue(result.validation.passed)
+        assertEquals(1, result.topicRefs.size)
         assertEquals(2, executor.executedPrompts.size)
         assertEquals(1, executor.streamingPrompts.size)
     }
@@ -200,7 +198,7 @@ class ClinicalOrchestratorTest {
         )
 
         assertEquals(SystemPrompt.CANONICAL_ABSTENTION, result.content)
-        assertTrue(result.validation.passed)
+        assertTrue(result.topicRefs.isEmpty())
         // Initial retrieval + 1 retry = 2 execute calls
         assertEquals(2, executor.executedPrompts.size)
         // Synthesis streaming never invoked because evidence is empty
@@ -208,7 +206,7 @@ class ClinicalOrchestratorTest {
     }
 
     @Test
-    fun testSafetyValidatorRevisionPassOnUnverifiedQuantities() = runTest {
+    fun testStage2SynthesisStreamsDirectlyWithSourceAttribution() = runTest {
         val topicId = "topic-202"
         val sectionId = "sec-dose"
         val topicTitle = "Drug Dosing Guide"
@@ -245,24 +243,12 @@ class ClinicalOrchestratorTest {
             }
         }
 
-        var streamCount = 0
+        val synthesisFrames = listOf(
+            StreamFrame.TextDelta("Take 250 mg once daily."),
+            StreamFrame.End(finishReason = "stop", metaInfo = meta)
+        )
         executor.streamingHandler = { _, _, _ ->
-            streamCount++
-            if (streamCount == 1) {
-                // First synthesis attempt: Hallucinates 1200 mg (not in verified evidence)
-                val hallucinatedFrames = listOf(
-                    StreamFrame.TextDelta("Take 1200 mg once daily."),
-                    StreamFrame.End(finishReason = "stop", metaInfo = meta)
-                )
-                flow { hallucinatedFrames.forEach { emit(it) } }
-            } else {
-                // Second synthesis attempt (Revision pass): Uses verified 250 mg
-                val revisedFrames = listOf(
-                    StreamFrame.TextDelta("Take 250 mg once daily."),
-                    StreamFrame.End(finishReason = "stop", metaInfo = meta)
-                )
-                flow { revisedFrames.forEach { emit(it) } }
-            }
+            flow { synthesisFrames.forEach { emit(it) } }
         }
 
         val result = orchestrator.runTurn(
@@ -275,11 +261,69 @@ class ClinicalOrchestratorTest {
             streamingManager = streamingManager
         )
 
-        // Draft was successfully revised to verified figure
         assertEquals("Take 250 mg once daily.", result.content)
-        assertTrue(result.validation.passed)
-        // 2 streaming synthesis calls (initial + revision pass)
-        assertEquals(2, executor.streamingPrompts.size)
+        assertEquals(1, result.topicRefs.size)
+        assertEquals(topicId, result.topicRefs[0].topicId)
+        // 1 streaming synthesis call directly (no Gate 2 revision overhead)
+        assertEquals(1, executor.streamingPrompts.size)
+    }
+
+    @Test
+    fun testStage2BlankDraftFallsBackToAbstention() = runTest {
+        val topicId = "topic-blank"
+        val sectionId = "sec-b"
+        val topicTitle = "Blank Topic"
+        val sectionTitle = "Blank Section"
+
+        coEvery { medicalDatabaseTools.getTopicSectionsText(topicId, listOf(sectionId)) } returns TopicSectionsResponse(
+            topicId = topicId,
+            topicTitle = topicTitle,
+            sectionTitles = mapOf(sectionId to sectionTitle),
+            markdown = "Some clinical text"
+        )
+        every { medicalDatabaseTools.getTopicTitle(topicId) } returns topicTitle
+        every { medicalDatabaseTools.getSectionTitle(topicId, sectionId) } returns sectionTitle
+
+        val toolCall = MessagePart.Tool.Call(
+            id = "c1",
+            tool = "getTopicSectionsText",
+            args = """{"topicId":"$topicId","sectionIds":["$sectionId"]}"""
+        )
+        val meta = ResponseMetaInfo(
+            timestamp = KoogClock.System.now(),
+            inputTokensCount = 20,
+            outputTokensCount = 10
+        )
+
+        var execCount = 0
+        executor.executeHandler = { _, _, _ ->
+            execCount++
+            if (execCount == 1) {
+                Message.Assistant(parts = listOf(toolCall), metaInfo = meta)
+            } else {
+                Message.Assistant(parts = emptyList(), metaInfo = meta)
+            }
+        }
+
+        // Simulates thinking budget exhaustion where text accumulator remains blank
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("<thought>Thinking process...</thought>"))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Any dose?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager
+        )
+
+        assertEquals(SystemPrompt.CANONICAL_ABSTENTION, result.content)
     }
 
     @Test
@@ -458,7 +502,7 @@ class ClinicalOrchestratorTest {
         )
 
         assertEquals("Give vancomycin 15 mg/kg IV within 1 hour.", result.content)
-        assertTrue(result.validation.passed)
+        assertEquals(1, result.topicRefs.size)
 
         // Stage-1 LLM saw decisionRerank in searchTopics and autoPrefetched in getTopicOverview
         val round2PromptText = executor.executedPrompts[1].messages.joinToString("\n") { msg ->
@@ -550,7 +594,7 @@ class ClinicalOrchestratorTest {
         )
 
         assertEquals("Standard dose is 5 mg twice daily.", result.content)
-        assertTrue(result.validation.passed)
+        assertEquals(1, result.topicRefs.size)
         assertEquals(1, failingDecisionClient.failedCalls)
     }
 

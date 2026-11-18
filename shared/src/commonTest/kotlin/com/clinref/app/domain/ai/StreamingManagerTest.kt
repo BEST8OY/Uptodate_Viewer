@@ -98,7 +98,7 @@ class StreamingManagerTest {
         assertEquals("Synthesizing point-of-care guidance…", manager.currentStatusText.value)
 
         // Completion transitions synthesis step to COMPLETED
-        manager.onCompleted("Final clinical recommendations.", SafetyValidator.ValidationResult(passed = true, warnings = emptyList()))
+        manager.onCompleted("Final clinical recommendations.", emptyList(), emptyList())
         val completedSteps = manager.orchestrationSteps.value
         assertEquals(StreamingManager.StepStatus.COMPLETED, completedSteps[1].status)
         assertEquals("Complete", manager.currentStatusText.value)
@@ -168,7 +168,7 @@ class StreamingManagerTest {
         manager.onStreamingTextDelta("Partial recommendation")
         assertEquals("Partial recommendation", manager.streamingText.value)
 
-        manager.onCompleted("Final clinical guidance", SafetyValidator.ValidationResult(passed = true, warnings = emptyList()))
+        manager.onCompleted("Final clinical guidance", emptyList(), emptyList())
         assertEquals("Final clinical guidance", manager.streamingText.value)
 
         manager.onError("Network failure")
@@ -200,10 +200,9 @@ class StreamingManagerTest {
     }
 
     @Test
-    fun `transitions orchestration phases through evidence retrieval, synthesis, verification, and completion`() {
+    fun `transitions orchestration phases through evidence retrieval, synthesis, and completion`() {
         assertEquals(StreamingManager.OrchestrationPhase.IDLE, manager.orchestrationPhase.value)
         assertFalse(manager.isDraft.value)
-        assertFalse(manager.isRevised.value)
 
         // Stage 1: Evidence Retrieval starts on tool call
         manager.onToolCallStarting("searchTopics", """{"query":"pneumonia"}""", "call_1")
@@ -215,19 +214,8 @@ class StreamingManagerTest {
         assertEquals(StreamingManager.OrchestrationPhase.SYNTHESIS, manager.orchestrationPhase.value)
         assertTrue(manager.isDraft.value)
 
-        // Gate 2: Verification starts
-        manager.onVerificationStarting()
-        assertEquals(StreamingManager.OrchestrationPhase.VERIFICATION, manager.orchestrationPhase.value)
-        assertTrue(manager.isDraft.value)
-        assertEquals("Verifying clinical quantities against sources…", manager.currentStatusText.value)
-
-        // Gate 2 Revision pass
-        manager.onRevisionStarting()
-        assertTrue(manager.isRevised.value)
-        assertEquals("Rechecking values against evidence…", manager.currentStatusText.value)
-
         // Completed
-        manager.onCompleted("Final answer", SafetyValidator.ValidationResult(passed = true, warnings = emptyList()))
+        manager.onCompleted("Final answer", emptyList(), emptyList())
         assertEquals(StreamingManager.OrchestrationPhase.COMPLETED, manager.orchestrationPhase.value)
         assertFalse(manager.isDraft.value)
 
@@ -235,7 +223,6 @@ class StreamingManagerTest {
         manager.reset()
         assertEquals(StreamingManager.OrchestrationPhase.IDLE, manager.orchestrationPhase.value)
         assertFalse(manager.isDraft.value)
-        assertFalse(manager.isRevised.value)
     }
 
     @Test

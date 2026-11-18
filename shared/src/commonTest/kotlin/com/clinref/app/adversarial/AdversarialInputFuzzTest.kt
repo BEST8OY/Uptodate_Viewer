@@ -18,7 +18,7 @@ import org.junit.Test
  * Consolidated hostile-input battery for the retrieval tool surface (all 6 tools).
  *
  * Replaces the per-milestone adversarial files. Rule-level safety coverage lives in
- * `SafetyValidatorTest`, graph wiring in `ClinicalAgentStrategyTest`, and tool
+ * `ClinicalOrchestratorTest`, and tool
  * contracts in `MedicalDatabaseToolsTest` — this file only asserts that hostile
  * IDs/inputs are neutralized into clean structured error envelopes without
  * exceptions and without legacy response keys leaking across the tool boundary.

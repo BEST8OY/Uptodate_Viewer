@@ -150,13 +150,11 @@ class ChatExecutionManagerTest {
         coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Normal clinical guidance.",
-                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
             )
 
         every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
             result = "Normal clinical guidance.",
-            validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
             tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
         )
 
@@ -176,20 +174,15 @@ class ChatExecutionManagerTest {
     }
 
     @Test
-    fun testHandleAgentResultSavesFinalMessageWithWarningWhenBlockedForWrongNumbers() = runTest(testDispatcher) {
+    fun testHandleAgentResultSavesSuccessfulMessageWithTopicAndGraphicRefs() = runTest(testDispatcher) {
         val draftAnswer = "Administer amoxicillin 1,000 mg orally every 8 hours."
-        val warningText = "Warning: Unverified clinical quantities (1,000 mg). The following statement(s) could not be verified against retrieved database sections:\n• \"Administer amoxicillin 1,000 mg orally every 8 hours.\""
-
-        val validation = SafetyValidator.ValidationResult(
-            passed = false,
-            warnings = listOf(warningText),
-            violations = listOf(Violation(code = ViolationCodes.UNVERIFIED_QTY, detail = "Unverified 1,000 mg", target = ViolationTarget.PHASE_2)),
-            blockedReason = "Unverified clinical quantities found in response: 1,000 mg."
-        )
+        val topicRefs = listOf(TopicRef("101", "H1", "Dosing", "Amoxicillin"))
+        val graphicRefs = listOf(GraphicRef("G1", "Dosing Table", "101"))
 
         every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
             result = draftAnswer,
-            validation = validation,
+            topicRefs = topicRefs,
+            graphicRefs = graphicRefs,
             tokenUsage = StreamingManager.TokenUsage(100, 50, 150)
         )
 
@@ -203,28 +196,18 @@ class ChatExecutionManagerTest {
                     msg.role == "assistant" &&
                     msg.content == draftAnswer &&
                     !msg.isError &&
-                    msg.warningsJson?.contains("1,000 mg") == true
+                    msg.topicRefsJson?.contains("101") == true &&
+                    msg.graphicRefsJson?.contains("G1") == true
             })
         }
     }
 
     @Test
-    fun testHandleAgentResultQuarantinesMessageWhenBlockedWithoutWrongNumbers() = runTest(testDispatcher) {
-        val blockedText = "${ChatExecutionManager.BLOCKED_MARKER}No tools executed"
-        val validation = SafetyValidator.ValidationResult(
-            passed = false,
-            warnings = emptyList(),
-            violations = listOf(Violation(code = ViolationCodes.NO_TOOLS, detail = "No tools", target = ViolationTarget.PHASE_1)),
-            blockedReason = "No tools executed"
-        )
+    fun testHandleAgentResultSavesFallbackMessageWhenInUnexpectedState() = runTest(testDispatcher) {
+        val fallbackText = "Fallback response text"
+        every { streamingManager.agentState.value } returns StreamingManager.AgentState.Idle
 
-        every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
-            result = blockedText,
-            validation = validation,
-            tokenUsage = StreamingManager.TokenUsage(100, 50, 150)
-        )
-
-        manager.handleAgentResult("conv-1", "msg-2", blockedText)
+        manager.handleAgentResult("conv-1", "msg-2", fallbackText)
         advanceUntilIdle()
 
         coVerify {
@@ -232,8 +215,7 @@ class ChatExecutionManagerTest {
                 msg.conversationId == "conv-1" &&
                     msg.id == "msg-2" &&
                     msg.role == "assistant" &&
-                    msg.isError &&
-                    msg.content.startsWith(ChatExecutionManager.BLOCKED_MARKER)
+                    msg.content == fallbackText
             })
         }
     }
@@ -418,13 +400,11 @@ class ChatExecutionManagerTest {
         coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Normal clinical guidance.",
-                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
             )
 
         every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
             result = "Normal clinical guidance.",
-            validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
             tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
         )
 
@@ -442,7 +422,7 @@ class ChatExecutionManagerTest {
     }
 
     @Test
-    fun testNegativeAfterQuarantineNoExtraErrorOrPersistedMessage() = runTest(testDispatcher) {
+    fun testNegativeAfterCompletionNoExtraErrorOrPersistedMessage() = runTest(testDispatcher) {
         val testManager = createConfiguredTestManager()
         val persistedMessages = mutableListOf<MessageEntity>()
         coEvery { conversationRepository.addMessage(any()) } answers { persistedMessages.add(firstArg()) }
@@ -452,14 +432,12 @@ class ChatExecutionManagerTest {
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
         coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
-                content = "Blocked response.",
-                validation = SafetyValidator.ValidationResult(passed = false, warnings = emptyList(), blockedReason = "Safety violation"),
+                content = "Completed response.",
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
             )
 
         every { streamingManager.agentState.value } returns StreamingManager.AgentState.Completed(
-            result = "Blocked response.",
-            validation = SafetyValidator.ValidationResult(passed = false, warnings = emptyList(), blockedReason = "Safety violation"),
+            result = "Completed response.",
             tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
         )
 
@@ -488,7 +466,6 @@ class ChatExecutionManagerTest {
         coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Fallback text.",
-                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
             )
 
@@ -686,7 +663,6 @@ class ChatExecutionManagerTest {
             capturedDecisionConfig = arg(9)
             ClinicalOrchestrator.ExecutionResult(
                 content = "Guidance with Decisions.",
-                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
             )
         }
@@ -754,13 +730,11 @@ class ChatExecutionManagerTest {
             clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             realStreamingManager.onCompleted(
-                "Verified guidance text.",
-                SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
-                StreamingManager.TokenUsage(10, 10, 20)
+                result = "Verified guidance text.",
+                usage = StreamingManager.TokenUsage(10, 10, 20)
             )
             ClinicalOrchestrator.ExecutionResult(
                 content = "Verified guidance text.",
-                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
             )
         }

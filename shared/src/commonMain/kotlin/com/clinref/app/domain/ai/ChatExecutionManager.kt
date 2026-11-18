@@ -318,56 +318,15 @@ class ChatExecutionManager(
         val cleanResult = ReasoningTokenSanitizer.stripReasoning(result)
         when (val state = streamingManager.agentState.value) {
             is StreamingManager.AgentState.Completed -> {
-                val violations = state.validation.violations
-                val onlyWrongNumbers = violations.isNotEmpty() && violations.all {
-                    it.code == ViolationCodes.UNVERIFIED_QTY || it.code == ViolationCodes.UNRETRIEVED_DOSES
-                }
-                if (state.validation.passed && !cleanResult.startsWith(BLOCKED_MARKER)) {
-                    saveSuccessfulMessage(
-                        conversationId = conversationId,
-                        messageId = messageId,
-                        result = cleanResult,
-                        validation = state.validation,
-                        usage = state.tokenUsage,
-                        turnContext = turnContext
-                    )
-                } else if (onlyWrongNumbers && cleanResult.isNotBlank() && !cleanResult.startsWith(BLOCKED_MARKER)) {
-                    val effectiveValidation = if (state.validation.warnings.isEmpty()) {
-                        state.validation.copy(
-                            warnings = listOf(
-                                state.validation.blockedReason
-                                    ?: "Clinical response contains unverified clinical quantities."
-                            )
-                        )
-                    } else {
-                        state.validation
-                    }
-                    secureLogger.log(
-                        SecureLogger.Level.WARN, "ChatExecutionManager",
-                        "Safety validator blocked wrong numbers; displaying final LLM message with warnings: ${effectiveValidation.warnings.firstOrNull()}."
-                    )
-                    saveSuccessfulMessage(
-                        conversationId = conversationId,
-                        messageId = messageId,
-                        result = cleanResult,
-                        validation = effectiveValidation,
-                        usage = state.tokenUsage,
-                        turnContext = turnContext
-                    )
-                } else {
-                    val blockedReason = state.validation.blockedReason
-                        ?: "Output quarantined by safety rules."
-                    secureLogger.log(
-                        SecureLogger.Level.WARN, "ChatExecutionManager",
-                        "Safety blocked: $blockedReason."
-                    )
-                    val content = if (cleanResult.startsWith(BLOCKED_MARKER)) {
-                        cleanResult
-                    } else {
-                        "$BLOCKED_MARKER$blockedReason"
-                    }
-                    saveQuarantinedMessage(conversationId, messageId, content, state.validation, turnContext)
-                }
+                saveSuccessfulMessage(
+                    conversationId = conversationId,
+                    messageId = messageId,
+                    result = cleanResult,
+                    topicRefs = state.topicRefs,
+                    graphicRefs = state.graphicRefs,
+                    usage = state.tokenUsage,
+                    turnContext = turnContext
+                )
             }
             is StreamingManager.AgentState.Error -> {
                 handleAgentError(conversationId, messageId, state.message, state.type, turnContext)
@@ -383,8 +342,9 @@ class ChatExecutionManager(
         conversationId: String,
         messageId: String,
         result: String,
-        validation: SafetyValidator.ValidationResult,
-        usage: StreamingManager.TokenUsage,
+        topicRefs: List<TopicRef> = emptyList(),
+        graphicRefs: List<GraphicRef> = emptyList(),
+        usage: StreamingManager.TokenUsage = StreamingManager.TokenUsage(),
         turnContext: TurnContext? = null
     ) {
         val assistantMsg = MessageEntity(
@@ -393,9 +353,8 @@ class ChatExecutionManager(
             role = "assistant",
             content = result,
             timestamp = System.currentTimeMillis(),
-            warningsJson = json.encodeToString(validation.warnings),
-            topicRefsJson = json.encodeToString(validation.topicRefs),
-            graphicRefsJson = json.encodeToString(validation.graphicRefs)
+            topicRefsJson = json.encodeToString(topicRefs),
+            graphicRefsJson = json.encodeToString(graphicRefs)
         )
         try {
             val recent = conversationRepository.getMessagesPage(conversationId, limit = 5, offset = 0)
@@ -415,37 +374,8 @@ class ChatExecutionManager(
             secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist completed message: ${e.message}")
         }
         markTurnTerminal(messageId, turnContext)
-        _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, assistantMsg, validation.warnings))
+        _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, assistantMsg))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, result.take(120), false)
-    }
-
-    private suspend fun saveQuarantinedMessage(
-        conversationId: String,
-        messageId: String,
-        content: String,
-        validation: SafetyValidator.ValidationResult,
-        turnContext: TurnContext? = null
-    ) {
-        val blockedMsg = MessageEntity(
-            id = messageId,
-            conversationId = conversationId,
-            role = "assistant",
-            content = content,
-            timestamp = System.currentTimeMillis(),
-            warningsJson = json.encodeToString(validation.warnings),
-            topicRefsJson = json.encodeToString(validation.topicRefs),
-            graphicRefsJson = json.encodeToString(validation.graphicRefs),
-            isError = true
-        )
-        try {
-            conversationRepository.addMessage(blockedMsg)
-            conversationRepository.updateLastPreview(conversationId, content.take(100))
-        } catch (e: Exception) {
-            secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist quarantined message: ${e.message}")
-        }
-        markTurnTerminal(messageId, turnContext)
-        _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, blockedMsg, validation.warnings))
-        backgroundExecutionBridge?.onExecutionCompleted(conversationId, "Output quarantined by safety rules.", false)
     }
 
     private suspend fun saveFallbackMessage(
@@ -474,7 +404,7 @@ class ChatExecutionManager(
             secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist fallback message: ${e.message}")
         }
         markTurnTerminal(messageId, turnContext)
-        _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, fallbackMsg, emptyList()))
+        _events.tryEmit(ChatExecutionEvent.AssistantMessageCompleted(conversationId, fallbackMsg))
         backgroundExecutionBridge?.onExecutionCompleted(conversationId, fallbackResult.take(120), false)
     }
 

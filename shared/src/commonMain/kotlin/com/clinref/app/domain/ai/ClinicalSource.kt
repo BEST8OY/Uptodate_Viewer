@@ -29,10 +29,10 @@ sealed interface ClinicalSource {
         override val id: String get() = topicId
         override val displayTitle: String get() = topicTitle
 
-        fun toTopicRefs(): List<SafetyValidator.TopicRef> {
+        fun toTopicRefs(): List<TopicRef> {
             if (sections.isEmpty()) {
                 return listOf(
-                    SafetyValidator.TopicRef(
+                    TopicRef(
                         topicId = topicId,
                         sectionId = "",
                         label = topicTitle,
@@ -41,7 +41,7 @@ sealed interface ClinicalSource {
                 )
             }
             return sections.map { sec ->
-                SafetyValidator.TopicRef(
+                TopicRef(
                     topicId = topicId,
                     sectionId = sec.sectionId,
                     label = sec.sectionTitle,
@@ -82,8 +82,8 @@ sealed interface ClinicalSource {
         override val id: String get() = graphicId
         override val displayTitle: String get() = tableTitle
 
-        fun toGraphicRef(): SafetyValidator.GraphicRef {
-            return SafetyValidator.GraphicRef(
+        fun toGraphicRef(): GraphicRef {
+            return GraphicRef(
                 graphicId = graphicId,
                 label = tableTitle,
                 topicId = parentTopicId
@@ -102,9 +102,9 @@ sealed interface ClinicalSource {
 
     companion object {
         /**
-         * Converts a list of [SafetyValidator.TopicRef] into grouped [ClinicalSource.Article] instances.
+         * Converts a list of [TopicRef] into grouped [ClinicalSource.Article] instances.
          */
-        fun fromTopicRefs(refs: List<SafetyValidator.TopicRef>): List<Article> {
+        fun fromTopicRefs(refs: List<TopicRef>): List<Article> {
             if (refs.isEmpty()) return emptyList()
             return refs.groupBy { it.topicId }.map { (topicId, topicRefsList) ->
                 val primaryTitle = (topicRefsList.firstOrNull { it.topicTitle.isNotBlank() }?.topicTitle
@@ -123,10 +123,10 @@ sealed interface ClinicalSource {
         }
 
         /**
-         * Converts a list of [SafetyValidator.GraphicRef] into [ClinicalSource.Table] instances.
+         * Converts a list of [GraphicRef] into [ClinicalSource.Table] instances.
          */
         fun fromGraphicRefs(
-            refs: List<SafetyValidator.GraphicRef>,
+            refs: List<GraphicRef>,
             parentTopicTitles: Map<String, String> = emptyMap()
         ): List<Table> {
             if (refs.isEmpty()) return emptyList()
