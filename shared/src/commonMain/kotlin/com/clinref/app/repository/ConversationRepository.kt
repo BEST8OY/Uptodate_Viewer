@@ -79,8 +79,6 @@ class ConversationRepository(
         conversationDao.updateTokenCounts(id, promptDelta, completionDelta, toolDelta)
     }
 
-    suspend fun isOverTokenLimit(id: String): Boolean = conversationDao.isOverTokenLimit(id)
-
     suspend fun getPatientProfile(conversationId: String): PatientProfile {
         val conversation = conversationDao.getById(conversationId) ?: return PatientProfile()
         return try {

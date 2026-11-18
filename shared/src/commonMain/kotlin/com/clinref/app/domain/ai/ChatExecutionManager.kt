@@ -217,11 +217,17 @@ class ChatExecutionManager(
                 )
             } catch (e: Exception) {
                 secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Clinical runtime crash: ${e.message}")
+                val errorType = streamingManager.classifyError(e.message.orEmpty(), e)
+                val errorMessage = if (errorType == StreamingManager.ErrorType.TIMEOUT && e.message.isNullOrBlank()) {
+                    "Request timed out."
+                } else {
+                    e.message ?: "General core execution error."
+                }
                 handleAgentError(
                     conversationId = conversationId,
                     messageId = pendingAssistantId,
-                    errorMessage = e.message ?: "General core execution error.",
-                    errorType = StreamingManager.ErrorType.UNKNOWN,
+                    errorMessage = errorMessage,
+                    errorType = errorType,
                     turnContext = turnContext
                 )
             } finally {
@@ -392,6 +398,11 @@ class ChatExecutionManager(
             graphicRefsJson = json.encodeToString(validation.graphicRefs)
         )
         try {
+            val recent = conversationRepository.getMessagesPage(conversationId, limit = 5, offset = 0)
+            val orphan = recent.firstOrNull { it.id != messageId && (it.isError || it.role == "cancelled") }
+            if (orphan != null) {
+                conversationRepository.deleteMessages(conversationId, listOf(orphan.id))
+            }
             conversationRepository.addMessage(assistantMsg)
             conversationRepository.updateTokenCounts(
                 conversationId,
@@ -452,6 +463,11 @@ class ChatExecutionManager(
             timestamp = System.currentTimeMillis()
         )
         try {
+            val recent = conversationRepository.getMessagesPage(conversationId, limit = 5, offset = 0)
+            val orphan = recent.firstOrNull { it.id != messageId && (it.isError || it.role == "cancelled") }
+            if (orphan != null) {
+                conversationRepository.deleteMessages(conversationId, listOf(orphan.id))
+            }
             conversationRepository.addMessage(fallbackMsg)
             conversationRepository.updateLastPreview(conversationId, fallbackResult.take(100))
         } catch (e: Exception) {

@@ -282,4 +282,37 @@ class StreamingManagerTest {
         val step2 = manager.orchestrationSteps.value.find { it.id == "call_2" }
         assertEquals("3 sections from \"Doxycycline\"", step2?.detail)
     }
+
+    @Test
+    fun `classifyError detects socket timeouts and client timeouts across exception causes`() {
+        val rootTimeout = Exception("Connect timed out")
+        val clientEx = Exception("[Error from client: GoogleLLMClient timeout]", rootTimeout)
+
+        assertEquals(
+            StreamingManager.ErrorType.TIMEOUT,
+            manager.classifyError(clientEx.message.orEmpty(), clientEx)
+        )
+
+        // Traversal of nested cause
+        val socketTimeout = Exception("java.net.SocketTimeoutException: Read timed out")
+        val wrapper = RuntimeException("Model invocation failed", socketTimeout)
+        assertEquals(
+            StreamingManager.ErrorType.TIMEOUT,
+            manager.classifyError("Generic failure", wrapper)
+        )
+
+        // Rate limit detection
+        val rateLimitEx = RuntimeException("Resource has been exhausted (e.g. check quota)", null)
+        assertEquals(
+            StreamingManager.ErrorType.RATE_LIMIT,
+            manager.classifyError(rateLimitEx.message.orEmpty(), rateLimitEx)
+        )
+
+        // Network detection
+        val netEx = RuntimeException("java.net.UnknownHostException: Unable to resolve host", null)
+        assertEquals(
+            StreamingManager.ErrorType.NO_NETWORK,
+            manager.classifyError(netEx.message.orEmpty(), netEx)
+        )
+    }
 }

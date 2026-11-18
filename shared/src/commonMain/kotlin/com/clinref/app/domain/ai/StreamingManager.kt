@@ -614,13 +614,43 @@ class StreamingManager {
         }
     }
 
-    private fun classifyError(error: String): ErrorType {
+    fun classifyError(error: String, throwable: Throwable? = null): ErrorType {
+        var current: Throwable? = throwable
+        var hasTimeout = false
+        var hasNetwork = false
+        var hasAuth = false
+        var hasRateLimit = false
+
+        while (current != null) {
+            val msg = current.message?.lowercase().orEmpty()
+            val cls = current::class.simpleName?.lowercase().orEmpty()
+
+            if ("timeout" in msg || "timeout" in cls || "deadline" in msg || "time out" in msg) {
+                hasTimeout = true
+            }
+            if ("connect" in msg || "network" in msg || "unreachable" in msg || "unknownhost" in msg || "unknownhost" in cls) {
+                hasNetwork = true
+            }
+            if ("401" in msg || "unauthorized" in msg || "api key" in msg || "forbidden" in msg || "403" in msg) {
+                hasAuth = true
+            }
+            if ("429" in msg || "rate" in msg || "quota" in msg || "exhausted" in msg) {
+                hasRateLimit = true
+            }
+            current = current.cause
+        }
+
+        if (hasAuth) return ErrorType.INVALID_KEY
+        if (hasRateLimit) return ErrorType.RATE_LIMIT
+        if (hasTimeout) return ErrorType.TIMEOUT
+        if (hasNetwork) return ErrorType.NO_NETWORK
+
         val lower = error.lowercase()
         return when {
-            "api key" in lower || "unauthorized" in lower || "401" in lower -> ErrorType.INVALID_KEY
-            "timeout" in lower || "deadline" in lower -> ErrorType.TIMEOUT
-            "rate" in lower || "429" in lower -> ErrorType.RATE_LIMIT
-            "network" in lower || "connect" in lower || "unreachable" in lower -> ErrorType.NO_NETWORK
+            "api key" in lower || "unauthorized" in lower || "401" in lower || "forbidden" in lower -> ErrorType.INVALID_KEY
+            "timeout" in lower || "deadline" in lower || "time out" in lower -> ErrorType.TIMEOUT
+            "rate" in lower || "429" in lower || "quota" in lower || "exhausted" in lower -> ErrorType.RATE_LIMIT
+            "network" in lower || "connect" in lower || "unreachable" in lower || "unknownhost" in lower -> ErrorType.NO_NETWORK
             "no topic match" in lower || "no results for" in lower || "no clinical data" in lower -> ErrorType.NO_RESULTS
             else -> ErrorType.UNKNOWN
         }

@@ -638,5 +638,57 @@ class ChatViewModelTest {
         // Historical turn m1 must STILL be marked successful while the new turn is generating
         assertTrue("Historical turn m1 must remain successful even while new turn awaits response", viewModel.isUserMessageSuccessful("m1"))
     }
+
+    @Test
+    fun testAssistantMessageCompletedDropsOrphanPrecedingError() = runTest(testDispatcher) {
+        val userMsg = MessageEntity("m1", "conv-1", "user", "Treatment", 1000L)
+        val orphanError = MessageEntity("err-1", "conv-1", "assistant", "Timeout error", 2000L, isError = true)
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(orphanError, userMsg)
+
+        viewModel.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.messages.value.size)
+        assertEquals("err-1", viewModel.messages.value.last().id)
+
+        // Mock active assistant message ID for a successful completion
+        val executionEvents = MutableSharedFlow<ChatExecutionEvent>()
+        val mockManager: ChatExecutionManager = mockk(relaxed = true) {
+            every { events } returns executionEvents
+            every { activeAssistantMessageId } returns MutableStateFlow("asst-success")
+            every { isGenerating("conv-1") } returns true
+        }
+
+        val vm = ChatViewModel(
+            conversationRepository = conversationRepository,
+            contentRepository = contentRepository,
+            streamingManager = streamingManager,
+            securePreferences = securePreferences,
+            secureLogger = secureLogger,
+            chatExecutionManager = mockManager
+        )
+        vm.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        // Trigger GenerationStarted then AssistantMessageCompleted
+        executionEvents.emit(ChatExecutionEvent.GenerationStarted("conv-1", "asst-success"))
+        advanceUntilIdle()
+
+        val successMsg = MessageEntity(
+            id = "asst-success",
+            conversationId = "conv-1",
+            role = "assistant",
+            content = "Clinical treatment guidance.",
+            timestamp = 3000L
+        )
+        executionEvents.emit(ChatExecutionEvent.AssistantMessageCompleted("conv-1", successMsg, emptyList()))
+        advanceUntilIdle()
+
+        val messages = vm.messages.value
+        assertEquals("Orphan error must be dropped and replaced by completed assistant message", 2, messages.size)
+        assertEquals("m1", messages[0].id)
+        assertEquals("asst-success", messages[1].id)
+        assertFalse("Remaining assistant message must not be error", messages[1].isError)
+    }
 }
 

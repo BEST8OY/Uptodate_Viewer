@@ -10,7 +10,6 @@ import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
-import com.clinref.app.domain.ai.ProviderSettings
 import kotlin.math.roundToInt
 
 /**
@@ -26,8 +25,9 @@ class OllamaProvider(
 
     override fun resolveModel(config: AiConfiguration): LLModel {
         val modelId = config.model.trim().ifEmpty { "llama3.2" }
-        val settings = config.providerSettings as? ProviderSettings.Ollama
-        val contextLength = settings?.numCtx ?: 4096
+        // Ollama context window is server-side (num_ctx); the app cannot set it via the
+        // OpenAI-compatible endpoint, so advertise the server default for metadata purposes only.
+        val contextLength = 4096
         val isReasoning = modelId.contains("r1", ignoreCase = true) ||
             modelId.contains("qwq", ignoreCase = true) ||
             modelId.contains("reason", ignoreCase = true) ||

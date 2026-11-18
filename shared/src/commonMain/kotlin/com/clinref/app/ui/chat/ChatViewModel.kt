@@ -169,12 +169,24 @@ class ChatViewModel(
                         _chatItems.value = buildChatItems(_messages.value)
                     }
                     is ChatExecutionEvent.AssistantMessageCompleted -> {
-                        if (_activeAssistantMessageId.value == event.message.id) {
+                        val isActive = _activeAssistantMessageId.value == event.message.id
+                        if (isActive) {
                             _isAwaitingResponse.value = false
                             _activeAssistantMessageId.value = null
                         }
                         messageOffset++
-                        updateMessages(_messages.value + event.message.toUiModel(warnings = event.warnings))
+                        val current = _messages.value
+                        val cleanMessages = if (isActive) {
+                            val orphanIndex = current.indexOfLast { it.id != event.message.id && (it.isError || it.role == "cancelled") }
+                            if (orphanIndex >= 0 && orphanIndex >= current.size - 2) {
+                                current.filterIndexed { idx, _ -> idx != orphanIndex }
+                            } else {
+                                current
+                            }
+                        } else {
+                            current
+                        }
+                        updateMessages(cleanMessages + event.message.toUiModel(warnings = event.warnings))
                     }
                     is ChatExecutionEvent.GenerationError -> {
                         if (_activeAssistantMessageId.value == event.message.id) {

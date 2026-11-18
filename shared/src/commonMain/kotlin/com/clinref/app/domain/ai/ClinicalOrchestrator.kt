@@ -558,7 +558,7 @@ class ClinicalOrchestrator(
         val cache = if (isAnthropic) AnthropicCacheControl.Default else null
         val patientBlock = SystemPrompt.patientContextBlock(patientProfile)
         val trimmedTurns = chatHistory
-            .filter { it.role == "user" || it.role == "assistant" }
+            .filter { (it.role == "user" || it.role == "assistant") && !it.isError && it.role != "cancelled" }
             .takeLast(MAX_CHAT_HISTORY_TURNS)
         val historyTurns = if (questionToDeduplicate != null && trimmedTurns.lastOrNull()?.role == "user" && trimmedTurns.lastOrNull()?.content == questionToDeduplicate) {
             trimmedTurns.dropLast(1)

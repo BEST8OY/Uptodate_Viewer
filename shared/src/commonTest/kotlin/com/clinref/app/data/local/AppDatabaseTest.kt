@@ -88,9 +88,6 @@ class AppDatabaseTest {
         assertEquals(250, tokenUpdated?.toolTokens)
         assertEquals(1050, tokenUpdated?.totalTokens)
 
-        // Check token limit (1050 >= 1000)
-        assertTrue(conversationDao.isOverTokenLimit("conv-1"))
-
         // Mark as read
         val unreadInitial = conversationDao.getUnreadCount().first()
         assertEquals(1, unreadInitial)

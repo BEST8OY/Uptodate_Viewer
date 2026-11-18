@@ -59,8 +59,7 @@ sealed class ProviderSettings {
     @SerialName("Ollama")
     data class Ollama(
         override val temperature: Float = 0.5f,
-        override val maxTokens: Int = 4096,
-        val numCtx: Int? = null                 // Context window size
+        override val maxTokens: Int = 4096
     ) : ProviderSettings()
 }
 

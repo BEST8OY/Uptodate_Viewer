@@ -698,5 +698,82 @@ class ChatExecutionManagerTest {
         assertEquals(DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true), capturedDecisionConfig)
         io.mockk.verify(exactly = 0) { mockDecisionClient.close() }
     }
+
+    @Test
+    fun testSendMessageTimeoutClassifiedAsTimeoutError() = runTest(testDispatcher) {
+        val realStreamingManager = StreamingManager()
+        val testManager = createConfiguredTestManager(realStreamingManager)
+
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+
+        val timeoutEx = RuntimeException("[Error from client: GoogleLLMClient timeout]", Exception("SocketTimeoutException"))
+        coEvery {
+            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } throws timeoutEx
+
+        val events = mutableListOf<ChatExecutionEvent>()
+        val eventsJob = launch(UnconfinedTestDispatcher(testScheduler)) {
+            testManager.events.collect { events.add(it) }
+        }
+
+        testManager.sendMessage("conv-1", "Treatment query")
+        advanceUntilIdle()
+
+        val errorEvent = events.filterIsInstance<ChatExecutionEvent.GenerationError>().firstOrNull()
+        assertNotNull("Must emit GenerationError on socket timeout", errorEvent)
+        assertTrue(
+            "Error content must show Reference core timeout user guidance instead of generic crash",
+            errorEvent!!.message.content.contains("Reference core timeout. Please resubmit.")
+        )
+        eventsJob.cancel()
+    }
+
+    @Test
+    fun testSuccessfulMessageCleansUpPrecedingOrphanError() = runTest(testDispatcher) {
+        val realStreamingManager = StreamingManager()
+        val testManager = createConfiguredTestManager(realStreamingManager)
+
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+
+        val orphanError = MessageEntity(
+            id = "err-123",
+            conversationId = "conv-1",
+            role = "assistant",
+            content = "Previous timeout error",
+            timestamp = 1000L,
+            isError = true
+        )
+        coEvery { conversationRepository.getMessagesPage("conv-1", any(), any()) } returns listOf(orphanError)
+        coEvery { conversationRepository.getLatestMessage("conv-1") } returns orphanError
+
+        coEvery {
+            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+        } coAnswers {
+            realStreamingManager.onCompleted(
+                "Verified guidance text.",
+                SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
+                StreamingManager.TokenUsage(10, 10, 20)
+            )
+            ClinicalOrchestrator.ExecutionResult(
+                content = "Verified guidance text.",
+                validation = SafetyValidator.ValidationResult(passed = true, warnings = emptyList()),
+                tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
+            )
+        }
+
+        testManager.sendMessage("conv-1", "Treatment query")
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            conversationRepository.deleteMessages("conv-1", listOf("err-123"))
+        }
+        coVerify(atLeast = 1) {
+            conversationRepository.addMessage(match { it.role == "assistant" && !it.isError && it.content == "Verified guidance text." })
+        }
+    }
 }
 

@@ -19,6 +19,7 @@ import com.clinref.app.data.SearchResultTopicItem
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
 import com.clinref.app.data.TopicSectionsResponse
+import com.clinref.app.data.local.entity.MessageEntity
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -33,6 +34,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -550,5 +552,36 @@ class ClinicalOrchestratorTest {
         assertEquals("Standard dose is 5 mg twice daily.", result.content)
         assertTrue(result.validation.passed)
         assertEquals(1, failingDecisionClient.failedCalls)
+    }
+
+    @Test
+    fun testChatHistoryFiltersOutErrorsAndCancelledMessages() = runTest {
+        val history = listOf(
+            MessageEntity(id = "m1", conversationId = "c1", role = "user", content = "First question", timestamp = 1000L),
+            MessageEntity(id = "m2", conversationId = "c1", role = "assistant", content = "First answer", timestamp = 2000L),
+            MessageEntity(id = "m3", conversationId = "c1", role = "assistant", content = "An error occurred during response generation", timestamp = 3000L, isError = true),
+            MessageEntity(id = "m4", conversationId = "c1", role = "cancelled", content = "Cancelled generation", timestamp = 4000L)
+        )
+
+        orchestrator.runTurn(
+            question = "Next clinical query",
+            patientProfile = PatientProfile(),
+            chatHistory = history,
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager
+        )
+
+        val firstPrompt = executor.executedPrompts.firstOrNull()
+        assertNotNull("Stage 1 prompt must be executed", firstPrompt)
+
+        val historyContents = firstPrompt!!.messages.map { msg ->
+            msg.parts.joinToString("\n") { it.toString() }
+        }
+        assertTrue("Prompt should include valid user message", historyContents.any { it.contains("First question") })
+        assertTrue("Prompt should include valid assistant message", historyContents.any { it.contains("First answer") })
+        assertFalse("Prompt MUST NOT include error message", historyContents.any { it.contains("An error occurred") })
+        assertFalse("Prompt MUST NOT include cancelled message", historyContents.any { it.contains("Cancelled generation") })
     }
 }

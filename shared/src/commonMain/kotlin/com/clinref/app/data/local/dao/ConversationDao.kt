@@ -36,9 +36,6 @@ interface ConversationDao {
     @Query("UPDATE conversations SET promptTokens = promptTokens + :promptDelta, completionTokens = completionTokens + :completionDelta, toolTokens = toolTokens + :toolDelta, updatedAt = :now WHERE id = :id")
     suspend fun updateTokenCounts(id: String, promptDelta: Int, completionDelta: Int, toolDelta: Int, now: Long = System.currentTimeMillis())
 
-    @Query("SELECT (promptTokens + completionTokens + toolTokens) >= tokenLimit FROM conversations WHERE id = :id")
-    suspend fun isOverTokenLimit(id: String): Boolean
-
     @Query("UPDATE conversations SET isRead = 1 WHERE id = :id")
     suspend fun markAsRead(id: String)
 
