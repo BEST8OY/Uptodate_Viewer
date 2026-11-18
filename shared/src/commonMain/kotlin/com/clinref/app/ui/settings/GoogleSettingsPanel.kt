@@ -59,7 +59,7 @@ fun GoogleSettingsPanel(
             )
         }
 
-        // Thinking Level (for Gemini 3.0)
+        // Thinking Level (for Gemini 3.0+ / 4.x)
         if (settings.includeThoughts) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Thinking Level", style = MaterialTheme.typography.labelMedium)
@@ -81,6 +81,12 @@ fun GoogleSettingsPanel(
                         shape = MaterialTheme.shapes.small
                     )
                     FilterChip(
+                        selected = settings.thinkingLevel == "medium",
+                        onClick = { onUpdate(settings.copy(thinkingLevel = "medium")) },
+                        label = { Text("Medium") },
+                        shape = MaterialTheme.shapes.small
+                    )
+                    FilterChip(
                         selected = settings.thinkingLevel == "high",
                         onClick = { onUpdate(settings.copy(thinkingLevel = "high")) },
                         label = { Text("High") },
@@ -88,7 +94,7 @@ fun GoogleSettingsPanel(
                     )
                 }
                 Text(
-                    "Gemini 3.0 uses level. Gemini 2.0 uses budget (default 8192 tokens).",
+                    "Gemini 3.0+ / 4.x uses level (Low, Medium, High). Gemini 2.0 uses budget (default 8192 tokens).",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

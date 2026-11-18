@@ -141,7 +141,7 @@ class MedicalDatabaseToolsTest {
     }
 
     @Test
-    fun `getTopicSectionsText renders markdown and converts appAction links`() {
+    fun `getTopicSectionsText renders markdown and converts appAction links to plain text`() {
         val outlineHtml = """<a href="appAction({&quot;section&quot;:&quot;H1&quot;})">Overview</a>"""
         val bodyHtml = """
             <div id="H1">
@@ -156,7 +156,9 @@ class MedicalDatabaseToolsTest {
         assertEquals("100", res.topicId)
         val md = res.markdown
 
-        assertTrue(md.contains("[related topic](Topic-999)"))
+        assertTrue(md.contains("See related topic for details."))
+        assertFalse(md.contains("Topic-999"))
+        assertFalse(md.contains("[related topic]("))
         // Footnote bracket [1, 2] should be stripped
         assertFalse(md.contains("[1, 2]"))
     }

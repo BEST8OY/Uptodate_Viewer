@@ -567,43 +567,24 @@ class MedicalDatabaseTools(
         s = s.replace(BULLET_INDENT_REGEX, "\n- ")
         s = s.replace(GLYPH_REGEX, " ")
 
-        // Convert links
+        // Convert links to plain text (strip link wrappers, preserve clean anchor text for LLM usage)
         s = A_TAG_REGEX.replace(s) { match ->
             val href = match.groupValues[1]
             val rawText = match.groupValues[2].replace(STRIP_TAGS_REGEX, "").trim()
-            if (rawText.isEmpty()) return@replace ""
-
-            // Strip abstract citation links like [1], [2]
-            if (href.contains("abstract", ignoreCase = true)) {
-                return@replace rawText
-            }
-
-            val actionMatch = GRAPHIC_ACTION_REGEX.find(href)
-            if (actionMatch != null) {
-                val jsonStr = actionMatch.groupValues[1]
-                    .replace("&quot;", "\"").replace("&#39;", "'")
-                when {
-                    jsonStr.contains("graphic", ignoreCase = true) || jsonStr.contains("graphicId", ignoreCase = true) -> {
-                        val idMatch = GRAPHIC_ID_REGEX.find(jsonStr)
-                        val graphicId = idMatch?.groupValues?.get(1)
-                        if (graphicId != null) {
-                            return@replace "[$rawText](Graphic-$graphicId)"
-                        }
-                    }
-                    jsonStr.contains("topic", ignoreCase = true) || jsonStr.contains("topicId", ignoreCase = true) ||
-                    jsonStr.contains("medical", ignoreCase = true) || jsonStr.contains("drug", ignoreCase = true) -> {
-                        val idMatch = GRAPHIC_ID_REGEX.find(jsonStr)
-                        val topicId = idMatch?.groupValues?.get(1)
-                        if (topicId != null) {
-                            val sectionMatch = SECTION_REGEX.find(jsonStr)
-                            val sectionId = sectionMatch?.groupValues?.get(1)
-                            val ref = if (sectionId != null) "$topicId#$sectionId" else topicId
-                            val textToUse = rawText.ifEmpty { titleLookup(topicId) }
-                            return@replace "[$textToUse](Topic-$ref)"
-                        }
+            if (rawText.isEmpty()) {
+                val actionMatch = GRAPHIC_ACTION_REGEX.find(href)
+                if (actionMatch != null) {
+                    val jsonStr = actionMatch.groupValues[1]
+                        .replace("&quot;", "\"").replace("&#39;", "'")
+                    val idMatch = GRAPHIC_ID_REGEX.find(jsonStr)
+                    val topicId = idMatch?.groupValues?.get(1)
+                    if (topicId != null) {
+                        return@replace titleLookup(topicId)
                     }
                 }
+                return@replace ""
             }
+
             rawText
         }
 

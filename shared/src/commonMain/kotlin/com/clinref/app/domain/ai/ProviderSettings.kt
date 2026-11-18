@@ -20,7 +20,7 @@ sealed class ProviderSettings {
         override val maxTokens: Int = 16384,
         val includeThoughts: Boolean = false,
         val thinkingBudget: Int? = null,        // Gemini 2.0: token limit for reasoning
-        val thinkingLevel: String? = null       // Gemini 3.0: "low" or "high"
+        val thinkingLevel: String? = null       // Gemini 3.0+: "low", "medium", or "high"
     ) : ProviderSettings()
 
     @Serializable

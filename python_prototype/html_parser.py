@@ -196,8 +196,8 @@ def clean_markdown_content(markdown: str) -> str:
 def html_to_markdown(html: str, title_lookup: Optional[dict] = None) -> str:
     """Convert HTML section content to clean Markdown.
 
-    Handles: headings, tables, lists, bold/italic, links, medical references.
-    Converts appAction medical/drug/graphic links to [text](Topic-id) format.
+    Handles: headings, tables, lists, bold/italic.
+    Replaces link wrappers with raw anchor text for clean LLM evidence text.
     """
     if not html:
         return ""
@@ -208,38 +208,15 @@ def html_to_markdown(html: str, title_lookup: Optional[dict] = None) -> str:
     for element in soup(["script", "style", "iframe", "noscript"]):
         element.decompose()
 
-    # Convert appAction links to readable format
-    for a_tag in soup.find_all("a", href=True):
-        href = a_tag["href"]
+    # Convert link elements to plain text (strip link wrappers, preserve clean anchor text for LLM usage)
+    for a_tag in soup.find_all("a"):
         text = a_tag.get_text(strip=True)
-
-        # Graphic links: Graphic-XXXX or assetType: graphic
-        graphic_match = re.search(r"Graphic-([a-zA-Z0-9_-]+)", href, re.IGNORECASE)
-        if graphic_match:
-            a_tag["href"] = f"Graphic-{graphic_match.group(1)}"
-            continue
-
-        if '"assetType":"graphic"' in href or "'assetType':'graphic'" in href:
-            gid_match = re.search(r'"id"\s*:\s*"([a-zA-Z0-9_-]+)"', href)
-            if gid_match:
-                a_tag["href"] = f"Graphic-{gid_match.group(1)}"
-                continue
-
-        # Topic/Drug links: Topic-NNNN or assetType: topic
-        topic_match = re.search(r"Topic-(\d+)", href, re.IGNORECASE)
-        if topic_match:
-            a_tag["href"] = f"Topic-{topic_match.group(1)}"
-            continue
-
-        if '"assetType":"topic"' in href or "'assetType':'topic'" in href:
+        if not text and title_lookup and a_tag.get("href"):
+            href = a_tag["href"]
             tid_match = re.search(r'"id"\s*:\s*"(\d+)"', href) or re.search(r'"topicId"\s*:\s*"(\d+)"', href)
             if tid_match:
-                a_tag["href"] = f"Topic-{tid_match.group(1)}"
-                continue
-
-        # Remove raw javascript/appAction link wrappers, preserving text
-        if "appAction" in href or href.startswith("javascript:"):
-            a_tag.replace_with(text)
+                text = title_lookup.get(tid_match.group(1), "")
+        a_tag.replace_with(text)
 
     # Convert to markdown
     h = html2text.HTML2Text()

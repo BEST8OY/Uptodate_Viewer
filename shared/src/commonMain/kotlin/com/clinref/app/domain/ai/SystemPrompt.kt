@@ -56,7 +56,7 @@ Every clinical assertion, number, threshold, and recommendation must derive excl
 - Empty Heading Prohibition: Include only headings for which the retrieved evidence provides direct guidance. Completely omit unneeded outline headings—never output empty headings or headings stating nothing was specified, and never place a bare "Not specified..." line directly beneath a heading or bold line.
 
 ### 4. OUTPUT MECHANICS
-Plain text with bold for the opening takeaway, ### for section subheadings, and simple bullet lists where the source groups items. Never use # or ## or #### headings, strip any `[text](Topic-...)` or `[text](Graphic-...)` markdown links into plain text, and never output inline footnote citations (`[1]`) or reference lists—the app renders retrieved sections as reference cards."""
+Plain text with bold for the opening takeaway, ### for section subheadings, and simple bullet lists where the source groups items. Never use # or ## or #### headings, and never output reference lists—the app renders retrieved sections as reference cards."""
 
     /**
      * Recency-anchored synthesis contract placed immediately between `</retrieved_evidence>`
@@ -69,7 +69,7 @@ Plain text with bold for the opening takeaway, ### for section subheadings, and 
             "(3) Copy every number, range, frequency, and compound slash unit (`mg/kg/day`, `mg/day`, `mL/min`) verbatim—never convert units (`1 g` ≠ `1000 mg`), never multiply weight-based formulas (`mg/kg`) by patient weight, and never convert spelled-out number words to digits; " +
             "(4) Preserve exact GRADE verbs (`recommend` vs `suggest` vs `may`; never write `recommend`/`recommended` for a Grade 2 `suggest`); " +
             "(5) If a parameter is absent, state inline that it is \"$CANONICAL_ABSTENTION\" (or output only that phrase if nothing in <retrieved_evidence> answers the question); " +
-            "(6) Plain text only—no `#`/`##`/`####` headers, no `[text](...)` links, no `[1]` citations, and no unretrieved visual descriptions."
+            "(6) Plain text only—no `#`/`##`/`####` headers, no reference lists, and no unretrieved visual descriptions."
 
     private fun templateLines(vararg lines: String): String = lines.joinToString("\n")
 

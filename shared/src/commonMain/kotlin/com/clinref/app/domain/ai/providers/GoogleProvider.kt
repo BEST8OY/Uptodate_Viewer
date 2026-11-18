@@ -15,6 +15,8 @@ import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.params.LLMParams
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.ProviderSettings
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlin.math.roundToInt
 
 class GoogleProvider(
@@ -85,23 +87,47 @@ class GoogleProvider(
             ?: return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
         val temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
-        return GoogleParams(
-            temperature = temperature,
-            maxTokens = settings.maxTokens,
-            thinkingConfig = if (settings.includeThoughts) {
-                GoogleThinkingConfig(
+        if (!settings.includeThoughts) {
+            return GoogleParams(
+                temperature = temperature,
+                maxTokens = settings.maxTokens
+            )
+        }
+
+        val level = settings.thinkingLevel?.lowercase()
+        return if (level == "medium") {
+            // Koog's GoogleThinkingLevel enum only defines LOW and HIGH.
+            // Google GenAI API supports MEDIUM; pass it via additionalProperties so
+            // AdditionalPropertiesFlatteningSerializer injects thinkingConfig with MEDIUM.
+            val thinkingConfigJson = buildJsonObject {
+                put("includeThoughts", JsonPrimitive(true))
+                put("thinkingLevel", JsonPrimitive("MEDIUM"))
+                settings.thinkingBudget?.let {
+                    put("thinkingBudget", JsonPrimitive(it))
+                }
+            }
+            GoogleParams(
+                temperature = temperature,
+                maxTokens = settings.maxTokens,
+                additionalProperties = mapOf("thinkingConfig" to thinkingConfigJson),
+                thinkingConfig = null
+            )
+        } else {
+            val thinkingLevelEnum = when (level) {
+                "low" -> GoogleThinkingLevel.LOW
+                "high" -> GoogleThinkingLevel.HIGH
+                else -> null
+            }
+            GoogleParams(
+                temperature = temperature,
+                maxTokens = settings.maxTokens,
+                thinkingConfig = GoogleThinkingConfig(
                     includeThoughts = true,
                     thinkingBudget = settings.thinkingBudget,
-                    thinkingLevel = settings.thinkingLevel?.let {
-                        when (it.lowercase()) {
-                            "low" -> GoogleThinkingLevel.LOW
-                            "high" -> GoogleThinkingLevel.HIGH
-                            else -> null
-                        }
-                    }
+                    thinkingLevel = thinkingLevelEnum
                 )
-            } else null
-        )
+            )
+        }
     }
 
     override fun getAvailableModels(): List<String> {

@@ -1,10 +1,14 @@
 package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.KoogHttpClient
+import ai.koog.prompt.executor.clients.google.GoogleParams
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
 import io.mockk.mockk
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,6 +49,49 @@ class ProviderModelDeduplicationTest {
 
         val available = provider.getAvailableModels()
         assertTrue("Custom model must never pollute available preset models list", "tunedModels/custom-clinical-expert-v1" !in available)
+    }
+
+    @Test
+    fun googleProviderCreatesThinkingParamsForLowMediumAndHigh() {
+        val provider = GoogleProvider(httpClientFactory)
+
+        // Low
+        val lowConfig = AiConfiguration(
+            provider = AiProvider.GOOGLE,
+            model = "gemini-2.5-flash",
+            providerSettings = com.clinref.app.domain.ai.ProviderSettings.Google(
+                includeThoughts = true,
+                thinkingLevel = "low"
+            )
+        )
+        val lowParams = provider.createParams(lowConfig) as GoogleParams
+        assertEquals(ai.koog.prompt.executor.clients.google.models.GoogleThinkingLevel.LOW, lowParams.thinkingConfig?.thinkingLevel)
+
+        // High
+        val highConfig = AiConfiguration(
+            provider = AiProvider.GOOGLE,
+            model = "gemini-2.5-flash",
+            providerSettings = com.clinref.app.domain.ai.ProviderSettings.Google(
+                includeThoughts = true,
+                thinkingLevel = "high"
+            )
+        )
+        val highParams = provider.createParams(highConfig) as GoogleParams
+        assertEquals(ai.koog.prompt.executor.clients.google.models.GoogleThinkingLevel.HIGH, highParams.thinkingConfig?.thinkingLevel)
+
+        // Medium (via additionalProperties since Koog enum omits MEDIUM)
+        val medConfig = AiConfiguration(
+            provider = AiProvider.GOOGLE,
+            model = "gemini-2.5-flash",
+            providerSettings = com.clinref.app.domain.ai.ProviderSettings.Google(
+                includeThoughts = true,
+                thinkingLevel = "medium"
+            )
+        )
+        val medParams = provider.createParams(medConfig) as GoogleParams
+        val thinkingJson = medParams.additionalProperties?.get("thinkingConfig") as? JsonObject
+        assertNotNull("Medium thinkingConfig must be passed via additionalProperties", thinkingJson)
+        assertEquals("MEDIUM", (thinkingJson?.get("thinkingLevel") as? JsonPrimitive)?.content)
     }
 
     @Test
