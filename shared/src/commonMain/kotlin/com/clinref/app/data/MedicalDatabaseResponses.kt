@@ -100,7 +100,6 @@ data class TopicSectionsResponse(
     val invalidSections: List<String>? = null,
     @JsonNames("omitted_sections", "omittedSections")
     val omittedSections: List<String>? = null,
-    val truncated: Boolean? = null,
     val error: String? = null
 )
 

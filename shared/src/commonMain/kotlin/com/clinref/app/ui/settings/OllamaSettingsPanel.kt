@@ -6,13 +6,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.clinref.app.domain.ai.ProviderSettings
 
 @Composable
 fun OllamaSettingsPanel(
-    settings: ProviderSettings.Ollama,
-    modifier: Modifier = Modifier,
-    onUpdate: (ProviderSettings.Ollama) -> Unit
+    modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),

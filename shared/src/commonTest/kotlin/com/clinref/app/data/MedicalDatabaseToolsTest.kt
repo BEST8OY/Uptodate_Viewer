@@ -492,7 +492,6 @@ class MedicalDatabaseToolsTest {
         // No token cap: sections come back whole.
         val res = tools.getTopicSectionsText("200", listOf("H1", "H_RENAL"))
 
-        assertNull(res.truncated)
         assertNull(res.omittedSections)
         val titles = res.sectionTitles
         assertTrue(titles.containsKey("H1"))
@@ -501,7 +500,6 @@ class MedicalDatabaseToolsTest {
         val md = res.markdown
         // converter trims trailing whitespace, so match the body run without the final space
         assertTrue(md.contains(longText.trimEnd()))
-        assertFalse(md.contains("[Section truncated due to token limit]"))
     }
 
     @Test
@@ -524,7 +522,6 @@ class MedicalDatabaseToolsTest {
         val titles = res.sectionTitles
         (1..20).forEach { assertTrue(titles.containsKey("H$it")) }
         assertFalse(titles.containsKey("H21"))
-        assertNull(res.truncated)
         val omitted = res.omittedSections
         assertEquals(listOf("H21"), omitted)
         val md = res.markdown

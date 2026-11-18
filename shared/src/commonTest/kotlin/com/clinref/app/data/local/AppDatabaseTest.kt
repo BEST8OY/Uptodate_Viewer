@@ -48,7 +48,6 @@ class AppDatabaseTest {
             promptTokens = 100,
             completionTokens = 200,
             toolTokens = 50,
-            tokenLimit = 1000,
             isRead = false,
             isPinned = false
         )
@@ -59,7 +58,6 @@ class AppDatabaseTest {
         assertNotNull(fetched)
         assertEquals("Asthma Management", fetched?.title)
         assertEquals("Adult, 45yo", fetched?.patientProfile)
-        assertEquals(350, fetched?.totalTokens)
         assertFalse(fetched?.isPinned ?: true)
         assertFalse(fetched?.isRead ?: true)
 
@@ -86,7 +84,6 @@ class AppDatabaseTest {
         assertEquals(300, tokenUpdated?.promptTokens)
         assertEquals(500, tokenUpdated?.completionTokens)
         assertEquals(250, tokenUpdated?.toolTokens)
-        assertEquals(1050, tokenUpdated?.totalTokens)
 
         // Mark as read
         val unreadInitial = conversationDao.getUnreadCount().first()

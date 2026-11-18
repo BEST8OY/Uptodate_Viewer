@@ -463,7 +463,7 @@ fun AiSettingsContent(
                             is ProviderSettings.OpenRouter ->
                                 OpenRouterSettingsPanel(settings, onUpdate = onUpdateProviderSettings)
                             is ProviderSettings.Ollama ->
-                                OllamaSettingsPanel(settings, onUpdate = onUpdateProviderSettings)
+                                OllamaSettingsPanel()
                         }
                     }
                 }
