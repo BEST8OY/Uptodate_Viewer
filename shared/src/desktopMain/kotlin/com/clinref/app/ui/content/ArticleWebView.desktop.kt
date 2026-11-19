@@ -36,10 +36,20 @@ private const val LAYOUT_SETTLE_MS = 60L
 private const val OFFSET_ANCHOR_PREFIX = "off:"
 private const val TOP_ANCHOR = "top"
 
-/** Reports are suppressed while a start target is being applied, and until one has been. */
+/** Tracks restore/programmatic scroll boundaries and last observed viewport geometry. */
 private class RestoreState {
     var restoring = false
     var applied = false
+    var programmaticScroll = false
+    var lastScrollY = 0
+    var lastViewportHeight = 0
+    var lastContentHeight = 0
+
+    fun syncGeometry(scrollY: Int, viewportHeight: Int, contentHeight: Int) {
+        lastScrollY = scrollY
+        lastViewportHeight = viewportHeight
+        lastContentHeight = contentHeight
+    }
 }
 
 private inline fun runOnEdt(crossinline block: () -> Unit) {
@@ -197,15 +207,45 @@ actual fun HtmlContentWebView(
     DisposableEffect(controller) {
         val debounce = Timer(POSITION_DEBOUNCE_MS) { reportPosition() }.apply { isRepeats = false }
         val listener = javax.swing.event.ChangeListener {
-            if (!restoreState.restoring) debounce.restart()
+            val viewport = scrollPane.viewport
+            val y = viewport.viewPosition.y
+            val viewportHeight = viewport.height
+            val contentHeight = editorPane.height
+            val layoutChanged = viewportHeight != restoreState.lastViewportHeight ||
+                contentHeight != restoreState.lastContentHeight
+            val dy = y - restoreState.lastScrollY
+            restoreState.syncGeometry(y, viewportHeight, contentHeight)
+
+            if (!restoreState.restoring && restoreState.applied && !restoreState.programmaticScroll) {
+                debounce.restart()
+                if (!layoutChanged && dy != 0) {
+                    val maxY = (contentHeight - viewportHeight).coerceAtLeast(0)
+                    controller.onScrollDelta?.invoke(
+                        ArticleScrollDelta(
+                            deltaY = dy.toFloat(),
+                            scrollY = y.coerceAtLeast(0).toFloat(),
+                            maxScrollY = maxY.toFloat()
+                        )
+                    )
+                }
+            }
         }
         scrollPane.viewport.addChangeListener(listener)
         controller.bindPlatform(
             scrollToSection = { secId ->
                 runOnEdt {
+                    restoreState.programmaticScroll = true
                     try {
                         editorPane.scrollToReference(secId)
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                    } finally {
+                        restoreState.syncGeometry(
+                            scrollPane.viewport.viewPosition.y,
+                            scrollPane.viewport.height,
+                            editorPane.height
+                        )
+                        restoreState.programmaticScroll = false
+                    }
                 }
             },
             findAll = { query ->
@@ -265,6 +305,11 @@ actual fun HtmlContentWebView(
                 delay(LAYOUT_SETTLE_MS)
                 runOnEdt {
                     applyStart(doc)
+                    restoreState.syncGeometry(
+                        scrollPane.viewport.viewPosition.y,
+                        scrollPane.viewport.height,
+                        editorPane.height
+                    )
                 }
             }
             restoreState.applied = true

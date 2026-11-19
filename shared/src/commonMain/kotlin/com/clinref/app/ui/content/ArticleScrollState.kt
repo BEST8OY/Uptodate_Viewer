@@ -1,128 +1,188 @@
 package com.clinref.app.ui.content
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.unit.Velocity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
- * Single owner of hide/reveal policy for chrome floating over the article. Consumes the
- * unified nested-scroll stream from the article content (drag deltas plus unconsumed
- * edge deltas) and exposes a normalized [hideFraction] that any number of bars translate
- * against their own travel distance.
+ * User-initiated vertical scroll update reported by a platform article renderer.
+ *
+ * @property deltaY Signed vertical scroll delta in pixels (`> 0` toward bottom, `< 0` toward top).
+ * @property scrollY Current vertical scroll offset from the top of the document, in pixels.
+ * @property maxScrollY Maximum scrollable vertical offset (`contentHeight - viewportHeight`), in pixels.
+ */
+data class ArticleScrollDelta(
+    val deltaY: Float,
+    val scrollY: Float,
+    val maxScrollY: Float
+)
+
+/**
+ * Deterministic visibility state machine for floating chrome overlaid on an article viewport.
+ *
+ * Uses asymmetric scroll hysteresis so hiding requires deliberate downward reading while revealing
+ * responds quickly to upward intent or returning near the top:
+ * - Never hides on non-scrollable or barely scrollable articles (`maxScrollY < minScrollableRangePx`).
+ * - Always visible within the top pinned zone (`scrollY <= topPinnedZonePx`).
+ * - Absorbs tiny opposite-direction jitter (`< directionNoiseSlopPx`) without wiping accumulated travel.
+ * - Stays visible and ignores scroll deltas whenever [isPinnedVisible] is true.
  */
 @Stable
 class ArticleScrollState(
-    private val scope: CoroutineScope,
-    private val settleSpec: FiniteAnimationSpec<Float>
-) : NestedScrollConnection {
+    hideThresholdPx: Float,
+    revealThresholdPx: Float,
+    topPinnedZonePx: Float,
+    minScrollableRangePx: Float,
+    directionNoiseSlopPx: Float,
+    initialVisible: Boolean = true
+) {
+    val hideThresholdPx: Float = hideThresholdPx.coerceAtLeast(1f)
+    val revealThresholdPx: Float = revealThresholdPx.coerceAtLeast(1f)
+    val topPinnedZonePx: Float = topPinnedZonePx.coerceAtLeast(0f)
+    val minScrollableRangePx: Float = minScrollableRangePx.coerceAtLeast(0f)
+    val directionNoiseSlopPx: Float = directionNoiseSlopPx.coerceAtLeast(0f)
 
-    var gate: () -> Boolean = { true }
+    private var hiddenByScroll by mutableStateOf(!initialVisible)
+    private var isPinned by mutableStateOf(false)
 
-    /** Cumulative downward delta required before hiding begins tracking. */
-    var hideActivationThresholdPx: Float = 0f
+    private var accumulatedPx = 0f
+    private var oppositeNoisePx = 0f
 
-    /** Total translation distance of the primary chrome element, in pixels. */
-    var travelDistancePx: Float = 0f
+    /** True when the floating toolbar should be shown. */
+    val isToolbarVisible: Boolean
+        get() = isPinned || !hiddenByScroll
 
-    /** 0f = fully visible, 1f = fully hidden. */
-    val hideFraction: Float
-        get() = if (travelDistancePx > 0f) {
-            (offsetPx.value / travelDistancePx).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-
-    private val offsetPx = Animatable(0f)
-    private var settleJob: Job? = null
-    private var suppressUntilNanos = 0L
-    private var pendingHidePx = 0f
+    /** True when surrounding UI or accessibility state currently pins the toolbar visible. */
+    val isPinnedVisible: Boolean
+        get() = isPinned
 
     /**
-     * Compose convention: negative available/consumed y means scrolling deeper into the
-     * content (finger up); positive means back toward the top. We never consume — the
-     * content view owns its own scrolling.
+     * Pins or unpins toolbar visibility. Entering a pinned state also resets [hiddenByScroll] so
+     * releasing the pin keeps the toolbar visible until the user deliberately scrolls down again.
      */
-    override fun onPostScroll(
-        consumed: Offset,
-        available: Offset,
-        source: NestedScrollSource
-    ): Offset {
-        onScrolled(-(consumed.y + available.y).roundToInt())
-        return Offset.Zero
+    fun setPinnedVisible(pinned: Boolean) {
+        if (isPinned == pinned) return
+        isPinned = pinned
+        if (pinned) {
+            reveal()
+        } else {
+            resetAccumulators()
+        }
     }
 
-    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-        settleToNearest()
-        return Velocity.Zero
-    }
-
+    /** Immediately reveals the toolbar and clears any accumulated scroll hysteresis. */
     fun reveal() {
-        pendingHidePx = 0f
-        settleJob?.cancel()
-        scope.launch { offsetPx.snapTo(0f) }
+        hiddenByScroll = false
+        resetAccumulators()
     }
 
-    fun suppressFor(durationMs: Long = SUPPRESSION_MS) {
-        suppressUntilNanos = System.nanoTime() + durationMs * 1_000_000
+    /** Processes one user-initiated vertical scroll update from the article renderer. */
+    fun onScrollDelta(delta: ArticleScrollDelta) {
+        val dy = delta.deltaY
+        if (!dy.isFinite() || dy == 0f) return
+        if (isPinned) {
+            resetAccumulators()
+            return
+        }
+
+        val scrollY = if (delta.scrollY.isFinite()) delta.scrollY.coerceAtLeast(0f) else 0f
+        val maxScrollY = if (delta.maxScrollY.isFinite()) delta.maxScrollY.coerceAtLeast(0f) else 0f
+
+        if (maxScrollY < minScrollableRangePx || scrollY <= topPinnedZonePx) {
+            if (hiddenByScroll) hiddenByScroll = false
+            resetAccumulators()
+            return
+        }
+
+        if (!hiddenByScroll) {
+            handleWhileVisible(dy)
+        } else {
+            handleWhileHidden(dy)
+        }
     }
 
-    private fun onScrolled(webViewDy: Int) {
-        if (!gate() || System.nanoTime() < suppressUntilNanos || travelDistancePx <= 0f) return
-        settleJob?.cancel()
-        scope.launch {
-            if (webViewDy < 0) {
-                pendingHidePx = 0f
-                offsetPx.snapTo((offsetPx.value + webViewDy).coerceIn(0f, travelDistancePx))
-            } else {
-                pendingHidePx += webViewDy
-                if (pendingHidePx >= hideActivationThresholdPx) {
-                    offsetPx.snapTo((offsetPx.value + webViewDy).coerceIn(0f, travelDistancePx))
-                }
+    private fun handleWhileVisible(dy: Float) {
+        if (dy > 0f) {
+            oppositeNoisePx = 0f
+            accumulatedPx += dy
+            if (accumulatedPx >= hideThresholdPx) {
+                hiddenByScroll = true
+                resetAccumulators()
             }
-            settleJob = scope.launch {
-                delay(SETTLE_DEBOUNCE_MS)
-                animateToNearestEnd()
+        } else {
+            oppositeNoisePx += -dy
+            if (oppositeNoisePx >= directionNoiseSlopPx) {
+                resetAccumulators()
             }
         }
     }
 
-    private suspend fun settleToNearest() {
-        if (!gate() || System.nanoTime() < suppressUntilNanos || travelDistancePx <= 0f) return
-        settleJob?.cancel()
-        animateToNearestEnd()
+    private fun handleWhileHidden(dy: Float) {
+        if (dy < 0f) {
+            oppositeNoisePx = 0f
+            accumulatedPx += -dy
+            if (accumulatedPx >= revealThresholdPx) {
+                hiddenByScroll = false
+                resetAccumulators()
+            }
+        } else {
+            oppositeNoisePx += dy
+            if (oppositeNoisePx >= directionNoiseSlopPx) {
+                resetAccumulators()
+            }
+        }
     }
 
-    private suspend fun animateToNearestEnd() {
-        val target = if (offsetPx.value >= travelDistancePx / 2f) travelDistancePx else 0f
-        pendingHidePx = 0f
-        offsetPx.animateTo(target, settleSpec)
+    private fun resetAccumulators() {
+        accumulatedPx = 0f
+        oppositeNoisePx = 0f
     }
 
     companion object {
-        private const val SETTLE_DEBOUNCE_MS = 150L
-        private const val SUPPRESSION_MS = 600L
+        val DefaultHideThreshold: Dp = 48.dp
+        val DefaultRevealThreshold: Dp = 24.dp
+        val DefaultTopPinnedZone: Dp = 64.dp
+        val DefaultMinScrollableRange: Dp = 120.dp
+        val DefaultDirectionNoiseSlop: Dp = 4.dp
     }
 }
 
 @Composable
-fun rememberArticleScrollState(): ArticleScrollState {
-    val scope = rememberCoroutineScope()
-    val spec = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
-    return remember(scope, spec) {
-        ArticleScrollState(scope, spec)
-    }
-}
+fun rememberArticleScrollState(
+    pinnedVisible: Boolean = false,
+    hideThreshold: Dp = ArticleScrollState.DefaultHideThreshold,
+    revealThreshold: Dp = ArticleScrollState.DefaultRevealThreshold,
+    topPinnedZone: Dp = ArticleScrollState.DefaultTopPinnedZone,
+    minScrollableRange: Dp = ArticleScrollState.DefaultMinScrollableRange,
+    directionNoiseSlop: Dp = ArticleScrollState.DefaultDirectionNoiseSlop
+): ArticleScrollState {
+    val density = LocalDensity.current
+    val hidePx = with(density) { hideThreshold.toPx() }
+    val revealPx = with(density) { revealThreshold.toPx() }
+    val topPinnedPx = with(density) { topPinnedZone.toPx() }
+    val minScrollablePx = with(density) { minScrollableRange.toPx() }
+    val noiseSlopPx = with(density) { directionNoiseSlop.toPx() }
 
+    val state = remember(hidePx, revealPx, topPinnedPx, minScrollablePx, noiseSlopPx) {
+        ArticleScrollState(
+            hideThresholdPx = hidePx,
+            revealThresholdPx = revealPx,
+            topPinnedZonePx = topPinnedPx,
+            minScrollableRangePx = minScrollablePx,
+            directionNoiseSlopPx = noiseSlopPx
+        )
+    }
+
+    LaunchedEffect(state, pinnedVisible) {
+        state.setPinnedVisible(pinnedVisible)
+    }
+
+    return state
+}

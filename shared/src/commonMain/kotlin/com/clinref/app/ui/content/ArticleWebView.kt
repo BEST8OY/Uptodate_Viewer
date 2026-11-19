@@ -41,6 +41,9 @@ class ArticleWebViewController {
     /** Reports the reader's position (already debounced by the renderer) for the shown document. */
     var onPositionChanged: ((ReadingPosition) -> Unit)? = null
 
+    /** Reports user-initiated vertical scroll updates for floating chrome visibility. */
+    var onScrollDelta: ((ArticleScrollDelta) -> Unit)? = null
+
     /**
      * Supplies where a renderer should start when it (re)loads a document. Falls back to
      * [ArticleDocument.start] when unset.

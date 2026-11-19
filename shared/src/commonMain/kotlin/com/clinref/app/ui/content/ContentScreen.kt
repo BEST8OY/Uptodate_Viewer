@@ -2,8 +2,12 @@ package com.clinref.app.ui.content
 
 import com.clinref.app.ui.common.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,23 +35,20 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import org.koin.compose.viewmodel.koinViewModel
@@ -108,22 +109,26 @@ fun ContentScreen(
     val focusManager = LocalFocusManager.current
 
     val webView = rememberArticleWebViewController()
-
-    val density = LocalDensity.current
     val isTouchExploration = rememberTouchExplorationState()
 
-    val scrollState = rememberArticleScrollState().apply {
-        gate = {
-            !(showSearch || showOutline) && !isTouchExploration
-        }
-        hideActivationThresholdPx = with(density) { 48.dp.toPx() }
-    }
-    var toolbarTravelPx by remember { mutableFloatStateOf(0f) }
-    val bottomMarginPx = with(density) { 16.dp.toPx() }
+    val pinToolbarVisible = showSearch ||
+        showOutline ||
+        isTouchExploration ||
+        isLoading ||
+        error != null ||
+        document == null ||
+        contributorsDialog != null ||
+        referenceDialog != null ||
+        gradeDialog != null
+
+    val scrollState = rememberArticleScrollState(pinnedVisible = pinToolbarVisible)
+    // Immediate 0-frame visibility when entering a pinned state (e.g., opening search).
+    val isToolbarVisible = pinToolbarVisible || scrollState.isToolbarVisible
 
     SideEffect {
         webView.onAction = viewModel::handleAction
         webView.onPositionChanged = viewModel::onPositionChanged
+        webView.onScrollDelta = scrollState::onScrollDelta
         webView.startResolver = viewModel::resolveStart
         webView.onFindResult = { count, activeOrdinal ->
             searchResultCount = count
@@ -183,13 +188,12 @@ fun ContentScreen(
         }
     }
 
-    LaunchedEffect(document?.revision, showSearch, showOutline) {
+    LaunchedEffect(document?.revision) {
         scrollState.reveal()
     }
 
     LaunchedEffect(Unit) {
         viewModel.sectionJumps.collect { section ->
-            scrollState.suppressFor()
             scrollState.reveal()
             webView.scrollToSection(section)
         }
@@ -235,46 +239,57 @@ fun ContentScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding)
-                .nestedScroll(scrollState)
+                .clipToBounds()
         ) {
-            ContentFloatingToolbar(
-                showSearch = showSearch,
-                canGoBack = canGoBack,
-                canGoForward = canGoForward,
-                isFavorite = isFavorite,
-                outlineEnabled = outlineSections.isNotEmpty(),
-                searchFieldState = searchFieldState,
-                searchResultCount = searchResultCount,
-                searchResultIndex = searchResultIndex,
-                onBackClick = {
-                    viewModel.goBack()
-                },
-                onForwardClick = {
-                    viewModel.goForward()
-                },
-                onHomeClick = onHome,
-                onFavoriteClick = { viewModel.toggleFavorite() },
-                onOutlineClick = { viewModel.toggleOutline() },
-                onSearchClick = { showSearch = !showSearch },
-                onSearchPrevious = {
-                    if (searchResultCount > 0) webView.findNext(forward = false)
-                },
-                onSearchNext = {
-                    if (searchResultCount > 0) webView.findNext(forward = true)
-                },
-                onSearchClose = closeSearch,
-                searchFocusRequester = searchFocusRequester,
+            AnimatedVisibility(
+                visible = isToolbarVisible,
+                enter = slideInVertically(
+                    animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>(),
+                    initialOffsetY = { it }
+                ) + fadeIn(
+                    animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
+                ),
+                exit = slideOutVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    targetOffsetY = { it }
+                ) + fadeOut(
+                    animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
+                ),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 16.dp)
                     .imePadding()
                     .zIndex(1f)
-                    .onSizeChanged { size ->
-                        toolbarTravelPx = size.height + bottomMarginPx
-                        scrollState.travelDistancePx = toolbarTravelPx
-                    }
-                    .graphicsLayer { translationY = scrollState.hideFraction * toolbarTravelPx }
-            )
+            ) {
+                ContentFloatingToolbar(
+                    showSearch = showSearch,
+                    canGoBack = canGoBack,
+                    canGoForward = canGoForward,
+                    isFavorite = isFavorite,
+                    outlineEnabled = outlineSections.isNotEmpty(),
+                    searchFieldState = searchFieldState,
+                    searchResultCount = searchResultCount,
+                    searchResultIndex = searchResultIndex,
+                    onBackClick = { viewModel.goBack() },
+                    onForwardClick = { viewModel.goForward() },
+                    onHomeClick = onHome,
+                    onFavoriteClick = { viewModel.toggleFavorite() },
+                    onOutlineClick = { viewModel.toggleOutline() },
+                    onSearchClick = { showSearch = !showSearch },
+                    onSearchPrevious = {
+                        if (searchResultCount > 0) webView.findNext(forward = false)
+                    },
+                    onSearchNext = {
+                        if (searchResultCount > 0) webView.findNext(forward = true)
+                    },
+                    onSearchClose = closeSearch,
+                    searchFocusRequester = searchFocusRequester,
+                    interactive = isToolbarVisible,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
 
             Column(modifier = Modifier.fillMaxSize()) {
                 Box(modifier = Modifier.weight(1f)) {

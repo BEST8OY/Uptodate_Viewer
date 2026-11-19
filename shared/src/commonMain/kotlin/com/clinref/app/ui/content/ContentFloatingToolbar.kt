@@ -97,6 +97,7 @@ internal fun ContentFloatingToolbar(
     onSearchNext: () -> Unit,
     onSearchClose: () -> Unit,
     searchFocusRequester: FocusRequester,
+    interactive: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val vibrantColors = FloatingToolbarDefaults.vibrantFloatingToolbarColors()
@@ -157,7 +158,7 @@ internal fun ContentFloatingToolbar(
                                 .fillMaxWidth()
                                 .testTag("toolbar_search_field")
                                 .focusRequester(searchFocusRequester)
-                                .focusProperties { canFocus = isSearching }
+                                .focusProperties { canFocus = interactive && isSearching }
                         )
                     }
 
@@ -193,7 +194,7 @@ internal fun ContentFloatingToolbar(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .testTag("toolbar_find_prev")
-                                .focusProperties { canFocus = isSearching }
+                                .focusProperties { canFocus = interactive && isSearching }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowUp,
@@ -216,7 +217,7 @@ internal fun ContentFloatingToolbar(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .testTag("toolbar_find_next")
-                                .focusProperties { canFocus = isSearching }
+                                .focusProperties { canFocus = interactive && isSearching }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowDown,
@@ -246,7 +247,7 @@ internal fun ContentFloatingToolbar(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .testTag("toolbar_search_close")
-                                .focusProperties { canFocus = isSearching }
+                                .focusProperties { canFocus = interactive && isSearching }
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
@@ -271,7 +272,7 @@ internal fun ContentFloatingToolbar(
                             shape = CircleShape,
                             modifier = Modifier
                                 .testTag("toolbar_search_fab")
-                                .focusProperties { canFocus = !isSearching }
+                                .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
@@ -289,7 +290,7 @@ internal fun ContentFloatingToolbar(
                             enabled = canGoBack,
                             modifier = Modifier
                                 .testTag("toolbar_back")
-                                .focusProperties { canFocus = !isSearching }
+                                .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
@@ -304,7 +305,7 @@ internal fun ContentFloatingToolbar(
                             enabled = canGoForward,
                             modifier = Modifier
                                 .testTag("toolbar_forward")
-                                .focusProperties { canFocus = !isSearching }
+                                .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
                         }
@@ -318,7 +319,7 @@ internal fun ContentFloatingToolbar(
                             onClick = onHomeClick,
                             modifier = Modifier
                                 .testTag("toolbar_home")
-                                .focusProperties { canFocus = !isSearching }
+                                .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.Default.Home, contentDescription = "Contents")
                         }
@@ -333,7 +334,7 @@ internal fun ContentFloatingToolbar(
                             enabled = outlineEnabled,
                             modifier = Modifier
                                 .testTag("toolbar_outline")
-                                .focusProperties { canFocus = !isSearching }
+                                .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.Default.Menu, contentDescription = "Outline")
                         }
@@ -347,7 +348,7 @@ internal fun ContentFloatingToolbar(
                             onClick = onFavoriteClick,
                             modifier = Modifier
                                 .testTag("toolbar_favorite")
-                                .focusProperties { canFocus = !isSearching }
+                                .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(
                                 imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,

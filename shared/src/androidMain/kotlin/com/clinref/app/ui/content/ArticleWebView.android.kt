@@ -26,14 +26,13 @@ actual fun HtmlContentWebView(
     AndroidView(
         factory = { context ->
             val mainHandler = Handler(Looper.getMainLooper())
-            NestedScrollWebView(context).apply {
+            ArticleScrollWebView(context).apply {
                 setBackgroundColor(backgroundColor)
                 isFocusable = true
                 isFocusableInTouchMode = true
                 isLongClickable = true
-                setOnApplyWindowInsetsListener { _, insets ->
-                    insets
-                }
+                onScrollDelta = { delta -> controller.onScrollDelta?.invoke(delta) }
+                setOnApplyWindowInsetsListener { _, insets -> insets }
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(
                         view: WebView?,
@@ -54,6 +53,9 @@ actual fun HtmlContentWebView(
                                 context.startActivity(intent)
                             } catch (_: Exception) { }
                             return true
+                        }
+                        if (request.url?.fragment != null) {
+                            suppressProgrammaticScroll()
                         }
                         return false
                     }
@@ -78,20 +80,31 @@ actual fun HtmlContentWebView(
                     "Android"
                 )
                 controller.bindPlatform(
-                    scrollToSection = { sec -> evaluateJavascript(scrollToSectionJs(sec), null) },
-                    findAll = { q -> findAllAsync(q) },
+                    scrollToSection = { sec ->
+                        suppressProgrammaticScroll()
+                        evaluateJavascript(scrollToSectionJs(sec), null)
+                    },
+                    findAll = { q ->
+                        suppressProgrammaticScroll()
+                        findAllAsync(q)
+                    },
                     clearFindMatches = { clearMatches() },
-                    findNext = { fwd -> findNext(fwd) },
+                    findNext = { fwd ->
+                        suppressProgrammaticScroll()
+                        findNext(fwd)
+                    },
                     flushPosition = { evaluateJavascript(FLUSH_SCRIPT, null) }
                 )
             }
         },
         update = { wv ->
+            wv.setBackgroundColor(backgroundColor)
             val doc = document
             // Reload only for a new document revision. Start-target restoration happens inside the
             // page (see ArticleScrollJs) before first paint.
             if (doc != null && wv.tag != doc.revision) {
                 wv.tag = doc.revision
+                wv.suppressProgrammaticScroll()
                 wv.loadDataWithBaseURL(
                     null,
                     ArticleScrollJs.inject(doc.html, controller.resolveStart(doc), doc.contentRev),
@@ -102,6 +115,7 @@ actual fun HtmlContentWebView(
             }
         },
         onRelease = { wv ->
+            wv.onScrollDelta = null
             controller.unbindPlatform()
             wv.stopLoading()
             // Timers are paused while detached, so report the final position synchronously before

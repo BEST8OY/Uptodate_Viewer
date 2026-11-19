@@ -174,7 +174,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .utdArticleSection, #topicContent, #topicContentCalculator {
     max-width: 860px;
     margin: 0 auto;
-    padding: 24px 20px 48px;
+    padding: 24px 20px 96px;
     overflow-x: auto;
     -webkit-user-select: text;
     user-select: text;
@@ -256,7 +256,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 @media (min-width: 600px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 32px 40px 64px;
+        padding: 32px 40px 104px;
     }
 }
 """.trimIndent()
@@ -1161,7 +1161,7 @@ tr.border_top_thick td { border-top: 2px solid var(--border-emphasis) !important
 /* Responsive */
 @media (max-width: 480px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 16px 12px 32px;
+        padding: 16px 12px 96px;
     }
 
     h1 { font-size: 1.35rem; }
@@ -1186,7 +1186,7 @@ tr.border_top_thick td { border-top: 2px solid var(--border-emphasis) !important
 
 @media (min-width: 481px) and (max-width: 768px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 24px 20px 48px;
+        padding: 24px 20px 96px;
     }
 }
 """.trimIndent()
