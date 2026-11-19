@@ -9,6 +9,7 @@ import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.message.ResponseMetaInfo
+import ai.koog.prompt.streaming.IncompleteStreamException
 import ai.koog.prompt.streaming.StreamFrame
 import ai.koog.utils.time.KoogClock
 import com.clinref.app.data.GraphicContentResponse
@@ -266,6 +267,199 @@ class ClinicalOrchestratorTest {
         assertEquals(topicId, result.topicRefs[0].topicId)
         // 1 streaming synthesis call directly (no Gate 2 revision overhead)
         assertEquals(1, executor.streamingPrompts.size)
+    }
+
+    @Test
+    fun testIncompleteStreamExceptionTriggersNonStreamingFallback() = runTest {
+        val topicId = "topic-fallback"
+        val sectionId = "sec-fallback"
+        val topicTitle = "Guideline Topic"
+        val sectionTitle = "Recommended Regimen"
+        val verifiedEvidence = "Recommended first-line therapy is Doxycycline 100 mg twice daily for 7 days."
+
+        coEvery { medicalDatabaseTools.getTopicSectionsText(topicId, listOf(sectionId)) } returns TopicSectionsResponse(
+            topicId = topicId,
+            topicTitle = topicTitle,
+            sectionTitles = mapOf(sectionId to sectionTitle),
+            markdown = verifiedEvidence
+        )
+        every { medicalDatabaseTools.getTopicTitle(topicId) } returns topicTitle
+        every { medicalDatabaseTools.getSectionTitle(topicId, sectionId) } returns sectionTitle
+
+        val toolCall = MessagePart.Tool.Call(
+            id = "c_retrieval",
+            tool = "getTopicSectionsText",
+            args = """{"topicId":"$topicId","sectionIds":["$sectionId"]}"""
+        )
+        val meta = ResponseMetaInfo(
+            timestamp = KoogClock.System.now(),
+            inputTokensCount = 40,
+            outputTokensCount = 20
+        )
+
+        var execCount = 0
+        executor.executeHandler = { _, _, _ ->
+            execCount++
+            if (execCount == 1) {
+                // Stage 1 retrieval tool call
+                Message.Assistant(parts = listOf(toolCall), metaInfo = meta)
+            } else if (execCount == 2) {
+                // Stage 1 retrieval finish
+                Message.Assistant(parts = emptyList(), metaInfo = meta)
+            } else {
+                // Non-streaming fallback execution for Stage 2
+                Message.Assistant(
+                    content = "Doxycycline 100 mg twice daily for 7 days is recommended.",
+                    metaInfo = meta
+                )
+            }
+        }
+
+        // Simulate streaming dropping without an End frame (IncompleteStreamException)
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Partial unfinalized text..."))
+                throw IncompleteStreamException("Stream completed without receiving an End frame")
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "What is the recommended therapy?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager
+        )
+
+        assertEquals("Doxycycline 100 mg twice daily for 7 days is recommended.", result.content)
+        assertEquals(3, executor.executedPrompts.size) // Round 1 retrieval, Round 2 retrieval finish, Non-streaming synthesis fallback
+        assertEquals(1, executor.streamingPrompts.size) // 1 failed streaming attempt
+    }
+
+    @Test
+    fun testCancellationExceptionDuringFallbackIsNotSwallowed() = runTest {
+        val topicId = "topic-cancel"
+        val sectionId = "sec-cancel"
+        val topicTitle = "Guideline Topic"
+        val sectionTitle = "Recommended Regimen"
+
+        coEvery { medicalDatabaseTools.getTopicSectionsText(topicId, listOf(sectionId)) } returns TopicSectionsResponse(
+            topicId = topicId,
+            topicTitle = topicTitle,
+            sectionTitles = mapOf(sectionId to sectionTitle),
+            markdown = "Clinical evidence text"
+        )
+        every { medicalDatabaseTools.getTopicTitle(topicId) } returns topicTitle
+        every { medicalDatabaseTools.getSectionTitle(topicId, sectionId) } returns sectionTitle
+
+        val toolCall = MessagePart.Tool.Call(
+            id = "c_retrieval",
+            tool = "getTopicSectionsText",
+            args = """{"topicId":"$topicId","sectionIds":["$sectionId"]}"""
+        )
+        val meta = ResponseMetaInfo(
+            timestamp = KoogClock.System.now(),
+            inputTokensCount = 40,
+            outputTokensCount = 20
+        )
+
+        var execCount = 0
+        executor.executeHandler = { _, _, _ ->
+            execCount++
+            if (execCount == 1) {
+                Message.Assistant(parts = listOf(toolCall), metaInfo = meta)
+            } else if (execCount == 2) {
+                Message.Assistant(parts = emptyList(), metaInfo = meta)
+            } else {
+                throw kotlinx.coroutines.CancellationException("User cancelled synthesis turn")
+            }
+        }
+
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Partial text before drop"))
+                throw IncompleteStreamException("Stream completed without receiving an End frame")
+            }
+        }
+
+        try {
+            orchestrator.runTurn(
+                question = "What is the recommended therapy?",
+                patientProfile = PatientProfile(),
+                chatHistory = emptyList(),
+                executor = executor,
+                model = model,
+                providerParams = null,
+                streamingManager = streamingManager
+            )
+            org.junit.Assert.fail("Expected CancellationException to be rethrown, but it was swallowed")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            assertEquals("User cancelled synthesis turn", e.message)
+        }
+    }
+
+    @Test
+    fun testStreamEmittingOnlyThinkingTokensTriggersFallbackWhenDropped() = runTest {
+        val topicId = "topic-think"
+        val sectionId = "sec-think"
+        val topicTitle = "Guideline Topic"
+        val sectionTitle = "Recommended Regimen"
+        val verifiedEvidence = "Azithromycin 500 mg daily for 3 days."
+
+        coEvery { medicalDatabaseTools.getTopicSectionsText(topicId, listOf(sectionId)) } returns TopicSectionsResponse(
+            topicId = topicId,
+            topicTitle = topicTitle,
+            sectionTitles = mapOf(sectionId to sectionTitle),
+            markdown = verifiedEvidence
+        )
+        every { medicalDatabaseTools.getTopicTitle(topicId) } returns topicTitle
+        every { medicalDatabaseTools.getSectionTitle(topicId, sectionId) } returns sectionTitle
+
+        val toolCall = MessagePart.Tool.Call(
+            id = "c_retrieval",
+            tool = "getTopicSectionsText",
+            args = """{"topicId":"$topicId","sectionIds":["$sectionId"]}"""
+        )
+        val meta = ResponseMetaInfo(
+            timestamp = KoogClock.System.now(),
+            inputTokensCount = 40,
+            outputTokensCount = 20
+        )
+
+        var execCount = 0
+        executor.executeHandler = { _, _, _ ->
+            execCount++
+            if (execCount == 1) {
+                Message.Assistant(parts = listOf(toolCall), metaInfo = meta)
+            } else if (execCount == 2) {
+                Message.Assistant(parts = emptyList(), metaInfo = meta)
+            } else {
+                Message.Assistant(content = "Azithromycin 500 mg daily for 3 days.", metaInfo = meta)
+            }
+        }
+
+        // Emits only reasoning tags without End frame
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("<think>Analyzing dosage parameters...</think>"))
+                throw IncompleteStreamException("Stream completed without receiving an End frame")
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "What is the dosage?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager
+        )
+
+        assertEquals("Azithromycin 500 mg daily for 3 days.", result.content)
+        assertEquals(3, executor.executedPrompts.size)
     }
 
     @Test

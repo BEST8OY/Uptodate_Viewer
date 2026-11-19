@@ -9,6 +9,7 @@ import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.message.RequestMetaInfo
 import ai.koog.prompt.params.LLMParams
+import ai.koog.prompt.streaming.IncompleteStreamException
 import ai.koog.prompt.streaming.StreamFrame
 import com.clinref.app.data.MedicalDatabaseTools
 import com.clinref.app.data.local.entity.MessageEntity
@@ -277,34 +278,87 @@ class ClinicalOrchestrator(
         streamingManager: StreamingManager,
         turnId: String? = null
     ): Pair<String, StreamingManager.TokenUsage> {
-        val streamFlow: Flow<StreamFrame> = executor.executeStreaming(prompt, model, emptyList())
         val textAccumulator = StringBuilder()
         var usage = StreamingManager.TokenUsage()
+        var streamCompleted = false
 
-        streamFlow.collect { frame ->
-            when (frame) {
-                is StreamFrame.TextDelta -> {
-                    textAccumulator.append(frame.text)
-                    streamingManager.onStreamingTextDelta(frame.text, turnId = turnId)
-                }
-                is StreamFrame.ReasoningDelta -> {
-                    frame.text?.let { streamingManager.onStreamingReasoningDelta(it, turnId = turnId) }
-                }
-                is StreamFrame.End -> {
-                    streamingManager.onStreamingEnd(turnId = turnId)
-                    frame.metaInfo.let { meta ->
-                        val p = meta.inputTokensCount ?: 0
-                        val c = meta.outputTokensCount ?: 0
-                        usage = StreamingManager.TokenUsage(p, c, p + c)
-                        streamingManager.onLlmCallCompleted(p, c, p + c, turnId = turnId)
+        try {
+            val streamFlow: Flow<StreamFrame> = executor.executeStreaming(prompt, model, emptyList())
+            streamFlow.collect { frame ->
+                when (frame) {
+                    is StreamFrame.TextDelta -> {
+                        textAccumulator.append(frame.text)
+                        streamingManager.onStreamingTextDelta(frame.text, turnId = turnId)
                     }
+                    is StreamFrame.ReasoningDelta -> {
+                        frame.text?.let { streamingManager.onStreamingReasoningDelta(it, turnId = turnId) }
+                    }
+                    is StreamFrame.End -> {
+                        streamCompleted = true
+                        streamingManager.onStreamingEnd(turnId = turnId)
+                        frame.metaInfo.let { meta ->
+                            val p = meta.inputTokensCount ?: 0
+                            val c = meta.outputTokensCount ?: 0
+                            usage = StreamingManager.TokenUsage(p, c, p + c)
+                            streamingManager.onLlmCallCompleted(p, c, p + c, turnId = turnId)
+                        }
+                    }
+                    else -> {}
                 }
-                else -> {}
             }
+        } catch (e: IncompleteStreamException) {
+            Log.w(TAG, "Stream completed without End frame: ${e.message}. Executing non-streaming synthesis fallback.")
+            return fallbackNonStreamingSynthesis(
+                prompt = prompt,
+                model = model,
+                executor = executor,
+                streamingManager = streamingManager,
+                turnId = turnId
+            )
         }
 
         val cleaned = ReasoningTokenSanitizer.stripReasoning(textAccumulator.toString())
+        if (!streamCompleted && cleaned.isBlank()) {
+            Log.w(TAG, "Stream ended without completion frame and produced blank clinical text. Executing non-streaming synthesis fallback.")
+            return fallbackNonStreamingSynthesis(
+                prompt = prompt,
+                model = model,
+                executor = executor,
+                streamingManager = streamingManager,
+                turnId = turnId
+            )
+        }
+
+        if (!streamCompleted) {
+            streamingManager.onStreamingEnd(turnId = turnId)
+        }
+
         return cleaned to usage
+    }
+
+    private suspend fun fallbackNonStreamingSynthesis(
+        prompt: Prompt,
+        model: LLModel,
+        executor: PromptExecutor,
+        streamingManager: StreamingManager,
+        turnId: String? = null
+    ): Pair<String, StreamingManager.TokenUsage> {
+        streamingManager.onSynthesisStarting(turnId = turnId)
+        val assistantResponse: Message.Assistant = executor.execute(prompt, model, emptyList())
+        val rawContent = assistantResponse.textContent()
+        val meta = assistantResponse.metaInfo
+        val p = meta.inputTokensCount ?: 0
+        val c = meta.outputTokensCount ?: 0
+        val fallbackUsage = StreamingManager.TokenUsage(p, c, p + c)
+
+        if (rawContent.isNotBlank()) {
+            streamingManager.onStreamingTextDelta(rawContent, turnId = turnId)
+        }
+        streamingManager.onStreamingEnd(turnId = turnId)
+        streamingManager.onLlmCallCompleted(p, c, p + c, turnId = turnId)
+
+        val cleaned = ReasoningTokenSanitizer.stripReasoning(rawContent)
+        return cleaned to fallbackUsage
     }
 
     private suspend fun executeSingleTool(
