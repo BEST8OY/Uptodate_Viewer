@@ -66,7 +66,8 @@ class ClinicalOrchestrator(
         streamingManager: StreamingManager,
         isAnthropic: Boolean = false,
         decisionClient: DecisionClient? = null,
-        decisionConfig: DecisionConfig? = null
+        decisionConfig: DecisionConfig? = null,
+        turnId: String? = null
     ): ExecutionResult {
         val trimmedQuestion = question.trim()
 
@@ -76,9 +77,9 @@ class ClinicalOrchestrator(
         if (QuestionRouter.smallTalk(trimmedQuestion)) {
             Log.d(TAG, "Small talk detected: returning canned reply with zero LLM calls")
             val canned = QuestionRouter.CANNED_FALLBACK_REPLY
-            streamingManager.onStreamingTextDelta(canned)
+            streamingManager.onStreamingTextDelta(canned, turnId = turnId)
             val usage = StreamingManager.TokenUsage()
-            streamingManager.onCompleted(canned, emptyList(), emptyList(), usage)
+            streamingManager.onCompleted(canned, emptyList(), emptyList(), usage, turnId = turnId)
             return ExecutionResult(canned, emptyList(), emptyList(), usage)
         }
 
@@ -133,7 +134,7 @@ class ClinicalOrchestrator(
                 val c = meta.outputTokensCount ?: 0
                 totalPromptTokens += p
                 totalCompletionTokens += c
-                streamingManager.onLlmCallCompleted(p, c, p + c)
+                streamingManager.onLlmCallCompleted(p, c, p + c, turnId = turnId)
             }
 
             val toolCalls = assistantMsg.parts.filterIsInstance<MessagePart.Tool.Call>()
@@ -166,7 +167,8 @@ class ClinicalOrchestrator(
                             streamingManager = streamingManager,
                             decisionClient = decisionClient,
                             decisionConfig = decisionConfig,
-                            onDecisionTokens = recordDecisionTokens
+                            onDecisionTokens = recordDecisionTokens,
+                            turnId = turnId
                         )
                         Triple(tc, callId, outcome)
                     }
@@ -204,7 +206,7 @@ class ClinicalOrchestrator(
         if (!accumulator.hasEvidence) {
             Log.w(TAG, "Zero evidence retrieved after retrieval loop; returning canonical abstention")
             val abstention = SystemPrompt.CANONICAL_ABSTENTION
-            streamingManager.onStreamingTextDelta(abstention)
+            streamingManager.onStreamingTextDelta(abstention, turnId = turnId)
             val decTokens = synchronized(tokenLock) { decisionPromptTokens }
             val usage = StreamingManager.TokenUsage(
                 promptTokens = totalPromptTokens,
@@ -212,14 +214,14 @@ class ClinicalOrchestrator(
                 totalTokens = totalPromptTokens + totalCompletionTokens + decTokens,
                 toolTokens = decTokens
             )
-            streamingManager.onCompleted(abstention, emptyList(), emptyList(), usage)
+            streamingManager.onCompleted(abstention, emptyList(), emptyList(), usage, turnId = turnId)
             return ExecutionResult(abstention, emptyList(), emptyList(), usage)
         }
 
         // ════════════════════════════════════════════════════════════════════
         // STAGE 2: Closed-Book Clinical Synthesis (Live Token Streaming)
         // ════════════════════════════════════════════════════════════════════
-        streamingManager.onSynthesisStarting()
+        streamingManager.onSynthesisStarting(turnId = turnId)
 
         val synthesisDirective = SystemPrompt.formatSynthesisPrompt(
             userQuestion = trimmedQuestion,
@@ -233,7 +235,7 @@ class ClinicalOrchestrator(
             isAnthropic = isAnthropic
         )
 
-        var (draftText, stage2Usage) = streamSynthesisCall(synthesisPrompt, model, executor, streamingManager)
+        var (draftText, stage2Usage) = streamSynthesisCall(synthesisPrompt, model, executor, streamingManager, turnId = turnId)
         totalPromptTokens += stage2Usage.promptTokens
         totalCompletionTokens += stage2Usage.completionTokens
 
@@ -241,7 +243,7 @@ class ClinicalOrchestrator(
         if (draftText.isBlank()) {
             Log.w(TAG, "Stage 2 produced blank synthesis (e.g. thinking budget exhaustion); falling back to canonical abstention")
             draftText = SystemPrompt.CANONICAL_ABSTENTION
-            streamingManager.onStreamingTextDelta(draftText)
+            streamingManager.onStreamingTextDelta(draftText, turnId = turnId)
         }
 
         val finalContext = accumulator.buildTurnContext(draftText)
@@ -257,7 +259,8 @@ class ClinicalOrchestrator(
             result = draftText,
             topicRefs = finalContext.topicRefs,
             graphicRefs = finalContext.graphicRefs,
-            usage = totalUsage
+            usage = totalUsage,
+            turnId = turnId
         )
         return ExecutionResult(
             content = draftText,
@@ -271,7 +274,8 @@ class ClinicalOrchestrator(
         prompt: Prompt,
         model: LLModel,
         executor: PromptExecutor,
-        streamingManager: StreamingManager
+        streamingManager: StreamingManager,
+        turnId: String? = null
     ): Pair<String, StreamingManager.TokenUsage> {
         val streamFlow: Flow<StreamFrame> = executor.executeStreaming(prompt, model, emptyList())
         val textAccumulator = StringBuilder()
@@ -281,18 +285,18 @@ class ClinicalOrchestrator(
             when (frame) {
                 is StreamFrame.TextDelta -> {
                     textAccumulator.append(frame.text)
-                    streamingManager.onStreamingTextDelta(frame.text)
+                    streamingManager.onStreamingTextDelta(frame.text, turnId = turnId)
                 }
                 is StreamFrame.ReasoningDelta -> {
-                    frame.text?.let { streamingManager.onStreamingReasoningDelta(it) }
+                    frame.text?.let { streamingManager.onStreamingReasoningDelta(it, turnId = turnId) }
                 }
                 is StreamFrame.End -> {
-                    streamingManager.onStreamingEnd()
+                    streamingManager.onStreamingEnd(turnId = turnId)
                     frame.metaInfo.let { meta ->
                         val p = meta.inputTokensCount ?: 0
                         val c = meta.outputTokensCount ?: 0
                         usage = StreamingManager.TokenUsage(p, c, p + c)
-                        streamingManager.onLlmCallCompleted(p, c, p + c)
+                        streamingManager.onLlmCallCompleted(p, c, p + c, turnId = turnId)
                     }
                 }
                 else -> {}
@@ -310,14 +314,15 @@ class ClinicalOrchestrator(
         streamingManager: StreamingManager,
         decisionClient: DecisionClient? = null,
         decisionConfig: DecisionConfig? = null,
-        onDecisionTokens: (Int) -> Unit = {}
+        onDecisionTokens: (Int) -> Unit = {},
+        turnId: String? = null
     ): String {
         val canonicalName = AiJsonUtils.normalizeToolName(toolCall.tool)
         val argsStr = toolCall.args.ifBlank { toolCall.argsJson.toString() }
         val cleanArgs = AiJsonUtils.extractJsonString(argsStr).ifBlank { argsStr }
 
         accumulator.onToolCallStarting(callId, cleanArgs)
-        streamingManager.onToolCallStarting(canonicalName, cleanArgs, callId)
+        streamingManager.onToolCallStarting(canonicalName, cleanArgs, callId, turnId = turnId)
 
         var deferredPrefetchCalls = emptyList<Triple<String, String, String>>() // toolName, argsJson, resultJson
 
@@ -406,7 +411,7 @@ class ClinicalOrchestrator(
         }
 
         accumulator.onToolCallCompleted(callId, canonicalName, resultJson, success = true, toolArgs = cleanArgs)
-        streamingManager.onToolCallCompleted(canonicalName, resultJson, callId)
+        streamingManager.onToolCallCompleted(canonicalName, resultJson, callId, turnId = turnId)
 
         // Record prefetched sections/tables AFTER getTopicOverview so topic/section/graphic metadata is indexed first.
         deferredPrefetchCalls.forEachIndexed { idx, (prefetchTool, prefetchArgs, prefetchResult) ->
@@ -416,7 +421,7 @@ class ClinicalOrchestrator(
                 "prefetch_${kotlin.random.Random.nextLong().toString(16)}_$idx"
             }
             accumulator.onToolCallStarting(prefetchCallId, prefetchArgs)
-            streamingManager.onToolCallStarting(prefetchTool, prefetchArgs, prefetchCallId)
+            streamingManager.onToolCallStarting(prefetchTool, prefetchArgs, prefetchCallId, turnId = turnId)
             accumulator.onToolCallCompleted(
                 toolCallId = prefetchCallId,
                 toolName = prefetchTool,
@@ -424,10 +429,10 @@ class ClinicalOrchestrator(
                 success = true,
                 toolArgs = prefetchArgs
             )
-            streamingManager.onToolCallCompleted(prefetchTool, prefetchResult, prefetchCallId)
+            streamingManager.onToolCallCompleted(prefetchTool, prefetchResult, prefetchCallId, turnId = turnId)
         }
 
-        streamingManager.onWaitingForLlm()
+        streamingManager.onWaitingForLlm(turnId = turnId)
 
         return resultJson
     }

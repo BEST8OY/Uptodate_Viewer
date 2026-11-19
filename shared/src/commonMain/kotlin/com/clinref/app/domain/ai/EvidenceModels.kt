@@ -44,7 +44,8 @@ data class TopicRef(
     val topicId: String,
     val sectionId: String = "",
     val label: String,
-    val topicTitle: String = ""
+    val topicTitle: String = "",
+    val isGraphic: Boolean = false
 )
 
 /**

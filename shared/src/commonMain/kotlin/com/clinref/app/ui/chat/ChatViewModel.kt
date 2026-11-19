@@ -27,10 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 sealed interface ChatScrollEvent {
-    /**
-     * Scroll to the end of the conversation. [awaitMessageId], when set, is the message that was just
-     * appended; the UI can wait until it is present before scrolling.
-     */
+    data object InitialLoad : ChatScrollEvent
     data class ScrollToBottom(
         val animated: Boolean = true,
         val awaitMessageId: String? = null
@@ -113,18 +110,7 @@ class ChatViewModel(
     private val _isAwaitingResponse = MutableStateFlow(false)
     val isAwaitingResponse: StateFlow<Boolean> = _isAwaitingResponse.asStateFlow()
 
-    val agentState: StateFlow<StreamingManager.AgentState> = streamingManager.agentState
-    val toolProgress: StateFlow<StreamingManager.ToolProgress?> = streamingManager.toolProgress
-    val orchestrationSteps: StateFlow<List<StreamingManager.OrchestrationStep>> = streamingManager.orchestrationSteps
-    val orchestrationPhase: StateFlow<StreamingManager.OrchestrationPhase> = streamingManager.orchestrationPhase
-    val sectionsReadCount: StateFlow<Int> = streamingManager.sectionsReadCount
-    val isDraft: StateFlow<Boolean> = streamingManager.isDraft
-    val isRevised: StateFlow<Boolean> = streamingManager.isRevised
-    val currentStatusText: StateFlow<String> = streamingManager.currentStatusText
-    val streamingText: StateFlow<String> = streamingManager.streamingText
-    val reasoningText: StateFlow<String> = streamingManager.reasoningText
-    val isReasoning: StateFlow<Boolean> = streamingManager.isReasoning
-    val liveDiscoveredSources: StateFlow<List<TopicRef>> = streamingManager.liveDiscoveredSources
+    val streamingUiState: StateFlow<StreamingManager.StreamingUiState> = streamingManager.uiState
 
     private val _currentConversationId = MutableStateFlow<String?>(null)
     val currentConversationId: StateFlow<String?> = _currentConversationId.asStateFlow()
@@ -249,6 +235,9 @@ class ChatViewModel(
                 _hasMoreMessages.value = messages.size >= PAGE_SIZE
                 val uiModels = messages.reversed().map { it.toUiModel() }
                 updateMessages(uiModels)
+                if (uiModels.isNotEmpty() || isGeneratingActive) {
+                    _scrollEvents.tryEmit(ChatScrollEvent.InitialLoad)
+                }
                 conversationRepository.markAsRead(conversationId)
             } finally {
                 _isLoadingConversation.value = false

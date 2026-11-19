@@ -3,7 +3,6 @@ package com.clinref.app.ui.chat.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,106 +25,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.compose.components.MarkdownComponentModel
-import com.mikepenz.markdown.compose.components.MarkdownComponents
-import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.LocalTableRowIndex
-import com.mikepenz.markdown.compose.elements.MarkdownBlockQuote
 import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
 import com.mikepenz.markdown.compose.elements.MarkdownTableRow
-import com.mikepenz.markdown.m3.markdownColor
-import com.mikepenz.markdown.m3.markdownTypography
-import com.mikepenz.markdown.model.MarkdownColors
-import com.mikepenz.markdown.model.MarkdownDimens
-import com.mikepenz.markdown.model.MarkdownTypography
-import com.mikepenz.markdown.model.markdownDimens
 
-@Composable
-fun rememberClinrefMarkdownComponents(): MarkdownComponents {
-    val shapes = MaterialTheme.shapes
-    val containerLow = MaterialTheme.colorScheme.surfaceContainerLow
-    return remember(shapes, containerLow) {
-        markdownComponents(
-            table = { model ->
-                ClinRefMarkdownTable(model = model)
-            },
-            blockQuote = { model ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(shapes.small)
-                        .background(containerLow)
-                        .padding(vertical = 4.dp, horizontal = 4.dp)
-                ) {
-                    MarkdownBlockQuote(
-                        content = model.content,
-                        node = model.node,
-                        style = model.typography.quote
-                    )
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun clinrefMarkdownComponents(): MarkdownComponents = rememberClinrefMarkdownComponents()
-
-@Composable
-fun clinrefMarkdownDimens(): MarkdownDimens = markdownDimens(
-    blockQuoteThickness = 3.dp,
-    codeBackgroundCornerSize = 4.dp,
-    tableCellPadding = 10.dp,
-    tableCellWidth = 160.dp,
-    tableCornerSize = 12.dp
-)
-
-@Composable
-fun clinrefMarkdownTypography(): MarkdownTypography = markdownTypography(
-    h1 = MaterialTheme.typography.headlineMedium.copy(
-        fontWeight = FontWeight.Bold
-    ),
-    h2 = MaterialTheme.typography.headlineSmall.copy(
-        fontWeight = FontWeight.Bold
-    ),
-    h3 = MaterialTheme.typography.titleLarge.copy(
-        fontWeight = FontWeight.Bold
-    ),
-    h4 = MaterialTheme.typography.titleMedium.copy(
-        fontWeight = FontWeight.Bold
-    ),
-    h5 = MaterialTheme.typography.titleSmall.copy(
-        fontWeight = FontWeight.SemiBold
-    ),
-    h6 = MaterialTheme.typography.labelMedium.copy(
-        fontWeight = FontWeight.SemiBold
-    ),
-    paragraph = MaterialTheme.typography.bodyLarge,
-    text = MaterialTheme.typography.bodyLarge,
-    bullet = MaterialTheme.typography.bodyLarge,
-    ordered = MaterialTheme.typography.bodyLarge,
-    list = MaterialTheme.typography.bodyLarge,
-    quote = MaterialTheme.typography.bodyMedium.copy(
-        fontStyle = FontStyle.Italic,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    ),
-    code = MaterialTheme.typography.bodySmall.copy(
-        fontFamily = FontFamily.Monospace
-    ),
-    inlineCode = MaterialTheme.typography.bodySmall.copy(
-        fontFamily = FontFamily.Monospace
-    ),
-    table = MaterialTheme.typography.bodySmall,
-    alertTitle = MaterialTheme.typography.titleSmall.copy(
-        fontWeight = FontWeight.Bold
-    )
-)
+private val MIN_TABLE_CELL_WIDTH = 160.dp
 
 @Composable
 fun ClinRefMarkdownTable(
@@ -136,17 +45,24 @@ fun ClinRefMarkdownTable(
     val content = model.content
     val tableStyle = model.typography.table
 
-    // Compute column count to determine scrollability hint
-    val columnsCount = remember(node) {
-        node.children.firstOrNull { it.type.name == "HEADER" }
+    val (columnsCount, dataRowCount) = remember(node) {
+        val cols = node.children.firstOrNull { it.type.name == "HEADER" }
             ?.children
             ?.count { it.type.name == "CELL" } ?: 0
+        val rows = node.children.count { it.type.name == "ROW" }
+        cols to rows
     }
 
-    val cellWidth = 160.dp
+    val headerTextStyle = MaterialTheme.typography.bodySmall.copy(
+        color = MaterialTheme.colorScheme.onSurface,
+        fontWeight = FontWeight.SemiBold
+    )
+    val rowTextStyle = MaterialTheme.typography.bodySmall.copy(
+        color = MaterialTheme.colorScheme.onSurface
+    )
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val isScrollable = columnsCount > 1 && maxWidth < (160 * columnsCount).dp
+        val isScrollable = columnsCount > 1 && maxWidth < (MIN_TABLE_CELL_WIDTH * columnsCount)
 
         Surface(
             shape = MaterialTheme.shapes.medium,
@@ -162,8 +78,8 @@ fun ClinRefMarkdownTable(
                     content = content,
                     node = node,
                     style = tableStyle,
-                    headerBlock = { c, header, tableWidth, style ->
-                        Box(
+                    headerBlock = { c, header, tableWidth, _ ->
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -172,48 +88,57 @@ fun ClinRefMarkdownTable(
                                 content = c,
                                 header = header,
                                 tableWidth = tableWidth,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold
-                                ),
+                                style = headerTextStyle,
                                 verticalAlignment = Alignment.Top,
                                 maxLines = Int.MAX_VALUE,
                                 overflow = TextOverflow.Clip
                             )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+                                thickness = 0.75.dp
+                            )
                         }
                     },
-                    rowBlock = { c, row, tableWidth, style ->
+                    rowBlock = { c, row, tableWidth, _ ->
                         val rowIndex = LocalTableRowIndex.current
-                        val isEven = rowIndex % 2 == 0
+                        val isShaded = rowIndex % 2 == 1
+                        val isLastRow = dataRowCount > 0 && rowIndex >= dataRowCount - 1
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    if (isEven) MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.35f)
-                                    else Color.Transparent
+                                    if (isShaded) {
+                                        MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.3f)
+                                    } else {
+                                        Color.Transparent
+                                    }
                                 )
                         ) {
                             MarkdownTableRow(
                                 content = c,
                                 header = row,
                                 tableWidth = tableWidth,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface
-                                ),
+                                style = rowTextStyle,
                                 verticalAlignment = Alignment.Top,
                                 maxLines = Int.MAX_VALUE,
                                 overflow = TextOverflow.Clip
                             )
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                                thickness = 0.5.dp
-                            )
+                            if (!isLastRow) {
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                    thickness = 0.5.dp
+                                )
+                            }
                         }
                     }
                 )
 
                 if (isScrollable) {
                     DisableSelection {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                            thickness = 0.5.dp
+                        )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -226,13 +151,13 @@ fun ClinRefMarkdownTable(
                                 imageVector = Icons.Default.SwapHoriz,
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Scroll horizontally to view all $columnsCount columns",
+                                text = "Swipe horizontally to view all $columnsCount columns",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
                             )
                         }
                     }

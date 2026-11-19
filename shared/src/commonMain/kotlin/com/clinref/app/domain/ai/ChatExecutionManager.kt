@@ -91,7 +91,7 @@ class ChatExecutionManager(
         _activeAssistantMessageId.value = pendingAssistantId
 
         activeJob = scope.launch {
-            streamingManager.reset()
+            streamingManager.startTurn(conversationId, pendingAssistantId)
             _events.tryEmit(ChatExecutionEvent.GenerationStarted(conversationId, pendingAssistantId))
 
             val patientProfile: PatientProfile?
@@ -127,7 +127,7 @@ class ChatExecutionManager(
                     }
                     _activeConversationId.value = null
                     _activeAssistantMessageId.value = null
-                    streamingManager.reset()
+                    streamingManager.reset(expectedTurnId = pendingAssistantId)
                     turnContext.terminalEventEmitted = true
                     if (activeTurn === turnContext) activeTurn = null
                     _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, errorMsg))
@@ -137,7 +137,7 @@ class ChatExecutionManager(
                 secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Initialization error in sendMessage: ${e.message}")
                 _activeConversationId.value = null
                 _activeAssistantMessageId.value = null
-                streamingManager.reset()
+                streamingManager.reset(expectedTurnId = pendingAssistantId)
                 val initErrorMsg = MessageEntity(
                     id = pendingAssistantId,
                     conversationId = conversationId,
@@ -199,7 +199,8 @@ class ChatExecutionManager(
                             streamingManager = streamingManager,
                             isAnthropic = config.provider == AiProvider.ANTHROPIC,
                             decisionClient = decisionClient,
-                            decisionConfig = decisionConfig
+                            decisionConfig = decisionConfig,
+                            turnId = pendingAssistantId
                         )
                     }
                 }
@@ -238,7 +239,7 @@ class ChatExecutionManager(
                 if (_activeAssistantMessageId.value == pendingAssistantId) {
                     _activeConversationId.value = null
                     _activeAssistantMessageId.value = null
-                    streamingManager.reset()
+                    streamingManager.reset(expectedTurnId = pendingAssistantId)
                 }
                 if (!turnContext.terminalEventEmitted && !turnContext.userCancelled) {
                     turnContext.terminalEventEmitted = true
@@ -279,7 +280,7 @@ class ChatExecutionManager(
         val pendingId = _activeAssistantMessageId.value
         _activeConversationId.value = null
         _activeAssistantMessageId.value = null
-        streamingManager.reset()
+        streamingManager.reset(expectedTurnId = pendingId)
 
         scope.launch {
             val cancelMsg = MessageEntity(
@@ -397,7 +398,7 @@ class ChatExecutionManager(
         errorType: StreamingManager.ErrorType,
         turnContext: TurnContext? = null
     ) {
-        streamingManager.onError(errorMessage)
+        streamingManager.onError(errorMessage, turnId = messageId)
         val errorMsg = MessageEntity(
             id = messageId,
             conversationId = conversationId,

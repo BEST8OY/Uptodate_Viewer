@@ -88,7 +88,7 @@ class ChatExecutionManagerTest {
 
         // User message and error message must both be saved
         coVerify(exactly = 2) { conversationRepository.addMessage(any()) }
-        verify(atLeast = 1) { streamingManager.reset() }
+        verify(atLeast = 1) { streamingManager.reset(any()) }
         assertFalse(manager.isGenerating("conv-1"))
     }
 
@@ -98,7 +98,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(10_000)
             ClinicalOrchestrator.ExecutionResult("Result")
         }
@@ -112,7 +112,7 @@ class ChatExecutionManagerTest {
                 it.role == "cancelled" && it.isError && it.content.contains("terminated by operator")
             })
         }
-        verify { streamingManager.reset() }
+        verify { streamingManager.reset(any()) }
         verify { backgroundBridge.onExecutionCancelled("conv-1") }
     }
 
@@ -122,7 +122,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(10_000)
             ClinicalOrchestrator.ExecutionResult("Result")
         }
@@ -162,7 +162,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(10_000)
             ClinicalOrchestrator.ExecutionResult("Result")
         }
@@ -184,7 +184,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Normal clinical guidance.",
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
@@ -339,7 +339,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(10_000)
             ClinicalOrchestrator.ExecutionResult("Result")
         }
@@ -443,7 +443,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Normal clinical guidance.",
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
@@ -476,7 +476,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Completed response.",
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
@@ -509,7 +509,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns
             ClinicalOrchestrator.ExecutionResult(
                 content = "Fallback text.",
                 tokenUsage = StreamingManager.TokenUsage(10, 10, 20)
@@ -539,7 +539,7 @@ class ChatExecutionManagerTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             testManager.cancelGeneration("conv-1")
             throw kotlinx.coroutines.CancellationException("Cancelled by test")
         }
@@ -617,7 +617,7 @@ class ChatExecutionManagerTest {
         val q2Running = kotlinx.coroutines.CompletableDeferred<Unit>()
 
         coEvery {
-            clinicalOrchestrator.runTurn(match { it == "Q1" }, any(), any(), any(), any(), any(), any(), any(), any(), any())
+            clinicalOrchestrator.runTurn(match { it == "Q1" }, any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             q1Running.complete(Unit)
             try {
@@ -630,7 +630,7 @@ class ChatExecutionManagerTest {
         }
 
         coEvery {
-            clinicalOrchestrator.runTurn(match { it == "Q2" }, any(), any(), any(), any(), any(), any(), any(), any(), any())
+            clinicalOrchestrator.runTurn(match { it == "Q2" }, any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             q2Running.complete(Unit)
             kotlinx.coroutines.awaitCancellation()
@@ -654,7 +654,7 @@ class ChatExecutionManagerTest {
         assertNotNull("Q2 should have an active assistant message ID", q2AssistantId)
 
         // Simulate Q2 streaming tokens
-        realStreamingManager.onStreamingTextDelta("Q2 tokens in progress")
+        realStreamingManager.onStreamingTextDelta("Q2 tokens in progress", turnId = q2AssistantId)
         assertEquals("Q2 tokens in progress", realStreamingManager.streamingText.value)
 
         // 4. Release Q1's finally gate and let Q1's cancellation finish
@@ -703,7 +703,7 @@ class ChatExecutionManagerTest {
         var capturedDecisionClient: DecisionClient? = null
         var capturedDecisionConfig: DecisionConfig? = null
         coEvery {
-            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
             capturedDecisionClient = arg(8)
             capturedDecisionConfig = arg(9)
@@ -732,7 +732,7 @@ class ChatExecutionManagerTest {
 
         val timeoutEx = RuntimeException("[Error from client: GoogleLLMClient timeout]", Exception("SocketTimeoutException"))
         coEvery {
-            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } throws timeoutEx
 
         val events = mutableListOf<ChatExecutionEvent>()
@@ -773,11 +773,13 @@ class ChatExecutionManagerTest {
         coEvery { conversationRepository.getLatestMessage("conv-1") } returns orphanError
 
         coEvery {
-            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
+            clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any())
         } coAnswers {
+            val turnId = arg<String?>(10)
             realStreamingManager.onCompleted(
                 result = "Verified guidance text.",
-                usage = StreamingManager.TokenUsage(10, 10, 20)
+                usage = StreamingManager.TokenUsage(10, 10, 20),
+                turnId = turnId
             )
             ClinicalOrchestrator.ExecutionResult(
                 content = "Verified guidance text.",

@@ -42,13 +42,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -59,6 +59,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -66,15 +67,18 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
-import com.clinref.app.ui.common.setPlainText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,16 +92,20 @@ import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
+import com.clinref.app.ui.chat.components.rememberReadOnlyChatTextToolbar
 import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.common.ScrollToBottomFAB
+import com.clinref.app.ui.common.setPlainText
 import com.clinref.app.ui.content.ContentScreen
 import com.clinref.app.ui.content.GraphicSheet
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
 
 private object ChatListKeys {
-    const val LOADING_OLDER = "loading_older_indicator"
+    const val TOP_PAGINATION_SLOT = "top_pagination_slot"
     const val BOTTOM_ANCHOR = "bottom_anchor"
 }
 
@@ -128,6 +136,7 @@ fun ChatScreen(
 ) {
     val chatItems by viewModel.chatItems.collectAsStateWithLifecycle()
     val conversationTitle by viewModel.conversationTitle.collectAsStateWithLifecycle()
+    val loadedConversationId by viewModel.currentConversationId.collectAsStateWithLifecycle()
     val isLoadingConversation by viewModel.isLoadingConversation.collectAsStateWithLifecycle()
     val activeAssistantId by viewModel.activeAssistantMessageId.collectAsStateWithLifecycle()
     val isAwaitingResponse by viewModel.isAwaitingResponse.collectAsStateWithLifecycle()
@@ -144,6 +153,10 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollController = rememberChatScrollController(conversationId, listState, scrollBehavior)
+
+    // Scoped read-only text toolbar applied ONLY to the message list (never ChatInputBar)
+    val messageListTextToolbar = rememberReadOnlyChatTextToolbar()
 
     val isGenerating = activeAssistantId != null || isAwaitingResponse
 
@@ -173,13 +186,47 @@ fun ChatScreen(
         }
     }
 
+    // 1. Conversation load lifecycle & resilient initial scroll
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.scrollEvents.collect { event ->
+    LaunchedEffect(conversationId, loadedConversationId, isLoadingConversation) {
+        if (loadedConversationId == conversationId &&
+            !isLoadingConversation &&
+            !scrollController.hasCompletedInitialScroll
+        ) {
+            if (chatItems.isNotEmpty() || activeAssistantId != null) {
+                snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+            }
+            scrollController.jumpToBottomForInitialLoad()
+        }
+    }
+
+    // 2. Track sticky-bottom pin state + auto-dismiss text selection toolbar when scrolling
+    LaunchedEffect(listState, scrollController) {
+        snapshotFlow { listState.isScrollInProgress to scrollController.isAtBottom }
+            .distinctUntilChanged()
+            .collect { (inProgress, atBottom) ->
+                if (inProgress) {
+                    messageListTextToolbar.dismiss()
+                }
+                scrollController.onScrollStateObserved(inProgress, atBottom)
+            }
+    }
+
+    // 3. Explicit scroll events from ViewModel (new user message, generation start)
+    LaunchedEffect(scrollController) {
+        viewModel.scrollEvents.collectLatest { event ->
             when (event) {
+                ChatScrollEvent.InitialLoad -> {
+                    if (!scrollController.hasCompletedInitialScroll) {
+                        if (chatItems.isNotEmpty() || activeAssistantId != null) {
+                            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+                        }
+                        scrollController.jumpToBottomForInitialLoad()
+                    }
+                }
                 is ChatScrollEvent.ScrollToBottom -> {
                     if (event.awaitMessageId != null) {
                         snapshotFlow { chatItems }.first { items ->
@@ -188,59 +235,80 @@ fun ChatScreen(
                     } else {
                         snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
                     }
-                    val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
-                    if (event.animated) {
-                        listState.animateScrollToItem(lastIndex)
-                        if (listState.canScrollForward) {
-                            listState.scrollToItem(lastIndex)
-                        }
-                    } else {
-                        listState.scrollToItem(lastIndex)
-                    }
+                    scrollController.scrollToBottom(animated = event.animated)
                 }
             }
         }
     }
 
-    val imeBottom = WindowInsets.ime.getBottom(density)
-    val isImeVisible = imeBottom > 0
-    var wasImeVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(isImeVisible) {
-        if (wasImeVisible && !isImeVisible) {
-            focusManager.clearFocus()
-            if (editingUserMessageId != null) {
-                editingUserMessageId = null
-                textFieldState.clearText()
-            }
-        }
-        wasImeVisible = isImeVisible
-    }
-
-    LaunchedEffect(isImeVisible, isOverlayActive) {
-        if (!isOverlayActive && isImeVisible && !listState.canScrollForward) {
-            val count = listState.layoutInfo.totalItemsCount
-            if (count > 0) {
-                listState.scrollToItem(count - 1)
-            }
+    // 4. Restore exact pixel anchor after older messages are prepended; auto-follow new bottom items if pinned
+    val topHeaderCount = if (hasMoreMessages) 1 else 0
+    LaunchedEffect(chatItems, topHeaderCount) {
+        val didRestore = scrollController.restorePrependAnchorIfNeeded(chatItems, topHeaderCount)
+        if (!didRestore && scrollController.hasCompletedInitialScroll && scrollController.isPinnedToBottom) {
+            scrollController.followStreamingIfPinned()
         }
     }
 
+    // 5. Sticky-bottom auto-follow during live streaming (only observes while activeAssistantId != null)
+    LaunchedEffect(activeAssistantId) {
+        if (activeAssistantId == null) return@LaunchedEffect
+        viewModel.streamingUiState.collect {
+            scrollController.followStreamingIfPinned()
+        }
+    }
 
+    // 6. Top-edge pagination (strictly gated behind hasCompletedInitialScroll to prevent load-on-open cascade)
+    val currentChatItems by rememberUpdatedState(chatItems)
+    val currentIsLoadingOlder by rememberUpdatedState(isLoadingOlder)
+    val currentHasMoreMessages by rememberUpdatedState(hasMoreMessages)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .distinctUntilChanged()
+            .collect { index ->
+                if (scrollController.hasCompletedInitialScroll &&
+                    index <= 1 &&
+                    currentHasMoreMessages &&
+                    !currentIsLoadingOlder
+                ) {
+                    scrollController.capturePrependAnchor(currentChatItems, topHeaderCount = 1)
+                    viewModel.loadOlderMessages()
+                }
+            }
+    }
 
-    LaunchedEffect(isOverlayActive) {
+    // 7. Zero-recomposition IME visibility observation via snapshotFlow
+    val currentOverlayActive by rememberUpdatedState(isOverlayActive)
+    val imeInsets = WindowInsets.ime
+    LaunchedEffect(imeInsets, density) {
+        var previousHeight = 0
+        snapshotFlow { imeInsets.getBottom(density) }
+            .distinctUntilChanged()
+            .collect { height ->
+                val opening = height > previousHeight && height > 0
+                val closing = height == 0 && previousHeight > 0
+                if (opening && !currentOverlayActive) {
+                    scrollController.onImeOpenedIfPinned()
+                } else if (closing) {
+                    focusManager.clearFocus()
+                    if (editingUserMessageId != null) {
+                        editingUserMessageId = null
+                        textFieldState.clearText()
+                    }
+                }
+                previousHeight = height
+            }
+    }
+
+    // 8. Dismiss keyboard & selection toolbar when overlays or editing activate
+    LaunchedEffect(isOverlayActive, editingUserMessageId) {
+        if (isOverlayActive || editingUserMessageId != null) {
+            messageListTextToolbar.dismiss()
+        }
         if (isOverlayActive) {
             focusManager.clearFocus()
             keyboardController?.hide()
         }
-    }
-
-    LaunchedEffect(listState, hasMoreMessages) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .collect { index ->
-                if (index <= 1 && hasMoreMessages && !isLoadingOlder) {
-                    viewModel.loadOlderMessages()
-                }
-            }
     }
 
     LaunchedEffect(editingUserMessageId) {
@@ -281,7 +349,7 @@ fun ChatScreen(
                 },
                 subtitle = {
                     Text(
-                        text = "${config.provider.displayName} \u00b7 ${config.model.ifBlank { "Default" }}",
+                        text = "${config.provider.displayName} · ${config.model.ifBlank { "Default" }}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -334,7 +402,7 @@ fun ChatScreen(
                         modifier = Modifier.size(36.dp)
                     )
                 }
-            } else if (chatItems.isEmpty() && !isLoadingOlder) {
+            } else if (chatItems.isEmpty() && !isLoadingOlder && activeAssistantId == null) {
                 ChatEmptyState(
                     modifier = Modifier
                         .fillMaxSize()
@@ -352,102 +420,134 @@ fun ChatScreen(
                     contentAlignment = Alignment.TopCenter
                 ) {
                     val hasAssistantInPersisted = remember(chatItems, activeAssistantId) {
-                        activeAssistantId != null && chatItems.any { it is ChatListItem.Message && it.uiModel.id == activeAssistantId }
+                        activeAssistantId != null && chatItems.any {
+                            it is ChatListItem.Message && it.uiModel.id == activeAssistantId
+                        }
                     }
 
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
-                            .fillMaxWidth(),
-                        contentPadding = PaddingValues(
-                            top = 8.dp,
-                            bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        if (isLoadingOlder) {
-                            item(key = ChatListKeys.LOADING_OLDER) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    LoadingIndicator(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(28.dp)
+                    val userScrollUnpinConnection = remember(scrollController) {
+                        object : NestedScrollConnection {
+                            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                                if (source == NestedScrollSource.UserInput && available.y > 0f) {
+                                    scrollController.unpin()
+                                }
+                                return Offset.Zero
+                            }
+                        }
+                    }
+
+                    // Provide ReadOnlyChatTextToolbar ONLY to the message list so ChatInputBar keeps
+                    // its native editable Paste/Autofill toolbar intact.
+                    CompositionLocalProvider(LocalTextToolbar provides messageListTextToolbar) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
+                                .fillMaxWidth()
+                                .nestedScroll(userScrollUnpinConnection),
+                            contentPadding = PaddingValues(
+                                top = 8.dp,
+                                bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Permanent top pagination slot while hasMoreMessages is true so
+                            // toggling isLoadingOlder never shifts item indices by 1.
+                            if (hasMoreMessages) {
+                                item(key = ChatListKeys.TOP_PAGINATION_SLOT) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(36.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isLoadingOlder) {
+                                            LoadingIndicator(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            items(
+                                items = chatItems,
+                                key = { it.key }
+                            ) { item ->
+                                when (item) {
+                                    is ChatListItem.Message -> ChatMessageItem(
+                                        message = item.uiModel,
+                                        isStreaming = false,
+                                        isTurnSuccessful = item.isTurnSuccessful,
+                                        onSourceClick = { ref ->
+                                            if (ref.isGraphic) {
+                                                handleGraphicSelected(ref.topicId)
+                                            } else {
+                                                handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null })
+                                            }
+                                        },
+                                        onCopyMessage = { content ->
+                                            coroutineScope.launch {
+                                                clipboard.setPlainText(content)
+                                                snackbarHostState.showSnackbar("Copied content to workspace clipboard")
+                                            }
+                                        },
+                                        onEditMessage = { msg ->
+                                            editingUserMessageId = msg.id
+                                            textFieldState.edit {
+                                                replace(0, length, msg.content)
+                                                placeCursorAtEnd()
+                                            }
+                                        },
+                                        onRetryTurn = { id -> viewModel.retryTurn(id) }
+                                    )
+
+                                    is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
+                                        articles = item.articles,
+                                        tables = item.tables,
+                                        onNavigateToContent = handleNavigateToContent,
+                                        onGraphicSelected = handleGraphicSelected,
+                                        modifier = Modifier.padding(horizontal = 20.dp)
                                     )
                                 }
                             }
-                        }
 
-                        items(
-                            items = chatItems,
-                            key = { it.key }
-                        ) { item ->
-                            when (item) {
-                                is ChatListItem.Message -> ChatMessageItem(
-                                    message = item.uiModel,
-                                    isStreaming = item.uiModel.id == activeAssistantId,
-                                    isTurnSuccessful = item.isTurnSuccessful,
-                                    onCopyMessage = { content ->
-                                        coroutineScope.launch {
-                                            clipboard.setPlainText(content)
-                                            snackbarHostState.showSnackbar("Copied content to workspace clipboard")
+                            if (activeAssistantId != null && !hasAssistantInPersisted) {
+                                item(key = activeAssistantId) {
+                                    StreamingAssistantMessage(
+                                        activeAssistantId = activeAssistantId!!,
+                                        viewModel = viewModel,
+                                        onSourceClick = { ref ->
+                                            if (ref.isGraphic) {
+                                                handleGraphicSelected(ref.topicId)
+                                            } else {
+                                                handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null })
+                                            }
+                                        },
+                                        onCopyMessage = { content ->
+                                            coroutineScope.launch {
+                                                clipboard.setPlainText(content)
+                                                snackbarHostState.showSnackbar("Copied content to workspace clipboard")
+                                            }
                                         }
-                                    },
-                                    onEditMessage = { msg ->
-                                        editingUserMessageId = msg.id
-                                        textFieldState.edit {
-                                            replace(0, length, msg.content)
-                                            placeCursorAtEnd()
-                                        }
-                                    },
-                                    onRetryTurn = { id -> viewModel.retryTurn(id) },
-                                    onNavigateToContent = handleNavigateToContent,
-                                    onGraphicSelected = handleGraphicSelected
-                                )
-                                is ChatListItem.ClinicalReferences -> ClinicalReferencesSection(
-                                    articles = item.articles,
-                                    tables = item.tables,
-                                    onNavigateToContent = handleNavigateToContent,
-                                    onGraphicSelected = handleGraphicSelected,
-                                    modifier = Modifier.padding(horizontal = 20.dp)
+                                    )
+                                }
+                            }
+
+                            item(key = ChatListKeys.BOTTOM_ANCHOR) {
+                                Spacer(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
                                 )
                             }
-                        }
-
-                        if (activeAssistantId != null && !hasAssistantInPersisted) {
-                            item(key = activeAssistantId) {
-                                StreamingAssistantMessage(
-                                    activeAssistantId = activeAssistantId!!,
-                                    viewModel = viewModel,
-                                    onSourceClick = { ref -> handleNavigateToContent(ref.topicId, ref.sectionId.ifBlank { null }) },
-                                    onCopyMessage = { content ->
-                                        coroutineScope.launch {
-                                            clipboard.setPlainText(content)
-                                            snackbarHostState.showSnackbar("Copied content to workspace clipboard")
-                                        }
-                                    },
-                                    onNavigateToContent = handleNavigateToContent,
-                                    onGraphicSelected = handleGraphicSelected
-                                )
-                            }
-                        }
-
-                        item(key = ChatListKeys.BOTTOM_ANCHOR) {
-                            Spacer(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                            )
                         }
                     }
                 }
             }
 
-            // Background overlay shadowing the chat messages when in editing mode
+            // Edit-mode scrim
             AnimatedVisibility(
                 visible = editingUserMessageId != null,
                 enter = fadeIn(animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()),
@@ -484,17 +584,12 @@ fun ChatScreen(
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Remains visible during generation whenever the clinician has scrolled up
                 ScrollToBottomFAB(
-                    visible = listState.canScrollForward && !isGenerating && editingUserMessageId == null,
+                    visible = scrollController.showScrollToBottomFab && editingUserMessageId == null,
                     onClick = {
                         coroutineScope.launch {
-                            val count = listState.layoutInfo.totalItemsCount
-                            if (count > 0) {
-                                listState.animateScrollToItem(count - 1)
-                                if (listState.canScrollForward) {
-                                    listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1)
-                                }
-                            }
+                            scrollController.scrollToBottom(animated = true)
                         }
                     },
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -504,9 +599,7 @@ fun ChatScreen(
                     state = textFieldState,
                     onSendMessage = { text ->
                         val trimmed = text.trim()
-                        if (trimmed.isBlank()) {
-                            return@ChatInputBar
-                        }
+                        if (trimmed.isBlank()) return@ChatInputBar
                         val editId = editingUserMessageId
                         val accepted = if (editId != null) {
                             viewModel.submitEditedMessage(editId, trimmed).also { ok ->
@@ -664,39 +757,23 @@ private fun StreamingAssistantMessage(
     viewModel: ChatViewModel,
     onSourceClick: (TopicRef) -> Unit,
     onCopyMessage: (String) -> Unit,
-    onNavigateToContent: (String, String?) -> Unit,
-    onGraphicSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
-    val orchestrationPhase by viewModel.orchestrationPhase.collectAsStateWithLifecycle()
-    val currentStatusText by viewModel.currentStatusText.collectAsStateWithLifecycle()
-    val liveSources by viewModel.liveDiscoveredSources.collectAsStateWithLifecycle()
-    val sectionsReadCount by viewModel.sectionsReadCount.collectAsStateWithLifecycle()
-    val isDraft by viewModel.isDraft.collectAsStateWithLifecycle()
-    val isRevised by viewModel.isRevised.collectAsStateWithLifecycle()
+    // Single atomic StateFlow collection (no torn reads across phase/steps/sources/text)
+    val streamingState by viewModel.streamingUiState.collectAsStateWithLifecycle()
 
     ChatMessageItem(
         message = MessageUiModel(
             id = activeAssistantId,
             role = "assistant",
-            content = streamingText,
+            content = streamingState.streamingText,
             timestamp = 0L,
             showTimestamp = false
         ),
         isStreaming = true,
-        orchestrationPhase = orchestrationPhase,
-        currentStatusText = currentStatusText,
-        liveSources = liveSources,
-        sectionsReadCount = sectionsReadCount,
-        isDraft = isDraft,
-        isRevised = isRevised,
+        streamingState = streamingState,
         onSourceClick = onSourceClick,
         onCopyMessage = onCopyMessage,
-        onNavigateToContent = onNavigateToContent,
-        onGraphicSelected = onGraphicSelected,
         modifier = modifier
     )
 }
-
-

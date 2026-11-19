@@ -4,15 +4,34 @@ import com.clinref.app.data.GraphicContentResponse
 import com.clinref.app.data.SearchTopicsResponse
 import com.clinref.app.data.TopicOverviewResponse
 import com.clinref.app.data.TopicSectionsResponse
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.time.TimeSource
 
-class StreamingManager {
+/**
+ * Thread-safe, turn-scoped state machine for live clinical orchestration and token streaming.
+ *
+ * Key guarantees:
+ * - Single atomic [StreamingUiState] emission (no torn reads across phase/steps/text/sources).
+ * - Turn epoch ([turnId]) prevents late callbacks from cancelled turns corrupting a new turn.
+ * - Parallel tool tracking keeps clinician status accurate until all in-flight tools finish.
+ * - Frame-paced streaming text coalescing (~36ms) with 0ms time-to-first-token and immediate
+ *   terminal flush.
+ */
+class StreamingManager(
+    private val flushScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val flushIntervalMs: Long = DEFAULT_FLUSH_INTERVAL_MS
+) {
 
     data class TokenUsage(
         val promptTokens: Int = 0,
@@ -43,6 +62,39 @@ class StreamingManager {
         val toolName: String? = null
     )
 
+    data class DiscoveredSource(
+        val topicId: String,
+        val title: String,
+        val isGraphic: Boolean = false,
+        val sectionsRead: Int = 0
+    ) {
+        fun toTopicRef(): TopicRef = TopicRef(
+            topicId = topicId,
+            sectionId = "",
+            label = title,
+            topicTitle = title,
+            isGraphic = isGraphic
+        )
+    }
+
+    data class StreamingUiState(
+        val conversationId: String? = null,
+        val turnId: String? = null,
+        val phase: OrchestrationPhase = OrchestrationPhase.IDLE,
+        val statusText: String = INITIAL_STATUS_TEXT,
+        val steps: List<OrchestrationStep> = emptyList(),
+        val activeToolCount: Int = 0,
+        val discoveredSources: List<DiscoveredSource> = emptyList(),
+        val sectionsReadCount: Int = 0,
+        val tablesReadCount: Int = 0,
+        val streamingText: String = "",
+        val reasoningText: String = "",
+        val isReasoning: Boolean = false,
+        val hasStartedStreamingText: Boolean = false
+    ) {
+        val topicsConsultedCount: Int get() = discoveredSources.count { !it.isGraphic }
+    }
+
     sealed class AgentState {
         data object Idle : AgentState()
         data class ToolCallInProgress(
@@ -63,243 +115,680 @@ class StreamingManager {
         ) : AgentState()
     }
 
-    data class ToolProgress(
-        val toolName: String,
-        val description: String
-    )
-
     enum class ErrorType { INVALID_KEY, NO_NETWORK, RATE_LIMIT, TIMEOUT, NO_RESULTS, UNKNOWN }
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = AiJsonUtils.json
+    private val stateLock = Any()
+
+    private val _uiState = MutableStateFlow(StreamingUiState())
+    val uiState: StateFlow<StreamingUiState> = _uiState.asStateFlow()
 
     private val _agentState = MutableStateFlow<AgentState>(AgentState.Idle)
     val agentState: StateFlow<AgentState> = _agentState.asStateFlow()
 
-    private val _toolProgress = MutableStateFlow<ToolProgress?>(null)
-    val toolProgress: StateFlow<ToolProgress?> = _toolProgress.asStateFlow()
-
-    private val _orchestrationSteps = MutableStateFlow<List<OrchestrationStep>>(emptyList())
-    val orchestrationSteps: StateFlow<List<OrchestrationStep>> = _orchestrationSteps.asStateFlow()
-
-    private val _currentStatusText = MutableStateFlow("Initializing clinical core…")
+    private val _currentStatusText = MutableStateFlow(INITIAL_STATUS_TEXT)
     val currentStatusText: StateFlow<String> = _currentStatusText.asStateFlow()
-
-    private val _liveDiscoveredSources = MutableStateFlow<List<TopicRef>>(emptyList())
-    val liveDiscoveredSources: StateFlow<List<TopicRef>> = _liveDiscoveredSources.asStateFlow()
 
     private val _streamingText = MutableStateFlow("")
     val streamingText: StateFlow<String> = _streamingText.asStateFlow()
 
-    private val _reasoningText = MutableStateFlow("")
-    val reasoningText: StateFlow<String> = _reasoningText.asStateFlow()
-
-    private val _isReasoning = MutableStateFlow(false)
-    val isReasoning: StateFlow<Boolean> = _isReasoning.asStateFlow()
-
-    private val _orchestrationPhase = MutableStateFlow(OrchestrationPhase.IDLE)
-    val orchestrationPhase: StateFlow<OrchestrationPhase> = _orchestrationPhase.asStateFlow()
-
-    private val _sectionsReadCount = MutableStateFlow(0)
-    val sectionsReadCount: StateFlow<Int> = _sectionsReadCount.asStateFlow()
-
-    private val _isDraft = MutableStateFlow(false)
-    val isDraft: StateFlow<Boolean> = _isDraft.asStateFlow()
-
-    private val _isRevised = MutableStateFlow(false)
-    val isRevised: StateFlow<Boolean> = _isRevised.asStateFlow()
-
-    private var totalSectionsReadCount = 0
+    // Mutable turn-local state guarded strictly by stateLock
+    private var activeTurnId: String? = null
+    private var activeConversationId: String? = null
     private var stepCounter = 0
-    private var activeToolCalls = 0
+    private val activeTools = LinkedHashMap<String, ActiveToolInfo>() // stepId -> info
     private var accumulatedUsage = TokenUsage()
+
+    private val knownTopicTitles = LinkedHashMap<String, String>()
+    private val readSectionKeys = LinkedHashSet<Pair<String, String>>() // (topicId, sectionId)
+    private val readGraphicIds = LinkedHashSet<String>()
+    private val sourceMap = LinkedHashMap<String, DiscoveredSource>() // key: "t:<id>" or "g:<id>"
+
     private val streamingBuffer = StringBuilder()
     private val reasoningBuffer = StringBuilder()
     private val pendingTagBuffer = StringBuilder()
     private var inReasoningBlock = false
+    private var isReasoningFlag = false
+    private var hasEmittedFirstVisibleToken = false
+    private var lastFlushMark: TimeSource.Monotonic.ValueTimeMark? = null
+    private var pendingFlushJob: Job? = null
 
-    private val stateLock = Any()
-    private val knownTopicTitles = mutableMapOf<String, String>()
+    private data class ActiveToolInfo(
+        val toolName: String,
+        val statusLabel: String
+    )
 
-    fun onToolCallStarting(toolName: String, args: String, callId: String = "") {
-        val currentStepCounter: Int
-        val step: OrchestrationStep
+    /**
+     * Begins a fresh orchestration turn. All subsequent callbacks belong to this epoch
+     * until [reset] or another [startTurn] is called.
+     */
+    fun startTurn(conversationId: String, turnId: String) {
         synchronized(stateLock) {
-            stepCounter++
-            activeToolCalls++
-            currentStepCounter = stepCounter
-
-            // Pre-tool thought hygiene: reset streaming and reasoning buffers so intermediate thoughts don't contaminate response
-            streamingBuffer.clear()
-            reasoningBuffer.clear()
-            pendingTagBuffer.clear()
-            inReasoningBlock = false
-
-            val stepId = callId.ifBlank { "step_$currentStepCounter" }
-            val (title, detail) = getStepInfo(toolName, args)
-
-            step = OrchestrationStep(
-                id = stepId,
-                title = title,
-                detail = detail,
-                status = StepStatus.IN_PROGRESS,
-                toolName = toolName
+            clearTurnStateLocked()
+            activeConversationId = conversationId
+            activeTurnId = turnId
+            val fresh = StreamingUiState(
+                conversationId = conversationId,
+                turnId = turnId,
+                phase = OrchestrationPhase.EVIDENCE_RETRIEVAL,
+                statusText = "Analyzing clinical question…"
             )
-            _orchestrationSteps.value = _orchestrationSteps.value + step
+            publishStateLocked(fresh, AgentState.WaitingForLlm(0))
         }
-
-        _streamingText.value = ""
-        _reasoningText.value = ""
-        _isReasoning.value = false
-        _orchestrationPhase.value = OrchestrationPhase.EVIDENCE_RETRIEVAL
-
-        val description = when (toolName) {
-            "searchTopics" -> "Searching medical topics…"
-            "getTopicOverview" -> "Retrieving topic overview & core evidence…"
-            "getTopicSectionsText" -> "Retrieving evidence sections…"
-            "getGraphicContent" -> "Loading clinical reference table…"
-            else -> "Executing $toolName…"
-        }
-        _currentStatusText.value = description
-        _toolProgress.value = ToolProgress(toolName, description)
-        _agentState.value = AgentState.ToolCallInProgress(toolName, args, currentStepCounter)
     }
 
-    fun onToolCallCompleted(toolName: String, resultText: String = "", callId: String = "") {
+    fun onToolCallStarting(toolName: String, args: String, callId: String = "", turnId: String? = null) {
         synchronized(stateLock) {
-            activeToolCalls = (activeToolCalls - 1).coerceAtLeast(0)
+            if (!isCurrentTurnLocked(turnId)) return
+            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
+            stepCounter++
+            val stepId = callId.ifBlank { "step_$stepCounter" }
 
-            // Parse any discovered source titles or tables
-            parseDiscoveredSources(toolName, resultText)
+            // Clear pre-tool buffers so intermediate model thoughts never leak into final text
+            clearBuffersLocked()
 
-            // Mark the active step as completed
-            _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
+            val (stepTitle, stepDetail, liveStatus) = describeToolStartLocked(canonicalName, args)
+            activeTools[stepId] = ActiveToolInfo(canonicalName, liveStatus)
+
+            val newStep = OrchestrationStep(
+                id = stepId,
+                title = stepTitle,
+                detail = stepDetail,
+                status = StepStatus.IN_PROGRESS,
+                toolName = canonicalName
+            )
+
+            val updatedSteps = _uiState.value.steps + newStep
+            val status = computeActiveRetrievalStatusLocked()
+
+            publishStateLocked(
+                _uiState.value.copy(
+                    phase = OrchestrationPhase.EVIDENCE_RETRIEVAL,
+                    statusText = status,
+                    steps = updatedSteps,
+                    activeToolCount = activeTools.size,
+                    streamingText = "",
+                    reasoningText = "",
+                    isReasoning = false,
+                    hasStartedStreamingText = false
+                ),
+                AgentState.ToolCallInProgress(canonicalName, args, stepCounter)
+            )
+        }
+    }
+
+    fun onToolCallCompleted(toolName: String, resultText: String = "", callId: String = "", turnId: String? = null) {
+        synchronized(stateLock) {
+            if (!isCurrentTurnLocked(turnId)) return
+            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
+
+            val matchedStepId = if (callId.isNotBlank() && activeTools.containsKey(callId)) {
+                callId
+            } else {
+                activeTools.entries.firstOrNull { it.value.toolName == canonicalName }?.key
+            }
+            if (matchedStepId != null) {
+                activeTools.remove(matchedStepId)
+            }
+
+            val completionDetail = processToolResultLocked(canonicalName, resultText)
+
+            val updatedSteps = _uiState.value.steps.map { step ->
                 val matches = if (callId.isNotBlank()) {
                     step.id == callId
                 } else {
-                    step.toolName == toolName && step.status == StepStatus.IN_PROGRESS
+                    step.id == matchedStepId || (matchedStepId == null && step.toolName == canonicalName && step.status == StepStatus.IN_PROGRESS)
                 }
                 if (matches) {
-                    val completionDetail = getCompletionDetail(toolName, resultText) ?: step.detail
-                    step.copy(status = StepStatus.COMPLETED, detail = completionDetail)
-                } else step
+                    step.copy(
+                        status = StepStatus.COMPLETED,
+                        detail = completionDetail ?: step.detail
+                    )
+                } else {
+                    step
+                }
             }
-        }
 
-        _currentStatusText.value = "Evaluating clinical evidence…"
-        _toolProgress.value = ToolProgress(toolName, "Evaluating clinical evidence…")
+            val status = if (activeTools.isNotEmpty()) {
+                computeActiveRetrievalStatusLocked()
+            } else {
+                "Evaluating retrieved evidence…"
+            }
+
+            publishStateLocked(
+                _uiState.value.copy(
+                    statusText = status,
+                    steps = updatedSteps,
+                    activeToolCount = activeTools.size,
+                    discoveredSources = sourceMap.values.toList(),
+                    sectionsReadCount = readSectionKeys.size,
+                    tablesReadCount = readGraphicIds.size
+                )
+            )
+        }
     }
 
-    fun onSynthesisStarting() {
+    fun onSynthesisStarting(turnId: String? = null) {
         synchronized(stateLock) {
-            activeToolCalls = 0
-            // Complete any previously in-progress tool steps
-            _orchestrationSteps.value = _orchestrationSteps.value.map { step ->
-                if (step.status == StepStatus.IN_PROGRESS) {
-                    step.copy(status = StepStatus.COMPLETED)
-                } else step
+            if (!isCurrentTurnLocked(turnId)) return
+            activeTools.clear()
+            clearBuffersLocked()
+
+            val completedSteps = _uiState.value.steps.map { step ->
+                if (step.status == StepStatus.IN_PROGRESS) step.copy(status = StepStatus.COMPLETED) else step
             }
 
-            val existingIndex = _orchestrationSteps.value.indexOfFirst { it.id == "step_synthesis" }
-            if (existingIndex >= 0) {
-                val updated = _orchestrationSteps.value.toMutableList()
-                updated[existingIndex] = updated[existingIndex].copy(
-                    status = StepStatus.IN_PROGRESS,
-                    detail = "Drafting evidence-grounded clinical recommendations"
-                )
-                _orchestrationSteps.value = updated
+            val synthesisStep = OrchestrationStep(
+                id = STEP_SYNTHESIS_ID,
+                title = "Synthesize Clinical Guidance",
+                detail = buildSynthesisStepDetailLocked(),
+                status = StepStatus.IN_PROGRESS
+            )
+            val existingIdx = completedSteps.indexOfFirst { it.id == STEP_SYNTHESIS_ID }
+            val updatedSteps = if (existingIdx >= 0) {
+                completedSteps.toMutableList().apply { this[existingIdx] = synthesisStep }
             } else {
-                _orchestrationSteps.value = _orchestrationSteps.value + OrchestrationStep(
-                    id = "step_synthesis",
-                    title = "Synthesize Clinical Guidance",
-                    detail = "Drafting evidence-grounded clinical recommendations",
-                    status = StepStatus.IN_PROGRESS
-                )
+                completedSteps + synthesisStep
             }
 
+            publishStateLocked(
+                _uiState.value.copy(
+                    phase = OrchestrationPhase.SYNTHESIS,
+                    statusText = buildSynthesisStatusLocked(),
+                    steps = updatedSteps,
+                    activeToolCount = 0,
+                    streamingText = "",
+                    reasoningText = "",
+                    isReasoning = false,
+                    hasStartedStreamingText = false
+                ),
+                AgentState.WaitingForLlm(stepCounter)
+            )
+        }
+    }
+
+    fun onWaitingForLlm(turnId: String? = null) {
+        synchronized(stateLock) {
+            if (!isCurrentTurnLocked(turnId)) return
+            if (activeTools.isNotEmpty()) return
+            val status = if (_uiState.value.phase == OrchestrationPhase.SYNTHESIS) {
+                buildSynthesisStatusLocked()
+            } else {
+                "Planning next retrieval step…"
+            }
+            publishStateLocked(
+                _uiState.value.copy(statusText = status),
+                AgentState.WaitingForLlm(stepCounter)
+            )
+        }
+    }
+
+    fun onStreamingTextDelta(delta: String, turnId: String? = null) {
+        if (delta.isEmpty()) return
+        synchronized(stateLock) {
+            if (!isCurrentTurnLocked(turnId)) return
+            val prevTextLen = streamingBuffer.length
+            for (i in delta.indices) {
+                processStreamingCharLocked(delta[i])
+            }
+            val textGrew = streamingBuffer.length > prevTextLen
+            if (textGrew && !inReasoningBlock) {
+                isReasoningFlag = false
+            }
+
+            val isFirstVisibleToken = textGrew && !hasEmittedFirstVisibleToken
+            if (isFirstVisibleToken) {
+                hasEmittedFirstVisibleToken = true
+            }
+
+            scheduleOrFlushLocked(forceImmediate = isFirstVisibleToken)
+        }
+    }
+
+    fun onStreamingReasoningDelta(delta: String, turnId: String? = null) {
+        if (delta.isEmpty()) return
+        synchronized(stateLock) {
+            if (!isCurrentTurnLocked(turnId)) return
+            reasoningBuffer.append(delta)
+            isReasoningFlag = true
+            scheduleOrFlushLocked(forceImmediate = !_uiState.value.isReasoning)
+        }
+    }
+
+    fun onStreamingEnd(turnId: String? = null) {
+        synchronized(stateLock) {
+            if (!isCurrentTurnLocked(turnId)) return
+            if (pendingTagBuffer.isNotEmpty()) {
+                val remaining = pendingTagBuffer.toString()
+                pendingTagBuffer.clear()
+                appendToActiveBufferLocked(remaining)
+            }
+            isReasoningFlag = false
+            flushBuffersLocked()
+        }
+    }
+
+    fun onLlmCallCompleted(promptTokens: Int, completionTokens: Int, totalTokens: Int, turnId: String? = null) {
+        synchronized(stateLock) {
+            if (!isCurrentTurnLocked(turnId)) return
+            accumulatedUsage = TokenUsage(
+                promptTokens = accumulatedUsage.promptTokens + promptTokens,
+                completionTokens = accumulatedUsage.completionTokens + completionTokens,
+                totalTokens = accumulatedUsage.totalTokens + totalTokens,
+                toolTokens = accumulatedUsage.toolTokens
+            )
+        }
+    }
+
+    fun onCompleted(
+        result: String,
+        topicRefs: List<TopicRef> = emptyList(),
+        graphicRefs: List<GraphicRef> = emptyList(),
+        usage: TokenUsage? = null,
+        turnId: String? = null
+    ) {
+        synchronized(stateLock) {
+            if (!isCurrentTurnLocked(turnId)) return
+            pendingFlushJob?.cancel()
+            pendingFlushJob = null
+            if (usage != null) {
+                accumulatedUsage = usage
+            }
+            activeTools.clear()
             streamingBuffer.clear()
+            streamingBuffer.append(result)
             reasoningBuffer.clear()
             pendingTagBuffer.clear()
             inReasoningBlock = false
-        }
+            isReasoningFlag = false
 
-        _streamingText.value = ""
-        _reasoningText.value = ""
-        _isReasoning.value = false
-        _orchestrationPhase.value = OrchestrationPhase.SYNTHESIS
-        _isDraft.value = true
-
-        _currentStatusText.value = "Synthesizing point-of-care guidance…"
-        _agentState.value = AgentState.WaitingForLlm(stepCounter)
-    }
-
-    fun onWaitingForLlm() {
-        if (activeToolCalls > 0) return
-        val inSynthesis = _orchestrationSteps.value.any { it.id == "step_synthesis" && it.status == StepStatus.IN_PROGRESS }
-        if (inSynthesis) {
-            _currentStatusText.value = "Synthesizing point-of-care guidance…"
-        } else {
-            _currentStatusText.value = "Evaluating candidate topics…"
-        }
-        _agentState.value = AgentState.WaitingForLlm(stepCounter)
-    }
-
-    fun onStreamingTextDelta(delta: String) {
-        synchronized(stateLock) {
-            for (i in delta.indices) {
-                val ch = delta[i]
-                processStreamingChar(ch)
+            val completedSteps = _uiState.value.steps.map { step ->
+                if (step.status == StepStatus.IN_PROGRESS) step.copy(status = StepStatus.COMPLETED) else step
             }
-            _streamingText.value = streamingBuffer.toString()
-            _reasoningText.value = reasoningBuffer.toString()
+
+            publishStateLocked(
+                _uiState.value.copy(
+                    phase = OrchestrationPhase.COMPLETED,
+                    statusText = "Complete",
+                    steps = completedSteps,
+                    activeToolCount = 0,
+                    streamingText = result,
+                    reasoningText = "",
+                    isReasoning = false,
+                    hasStartedStreamingText = result.isNotBlank()
+                ),
+                AgentState.Completed(result, topicRefs, graphicRefs, accumulatedUsage)
+            )
         }
     }
 
-    fun onStreamingReasoningDelta(delta: String) {
+    fun onError(error: String, turnId: String? = null) {
         synchronized(stateLock) {
-            reasoningBuffer.append(delta)
-            _reasoningText.value = reasoningBuffer.toString()
-            _isReasoning.value = true
+            if (!isCurrentTurnLocked(turnId)) return
+            activeTools.clear()
+            clearBuffersLocked()
+
+            val failedSteps = _uiState.value.steps.map { step ->
+                if (step.status == StepStatus.IN_PROGRESS) step.copy(status = StepStatus.FAILED) else step
+            }
+            val type = classifyError(error)
+
+            publishStateLocked(
+                _uiState.value.copy(
+                    phase = OrchestrationPhase.ERROR,
+                    statusText = "Error",
+                    steps = failedSteps,
+                    activeToolCount = 0,
+                    streamingText = "",
+                    reasoningText = "",
+                    isReasoning = false,
+                    hasStartedStreamingText = false
+                ),
+                AgentState.Error(error, type)
+            )
         }
     }
 
-    private fun processStreamingChar(ch: Char) {
+    /**
+     * Resets manager state. If [expectedTurnId] is provided, only resets if it matches the
+     * active turn (preventing a finishing/cancelled job's finally block from wiping a newer turn).
+     */
+    fun reset(expectedTurnId: String? = null) {
+        synchronized(stateLock) {
+            if (expectedTurnId != null && activeTurnId != null && activeTurnId != expectedTurnId) {
+                return
+            }
+            clearTurnStateLocked()
+            activeConversationId = null
+            activeTurnId = null
+            publishStateLocked(StreamingUiState(), AgentState.Idle)
+        }
+    }
+
+    private fun isCurrentTurnLocked(turnId: String?): Boolean {
+        if (turnId == null) return activeTurnId == null
+        return activeTurnId == turnId
+    }
+
+    private fun clearTurnStateLocked() {
+        stepCounter = 0
+        activeTools.clear()
+        accumulatedUsage = TokenUsage()
+        knownTopicTitles.clear()
+        readSectionKeys.clear()
+        readGraphicIds.clear()
+        sourceMap.clear()
+        clearBuffersLocked()
+    }
+
+    private fun clearBuffersLocked() {
+        pendingFlushJob?.cancel()
+        pendingFlushJob = null
+        streamingBuffer.clear()
+        reasoningBuffer.clear()
+        pendingTagBuffer.clear()
+        inReasoningBlock = false
+        isReasoningFlag = false
+        hasEmittedFirstVisibleToken = false
+        lastFlushMark = null
+        _streamingText.value = ""
+    }
+
+    private fun scheduleOrFlushLocked(forceImmediate: Boolean) {
+        if (flushIntervalMs <= 0L || forceImmediate) {
+            flushBuffersLocked()
+            return
+        }
+        val elapsedMs = lastFlushMark?.elapsedNow()?.inWholeMilliseconds ?: Long.MAX_VALUE
+        if (elapsedMs >= flushIntervalMs) {
+            flushBuffersLocked()
+            return
+        }
+        if (pendingFlushJob?.isActive == true) return
+        val scheduledTurnId = activeTurnId
+        val remainingMs = (flushIntervalMs - elapsedMs).coerceAtLeast(8L)
+        pendingFlushJob = flushScope.launch {
+            delay(remainingMs)
+            synchronized(stateLock) {
+                if (activeTurnId != scheduledTurnId) return@launch
+                pendingFlushJob = null
+                flushBuffersLocked()
+            }
+        }
+    }
+
+    private fun flushBuffersLocked() {
+        pendingFlushJob?.cancel()
+        pendingFlushJob = null
+        lastFlushMark = TimeSource.Monotonic.markNow()
+        val text = streamingBuffer.toString()
+        val reasoning = reasoningBuffer.toString()
+        val cur = _uiState.value
+        val next = cur.copy(
+            streamingText = text,
+            reasoningText = reasoning,
+            isReasoning = isReasoningFlag,
+            hasStartedStreamingText = cur.hasStartedStreamingText || text.isNotEmpty()
+        )
+        if (next != cur) {
+            _uiState.value = next
+        }
+        if (_streamingText.value != text) {
+            _streamingText.value = text
+        }
+    }
+
+    private fun publishStateLocked(newState: StreamingUiState, newAgentState: AgentState? = null) {
+        _uiState.value = newState
+        if (_streamingText.value != newState.streamingText) {
+            _streamingText.value = newState.streamingText
+        }
+        if (_currentStatusText.value != newState.statusText) {
+            _currentStatusText.value = newState.statusText
+        }
+        if (newAgentState != null) {
+            _agentState.value = newAgentState
+        }
+    }
+
+    private fun computeActiveRetrievalStatusLocked(): String {
+        val list = activeTools.values.toList()
+        if (list.isEmpty()) return "Evaluating clinical evidence…"
+        if (list.size == 1) return list.first().statusLabel
+        val uniqueNames = list.map { it.toolName }.toSet()
+        return when {
+            uniqueNames.size == 1 && uniqueNames.first() == "searchTopics" ->
+                "Searching ${list.size} clinical queries…"
+            uniqueNames.size == 1 && uniqueNames.first() == "getTopicOverview" ->
+                "Inspecting ${list.size} topic outlines…"
+            uniqueNames.size == 1 && uniqueNames.first() == "getTopicSectionsText" ->
+                "Reading sections from ${list.size} topics…"
+            uniqueNames.size == 1 && uniqueNames.first() == "getGraphicContent" ->
+                "Loading ${list.size} clinical tables…"
+            else ->
+                "Consulting ${list.size} UpToDate sources…"
+        }
+    }
+
+    private fun buildSynthesisStepDetailLocked(): String {
+        val topics = sourceMap.values.count { !it.isGraphic }
+        val sections = readSectionKeys.size
+        val tables = readGraphicIds.size
+        val parts = buildList {
+            if (topics > 0) add("$topics ${if (topics == 1) "topic" else "topics"}")
+            if (sections > 0) add("$sections ${if (sections == 1) "section" else "sections"}")
+            if (tables > 0) add("$tables ${if (tables == 1) "table" else "tables"}")
+        }
+        return if (parts.isNotEmpty()) {
+            "Grounding guidance in ${parts.joinToString(" · ")}"
+        } else {
+            "Drafting evidence-grounded guidance"
+        }
+    }
+
+    private fun buildSynthesisStatusLocked(): String {
+        val topics = sourceMap.values.count { !it.isGraphic }
+        val sections = readSectionKeys.size
+        return if (topics > 0) {
+            val tWord = if (topics == 1) "topic" else "topics"
+            val sSuffix = if (sections > 0) " · $sections ${if (sections == 1) "section" else "sections"}" else ""
+            "Synthesizing from $topics $tWord$sSuffix…"
+        } else {
+            "Synthesizing point-of-care guidance…"
+        }
+    }
+
+    private fun describeToolStartLocked(canonicalName: String, args: String): Triple<String, String?, String> {
+        return try {
+            val cleanArgs = AiJsonUtils.extractJsonString(args).ifBlank { args }
+            val element = json.parseToJsonElement(cleanArgs) as? JsonObject
+            when (canonicalName) {
+                "searchTopics" -> {
+                    val query = element?.get("query")?.jsonPrimitive?.contentOrNull
+                        ?: element?.get("search_query")?.jsonPrimitive?.contentOrNull
+                        ?: element?.get("searchQuery")?.jsonPrimitive?.contentOrNull ?: ""
+                    val cleanQ = query.trim()
+                    Triple(
+                        "Search UpToDate",
+                        if (cleanQ.isNotEmpty()) "\"$cleanQ\"" else null,
+                        if (cleanQ.isNotEmpty()) "Searching \"$cleanQ\"…" else "Searching UpToDate library…"
+                    )
+                }
+                "getTopicOverview" -> {
+                    val topicId = element?.get("topicId")?.jsonPrimitive?.contentOrNull
+                        ?: element?.get("topic_id")?.jsonPrimitive?.contentOrNull ?: ""
+                    val title = knownTopicTitles[topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                    Triple(
+                        "Inspect Topic Outline",
+                        title,
+                        if (title != null) "Inspecting \"$title\"…" else "Inspecting topic outline…"
+                    )
+                }
+                "getTopicSectionsText" -> {
+                    val topicId = element?.get("topicId")?.jsonPrimitive?.contentOrNull
+                        ?: element?.get("topic_id")?.jsonPrimitive?.contentOrNull ?: ""
+                    val title = knownTopicTitles[topicId]?.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                    Triple(
+                        "Read Clinical Sections",
+                        title,
+                        if (title != null) "Reading \"$title\"…" else "Reading clinical sections…"
+                    )
+                }
+                "getGraphicContent" -> {
+                    val graphicId = element?.get("graphicId")?.jsonPrimitive?.contentOrNull
+                        ?: element?.get("graphic_id")?.jsonPrimitive?.contentOrNull ?: ""
+                    val cleanId = AiJsonUtils.cleanGraphicId(graphicId)
+                    val title = sourceMap["g:$cleanId"]?.title
+                    Triple(
+                        "Load Reference Table",
+                        title ?: cleanId.ifBlank { null },
+                        if (title != null) "Loading table \"$title\"…" else "Loading clinical table…"
+                    )
+                }
+                else -> Triple(canonicalName, null, "Running $canonicalName…")
+            }
+        } catch (_: Exception) {
+            Triple(canonicalName, null, "Consulting clinical reference…")
+        }
+    }
+
+    /**
+     * Single-pass decoding of tool result JSON: updates discovered sources, section/table counts,
+     * and returns a human-readable completion detail for the orchestration step trace.
+     */
+    private fun processToolResultLocked(canonicalName: String, resultText: String): String? {
+        val unwrapped = AiJsonUtils.extractJsonString(resultText)
+        if (unwrapped.isBlank()) return null
+
+        return try {
+            when (canonicalName) {
+                "searchTopics" -> {
+                    val res = json.decodeFromString<SearchTopicsResponse>(unwrapped)
+                    for (item in res.results) {
+                        if (item.id.isNotBlank() && AiJsonUtils.isValidTopicTitle(item.title)) {
+                            knownTopicTitles[item.id] = AiJsonUtils.cleanHtmlText(item.title)
+                        }
+                    }
+                    val count = res.results.size
+                    when {
+                        count > 0 -> "$count candidate ${if (count == 1) "topic" else "topics"}"
+                        res.message.startsWith("Auto-refined", ignoreCase = true) -> res.message
+                        else -> "No matching topics"
+                    }
+                }
+                "getTopicOverview" -> {
+                    val res = json.decodeFromString<TopicOverviewResponse>(unwrapped)
+                    val topicId = res.topicId.trim()
+                    val title = res.title.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                        ?.let { AiJsonUtils.cleanHtmlText(it) }
+                        ?: knownTopicTitles[topicId]
+
+                    if (topicId.isNotBlank() && !title.isNullOrBlank()) {
+                        knownTopicTitles[topicId] = title
+                        val key = "t:$topicId"
+                        val existing = sourceMap[key]
+                        sourceMap[key] = existing?.copy(title = title)
+                            ?: DiscoveredSource(topicId = topicId, title = title, isGraphic = false)
+                    }
+                    if (res.topicType.equals("calc", ignoreCase = true) && topicId.isNotBlank()) {
+                        readSectionKeys.add(topicId to "FULL")
+                    }
+                    val count = res.sections.size
+                    val sWord = if (count == 1) "section" else "sections"
+                    if (!title.isNullOrBlank()) "$title ($count $sWord)" else "$count $sWord in outline"
+                }
+                "getTopicSectionsText" -> {
+                    val res = json.decodeFromString<TopicSectionsResponse>(unwrapped)
+                    val topicId = res.topicId.trim()
+                    val title = res.topicTitle.takeIf { AiJsonUtils.isValidTopicTitle(it) }
+                        ?.let { AiJsonUtils.cleanHtmlText(it) }
+                        ?: knownTopicTitles[topicId]
+
+                    if (topicId.isNotBlank() && !title.isNullOrBlank()) {
+                        knownTopicTitles[topicId] = title
+                    }
+
+                    res.sectionTitles.keys.forEach { secId ->
+                        if (topicId.isNotBlank() && secId.isNotBlank()) {
+                            readSectionKeys.add(topicId to secId)
+                        }
+                    }
+                    val totalForTopic = if (topicId.isNotBlank()) {
+                        readSectionKeys.count { it.first == topicId }
+                    } else 0
+
+                    if (topicId.isNotBlank() && !title.isNullOrBlank()) {
+                        val key = "t:$topicId"
+                        val existing = sourceMap[key]
+                        sourceMap[key] = (existing ?: DiscoveredSource(topicId = topicId, title = title))
+                            .copy(title = title, sectionsRead = totalForTopic)
+                    }
+
+                    val fetched = res.sectionTitles.size
+                    val sWord = if (fetched == 1) "section" else "sections"
+                    when {
+                        !title.isNullOrBlank() && fetched > 0 -> "$fetched $sWord from $title"
+                        fetched > 0 -> "$fetched $sWord retrieved"
+                        !title.isNullOrBlank() -> "No sections matched in $title"
+                        else -> "No sections matched"
+                    }
+                }
+                "getGraphicContent" -> {
+                    val res = json.decodeFromString<GraphicContentResponse>(unwrapped)
+                    val cleanId = AiJsonUtils.cleanGraphicId(res.graphicId)
+                    val cleanTitle = AiJsonUtils.cleanHtmlText(res.title)
+                    if (cleanId.isNotBlank()) {
+                        readGraphicIds.add(cleanId)
+                        if (cleanTitle.isNotBlank()) {
+                            sourceMap["g:$cleanId"] = DiscoveredSource(
+                                topicId = cleanId,
+                                title = cleanTitle,
+                                isGraphic = true
+                            )
+                        }
+                    }
+                    cleanTitle.ifBlank { "Clinical table loaded" }
+                }
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun processStreamingCharLocked(ch: Char) {
         if (pendingTagBuffer.isNotEmpty()) {
             pendingTagBuffer.append(ch)
             if (ch == '>') {
                 val candidate = pendingTagBuffer.toString()
                 pendingTagBuffer.clear()
-                if (isOpeningReasoningTag(candidate)) {
-                    inReasoningBlock = true
-                    _isReasoning.value = true
-                } else if (isClosingReasoningTag(candidate)) {
-                    inReasoningBlock = false
-                    _isReasoning.value = false
-                } else {
-                    appendToActiveBuffer(candidate)
+                when {
+                    isOpeningReasoningTag(candidate) -> {
+                        inReasoningBlock = true
+                        isReasoningFlag = true
+                    }
+                    isClosingReasoningTag(candidate) -> {
+                        inReasoningBlock = false
+                        isReasoningFlag = false
+                    }
+                    else -> appendToActiveBufferLocked(candidate)
                 }
-            } else if (!isPotentialTagPrefix(pendingTagBuffer.toString())) {
+            } else if (!isPotentialTagPrefix(pendingTagBuffer.toString()) || pendingTagBuffer.length > 64) {
                 val notTag = pendingTagBuffer.toString()
                 pendingTagBuffer.clear()
-                appendToActiveBuffer(notTag)
-            } else if (pendingTagBuffer.length > 64) {
-                val overflow = pendingTagBuffer.toString()
-                pendingTagBuffer.clear()
-                appendToActiveBuffer(overflow)
+                appendToActiveBufferLocked(notTag)
             }
+        } else if (ch == '<') {
+            pendingTagBuffer.append(ch)
         } else {
-            if (ch == '<') {
-                pendingTagBuffer.append(ch)
-            } else {
-                appendToActiveBuffer(ch.toString())
-            }
+            appendToActiveBufferLocked(ch.toString())
         }
     }
 
-    private fun appendToActiveBuffer(text: String) {
+    private fun appendToActiveBufferLocked(text: String) {
         if (inReasoningBlock) {
             reasoningBuffer.append(text)
         } else {
-            // Trim leading whitespace if streamingBuffer is still empty
             if (streamingBuffer.isEmpty() && text.all { it == '\n' || it == '\r' || it == ' ' }) {
                 return
             }
@@ -310,7 +799,8 @@ class StreamingManager {
     private fun isOpeningReasoningTag(tag: String): Boolean {
         val lower = tag.lowercase()
         return lower == "<thought>" || lower == "<think>" || lower == "<reasoning>" || lower == "<thinking>" ||
-               lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ") || lower.startsWith("<thinking ")
+            lower.startsWith("<thought ") || lower.startsWith("<think ") ||
+            lower.startsWith("<reasoning ") || lower.startsWith("<thinking ")
     }
 
     private fun isClosingReasoningTag(tag: String): Boolean {
@@ -321,297 +811,8 @@ class StreamingManager {
     private fun isPotentialTagPrefix(prefix: String): Boolean {
         val lower = prefix.lowercase()
         if (REASONING_TAG_PREFIXES.any { it.startsWith(lower) }) return true
-        if (lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ") || lower.startsWith("<thinking ")) return true
-        return false
-    }
-
-    fun onStreamingToolCallDelta(callId: String, content: String, toolName: String? = null) {
-        // Direct markdown streaming renders via onStreamingTextDelta
-    }
-
-    fun onStreamingEnd() {
-        synchronized(stateLock) {
-            if (pendingTagBuffer.isNotEmpty()) {
-                val remaining = pendingTagBuffer.toString()
-                pendingTagBuffer.clear()
-                appendToActiveBuffer(remaining)
-                _streamingText.value = streamingBuffer.toString()
-                _reasoningText.value = reasoningBuffer.toString()
-            }
-            _isReasoning.value = false
-        }
-    }
-
-    fun onLlmCallCompleted(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
-        synchronized(stateLock) {
-            accumulatedUsage = TokenUsage(
-                promptTokens = accumulatedUsage.promptTokens + promptTokens,
-                completionTokens = accumulatedUsage.completionTokens + completionTokens,
-                totalTokens = accumulatedUsage.totalTokens + totalTokens
-            )
-        }
-    }
-
-    fun onCompleted(
-        result: String,
-        topicRefs: List<TopicRef> = emptyList(),
-        graphicRefs: List<GraphicRef> = emptyList(),
-        usage: TokenUsage? = null
-    ) {
-        synchronized(stateLock) {
-            if (usage != null) {
-                accumulatedUsage = usage
-            }
-            activeToolCalls = 0
-            _toolProgress.value = null
-            _currentStatusText.value = "Complete"
-            _orchestrationPhase.value = OrchestrationPhase.COMPLETED
-            _isDraft.value = false
-            _orchestrationSteps.value = _orchestrationSteps.value.map {
-                if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.COMPLETED) else it
-            }
-            streamingBuffer.clear()
-            streamingBuffer.append(result)
-            reasoningBuffer.clear()
-            pendingTagBuffer.clear()
-            inReasoningBlock = false
-            _streamingText.value = result
-            _reasoningText.value = ""
-            _isReasoning.value = false
-            _agentState.value = AgentState.Completed(result, topicRefs, graphicRefs, accumulatedUsage)
-        }
-    }
-
-    fun onError(error: String) {
-        synchronized(stateLock) {
-            activeToolCalls = 0
-            _toolProgress.value = null
-            _currentStatusText.value = "Error"
-            _orchestrationPhase.value = OrchestrationPhase.ERROR
-            _isDraft.value = false
-            _orchestrationSteps.value = _orchestrationSteps.value.map {
-                if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.FAILED) else it
-            }
-            streamingBuffer.clear()
-            reasoningBuffer.clear()
-            pendingTagBuffer.clear()
-            inReasoningBlock = false
-            _streamingText.value = ""
-            _reasoningText.value = ""
-            _isReasoning.value = false
-            val type = classifyError(error)
-            _agentState.value = AgentState.Error(error, type)
-        }
-    }
-
-    fun reset() {
-        synchronized(stateLock) {
-            stepCounter = 0
-            activeToolCalls = 0
-            accumulatedUsage = TokenUsage()
-            totalSectionsReadCount = 0
-            _sectionsReadCount.value = 0
-            _orchestrationPhase.value = OrchestrationPhase.IDLE
-            _isDraft.value = false
-            _isRevised.value = false
-            streamingBuffer.clear()
-            reasoningBuffer.clear()
-            pendingTagBuffer.clear()
-            inReasoningBlock = false
-            _streamingText.value = ""
-            _reasoningText.value = ""
-            _isReasoning.value = false
-            _toolProgress.value = null
-            _orchestrationSteps.value = emptyList()
-            _liveDiscoveredSources.value = emptyList()
-            knownTopicTitles.clear()
-            _currentStatusText.value = "Initializing clinical core…"
-            _agentState.value = AgentState.Idle
-        }
-    }
-
-    private fun getStepInfo(toolName: String, args: String): Pair<String, String?> {
-        return try {
-            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
-            val element = json.parseToJsonElement(args) as? JsonObject
-            when (canonicalName) {
-                "searchTopics" -> {
-                    val query = element?.get("query")?.jsonPrimitive?.content
-                        ?: element?.get("search_query")?.jsonPrimitive?.content
-                        ?: element?.get("searchQuery")?.jsonPrimitive?.content ?: ""
-                    "Search Knowledge Base" to if (query.isNotBlank()) "Query: \"$query\"" else null
-                }
-                "getTopicOverview" -> {
-                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
-                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
-                    val resolvedTitle = knownTopicTitles[topicId]
-                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
-                        "Overview: \"$resolvedTitle\""
-                    } else null
-                    "Examine Topic Overview" to detail
-                }
-                "getTopicSectionsText" -> {
-                    val topicId = element?.get("topicId")?.jsonPrimitive?.content
-                        ?: element?.get("topic_id")?.jsonPrimitive?.content ?: ""
-                    val resolvedTitle = knownTopicTitles[topicId]
-                    val detail = if (!resolvedTitle.isNullOrBlank() && !AiJsonUtils.isNumericOnly(resolvedTitle)) {
-                        "Fetching evidence from \"$resolvedTitle\""
-                    } else {
-                        "Fetching evidence sections"
-                    }
-                    "Retrieve Clinical Evidence" to detail
-                }
-                "getGraphicContent" -> {
-                    val graphicId = element?.get("graphicId")?.jsonPrimitive?.content
-                        ?: element?.get("graphic_id")?.jsonPrimitive?.content
-                    val detail = if (!graphicId.isNullOrBlank()) "Table: $graphicId" else null
-                    "Load Reference Table" to detail
-                }
-                else -> toolName to null
-            }
-        } catch (_: Exception) {
-            toolName to null
-        }
-    }
-
-    private fun getCompletionDetail(toolName: String, resultText: String): String? {
-        if (resultText.isBlank()) return null
-        return try {
-            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
-            when (canonicalName) {
-                "searchTopics" -> {
-                    val res = json.decodeFromString<SearchTopicsResponse>(resultText)
-                    val count = res.results.size
-                    val topicWord = if (count == 1) "topic" else "topics"
-                    if (count > 0) {
-                        "$count candidate $topicWord identified"
-                    } else if (res.message.startsWith("Auto-refined", ignoreCase = true)) {
-                        res.message
-                    } else {
-                        "No topics found"
-                    }
-                }
-                "getTopicOverview" -> {
-                    val res = json.decodeFromString<TopicOverviewResponse>(resultText)
-                    val count = res.sections.size
-                    val sectionWord = if (count == 1) "section" else "sections"
-                    val resolvedTitle = res.title.takeIf { it.isNotBlank() && !AiJsonUtils.isNumericOnly(it) }
-                        ?: knownTopicTitles[res.topicId]
-                    if (!resolvedTitle.isNullOrBlank()) {
-                        "Overview: \"$resolvedTitle\" ($count $sectionWord)"
-                    } else {
-                        "Topic overview loaded ($count $sectionWord)"
-                    }
-                }
-                "getTopicSectionsText" -> {
-                    val res = json.decodeFromString<TopicSectionsResponse>(resultText)
-                    val count = res.sectionTitles.size
-                    totalSectionsReadCount += count
-                    _sectionsReadCount.value = totalSectionsReadCount
-                    val resolvedTitle = res.topicTitle.takeIf { it.isNotBlank() && !AiJsonUtils.isNumericOnly(it) }
-                        ?: knownTopicTitles[res.topicId]
-                    val sectionWord = if (count == 1) "section" else "sections"
-                    if (!resolvedTitle.isNullOrBlank() && count > 0) {
-                        "$count $sectionWord from \"$resolvedTitle\""
-                    } else if (count > 0) {
-                        "$count $sectionWord retrieved"
-                    } else if (!resolvedTitle.isNullOrBlank()) {
-                        "0 sections matched in \"$resolvedTitle\""
-                    } else "0 sections matched"
-                }
-                "getGraphicContent" -> {
-                    val res = json.decodeFromString<GraphicContentResponse>(resultText)
-                    if (res.title.isNotBlank()) "Table: ${res.title}" else "Table retrieved"
-                }
-                else -> null
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun parseDiscoveredSources(toolName: String, resultText: String) {
-        if (resultText.isBlank()) return
-        try {
-            val canonicalName = AiJsonUtils.normalizeToolName(toolName)
-            when (canonicalName) {
-                "searchTopics" -> {
-                    val res = json.decodeFromString<SearchTopicsResponse>(resultText)
-                    for (item in res.results) {
-                        if (item.id.isNotBlank() && item.title.isNotBlank() && !AiJsonUtils.isNumericOnly(item.title)) {
-                            knownTopicTitles[item.id] = item.title
-                        }
-                    }
-                }
-                "getTopicOverview" -> {
-                    val res = json.decodeFromString<TopicOverviewResponse>(resultText)
-                    val topicId = res.topicId
-                    val title = res.title
-                    if (topicId.isNotBlank() && title.isNotBlank() && !AiJsonUtils.isNumericOnly(title)) {
-                        knownTopicTitles[topicId] = title
-                        val current = _liveDiscoveredSources.value.toMutableList()
-                        val existingIndex = current.indexOfFirst { it.topicId == topicId }
-                        if (existingIndex >= 0) {
-                            current[existingIndex] = current[existingIndex].copy(label = title, topicTitle = title)
-                        } else {
-                            current.add(TopicRef(topicId = topicId, label = title, topicTitle = title))
-                        }
-                        _liveDiscoveredSources.value = current
-                    }
-                }
-                "getTopicSectionsText" -> {
-                    val res = json.decodeFromString<TopicSectionsResponse>(resultText)
-                    val topicId = res.topicId
-                    val topicTitle = res.topicTitle
-                    if (topicId.isNotBlank() && topicTitle.isNotBlank() && !AiJsonUtils.isNumericOnly(topicTitle)) {
-                        knownTopicTitles[topicId] = topicTitle
-                    }
-                    if (topicTitle.isNotBlank()) {
-                        val current = _liveDiscoveredSources.value.toMutableList()
-                        val existingIndex = current.indexOfFirst { it.topicId == topicId }
-                        if (existingIndex >= 0) {
-                            if (current[existingIndex].topicTitle.isBlank() || AiJsonUtils.isNumericOnly(current[existingIndex].topicTitle)) {
-                                current[existingIndex] = current[existingIndex].copy(topicTitle = topicTitle, label = topicTitle)
-                            }
-                        } else {
-                            current.add(
-                                TopicRef(
-                                    topicId = topicId,
-                                    sectionId = "",
-                                    label = topicTitle,
-                                    topicTitle = topicTitle
-                                )
-                            )
-                        }
-                        _liveDiscoveredSources.value = current
-                    }
-                }
-                "getGraphicContent" -> {
-                    val res = json.decodeFromString<GraphicContentResponse>(resultText)
-                    val title = res.title.trim()
-                    val graphicId = res.graphicId.trim()
-                    if (title.isNotBlank()) {
-                        val current = _liveDiscoveredSources.value.toMutableList()
-                        val existingIndex = current.indexOfFirst {
-                            (graphicId.isNotBlank() && it.topicId == graphicId) || it.label == title
-                        }
-                        if (existingIndex < 0) {
-                            current.add(
-                                TopicRef(
-                                    topicId = graphicId,
-                                    sectionId = "",
-                                    label = title,
-                                    topicTitle = title
-                                )
-                            )
-                            _liveDiscoveredSources.value = current
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            // Ignore parsing failures in telemetry
-        }
+        return lower.startsWith("<thought ") || lower.startsWith("<think ") ||
+            lower.startsWith("<reasoning ") || lower.startsWith("<thinking ")
     }
 
     fun classifyError(error: String, throwable: Throwable? = null): ErrorType {
@@ -625,18 +826,10 @@ class StreamingManager {
             val msg = current.message?.lowercase().orEmpty()
             val cls = current::class.simpleName?.lowercase().orEmpty()
 
-            if ("timeout" in msg || "timeout" in cls || "deadline" in msg || "time out" in msg) {
-                hasTimeout = true
-            }
-            if ("connect" in msg || "network" in msg || "unreachable" in msg || "unknownhost" in msg || "unknownhost" in cls) {
-                hasNetwork = true
-            }
-            if ("401" in msg || "unauthorized" in msg || "api key" in msg || "forbidden" in msg || "403" in msg) {
-                hasAuth = true
-            }
-            if ("429" in msg || "rate" in msg || "quota" in msg || "exhausted" in msg) {
-                hasRateLimit = true
-            }
+            if ("timeout" in msg || "timeout" in cls || "deadline" in msg || "time out" in msg) hasTimeout = true
+            if ("connect" in msg || "network" in msg || "unreachable" in msg || "unknownhost" in msg || "unknownhost" in cls) hasNetwork = true
+            if ("401" in msg || "unauthorized" in msg || "api key" in msg || "forbidden" in msg || "403" in msg) hasAuth = true
+            if ("429" in msg || "rate" in msg || "quota" in msg || "exhausted" in msg) hasRateLimit = true
             current = current.cause
         }
 
@@ -657,10 +850,13 @@ class StreamingManager {
     }
 
     companion object {
+        const val INITIAL_STATUS_TEXT = "Initializing clinical core…"
+        private const val STEP_SYNTHESIS_ID = "step_synthesis"
+        private const val DEFAULT_FLUSH_INTERVAL_MS = 36L
+
         private val REASONING_TAG_PREFIXES = listOf(
             "<thought", "<think", "<reasoning", "<thinking",
             "</thought", "</think", "</reasoning", "</thinking"
         )
     }
 }
-

@@ -23,6 +23,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.clinref.app.domain.ai.ChatExecutionEvent
@@ -59,11 +60,8 @@ class ChatViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        every { streamingManager.uiState } returns MutableStateFlow(StreamingManager.StreamingUiState())
         every { streamingManager.currentStatusText } returns MutableStateFlow("")
-        every { streamingManager.orchestrationPhase } returns MutableStateFlow(StreamingManager.OrchestrationPhase.IDLE)
-        every { streamingManager.sectionsReadCount } returns MutableStateFlow(0)
-        every { streamingManager.isDraft } returns MutableStateFlow(false)
-        every { streamingManager.isRevised } returns MutableStateFlow(false)
         chatExecutionManager = ChatExecutionManager(
             conversationRepository = conversationRepository,
             koogAgentFactory = koogAgentFactory,
@@ -152,17 +150,41 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun testLoadConversationEmitsInitialLoadEvent() = runTest(testDispatcher) {
+        val m1 = MessageEntity("m1", "conv-1", "user", "Hello", 1000L)
+        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(m1)
+
+        val events = mutableListOf<ChatScrollEvent>()
+        val job = launch {
+            viewModel.scrollEvents.collect { events.add(it) }
+        }
+
+        viewModel.loadConversation("conv-1")
+        advanceUntilIdle()
+
+        assertTrue("InitialLoad event must be emitted", events.contains(ChatScrollEvent.InitialLoad))
+        job.cancel()
+    }
+
+    @Test
     fun testSendMessageEmitsScrollToBottomEvent() = runTest(testDispatcher) {
         viewModel.loadConversation("conv-1")
         advanceUntilIdle()
 
-        viewModel.sendMessage("Checking renal function")
+        val events = mutableListOf<ChatScrollEvent>()
+        val job = launch {
+            viewModel.scrollEvents.collect { events.add(it) }
+        }
 
-        val event = viewModel.scrollEvents.first()
-        assertTrue(event is ChatScrollEvent.ScrollToBottom)
-        assertTrue((event as ChatScrollEvent.ScrollToBottom).animated)
+        viewModel.sendMessage("Checking renal function")
+        advanceUntilIdle()
+
+        val event = events.filterIsInstance<ChatScrollEvent.ScrollToBottom>().firstOrNull { it.awaitMessageId != null }
+        assertNotNull("ScrollToBottom event must be emitted", event)
+        assertTrue(event!!.animated)
         val userMsg = viewModel.messages.value.first { it.role == "user" }
         assertEquals(userMsg.id, event.awaitMessageId)
+        job.cancel()
     }
 
     @Test
@@ -237,7 +259,7 @@ class ChatViewModelTest {
         val mockExecutor: PromptExecutor = mockk(relaxed = true)
         val mockModel: LLModel = mockk(relaxed = true)
         coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
-        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             kotlinx.coroutines.delay(10_000)
             ClinicalOrchestrator.ExecutionResult("Result")
         }
