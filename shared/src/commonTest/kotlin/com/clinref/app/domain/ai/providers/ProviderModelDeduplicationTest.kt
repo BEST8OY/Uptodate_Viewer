@@ -1,7 +1,10 @@
 package com.clinref.app.domain.ai.providers
 
 import ai.koog.http.client.KoogHttpClient
+import ai.koog.prompt.executor.clients.anthropic.AnthropicParams
+import ai.koog.prompt.executor.clients.anthropic.models.AnthropicThinking
 import ai.koog.prompt.executor.clients.google.GoogleParams
+import ai.koog.prompt.executor.clients.openai.OpenAIChatParams
 import com.clinref.app.domain.ai.AiConfiguration
 import com.clinref.app.domain.ai.AiProvider
 import io.mockk.mockk
@@ -9,6 +12,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -125,5 +129,82 @@ class ProviderModelDeduplicationTest {
 
         val available = provider.getAvailableModels()
         assertEquals("OpenRouter models must have no duplicates", available.distinct().size, available.size)
+    }
+
+    @Test
+    fun openAIProviderEnforcesNullTemperatureForReasoningModelsEvenWithDefaultSettings() {
+        val provider = OpenAIProvider(httpClientFactory)
+
+        // o3-mini without explicit reasoningEffort settings must still null temperature
+        val o3Config = AiConfiguration(
+            provider = AiProvider.OPENAI,
+            model = "o3-mini",
+            providerSettings = com.clinref.app.domain.ai.ProviderSettings.OpenAI(
+                temperature = 0.7f,
+                maxTokens = 8192
+            )
+        )
+        val o3Params = provider.createParams(o3Config)
+        assertNull("Temperature must be null for o3-mini reasoning model", o3Params.temperature)
+        assertEquals(8192, o3Params.maxTokens)
+
+        // Non-reasoning model (gpt-4o) must retain temperature
+        val gpt4oConfig = AiConfiguration(
+            provider = AiProvider.OPENAI,
+            model = "gpt-4o",
+            providerSettings = com.clinref.app.domain.ai.ProviderSettings.OpenAI(
+                temperature = 0.7f,
+                maxTokens = 4096
+            )
+        )
+        val gpt4oParams = provider.createParams(gpt4oConfig)
+        assertEquals(0.7, gpt4oParams.temperature!!, 0.01)
+        assertEquals(4096, gpt4oParams.maxTokens)
+    }
+
+    @Test
+    fun anthropicProviderEnforcesExtendedThinkingConstraints() {
+        val provider = AnthropicProvider(httpClientFactory)
+
+        // Thinking enabled with small budget (under 1024) and requested maxTokens <= budget
+        val config = AiConfiguration(
+            provider = AiProvider.ANTHROPIC,
+            model = "claude-3-7-sonnet",
+            providerSettings = com.clinref.app.domain.ai.ProviderSettings.Anthropic(
+                temperature = 0.5f,
+                maxTokens = 2048,
+                enableThinking = true,
+                thinkingBudget = 500 // Under 1024
+            )
+        )
+        val params = provider.createParams(config) as AnthropicParams
+        assertEquals(1.0, params.temperature!!, 0.01)
+        assertTrue("Thinking must be enabled", params.thinking is AnthropicThinking.Enabled)
+        val enabledThinking = params.thinking as AnthropicThinking.Enabled
+        assertEquals("Budget must be coerced to at least 1024", 1024, enabledThinking.budgetTokens)
+        assertTrue(
+            "maxTokens must exceed budgetTokens",
+            params.maxTokens!! > enabledThinking.budgetTokens
+        )
+        assertEquals(1024 + 4096, params.maxTokens)
+    }
+
+    @Test
+    fun googleProviderMutuallyExcludesBudgetAndLevelForGeminiStability() {
+        val provider = GoogleProvider(httpClientFactory)
+
+        // When thinkingBudget is set, thinkingLevel should be omitted to avoid Gemini 2.5 errors
+        val configWithBudget = AiConfiguration(
+            provider = AiProvider.GOOGLE,
+            model = "gemini-2.5-flash",
+            providerSettings = com.clinref.app.domain.ai.ProviderSettings.Google(
+                includeThoughts = true,
+                thinkingBudget = 4096,
+                thinkingLevel = "high"
+            )
+        )
+        val paramsWithBudget = provider.createParams(configWithBudget) as GoogleParams
+        assertEquals(4096, paramsWithBudget.thinkingConfig?.thinkingBudget)
+        assertNull("thinkingLevel must be omitted when thinkingBudget is present", paramsWithBudget.thinkingConfig?.thinkingLevel)
     }
 }

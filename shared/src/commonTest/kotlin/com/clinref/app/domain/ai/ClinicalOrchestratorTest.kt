@@ -603,7 +603,9 @@ class ClinicalOrchestratorTest {
         val history = listOf(
             MessageEntity(id = "m1", conversationId = "c1", role = "user", content = "First question", timestamp = 1000L),
             MessageEntity(id = "m2", conversationId = "c1", role = "assistant", content = "First answer", timestamp = 2000L),
+            MessageEntity(id = "m3_user", conversationId = "c1", role = "user", content = "Failed question", timestamp = 2500L),
             MessageEntity(id = "m3", conversationId = "c1", role = "assistant", content = "An error occurred during response generation", timestamp = 3000L, isError = true),
+            MessageEntity(id = "m4_user", conversationId = "c1", role = "user", content = "Cancelled question", timestamp = 3500L),
             MessageEntity(id = "m4", conversationId = "c1", role = "cancelled", content = "Cancelled generation", timestamp = 4000L)
         )
 
@@ -625,7 +627,87 @@ class ClinicalOrchestratorTest {
         }
         assertTrue("Prompt should include valid user message", historyContents.any { it.contains("First question") })
         assertTrue("Prompt should include valid assistant message", historyContents.any { it.contains("First answer") })
+        assertFalse("Prompt MUST NOT include orphan user message from failed turn", historyContents.any { it.contains("Failed question") })
+        assertFalse("Prompt MUST NOT include orphan user message from cancelled turn", historyContents.any { it.contains("Cancelled question") })
         assertFalse("Prompt MUST NOT include error message", historyContents.any { it.contains("An error occurred") })
         assertFalse("Prompt MUST NOT include cancelled message", historyContents.any { it.contains("Cancelled generation") })
+
+        firstPrompt.messages.zipWithNext { a, b ->
+            assertFalse("Prompt MUST NOT contain consecutive Message.User messages", a is Message.User && b is Message.User)
+        }
+    }
+
+    @Test
+    fun testToolCallWithNullOrBlankIdSynchronizesAcrossAssistantAndUserToolMessages() = runTest {
+        val topicId = "100"
+        val sectionId = "sec_1"
+        coEvery { medicalDatabaseTools.getTopicSectionsText(topicId, listOf(sectionId)) } returns TopicSectionsResponse(
+            topicId = topicId,
+            topicTitle = "CAP",
+            sectionTitles = mapOf(sectionId to "Treatment"),
+            markdown = "Dose: Amoxicillin 1 g PO TID."
+        )
+        every { medicalDatabaseTools.getTopicTitle(topicId) } returns "CAP"
+        every { medicalDatabaseTools.getSectionTitle(topicId, sectionId) } returns "Treatment"
+
+        // Tool call with null id
+        val blankIdToolCall = MessagePart.Tool.Call(
+            id = null,
+            tool = "getTopicSectionsText",
+            args = """{"topicId":"$topicId","sectionIds":["$sectionId"]}"""
+        )
+
+        val meta = ResponseMetaInfo(KoogClock.System.now())
+        var round2Prompt: Prompt? = null
+        var executeCount = 0
+        executor.executeHandler = { prompt, _, _ ->
+            executeCount++
+            if (executeCount == 1) {
+                Message.Assistant(parts = listOf(blankIdToolCall), metaInfo = meta)
+            } else {
+                round2Prompt = prompt
+                Message.Assistant(parts = emptyList(), metaInfo = meta)
+            }
+        }
+
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Amoxicillin 1 g PO TID."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        orchestrator.runTurn(
+            question = "What is the dose?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager
+        )
+
+        val capturedPrompt = round2Prompt
+        assertNotNull("Round 2 prompt must be captured", capturedPrompt)
+        requireNotNull(capturedPrompt)
+        val assistantMsg = capturedPrompt.messages.filterIsInstance<Message.Assistant>().lastOrNull()
+        val userToolMsg = capturedPrompt.messages.filterIsInstance<Message.User>().lastOrNull()
+
+        assertNotNull("Assistant message must exist", assistantMsg)
+        assertNotNull("User tool result message must exist", userToolMsg)
+        requireNotNull(assistantMsg)
+        requireNotNull(userToolMsg)
+
+        val assistantToolCall = assistantMsg.parts.filterIsInstance<MessagePart.Tool.Call>().firstOrNull()
+        val userToolResult = userToolMsg.parts.filterIsInstance<MessagePart.Tool.Result>().firstOrNull()
+
+        assertNotNull("Assistant tool call must exist", assistantToolCall)
+        assertNotNull("User tool result must exist", userToolResult)
+        requireNotNull(assistantToolCall)
+        requireNotNull(userToolResult)
+
+        assertNotNull("Assistant tool call ID must not be null", assistantToolCall.id)
+        assertTrue("Assistant tool call ID must not be blank", assistantToolCall.id.orEmpty().isNotBlank())
+        assertEquals("Assistant tool call ID must match User tool result ID", assistantToolCall.id, userToolResult.id)
     }
 }

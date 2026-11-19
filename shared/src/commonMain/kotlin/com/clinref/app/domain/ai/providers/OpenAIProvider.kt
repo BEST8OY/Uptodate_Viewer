@@ -20,15 +20,20 @@ class OpenAIProvider(
     private val httpClientFactory: KoogHttpClient.Factory
 ) : AiProviderFactory {
 
-    override fun resolveModel(config: AiConfiguration): LLModel {
+    private fun isReasoningModel(config: AiConfiguration): Boolean {
         val modelId = config.model.trim().ifEmpty { OpenAIModels.models.first().id }
-        val predefined = OpenAIModels.models.find { it.id.equals(modelId, ignoreCase = true) }
         val settings = config.providerSettings as? ProviderSettings.OpenAI
-        val isReasoningModel = (settings?.reasoningEffort != null && settings.reasoningEffort.lowercase() !in listOf("none", "")) ||
+        return (settings?.reasoningEffort != null && settings.reasoningEffort.lowercase() !in listOf("none", "")) ||
             modelId.startsWith("o1", ignoreCase = true) ||
             modelId.startsWith("o3", ignoreCase = true) ||
             modelId.startsWith("o4", ignoreCase = true) ||
             modelId.contains("gpt-5", ignoreCase = true)
+    }
+
+    override fun resolveModel(config: AiConfiguration): LLModel {
+        val modelId = config.model.trim().ifEmpty { OpenAIModels.models.first().id }
+        val predefined = OpenAIModels.models.find { it.id.equals(modelId, ignoreCase = true) }
+        val isReasoningModel = isReasoningModel(config)
 
         val baseCapabilities = predefined?.capabilities ?: listOf(
             ai.koog.prompt.llm.LLMCapability.Completion,
@@ -75,13 +80,18 @@ class OpenAIProvider(
 
     override fun createParams(config: AiConfiguration): LLMParams {
         val settings = config.providerSettings as? ProviderSettings.OpenAI
-            ?: return LLMParams(temperature = (config.temperature.toDouble() * 100).roundToInt() / 100.0, maxTokens = config.maxTokens)
-        val hasReasoning = settings.reasoningEffort != null && settings.reasoningEffort.lowercase() !in listOf("none", "")
-        val temperature = if (hasReasoning) null else (config.temperature.toDouble() * 100).roundToInt() / 100.0
+        val isReasoning = isReasoningModel(config)
+        val defaultTemp = (config.temperature.toDouble() * 100).roundToInt() / 100.0
+        val temperature = if (isReasoning) null else defaultTemp
+        val maxTokens = settings?.maxTokens ?: config.maxTokens
+
+        if (settings == null) {
+            return LLMParams(temperature = temperature, maxTokens = maxTokens)
+        }
 
         return OpenAIChatParams(
             temperature = temperature,
-            maxTokens = settings.maxTokens,
+            maxTokens = maxTokens,
             reasoningEffort = settings.reasoningEffort?.let {
                 when (it.lowercase()) {
                     "low" -> ReasoningEffort.LOW

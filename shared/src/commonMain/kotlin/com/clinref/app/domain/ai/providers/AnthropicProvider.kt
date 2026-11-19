@@ -84,14 +84,18 @@ class AnthropicProvider(
         // Anthropic requires temperature to be 1.0 when extended thinking is enabled
         val temperature = if (isThinking) 1.0 else (config.temperature.toDouble() * 100).roundToInt() / 100.0
 
-        val thinkingConfig = if (isThinking) {
-            val budget = settings.thinkingBudget ?: 2048
-            AnthropicThinking.Enabled(budgetTokens = budget)
-        } else null
+        val requestedMax = settings?.maxTokens ?: config.maxTokens
+        val (thinkingConfig, effectiveMaxTokens) = if (isThinking) {
+            val budget = (settings.thinkingBudget ?: 2048).coerceAtLeast(1024)
+            val effMax = maxOf(requestedMax, budget + 4096)
+            AnthropicThinking.Enabled(budgetTokens = budget) to effMax
+        } else {
+            null to requestedMax
+        }
 
         return AnthropicParams(
             temperature = temperature,
-            maxTokens = settings?.maxTokens ?: config.maxTokens,
+            maxTokens = effectiveMaxTokens,
             thinking = thinkingConfig,
             cacheControl = AnthropicCacheControl.Default
         )

@@ -60,7 +60,7 @@ class SearchTopicsTool(
     @Serializable
     data class Args(
         @property:LLMDescription("Core clinical entity or generic drug name (1–3 words, e.g., 'metformin', 'atrial fibrillation'). Do not include boolean operators, patient demographics, or punctuation.")
-        @JsonNames("search_query", "q", "query_text")
+        @JsonNames("search_query", "searchQuery")
         val query: String
     )
 
@@ -81,10 +81,10 @@ class GetTopicSectionsTextTool(
     @Serializable
     data class Args(
         @property:LLMDescription("Exact numeric topic ID string.")
-        @JsonNames("topic_id")
+        @JsonNames("topic_id", "topicId")
         val topicId: String,
         @property:LLMDescription("Array of 1 to ${com.clinref.app.data.MAX_SECTIONS_PER_CALL} section ID strings copied from getTopicOverview (e.g., ['H12', 'H15']).")
-        @JsonNames("section_ids")
+        @JsonNames("section_ids", "sectionIds")
         val sectionIds: List<String> = emptyList()
     )
 
@@ -111,7 +111,7 @@ class GetGraphicContentTool(
     @Serializable
     data class Args(
         @property:LLMDescription("Exact graphic ID string from getTopicOverview for a 'graphic_table' item (e.g., 'Graphic-12345' or '12345').")
-        @JsonNames("graphic_id")
+        @JsonNames("graphic_id", "graphicId")
         val graphicId: String
     )
 

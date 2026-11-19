@@ -32,7 +32,8 @@ data class FetchedGraphic(
     val graphicId: String,
     val title: String = "",
     val markdown: String = "",
-    val topicId: String = ""
+    val topicId: String = "",
+    val topicTitle: String = ""
 )
 
 /**
@@ -60,8 +61,8 @@ data class GraphicRef(
  * Ephemeral context accumulated across Stage 1 tool execution and Stage 2 synthesis.
  */
 data class TurnContext(
-    val toolCalls: List<ToolCallRecord>,
-    val answer: String,
+    val toolCalls: List<ToolCallRecord> = emptyList(),
+    val answer: String = "",
     val toolResults: List<String> = emptyList(),
     val fetchedSections: List<FetchedSection> = emptyList(),
     val fetchedGraphics: List<FetchedGraphic> = emptyList(),

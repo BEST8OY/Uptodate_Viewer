@@ -88,6 +88,13 @@ class KoogAgentFactory(
         decisionClientCache.clear()
     }
 
+    fun clearExecutors() {
+        executorCache.values.forEach { executor ->
+            try { (executor as? AutoCloseable)?.close() } catch (_: Exception) {}
+        }
+        executorCache.clear()
+    }
+
     suspend fun testConnection(config: AiConfiguration, apiKeyOverride: String? = null): Result<Unit> {
         val apiKey = apiKeyOverride ?: securePreferences.getApiKey(config.provider)
         if (apiKey.isBlank() && config.provider != AiProvider.OLLAMA) {
@@ -98,11 +105,13 @@ class KoogAgentFactory(
             ?: return Result.failure(IllegalStateException("Unsupported provider: ${config.provider.displayName}"))
 
         val cacheKey = "${config.provider}_${apiKey.hashCode()}_${config.baseUrl}"
-        val executor = executorCache[cacheKey] ?: run {
+        val cached = executorCache[cacheKey]
+        val (executor, shouldCache) = if (cached != null) {
+            cached to false
+        } else {
             val created = providerFactory.createExecutor(config, apiKey)
                 ?: return Result.failure(IllegalStateException("Failed to initialize client for ${config.provider.displayName}"))
-            executorCache[cacheKey] = created
-            created
+            created to true
         }
         val model = providerFactory.resolveModel(config)
         val providerParams = providerFactory.createParams(config)
@@ -116,8 +125,17 @@ class KoogAgentFactory(
                 model = model,
                 tools = emptyList()
             )
+            if (shouldCache) {
+                val old = executorCache.put(cacheKey, executor)
+                if (old != null && old !== executor) {
+                    try { (old as? AutoCloseable)?.close() } catch (_: Exception) {}
+                }
+            }
             Result.success(Unit)
         } catch (e: Throwable) {
+            if (shouldCache) {
+                try { (executor as? AutoCloseable)?.close() } catch (_: Exception) {}
+            }
             val rootCause = e.cause ?: e
             Result.failure(rootCause)
         }

@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -56,7 +58,6 @@ class ChatExecutionManager(
 
     private var activeJob: Job? = null
     private var activeTurn: TurnContext? = null
-    private var idleCancelled = false
 
     private val _events = MutableSharedFlow<ChatExecutionEvent>(
         replay = 0,
@@ -86,7 +87,6 @@ class ChatExecutionManager(
         val pendingAssistantId = UUID.randomUUID().toString()
         val turnContext = TurnContext(messageId = pendingAssistantId)
         activeTurn = turnContext
-        idleCancelled = false
         _activeConversationId.value = conversationId
         _activeAssistantMessageId.value = pendingAssistantId
 
@@ -240,7 +240,6 @@ class ChatExecutionManager(
                     _activeAssistantMessageId.value = null
                     streamingManager.reset()
                 }
-                idleCancelled = true
                 if (!turnContext.terminalEventEmitted && !turnContext.userCancelled) {
                     turnContext.terminalEventEmitted = true
                     val fallbackError = MessageEntity(
@@ -269,11 +268,8 @@ class ChatExecutionManager(
             return
         }
         val turn = activeTurn
-        if (currentActive == null && (turn == null && idleCancelled)) {
+        if (currentActive == null && turn == null) {
             return
-        }
-        if (currentActive == null) {
-            idleCancelled = true
         }
         val job = activeJob
         turn?.userCancelled = true
@@ -303,10 +299,6 @@ class ChatExecutionManager(
             _events.tryEmit(ChatExecutionEvent.GenerationCancelled(conversationId, cancelMsg))
             backgroundExecutionBridge?.onExecutionCancelled(conversationId)
         }
-    }
-
-    companion object {
-        const val BLOCKED_MARKER = "Clinical Response Verification Blocked: "
     }
 
     internal suspend fun handleAgentResult(
@@ -357,11 +349,6 @@ class ChatExecutionManager(
             graphicRefsJson = json.encodeToString(graphicRefs)
         )
         try {
-            val recent = conversationRepository.getMessagesPage(conversationId, limit = 5, offset = 0)
-            val orphan = recent.firstOrNull { it.id != messageId && (it.isError || it.role == "cancelled") }
-            if (orphan != null) {
-                conversationRepository.deleteMessages(conversationId, listOf(orphan.id))
-            }
             conversationRepository.addMessage(assistantMsg)
             conversationRepository.updateTokenCounts(
                 conversationId,
@@ -393,11 +380,6 @@ class ChatExecutionManager(
             timestamp = System.currentTimeMillis()
         )
         try {
-            val recent = conversationRepository.getMessagesPage(conversationId, limit = 5, offset = 0)
-            val orphan = recent.firstOrNull { it.id != messageId && (it.isError || it.role == "cancelled") }
-            if (orphan != null) {
-                conversationRepository.deleteMessages(conversationId, listOf(orphan.id))
-            }
             conversationRepository.addMessage(fallbackMsg)
             conversationRepository.updateLastPreview(conversationId, fallbackResult.take(100))
         } catch (e: Exception) {
@@ -424,14 +406,19 @@ class ChatExecutionManager(
             timestamp = System.currentTimeMillis(),
             isError = true
         )
-        try {
-            conversationRepository.addMessage(errorMsg)
-        } catch (e: Exception) {
-            secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist error message: ${e.message}")
+        withContext(NonCancellable) {
+            if (turnContext?.userCancelled == true) {
+                return@withContext
+            }
+            try {
+                conversationRepository.addMessage(errorMsg)
+            } catch (e: Exception) {
+                secureLogger.log(SecureLogger.Level.ERROR, "ChatExecutionManager", "Failed to persist error message: ${e.message}")
+            }
+            markTurnTerminal(messageId, turnContext)
+            _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, errorMsg))
+            backgroundExecutionBridge?.onExecutionCompleted(conversationId, errorMessage, true)
         }
-        markTurnTerminal(messageId, turnContext)
-        _events.tryEmit(ChatExecutionEvent.GenerationError(conversationId, errorMsg))
-        backgroundExecutionBridge?.onExecutionCompleted(conversationId, errorMessage, true)
     }
 
     private fun markTurnTerminal(messageId: String, turnContext: TurnContext?) {

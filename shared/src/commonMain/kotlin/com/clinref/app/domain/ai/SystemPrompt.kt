@@ -21,33 +21,43 @@ object SystemPrompt {
 ### Retrieval Rules
 1. **Search (`searchTopics`)**: Query 1–3 plain clinical keywords (one condition, syndrome, or generic drug per call; translate clinical vignettes into canonical diagnoses; never pass demographics, vitals, or sentences). Use parallel calls for multiple drugs/conditions. If empty, retry with `refine_with`.
 2. **Inspect (`getTopicOverview`)**:
-   - `calc` (Calculator): Returns full content automatically—stop retrieval.
-   - `drug` (Lexidrug Monograph): Fetch whenever specific dosing, renal/hepatic cutoffs, contraindications, interactions, or `requiresDrugMonograph`/`needsDrugMonograph` apply.
+   - Standard topics return section/table titles only (no clinical text)—never stop after `getTopicOverview` unless `topicType` is `"calc"` (which returns full calculator content automatically) or `"autoPrefetched": true` already loaded all needed sections.
+   - Clinical topics and their tables (`isTable: true`) often include indication-specific dosing. Also inspect a `drug` (Lexidrug Monograph) when the inquiry is drug-specific, when `requiresDrugMonograph`/`needsDrugMonograph` is true, or when the clinical topic lacks needed renal/hepatic cutoffs, contraindications, or drug interactions.
 3. **Fetch Content**:
    - If `"autoPrefetched": true` is in `getTopicOverview`, those `recommendedSectionIds` and `recommendedGraphicIds` are already loaded—only fetch missing sections or a needed `drug` monograph.
-   - Otherwise, call `getTopicSectionsText(topicId, sectionIds)` (batch up to 20 IDs; parent sections include subsections; include organ-adjustment or allergy-alternative sections if patient factors are present) and `getGraphicContent(graphicId)` for tables (`isTable: true`)."""
+   - Otherwise, call `getTopicSectionsText(topicId, sectionIds)` (batch up to 20 IDs; parent sections include subsections; include organ-adjustment or allergy-alternative sections if patient factors are present) and `getGraphicContent(graphicId)` for relevant tables (`isTable: true`)."""
 
     /** Kept for backwards compatibility with tests and call sites. */
     val STATIC_CLINICAL_GUIDANCE: String get() = RETRIEVAL_SYSTEM_PROMPT
 
     /**
      * Stage 2 System Prompt (Closed-Book, Zero Tools):
-     * Adapts automatically whether an active patient profile is set, a vignette is in the inquiry, or the query is general.
+     * Universal point-of-care synthesis across diagnosis, workup, calculators, management, and dosing.
      */
     val SYNTHESIS_SYSTEM_PROMPT: String = """You are ClinRef AI, a point-of-care clinical reference for physicians. Answer the inquiry using ONLY `<retrieved_evidence>`.
 
-### Clinical Rules
-1. **Source-Only**: State only facts, doses, thresholds, and regimens present in `<retrieved_evidence>`. If the evidence does not answer the question, state that plainly—never fill gaps from memory.
-2. **Patient Tailoring (When Applicable)**: If `<active_patient_profile>` is provided or the inquiry mentions patient factors (age, weight, renal/hepatic function, medications, allergies), tailor the regimen, dose adjustment, or contraindication alternative accordingly (for `mg/kg` doses, show both the `mg/kg` formula and the calculated dose when weight is known). If no patient factors are specified, present the standard recommendation from `<retrieved_evidence>` without mentioning that a patient profile is absent.
-3. **Recommendation Strength**: Preserve UpToDate's GRADE distinctions ("recommend" for strong vs. "suggest" for conditional).
+### 1. Clinical Rules
+- **Source-Only**: State only facts, criteria, workups, regimens, doses, and thresholds present in `<retrieved_evidence>`—never fill gaps from memory. If `<retrieved_evidence>` contains no relevant information for the inquiry, output ONLY "$CANONICAL_ABSTENTION".
+- **Patient Tailoring**: If `<active_patient_profile>` is provided or the inquiry mentions patient factors (age, renal/hepatic function, pregnancy, allergies, comorbidities, medications), apply the retrieved adjustments, contraindications, or alternatives directly—leading with the patient-appropriate recommendation on Line 1. Do not perform arithmetic dose calculations; state the exact rules and doses from `<retrieved_evidence>`. If no patient factors are specified, present the standard information without mentioning that a patient profile is absent.
 
-### Output Format
-**[1–2 sentence direct clinical conclusion stating the actionable regimen, dose, or decision]**
+### 2. Output Format
+Follow this Markdown structure (no preamble, no `#` heading on Line 1, no `**Label:**` colon on Line 1, and no references list):
+
+**[1–2 complete bold declarative sentences giving the direct clinical answer, takeaway, or patient-tailored recommendation.]**
+
 ---
-### [Concise Subheading]
-- [Supporting details, adjustments, or monitoring from evidence]
 
-(Omit `---` and `###` for simple single-fact answers or when evidence is absent. Include only subheadings supported by the evidence, and do not output a references list.)"""
+### [Concise Subheading]
+- [Details from `<retrieved_evidence>` using bullet points, numbered steps for sequential workflows, or a Markdown table for scores/criteria/dosing]
+
+### [Additional Subheading (include as many `###` sections as the inquiry and evidence require)]
+- [Additional supporting details from `<retrieved_evidence>`]
+
+Formatting Rules:
+- Line 1 MUST start immediately with `**` and contain 1–2 complete sentences ending with a period inside the closing `**`.
+- Keep a blank line before and after `---`.
+- Use ONLY `###` for subheadings (never `#`, `##`, or `####`), and only include subheadings supported by `<retrieved_evidence>`.
+- Omit `---` and `###` if the entire answer is 1–2 sentences or an abstention."""
 
     private fun templateLines(vararg lines: String): String = lines.joinToString("\n")
 
@@ -91,20 +101,28 @@ object SystemPrompt {
     ): String {
         val parts = mutableListOf<String>()
         sections.forEach { sec ->
+            // Suppress subsumed pointer stubs if content is already included in ancestor section above
+            if (sec.contentSnippet.startsWith("(Content included in section [") &&
+                sections.any { !it.contentSnippet.startsWith("(Content included in section [") }
+            ) {
+                return@forEach
+            }
+            val topicAttr = sec.topicTitle.takeIf { it.isNotBlank() && it != sec.topicId }
+                ?.let { " [Topic: $it]" }.orEmpty()
+            val headerTitle = sec.sectionTitle.takeIf { it.isNotBlank() && it != sec.sectionId } ?: "Clinical Section"
             if (sec.contentSnippet.isNotBlank()) {
-                parts.add("Section [${sec.sectionId}] (${sec.sectionTitle}):\n${sec.contentSnippet}")
+                parts.add("Section: $headerTitle$topicAttr:\n${sec.contentSnippet}")
             } else {
-                parts.add("Section [${sec.sectionId}] (${sec.sectionTitle}) from topic ${sec.topicTitle}")
+                val cleanTopicTitle = sec.topicTitle.takeIf { it.isNotBlank() && it != sec.topicId } ?: "Clinical Reference"
+                parts.add("Section: $headerTitle from topic $cleanTopicTitle")
             }
         }
         graphics.forEach { gfx ->
             if (gfx.markdown.isNotBlank()) {
-                val title = gfx.title.ifBlank { "Clinical Table" }
-                if (gfx.markdown.startsWith("### Graphic Table:")) {
-                    parts.add("Graphic [${gfx.graphicId}]:\n${gfx.markdown}")
-                } else {
-                    parts.add("Graphic [${gfx.graphicId}] ($title):\n${gfx.markdown}")
-                }
+                val title = gfx.title.takeIf { it.isNotBlank() && it != gfx.graphicId } ?: "Clinical Table"
+                val topicName = gfx.topicTitle.takeIf { it.isNotBlank() && it != gfx.topicId }
+                val topicAttr = topicName?.let { " [Topic: $it]" }.orEmpty()
+                parts.add("Table: $title$topicAttr:\n${gfx.markdown}")
             }
         }
         return if (parts.isEmpty()) {
@@ -115,7 +133,36 @@ object SystemPrompt {
     }
 
     /**
-     * Formats the Stage-2 synthesis directive for closed-book answering without tools.
+     * Stage 2 User Prompt: Wraps <retrieved_evidence>, <active_patient_profile>,
+     * and the clinical inquiry at the final recency position.
+     */
+    fun formatSynthesisPrompt(
+        userQuestion: String,
+        turnContext: TurnContext
+    ): String {
+        val evidenceSummary = evidenceSummaryFrom(turnContext.fetchedSections, turnContext.fetchedGraphics)
+        val patientBlock = turnContext.patientProfile?.toSystemBlock().orEmpty()
+
+        return buildString {
+            appendLine("<retrieved_evidence>")
+            appendLine(evidenceSummary)
+            appendLine("</retrieved_evidence>")
+            if (patientBlock.isNotBlank()) {
+                appendLine()
+                appendLine("<active_patient_profile>")
+                appendLine(patientBlock)
+                appendLine("</active_patient_profile>")
+            }
+            appendLine()
+            appendLine("<clinical_inquiry>")
+            appendLine(userQuestion.trim())
+            appendLine("</clinical_inquiry>")
+            append("Start Line 1 immediately with your `**1–2 sentence bold direct clinical conclusion.**` followed by `---` and `###` sections as needed.")
+        }
+    }
+
+    /**
+     * Backwards-compatible overload for legacy call sites.
      */
     fun formatSynthesisPrompt(
         pendingInput: String,
@@ -126,26 +173,12 @@ object SystemPrompt {
         if (pendingInput.startsWith("SYSTEM NOTICE")) {
             return pendingInput
         }
-
-        val evidenceSummary = evidenceSummaryFrom(turnContext.fetchedSections, turnContext.fetchedGraphics)
         val question = if (userQuestion.isNotBlank()) userQuestion else pendingInput
-        val profileBlock = (patientProfile ?: turnContext.patientProfile)?.toSystemBlock()?.trim().orEmpty()
-
-        return buildString {
-            appendLine("CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK — NO TOOLS ACTIVE)")
-            appendLine()
-            appendLine("<retrieved_evidence>")
-            appendLine(evidenceSummary)
-            appendLine("</retrieved_evidence>")
-            if (profileBlock.isNotBlank()) {
-                appendLine()
-                appendLine("<active_patient_profile>")
-                appendLine(profileBlock)
-                appendLine("</active_patient_profile>")
-            }
-            appendLine()
-            appendLine("CLINICAL INQUIRY:")
-            append(question)
+        val context = if (patientProfile != null && turnContext.patientProfile == null) {
+            turnContext.copy(patientProfile = patientProfile)
+        } else {
+            turnContext
         }
+        return formatSynthesisPrompt(question, context)
     }
 }

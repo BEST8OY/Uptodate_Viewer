@@ -35,7 +35,6 @@ import kotlinx.serialization.json.put
  * - Stage 0: Small-talk classifier (immediate deterministic canned reply; zero LLM calls).
  * - Stage 1: Ephemeral evidence retrieval while-loop (tools bound, parallel execution, max 10 rounds).
  * - Stage 2: Closed-book clinical synthesis streaming (tools stripped, live word-by-word streaming).
- * - Gate: 1-pass revision on unverified clinical quantities with amber warning badges on unresolved figures.
  */
 class ClinicalOrchestrator(
     private val medicalDatabaseTools: MedicalDatabaseTools,
@@ -156,25 +155,40 @@ class ClinicalOrchestrator(
 
             // Execute all requested tool calls in parallel
             val executedResults = coroutineScope {
-                toolCalls.map { tc ->
+                toolCalls.mapIndexed { idx, tc ->
                     async {
+                        val callId = tc.id?.takeIf { it.isNotBlank() }
+                            ?: "call_${idx}_${kotlin.random.Random.nextLong().toString(16)}"
                         val outcome = executeSingleTool(
                             toolCall = tc,
+                            callId = callId,
                             accumulator = accumulator,
                             streamingManager = streamingManager,
                             decisionClient = decisionClient,
                             decisionConfig = decisionConfig,
                             onDecisionTokens = recordDecisionTokens
                         )
-                        tc to outcome
+                        Triple(tc, callId, outcome)
                     }
                 }.awaitAll()
             }
 
+            // Synchronize callId across both assistant tool calls and user tool results
+            val executedIterator = executedResults.iterator()
+            val normalizedAssistantParts = assistantMsg.parts.map { part ->
+                if (part is MessagePart.Tool.Call && executedIterator.hasNext()) {
+                    val (_, assignedId, _) = executedIterator.next()
+                    if (assignedId != part.id) part.copy(id = assignedId) else part
+                } else {
+                    part
+                }
+            }
+            val normalizedAssistantMsg = assistantMsg.copy(parts = normalizedAssistantParts)
+
             // Append assistant tool calls and user tool results into ephemeral retrieval prompt
-            val toolResultParts = executedResults.map { (tc, outcome) ->
+            val toolResultParts = executedResults.map { (tc, callId, outcome) ->
                 MessagePart.Tool.Result(
-                    id = tc.id ?: "",
+                    id = callId,
                     tool = tc.tool,
                     output = outcome
                 )
@@ -182,7 +196,7 @@ class ClinicalOrchestrator(
             val userToolMessage = Message.User(parts = toolResultParts, metaInfo = RequestMetaInfo.Empty)
 
             currentRetrievalPrompt = currentRetrievalPrompt.withMessages { oldMessages ->
-                oldMessages + assistantMsg + userToolMessage
+                oldMessages + normalizedAssistantMsg + userToolMessage
             }
         }
 
@@ -208,16 +222,12 @@ class ClinicalOrchestrator(
         streamingManager.onSynthesisStarting()
 
         val synthesisDirective = SystemPrompt.formatSynthesisPrompt(
-            pendingInput = trimmedQuestion,
             userQuestion = trimmedQuestion,
-            turnContext = accumulator.buildTurnContext(""),
-            patientProfile = patientProfile
+            turnContext = accumulator.buildTurnContext("")
         )
 
         val synthesisPrompt = buildSynthesisPrompt(
-            question = trimmedQuestion,
             synthesisDirective = synthesisDirective,
-            patientProfile = patientProfile,
             chatHistory = chatHistory,
             providerParams = providerParams,
             isAnthropic = isAnthropic
@@ -295,6 +305,7 @@ class ClinicalOrchestrator(
 
     private suspend fun executeSingleTool(
         toolCall: MessagePart.Tool.Call,
+        callId: String,
         accumulator: TurnContextAccumulator,
         streamingManager: StreamingManager,
         decisionClient: DecisionClient? = null,
@@ -302,7 +313,6 @@ class ClinicalOrchestrator(
         onDecisionTokens: (Int) -> Unit = {}
     ): String {
         val canonicalName = AiJsonUtils.normalizeToolName(toolCall.tool)
-        val callId = toolCall.id ?: ""
         val argsStr = toolCall.args.ifBlank { toolCall.argsJson.toString() }
         val cleanArgs = AiJsonUtils.extractJsonString(argsStr).ifBlank { argsStr }
 
@@ -516,29 +526,46 @@ class ClinicalOrchestrator(
     private fun buildPromptWithHistory(
         id: String,
         finalUserContent: String,
-        patientProfile: PatientProfile,
         chatHistory: List<MessageEntity>,
         providerParams: LLMParams?,
         isAnthropic: Boolean,
-        questionToDeduplicate: String? = null,
+        patientProfile: PatientProfile? = null,
         systemInstruction: String = SystemPrompt.RETRIEVAL_SYSTEM_PROMPT,
         maxHistoryTurns: Int = MAX_CHAT_HISTORY_TURNS,
-        truncateAssistantHistoryChars: Int? = null
+        truncateAssistantHistoryChars: Int? = null,
+        includePatientInSystem: Boolean = true
     ): Prompt {
         val cache = if (isAnthropic) AnthropicCacheControl.Default else null
-        val patientBlock = SystemPrompt.patientContextBlock(patientProfile)
-        val trimmedTurns = chatHistory
-            .filter { (it.role == "user" || it.role == "assistant") && !it.isError && it.role != "cancelled" }
-            .takeLast(maxHistoryTurns)
-        val historyTurns = if (questionToDeduplicate != null && trimmedTurns.lastOrNull()?.role == "user" && trimmedTurns.lastOrNull()?.content == questionToDeduplicate) {
-            trimmedTurns.dropLast(1)
-        } else {
-            trimmedTurns
+        val patientBlock = if (includePatientInSystem && patientProfile != null) SystemPrompt.patientContextBlock(patientProfile) else ""
+
+        // Pair filtering: only include user messages that are followed by a valid (non-error, non-cancelled) assistant reply.
+        // This prevents orphaned user messages from failed turns from causing consecutive user messages in the prompt.
+        val validHistory = mutableListOf<MessageEntity>()
+        var pendingUser: MessageEntity? = null
+        for (msg in chatHistory) {
+            when {
+                msg.role == "user" && !msg.isError -> {
+                    pendingUser = msg
+                }
+                msg.role == "assistant" && !msg.isError && msg.role != "cancelled" -> {
+                    if (pendingUser != null) {
+                        validHistory.add(pendingUser)
+                        validHistory.add(msg)
+                        pendingUser = null
+                    }
+                }
+                else -> {
+                    // Encountered an error, cancellation, or unexpected role -> discard pending user message
+                    pendingUser = null
+                }
+            }
         }
+
+        val historyTurns = validHistory.takeLast(maxHistoryTurns)
 
         return prompt(id = id, params = providerParams ?: LLMParams()) {
             system(systemInstruction, cache = cache)
-            if (patientBlock.isNotBlank()) {
+            if (includePatientInSystem && patientBlock.isNotBlank()) {
                 system(patientBlock)
             }
             historyTurns.forEach { msg ->
@@ -566,33 +593,30 @@ class ClinicalOrchestrator(
     ): Prompt = buildPromptWithHistory(
         id = "clinref-retrieval",
         finalUserContent = question,
-        patientProfile = patientProfile,
         chatHistory = chatHistory,
         providerParams = providerParams,
         isAnthropic = isAnthropic,
-        questionToDeduplicate = question,
+        patientProfile = patientProfile,
         systemInstruction = SystemPrompt.RETRIEVAL_SYSTEM_PROMPT,
         maxHistoryTurns = 10
     )
 
     private fun buildSynthesisPrompt(
-        question: String,
         synthesisDirective: String,
-        patientProfile: PatientProfile,
         chatHistory: List<MessageEntity>,
         providerParams: LLMParams?,
         isAnthropic: Boolean
     ): Prompt = buildPromptWithHistory(
         id = "clinref-synthesis",
         finalUserContent = synthesisDirective,
-        patientProfile = patientProfile,
         chatHistory = chatHistory,
         providerParams = providerParams,
         isAnthropic = isAnthropic,
-        questionToDeduplicate = question,
+        patientProfile = null,
         systemInstruction = SystemPrompt.SYNTHESIS_SYSTEM_PROMPT,
         maxHistoryTurns = 4,
-        truncateAssistantHistoryChars = 300
+        truncateAssistantHistoryChars = 300,
+        includePatientInSystem = false
     )
 
     private fun extractQueryArg(argsStr: String): String {
@@ -601,8 +625,7 @@ class ClinicalOrchestrator(
             if (element is JsonObject) {
                 element["query"]?.jsonPrimitive?.contentOrNull
                     ?: element["search_query"]?.jsonPrimitive?.contentOrNull
-                    ?: element["q"]?.jsonPrimitive?.contentOrNull
-                    ?: element["query_text"]?.jsonPrimitive?.contentOrNull
+                    ?: element["searchQuery"]?.jsonPrimitive?.contentOrNull
                     ?: ""
             } else argsStr
         } catch (_: Exception) {
@@ -616,7 +639,6 @@ class ClinicalOrchestrator(
             if (element is JsonObject) {
                 element["topicId"]?.jsonPrimitive?.contentOrNull
                     ?: element["topic_id"]?.jsonPrimitive?.contentOrNull
-                    ?: element["id"]?.jsonPrimitive?.contentOrNull
                     ?: ""
             } else {
                 TOPIC_ID_NUM_REGEX.find(argsStr)?.value ?: ""
@@ -643,8 +665,6 @@ class ClinicalOrchestrator(
 
             val sectionIds = parseIds(element["sectionIds"])
                 ?: parseIds(element["section_ids"])
-                ?: parseIds(element["sectionId"])
-                ?: parseIds(element["section_id"])
                 ?: emptyList()
 
             topicId to sectionIds
@@ -659,7 +679,6 @@ class ClinicalOrchestrator(
             if (element is JsonObject) {
                 element["graphicId"]?.jsonPrimitive?.contentOrNull
                     ?: element["graphic_id"]?.jsonPrimitive?.contentOrNull
-                    ?: element["id"]?.jsonPrimitive?.contentOrNull
                     ?: ""
             } else argsStr
         } catch (_: Exception) {

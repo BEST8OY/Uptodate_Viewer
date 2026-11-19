@@ -1,5 +1,7 @@
 package com.clinref.app.ui.chat
 
+import ai.koog.prompt.executor.model.PromptExecutor
+import ai.koog.prompt.llm.LLModel
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.app.domain.ai.ChatExecutionManager
 import com.clinref.app.domain.ai.ClinicalOrchestrator
@@ -232,9 +234,18 @@ class ChatViewModelTest {
 
     @Test
     fun testCancelGenerationInsertsCancelledMessage() = runTest(testDispatcher) {
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(10_000)
+            ClinicalOrchestrator.ExecutionResult("Result")
+        }
+
         viewModel.loadConversation("conv-1")
         advanceUntilIdle()
 
+        viewModel.sendMessage("Question")
         viewModel.cancelGeneration()
         advanceUntilIdle()
 

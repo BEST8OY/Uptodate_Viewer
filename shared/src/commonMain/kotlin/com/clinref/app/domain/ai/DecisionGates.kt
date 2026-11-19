@@ -37,8 +37,8 @@ data class DecisionConfig(
 ) {
     companion object {
         const val MAX_OUTLINE_SECTIONS_TO_SCORE = 70
-        const val MAX_TABLE_GRAPHICS_TO_SCORE = 15
-        const val MAX_RELATED_TOPICS_TO_SCORE = 10
+        const val MAX_TABLE_GRAPHICS_TO_SCORE = 25
+        const val MAX_RELATED_TOPICS_TO_SCORE = 25
         const val DEFAULT_SECTION_THRESHOLD = 1.8
         const val DEFAULT_TABLE_THRESHOLD = 1.7
         const val DEFAULT_TOPIC_THRESHOLD = 1.5

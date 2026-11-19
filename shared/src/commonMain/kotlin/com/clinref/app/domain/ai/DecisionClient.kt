@@ -505,6 +505,7 @@ class DecisionClient(
         var totalOutputTokensChunk = 0
         var totalTokensChunk = 0
         val mergedModalities = LinkedHashMap<String, Int>()
+        var attemptedCalls = 0
 
         try {
             if (questions.isEmpty()) {
@@ -546,6 +547,7 @@ class DecisionClient(
                     )
                 }
                 val requestBody = json.encodeToString(JsonObject.serializer(), requestObj)
+                attemptedCalls++
                 val responseRaw = transport.postDecisions(requestBody)
                 val parsed = parseResponsePayload(responseRaw)
 
@@ -572,7 +574,7 @@ class DecisionClient(
             )
 
             synchronized(statsLock) {
-                _totalCalls += chunks.size
+                _totalCalls += attemptedCalls
                 _totalInputTokens += combinedUsage.totalInputTokens
                 _lastError = null
             }
@@ -594,10 +596,16 @@ class DecisionClient(
         } catch (e: Exception) {
             val elapsedMs = startMark.elapsedNow().inWholeMicroseconds / 1000.0
             val msg = e.message ?: e::class.simpleName ?: "Decision API request failed"
-            synchronized(statsLock) {
-                _totalCalls += chunks.size
-                _failedCalls += 1
-                _lastError = msg
+            if (attemptedCalls > 0) {
+                synchronized(statsLock) {
+                    _totalCalls += attemptedCalls
+                    _failedCalls += 1
+                    _lastError = msg
+                }
+            } else {
+                synchronized(statsLock) {
+                    _lastError = msg
+                }
             }
             Log.w(TAG, "Decisions API call failed (failOpen=$failOpen): $msg")
             if (!failOpen) throw e

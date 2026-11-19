@@ -182,7 +182,7 @@ class DecisionGatesTest {
             OutlineGraphicItem(id = "G_PHOTO", title = "Skin Rash Photo", isTable = false),
             OutlineGraphicItem(id = "G_TBL", title = "Antibiotic Dosing Table", isTable = true)
         )
-        val related = (1..20).map { idx -> RelatedTopicItem(id = "REL_$idx", title = "Related $idx") }
+        val related = (1..35).map { idx -> RelatedTopicItem(id = "REL_$idx", title = "Related $idx") }
 
         val diseaseOverview = TopicOverviewResponse(
             topicId = "Topic-CAP",
@@ -206,7 +206,7 @@ class DecisionGatesTest {
         assertTrue("needs_drug_monograph" in capturedKeys)
         assertEquals(70, capturedKeys.count { it.startsWith("sec_") })
         assertEquals(1, capturedKeys.count { it.startsWith("gfx_") })
-        assertEquals(10, capturedKeys.count { it.startsWith("rel_") })
+        assertEquals(25, capturedKeys.count { it.startsWith("rel_") })
         assertFalse(capturedKeys.any { it.contains("G_PHOTO") })
         assertEquals(listOf("S10", "S11"), res.recommendedSectionIds)
         assertEquals(listOf("G_TBL"), res.recommendedGraphicIds)

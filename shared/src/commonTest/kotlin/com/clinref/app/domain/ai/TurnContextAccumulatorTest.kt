@@ -862,5 +862,177 @@ class TurnContextAccumulatorTest {
         assertTrue(ctx.fetchedGraphics[0].markdown.contains("Diltiazem"))
         assertTrue(accumulator.hasEvidence)
     }
+
+    @Test
+    fun `invalid section ID does not duplicate full markdown across fetchedSections`() {
+        val batchResult = """{
+            "topicId": "101",
+            "topicTitle": "Drug X",
+            "sectionTitles": {"H1": "Dosing"},
+            "markdown": "=== Section: H1 ===\nAdminister 500 mg orally."
+        }"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"101","sectionIds":["H1","INVALID_ID"]}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", batchResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.fetchedSections.size)
+        assertEquals("H1", ctx.fetchedSections[0].sectionId)
+        assertEquals("Administer 500 mg orally.", ctx.fetchedSections[0].contentSnippet)
+    }
+
+    @Test
+    fun `indexes sectionTitles keys present in response even if missing in args`() {
+        val batchResult = """{
+            "topicId": "101",
+            "topicTitle": "Drug X",
+            "sectionTitles": {"H1": "Dosing", "H2": "Renal Adjustment"},
+            "markdown": "=== Section: H1 ===\nAdminister 500 mg.\n\n=== Section: H2 ===\nCrCl < 30: 250 mg."
+        }"""
+        // Args only passed H1, but tool resolved and returned H1 and H2
+        accumulator.onToolCallStarting("call-1", """{"topicId":"101","sectionIds":["H1"]}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicSectionsText", batchResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(2, ctx.fetchedSections.size)
+        assertTrue(ctx.fetchedSections.any { it.sectionId == "H1" && it.contentSnippet.contains("500 mg") })
+        assertTrue(ctx.fetchedSections.any { it.sectionId == "H2" && it.contentSnippet.contains("CrCl < 30") })
+    }
+
+    @Test
+    fun `failed tool call does not block retry with identical arguments`() {
+        // First attempt fails with error
+        accumulator.onToolCallStarting("call-1", """{"topicId":"101"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", """{"error":"Transient database timeout"}""", true)
+
+        // Second attempt with identical arguments succeeds
+        val successResult = """{
+            "topicId": "101",
+            "title": "Drug X",
+            "sections": [{"id":"H1","title":"Dosing"}],
+            "graphics": []
+        }"""
+        accumulator.onToolCallStarting("call-2", """{"topicId":"101"}""")
+        accumulator.onToolCallCompleted("call-2", "getTopicOverview", successResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        // Both attempts recorded in toolCalls history (first failed, second succeeded)
+        assertEquals(2, ctx.toolCalls.size)
+        assertFalse(ctx.toolCalls[0].success)
+        assertTrue(ctx.toolCalls[1].success)
+        assertTrue(ctx.toolCalls[1].result.contains("Drug X"))
+        assertTrue(accumulator.buildDiscoveredInventorySummary().contains("Drug X"))
+    }
+
+    @Test
+    fun `buildDiscoveredInventorySummary retains deep outline sections up to 70 tables up to 25 and uninspected candidate topics`() {
+        // Discovered candidate topics from search
+        accumulator.onToolCallStarting("call-search", """{"query":"pneumonia"}""")
+        val searchResult = """{
+            "results": [
+                {"id":"101","title":"Community-acquired pneumonia in adults"},
+                {"id":"102","title":"Hospital-acquired pneumonia in adults"}
+            ]
+        }"""
+        accumulator.onToolCallCompleted("call-search", "searchTopics", searchResult, true)
+
+        // Inspected topic 101 with 60 sections (Treatment at section 50) and 25 table graphics
+        val sectionsJson = (1..60).joinToString(",") { idx ->
+            """{"id":"H$idx","title":"Section $idx${if (idx == 50) " Treatment" else ""}"}"""
+        }
+        val graphicsJson = (1..25).joinToString(",") { idx ->
+            """{"id":"$idx","title":"Table $idx"}"""
+        }
+        val overviewResult = """{
+            "topicId": "101",
+            "title": "Community-acquired pneumonia in adults",
+            "sections": [$sectionsJson],
+            "graphics": [$graphicsJson]
+        }"""
+        accumulator.onToolCallStarting("call-overview", """{"topicId":"101"}""")
+        accumulator.onToolCallCompleted("call-overview", "getTopicOverview", overviewResult, true)
+
+        val summary = accumulator.buildDiscoveredInventorySummary()
+
+        // Section 50 Treatment must not be truncated by take(70)
+        assertTrue("Treatment section 50 must be preserved in inventory", summary.contains("H50 (Section 50 Treatment)"))
+        // Table 25 must not be truncated by take(25)
+        assertTrue("Table 25 must be preserved in inventory", summary.contains("[25] Table 25"))
+        // Uninspected topic 102 must not be hidden
+        assertTrue("Uninspected candidate topic 102 must be listed", summary.contains("Hospital-acquired pneumonia in adults"))
+    }
+
+    @Test
+    fun `parses canonical and snake_case arguments and preserves outline isolation across topics`() {
+        // Topic 100 overview with H100
+        accumulator.onToolCallStarting("call-overview", """{"topic_id":"100"}""")
+        accumulator.onToolCallCompleted("call-overview", "getTopicOverview", """{
+            "topicId": "100",
+            "title": "Topic 100",
+            "sections": [{"id":"H100","title":"Topic 100 Section"}]
+        }""", true)
+
+        // Topic 200 fetched using snake_case parameters
+        val batchResult = """{
+            "topicId": "200",
+            "topicTitle": "Topic 200",
+            "sectionTitles": {"H200": "Topic 200 Section"},
+            "markdown": "=== Section: H200 ===\nTopic 200 content."
+        }"""
+        accumulator.onToolCallStarting("call-fetch", """{"topic_id":"200","section_ids":["H200"]}""")
+        accumulator.onToolCallCompleted("call-fetch", "getTopicSectionsText", batchResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.fetchedSections.size)
+        assertEquals("200", ctx.fetchedSections[0].topicId)
+        assertEquals("H200", ctx.fetchedSections[0].sectionId)
+        assertEquals("Topic 200 Section", ctx.fetchedSections[0].sectionTitle)
+
+        // Verify outline of Topic 200 did not inherit H100 from Topic 100
+        val summary = accumulator.buildDiscoveredInventorySummary()
+        assertTrue(summary.contains("Topic [200] 'Topic 200': H200 (Topic 200 Section)"))
+        assertFalse(summary.contains("Topic [200] 'Topic 200': H100"))
+    }
+
+    @Test
+    fun `table graphic provenance resolves topic title and suppresses duplicates and non-tables`() {
+        val overviewResult = """{
+            "topicId": "7027",
+            "title": "Community-acquired pneumonia in adults",
+            "sections": [{"id":"H1","title":"Treatment"}],
+            "graphics": [
+                {"id":"Graphic-118967","title":"Empiric Antibiotic Regimens","isTable":true},
+                {"id":"Graphic-999999","title":"Chest Radiograph Figure","isTable":false}
+            ]
+        }"""
+        accumulator.onToolCallStarting("call-1", """{"topicId":"7027"}""")
+        accumulator.onToolCallCompleted("call-1", "getTopicOverview", overviewResult, true)
+
+        val graphicResult = """{
+            "graphicId": "118967",
+            "title": "Empiric Antibiotic Regimens",
+            "markdown": "| Antibiotic | Dose |\n|---|---|\n| Amoxicillin | 1 g TID |"
+        }"""
+        accumulator.onToolCallStarting("call-2", """{"graphic_id":"118967"}""")
+        accumulator.onToolCallCompleted("call-2", "getGraphicContent", graphicResult, true)
+
+        val ctx = accumulator.buildTurnContext("answer")
+        assertEquals(1, ctx.fetchedGraphics.size)
+        assertEquals("118967", ctx.fetchedGraphics[0].graphicId)
+        assertEquals("7027", ctx.fetchedGraphics[0].topicId)
+        assertEquals("Community-acquired pneumonia in adults", ctx.fetchedGraphics[0].topicTitle)
+
+        val evidenceSummary = SystemPrompt.evidenceSummaryFrom(ctx.fetchedSections, ctx.fetchedGraphics)
+        assertTrue("Evidence summary must display human-readable topic title in table provenance",
+            evidenceSummary.contains("[Topic: Community-acquired pneumonia in adults]"))
+        assertFalse("Evidence summary must not display raw numeric topic ID",
+            evidenceSummary.contains("[Topic: 7027]"))
+
+        val inventory = accumulator.buildDiscoveredInventorySummary()
+        // Must contain clean ID 118967 once
+        assertTrue(inventory.contains("[118967] Empiric Antibiotic Regimens"))
+        // Must NOT contain duplicate Graphic-118967 or non-table 999999
+        assertFalse(inventory.contains("[Graphic-118967]"))
+        assertFalse(inventory.contains("Chest Radiograph Figure"))
+    }
 }
 

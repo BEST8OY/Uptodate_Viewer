@@ -94,7 +94,17 @@ class ChatExecutionManagerTest {
 
     @Test
     fun testCancelGenerationInsertsCancelledMessageAndResets() = runTest(testDispatcher) {
-        manager.cancelGeneration("conv-1")
+        val testManager = createConfiguredTestManager()
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(10_000)
+            ClinicalOrchestrator.ExecutionResult("Result")
+        }
+
+        testManager.sendMessage("conv-1", "Question")
+        testManager.cancelGeneration("conv-1")
         advanceUntilIdle()
 
         coVerify(atLeast = 1) {
@@ -108,8 +118,18 @@ class ChatExecutionManagerTest {
 
     @Test
     fun testCancelGenerationIsIdempotentAndDoesNotInsertDuplicates() = runTest(testDispatcher) {
-        manager.cancelGeneration("conv-1")
-        manager.cancelGeneration("conv-1")
+        val testManager = createConfiguredTestManager()
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(10_000)
+            ClinicalOrchestrator.ExecutionResult("Result")
+        }
+
+        testManager.sendMessage("conv-1", "Question")
+        testManager.cancelGeneration("conv-1")
+        testManager.cancelGeneration("conv-1")
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
@@ -121,6 +141,16 @@ class ChatExecutionManagerTest {
     }
 
     @Test
+    fun testCancelGenerationWhenIdleIsNoOp() = runTest(testDispatcher) {
+        manager.cancelGeneration("conv-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) {
+            conversationRepository.addMessage(match { it.role == "cancelled" })
+        }
+    }
+
+    @Test
     fun testCanSendMessageAllowsWhenNoGenerationActive() = runTest(testDispatcher) {
         assertTrue(manager.canSendMessage("conv-1"))
         assertTrue(manager.canSendMessage("conv-2"))
@@ -128,13 +158,20 @@ class ChatExecutionManagerTest {
 
     @Test
     fun testCancelGenerationIgnoresWhenDifferentConversationIsActive() = runTest(testDispatcher) {
-        // Trigger generation on conv-1 (unconfigured so it fails quickly, but sets active state first)
-        // To directly test active isolation, cancel conv-2 when conv-1 is generating
-        manager.cancelGeneration("conv-2")
+        val testManager = createConfiguredTestManager()
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(10_000)
+            ClinicalOrchestrator.ExecutionResult("Result")
+        }
+
+        testManager.sendMessage("conv-1", "Question")
+        testManager.cancelGeneration("conv-2")
         advanceUntilIdle()
 
-        // It should still process cancel for conv-2 if none was active
-        coVerify(atLeast = 1) {
+        coVerify(exactly = 0) {
             conversationRepository.addMessage(match {
                 it.conversationId == "conv-2" && it.role == "cancelled"
             })
@@ -298,21 +335,30 @@ class ChatExecutionManagerTest {
 
     @Test
     fun testAddMessageThrowsInCancellationStillEmitsGenerationCancelled() = runTest(testDispatcher) {
+        val testManager = createConfiguredTestManager()
+        val mockExecutor: PromptExecutor = mockk(relaxed = true)
+        val mockModel: LLModel = mockk(relaxed = true)
+        coEvery { koogAgentFactory.resolveRuntime(any()) } returns Triple(mockExecutor, mockModel, null)
+        coEvery { clinicalOrchestrator.runTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(10_000)
+            ClinicalOrchestrator.ExecutionResult("Result")
+        }
         coEvery { conversationRepository.addMessage(match { it.role == "cancelled" }) } throws RuntimeException("DB locked")
 
         val events = mutableListOf<ChatExecutionEvent>()
         val eventsJob = launch(UnconfinedTestDispatcher(testScheduler)) {
-            manager.events.collect { events.add(it) }
+            testManager.events.collect { events.add(it) }
         }
 
-        manager.cancelGeneration("conv-1")
+        testManager.sendMessage("conv-1", "Question")
+        testManager.cancelGeneration("conv-1")
         advanceUntilIdle()
 
         val cancelEvent = events.filterIsInstance<ChatExecutionEvent.GenerationCancelled>().firstOrNull()
         assertNotNull("GenerationCancelled must still emit even if repository throws", cancelEvent)
         assertEquals("conv-1", cancelEvent?.conversationId)
-        assertNull("activeAssistantMessageId must be null after cancellation", manager.activeAssistantMessageId.value)
-        assertNull("activeConversationId must be null after cancellation", manager.activeConversationId.value)
+        assertNull("activeAssistantMessageId must be null after cancellation", testManager.activeAssistantMessageId.value)
+        assertNull("activeConversationId must be null after cancellation", testManager.activeConversationId.value)
 
         eventsJob.cancel()
     }
@@ -707,7 +753,7 @@ class ChatExecutionManagerTest {
     }
 
     @Test
-    fun testSuccessfulMessageCleansUpPrecedingOrphanError() = runTest(testDispatcher) {
+    fun testSuccessfulMessagePreservesConversationHistoryWithoutDeletingPrecedingErrors() = runTest(testDispatcher) {
         val realStreamingManager = StreamingManager()
         val testManager = createConfiguredTestManager(realStreamingManager)
 
@@ -742,7 +788,8 @@ class ChatExecutionManagerTest {
         testManager.sendMessage("conv-1", "Treatment query")
         advanceUntilIdle()
 
-        coVerify(exactly = 1) {
+        // Prior error must NOT be deleted, preventing orphaned user messages in conversation history
+        coVerify(exactly = 0) {
             conversationRepository.deleteMessages("conv-1", listOf("err-123"))
         }
         coVerify(atLeast = 1) {

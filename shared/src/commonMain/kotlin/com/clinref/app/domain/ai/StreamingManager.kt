@@ -244,18 +244,22 @@ class StreamingManager {
     }
 
     fun onStreamingTextDelta(delta: String) {
-        for (i in delta.indices) {
-            val ch = delta[i]
-            processStreamingChar(ch)
+        synchronized(stateLock) {
+            for (i in delta.indices) {
+                val ch = delta[i]
+                processStreamingChar(ch)
+            }
+            _streamingText.value = streamingBuffer.toString()
+            _reasoningText.value = reasoningBuffer.toString()
         }
-        _streamingText.value = streamingBuffer.toString()
-        _reasoningText.value = reasoningBuffer.toString()
     }
 
     fun onStreamingReasoningDelta(delta: String) {
-        reasoningBuffer.append(delta)
-        _reasoningText.value = reasoningBuffer.toString()
-        _isReasoning.value = true
+        synchronized(stateLock) {
+            reasoningBuffer.append(delta)
+            _reasoningText.value = reasoningBuffer.toString()
+            _isReasoning.value = true
+        }
     }
 
     private fun processStreamingChar(ch: Char) {
@@ -305,27 +309,19 @@ class StreamingManager {
 
     private fun isOpeningReasoningTag(tag: String): Boolean {
         val lower = tag.lowercase()
-        return lower == "<thought>" || lower == "<think>" || lower == "<reasoning>" ||
-               lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ")
+        return lower == "<thought>" || lower == "<think>" || lower == "<reasoning>" || lower == "<thinking>" ||
+               lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ") || lower.startsWith("<thinking ")
     }
 
     private fun isClosingReasoningTag(tag: String): Boolean {
         val lower = tag.lowercase()
-        return lower == "</thought>" || lower == "</think>" || lower == "</reasoning>"
+        return lower == "</thought>" || lower == "</think>" || lower == "</reasoning>" || lower == "</thinking>"
     }
 
     private fun isPotentialTagPrefix(prefix: String): Boolean {
         val lower = prefix.lowercase()
-        val validPrefixes = listOf(
-            "<", "<t", "<th", "<tho", "<thou", "<thoug", "<thought",
-            "<thi", "<thin", "<think",
-            "<r", "<re", "<rea", "<reas", "<reaso", "<reason", "<reasoni", "<reasonin", "<reasoning",
-            "</", "</t", "</th", "</tho", "</thou", "</thoug", "</thought",
-            "</thi", "</thin", "</think",
-            "</r", "</re", "</rea", "</reas", "</reaso", "</reason", "</reasoni", "</reasonin", "</reasoning"
-        )
-        if (validPrefixes.any { it.startsWith(lower) }) return true
-        if (lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ")) return true
+        if (REASONING_TAG_PREFIXES.any { it.startsWith(lower) }) return true
+        if (lower.startsWith("<thought ") || lower.startsWith("<think ") || lower.startsWith("<reasoning ") || lower.startsWith("<thinking ")) return true
         return false
     }
 
@@ -334,22 +330,26 @@ class StreamingManager {
     }
 
     fun onStreamingEnd() {
-        if (pendingTagBuffer.isNotEmpty()) {
-            val remaining = pendingTagBuffer.toString()
-            pendingTagBuffer.clear()
-            appendToActiveBuffer(remaining)
-            _streamingText.value = streamingBuffer.toString()
-            _reasoningText.value = reasoningBuffer.toString()
+        synchronized(stateLock) {
+            if (pendingTagBuffer.isNotEmpty()) {
+                val remaining = pendingTagBuffer.toString()
+                pendingTagBuffer.clear()
+                appendToActiveBuffer(remaining)
+                _streamingText.value = streamingBuffer.toString()
+                _reasoningText.value = reasoningBuffer.toString()
+            }
+            _isReasoning.value = false
         }
-        _isReasoning.value = false
     }
 
     fun onLlmCallCompleted(promptTokens: Int, completionTokens: Int, totalTokens: Int) {
-        accumulatedUsage = TokenUsage(
-            promptTokens = accumulatedUsage.promptTokens + promptTokens,
-            completionTokens = accumulatedUsage.completionTokens + completionTokens,
-            totalTokens = accumulatedUsage.totalTokens + totalTokens
-        )
+        synchronized(stateLock) {
+            accumulatedUsage = TokenUsage(
+                promptTokens = accumulatedUsage.promptTokens + promptTokens,
+                completionTokens = accumulatedUsage.completionTokens + completionTokens,
+                totalTokens = accumulatedUsage.totalTokens + totalTokens
+            )
+        }
     }
 
     fun onCompleted(
@@ -358,46 +358,50 @@ class StreamingManager {
         graphicRefs: List<GraphicRef> = emptyList(),
         usage: TokenUsage? = null
     ) {
-        if (usage != null) {
-            accumulatedUsage = usage
+        synchronized(stateLock) {
+            if (usage != null) {
+                accumulatedUsage = usage
+            }
+            activeToolCalls = 0
+            _toolProgress.value = null
+            _currentStatusText.value = "Complete"
+            _orchestrationPhase.value = OrchestrationPhase.COMPLETED
+            _isDraft.value = false
+            _orchestrationSteps.value = _orchestrationSteps.value.map {
+                if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.COMPLETED) else it
+            }
+            streamingBuffer.clear()
+            streamingBuffer.append(result)
+            reasoningBuffer.clear()
+            pendingTagBuffer.clear()
+            inReasoningBlock = false
+            _streamingText.value = result
+            _reasoningText.value = ""
+            _isReasoning.value = false
+            _agentState.value = AgentState.Completed(result, topicRefs, graphicRefs, accumulatedUsage)
         }
-        activeToolCalls = 0
-        _toolProgress.value = null
-        _currentStatusText.value = "Complete"
-        _orchestrationPhase.value = OrchestrationPhase.COMPLETED
-        _isDraft.value = false
-        _orchestrationSteps.value = _orchestrationSteps.value.map {
-            if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.COMPLETED) else it
-        }
-        streamingBuffer.clear()
-        streamingBuffer.append(result)
-        reasoningBuffer.clear()
-        pendingTagBuffer.clear()
-        inReasoningBlock = false
-        _streamingText.value = result
-        _reasoningText.value = ""
-        _isReasoning.value = false
-        _agentState.value = AgentState.Completed(result, topicRefs, graphicRefs, accumulatedUsage)
     }
 
     fun onError(error: String) {
-        activeToolCalls = 0
-        _toolProgress.value = null
-        _currentStatusText.value = "Error"
-        _orchestrationPhase.value = OrchestrationPhase.ERROR
-        _isDraft.value = false
-        _orchestrationSteps.value = _orchestrationSteps.value.map {
-            if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.FAILED) else it
+        synchronized(stateLock) {
+            activeToolCalls = 0
+            _toolProgress.value = null
+            _currentStatusText.value = "Error"
+            _orchestrationPhase.value = OrchestrationPhase.ERROR
+            _isDraft.value = false
+            _orchestrationSteps.value = _orchestrationSteps.value.map {
+                if (it.status == StepStatus.IN_PROGRESS) it.copy(status = StepStatus.FAILED) else it
+            }
+            streamingBuffer.clear()
+            reasoningBuffer.clear()
+            pendingTagBuffer.clear()
+            inReasoningBlock = false
+            _streamingText.value = ""
+            _reasoningText.value = ""
+            _isReasoning.value = false
+            val type = classifyError(error)
+            _agentState.value = AgentState.Error(error, type)
         }
-        streamingBuffer.clear()
-        reasoningBuffer.clear()
-        pendingTagBuffer.clear()
-        inReasoningBlock = false
-        _streamingText.value = ""
-        _reasoningText.value = ""
-        _isReasoning.value = false
-        val type = classifyError(error)
-        _agentState.value = AgentState.Error(error, type)
     }
 
     fun reset() {
@@ -432,7 +436,9 @@ class StreamingManager {
             val element = json.parseToJsonElement(args) as? JsonObject
             when (canonicalName) {
                 "searchTopics" -> {
-                    val query = element?.get("query")?.jsonPrimitive?.content ?: ""
+                    val query = element?.get("query")?.jsonPrimitive?.content
+                        ?: element?.get("search_query")?.jsonPrimitive?.content
+                        ?: element?.get("searchQuery")?.jsonPrimitive?.content ?: ""
                     "Search Knowledge Base" to if (query.isNotBlank()) "Query: \"$query\"" else null
                 }
                 "getTopicOverview" -> {
@@ -456,7 +462,10 @@ class StreamingManager {
                     "Retrieve Clinical Evidence" to detail
                 }
                 "getGraphicContent" -> {
-                    "Load Reference Table" to null
+                    val graphicId = element?.get("graphicId")?.jsonPrimitive?.content
+                        ?: element?.get("graphic_id")?.jsonPrimitive?.content
+                    val detail = if (!graphicId.isNullOrBlank()) "Table: $graphicId" else null
+                    "Load Reference Table" to detail
                 }
                 else -> toolName to null
             }
@@ -645,6 +654,13 @@ class StreamingManager {
             "no topic match" in lower || "no results for" in lower || "no clinical data" in lower -> ErrorType.NO_RESULTS
             else -> ErrorType.UNKNOWN
         }
+    }
+
+    companion object {
+        private val REASONING_TAG_PREFIXES = listOf(
+            "<thought", "<think", "<reasoning", "<thinking",
+            "</thought", "</think", "</reasoning", "</thinking"
+        )
     }
 }
 

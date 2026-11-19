@@ -114,6 +114,7 @@ object AiJsonUtils {
                 "section_ids" -> "sectionIds"
                 "graphic_id" -> "graphicId"
                 "section_title" -> "sectionTitle"
+                "search_query", "searchQuery" -> "query"
                 else -> key
             }
             normalized[canonicalKey] = value

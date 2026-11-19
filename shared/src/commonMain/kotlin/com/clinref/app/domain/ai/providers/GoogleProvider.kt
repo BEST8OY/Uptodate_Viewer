@@ -95,16 +95,13 @@ class GoogleProvider(
         }
 
         val level = settings.thinkingLevel?.lowercase()
-        return if (level == "medium") {
+        return if (settings.thinkingBudget == null && level == "medium") {
             // Koog's GoogleThinkingLevel enum only defines LOW and HIGH.
             // Google GenAI API supports MEDIUM; pass it via additionalProperties so
             // AdditionalPropertiesFlatteningSerializer injects thinkingConfig with MEDIUM.
             val thinkingConfigJson = buildJsonObject {
                 put("includeThoughts", JsonPrimitive(true))
                 put("thinkingLevel", JsonPrimitive("MEDIUM"))
-                settings.thinkingBudget?.let {
-                    put("thinkingBudget", JsonPrimitive(it))
-                }
             }
             GoogleParams(
                 temperature = temperature,
@@ -113,10 +110,14 @@ class GoogleProvider(
                 thinkingConfig = null
             )
         } else {
-            val thinkingLevelEnum = when (level) {
-                "low" -> GoogleThinkingLevel.LOW
-                "high" -> GoogleThinkingLevel.HIGH
-                else -> null
+            val thinkingLevelEnum = if (settings.thinkingBudget == null) {
+                when (level) {
+                    "low" -> GoogleThinkingLevel.LOW
+                    "high" -> GoogleThinkingLevel.HIGH
+                    else -> null
+                }
+            } else {
+                null
             }
             GoogleParams(
                 temperature = temperature,

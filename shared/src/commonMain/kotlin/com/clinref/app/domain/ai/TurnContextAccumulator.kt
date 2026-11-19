@@ -33,6 +33,8 @@ class TurnContextAccumulator(
     private val topicTitles = ConcurrentHashMap<String, String>()
     private val outlineSections = ConcurrentHashMap<String, Map<String, String>>() // topicId -> {sectionId: title}
     private val graphicToTopic = ConcurrentHashMap<String, String>() // graphicId -> topicId
+    private val topicDiscoveryOrder = CopyOnWriteArrayList<String>()
+    private val graphicDiscoveryOrder = CopyOnWriteArrayList<String>()
     private var userQuestion: String = ""
     private var patientProfile: PatientProfile? = null
 
@@ -53,6 +55,8 @@ class TurnContextAccumulator(
         topicTitles.clear()
         outlineSections.clear()
         graphicToTopic.clear()
+        topicDiscoveryOrder.clear()
+        graphicDiscoveryOrder.clear()
         pendingToolArgs.clear()
         synchronized(stateLock) {
             executedToolCalls.clear()
@@ -97,20 +101,32 @@ class TurnContextAccumulator(
         val parts = mutableListOf<String>()
         if (outlineSections.isNotEmpty()) {
             parts.add("Discovered Section Outlines (call getTopicSectionsText with these IDs):")
-            outlineSections.forEach { (tid, sMap) ->
+            val orderedOutlineTopics = topicDiscoveryOrder.filter { outlineSections.containsKey(it) }
+                .ifEmpty { outlineSections.keys.toList() }
+            orderedOutlineTopics.forEach { tid ->
+                val sMap = outlineSections[tid] ?: return@forEach
                 val title = topicTitles[tid] ?: tid
-                val itemsStr = sMap.entries.take(12).joinToString(", ") { "${it.key} (${it.value})" }
+                val itemsStr = sMap.entries.take(70).joinToString(", ") { "${it.key} (${it.value})" }
                 parts.add("- Topic [$tid] '$title': $itemsStr")
             }
-        } else if (topicTitles.isNotEmpty()) {
+        }
+        val uninspectedTopics = topicDiscoveryOrder.filter { !outlineSections.containsKey(it) && topicTitles.containsKey(it) }
+            .ifEmpty { topicTitles.keys.filter { !outlineSections.containsKey(it) } }
+        if (uninspectedTopics.isNotEmpty()) {
             parts.add("Discovered Candidate Topics (call getTopicOverview with a topicId):")
-            topicTitles.entries.take(8).forEach { (tid, title) ->
+            uninspectedTopics.take(8).forEach { tid ->
+                val title = topicTitles[tid] ?: tid
                 parts.add("- [$tid] $title")
             }
         }
-        if (graphicTitles.isNotEmpty()) {
+        val orderedTables = graphicDiscoveryOrder.filter { graphicTitles.containsKey(it) }
+            .ifEmpty {
+                graphicTitles.keys.filter { !it.startsWith("Graphic-", ignoreCase = true) }
+            }
+        if (orderedTables.isNotEmpty()) {
             parts.add("Discovered Tables (call getGraphicContent with a graphicId):")
-            graphicTitles.entries.take(6).forEach { (gid, title) ->
+            orderedTables.take(25).forEach { gid ->
+                val title = graphicTitles[gid] ?: "Table $gid"
                 parts.add("- [$gid] $title")
             }
         }
@@ -142,9 +158,13 @@ class TurnContextAccumulator(
             pendingToolArgs.remove(toolCallId) ?: pendingToolArgs.remove("_last_") ?: ""
         }
 
-        // Deduplication: if same tool+args already executed, skip
-        val argsKey = args.trim()
+        // Deduplication: if same tool+args already executed and succeeded, skip
         val parsedArgs = AiJsonUtils.normalizeArgs(parseArguments(args))
+        val argsKey = if (parsedArgs.isNotEmpty()) {
+            parsedArgs.entries.sortedBy { it.key }.joinToString(",") { "${it.key}:${it.value}" }
+        } else {
+            args.trim()
+        }
         val logicalSuccess = success && !isLogicalFailure(result)
 
         synchronized(stateLock) {
@@ -152,7 +172,9 @@ class TurnContextAccumulator(
                 name == canonicalName && cachedArgs == argsKey
             }
             if (alreadyExecuted) return
-            executedToolCalls.add(canonicalName to argsKey)
+            if (logicalSuccess) {
+                executedToolCalls.add(canonicalName to argsKey)
+            }
 
             toolCalls.add(
                 ToolCallRecord(
@@ -232,7 +254,8 @@ class TurnContextAccumulator(
         val resolvedGraphics = fetchedGraphics.map { fg ->
             val resolvedTitle = fg.title.ifBlank { graphicTitles[fg.graphicId] ?: "" }
             val resolvedTopic = fg.topicId.ifBlank { graphicToTopic[fg.graphicId] ?: "" }
-            fg.copy(title = resolvedTitle, topicId = resolvedTopic)
+            val resolvedTopicTitle = resolveTopicTitle(resolvedTopic)
+            fg.copy(title = resolvedTitle, topicId = resolvedTopic, topicTitle = resolvedTopicTitle)
         }
 
         return TurnContext(
@@ -307,6 +330,9 @@ class TurnContextAccumulator(
             for (item in res.results) {
                 if (AiJsonUtils.isValidTopicTitle(item.title)) {
                     topicTitles[item.id] = item.title
+                    if (!topicDiscoveryOrder.contains(item.id)) {
+                        topicDiscoveryOrder.add(item.id)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -339,15 +365,17 @@ class TurnContextAccumulator(
         }
 
         // Parse structured JSON result from batch tool
-        var sectionMap = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
         var respTopicTitle = ""
-        var fullMarkdown = ""
+        var fullMarkdown = result
         try {
             val unquoted = AiJsonUtils.extractJsonString(result)
             val res = json.decodeFromString<TopicSectionsResponse>(unquoted)
             if (res.topicId.isNotBlank()) {
                 topicId = res.topicId
                 lastTopicId = res.topicId
+            }
+            if (topicId.isNotBlank() && !topicDiscoveryOrder.contains(topicId)) {
+                topicDiscoveryOrder.add(topicId)
             }
             respTopicTitle = res.topicTitle
             fullMarkdown = res.markdown
@@ -367,10 +395,15 @@ class TurnContextAccumulator(
                     lastTopicId = topicId
                 }
             }
+
+            val sectionMap = outlineSections[topicId]?.toMutableMap() ?: mutableMapOf()
             for ((k, v) in res.sectionTitles) {
                 val titleStr = AiJsonUtils.cleanSectionTitle(v)
                 if (titleStr.isNotBlank()) {
                     sectionMap[k] = titleStr
+                }
+                if (k.isNotBlank() && k !in sectionIds) {
+                    sectionIds.add(k)
                 }
             }
             if (topicId.isNotEmpty() && sectionMap.isNotEmpty()) {
@@ -380,35 +413,34 @@ class TurnContextAccumulator(
             Log.w(TAG, "parseBatchSectionResult: ${e.message}")
         }
 
-        // Fallback: If sectionIds was empty from args, use all sectionTitles from the result JSON
-        if (sectionIds.isEmpty() && sectionMap.isNotEmpty()) {
-            sectionIds.addAll(sectionMap.keys)
-        }
         if (sectionIds.isEmpty() && (fullMarkdown.contains("=== Section: FULL ===") || fullMarkdown.contains("=== Calculator:"))) {
             sectionIds.add("FULL")
         }
 
+        val sectionMap = outlineSections[topicId] ?: emptyMap()
         val finalTopicTitle = resolveTopicTitle(topicId, respTopicTitle)
 
         for (sectionId in sectionIds) {
             if (sectionId.isNotEmpty() && !hasFetchedSection(topicId, sectionId)) {
-                val resolvedTitle = AiJsonUtils.cleanSectionTitle(
-                    sectionMap[sectionId]
-                        ?: outlineSections[topicId]?.get(sectionId)
-                        ?: sectionTitleResolver?.invoke(topicId, sectionId)
-                        ?: args["sectionTitle"]
-                        ?: args["section_title"]
-                        ?: ""
-                )
-                fetchedSections.add(
-                    FetchedSection(
-                        topicId = topicId,
-                        topicTitle = finalTopicTitle,
-                        sectionId = sectionId,
-                        sectionTitle = resolvedTitle,
-                        contentSnippet = extractSectionText(fullMarkdown, sectionId)
+                val snippet = extractSectionText(fullMarkdown, sectionId)
+                if (snippet.isNotEmpty()) {
+                    val resolvedTitle = AiJsonUtils.cleanSectionTitle(
+                        sectionMap[sectionId]
+                            ?: sectionTitleResolver?.invoke(topicId, sectionId)
+                            ?: args["sectionTitle"]
+                            ?: args["section_title"]
+                            ?: ""
                     )
-                )
+                    fetchedSections.add(
+                        FetchedSection(
+                            topicId = topicId,
+                            topicTitle = finalTopicTitle,
+                            sectionId = sectionId,
+                            sectionTitle = resolvedTitle,
+                            contentSnippet = snippet
+                        )
+                    )
+                }
             }
         }
     }
@@ -417,7 +449,9 @@ class TurnContextAccumulator(
         if (sectionId.equals("FULL", ignoreCase = true)) return fullMarkdown.trim()
         val headerPattern = "=== Section: $sectionId ==="
         val startIndex = fullMarkdown.indexOf(headerPattern)
-        if (startIndex == -1) return fullMarkdown.trim()
+        if (startIndex == -1) {
+            return if (fullMarkdown.contains("=== Section: ")) "" else fullMarkdown.trim()
+        }
         val textStart = startIndex + headerPattern.length
         val nextHeaderIndex = fullMarkdown.indexOf("=== Section: ", textStart)
         return if (nextHeaderIndex != -1) {
@@ -436,12 +470,17 @@ class TurnContextAccumulator(
             if (graphicId.isNotEmpty()) {
                 val cleanId = AiJsonUtils.cleanGraphicId(graphicId)
                 graphicIds.add(cleanId)
+                if (cleanId.isNotBlank() && !graphicDiscoveryOrder.contains(cleanId)) {
+                    graphicDiscoveryOrder.add(cleanId)
+                }
                 val title = res.title.trim().ifEmpty {
                     AiJsonUtils.GRAPHIC_TABLE_REGEX.find(res.markdown)?.groupValues?.get(1)?.trim().orEmpty()
                 }
                 if (title.isNotEmpty()) {
-                    graphicTitles[graphicId] = title
                     graphicTitles[cleanId] = title
+                    if (graphicId != cleanId) {
+                        graphicTitles[graphicId] = title
+                    }
                 }
                 val markdown = res.markdown.trim()
                 if (markdown.isNotEmpty() && fetchedGraphics.none { it.graphicId == cleanId }) {
@@ -461,11 +500,16 @@ class TurnContextAccumulator(
             if (graphicIdFromArgs.isNotEmpty()) {
                 val cleanId = AiJsonUtils.cleanGraphicId(graphicIdFromArgs)
                 graphicIds.add(cleanId)
+                if (cleanId.isNotBlank() && !graphicDiscoveryOrder.contains(cleanId)) {
+                    graphicDiscoveryOrder.add(cleanId)
+                }
                 val match = AiJsonUtils.GRAPHIC_TABLE_REGEX.find(unquoted)
                 val title = match?.groupValues?.get(1)?.trim().orEmpty()
                 if (title.isNotEmpty()) {
-                    graphicTitles[graphicIdFromArgs] = title
                     graphicTitles[cleanId] = title
+                    if (graphicIdFromArgs != cleanId) {
+                        graphicTitles[graphicIdFromArgs] = title
+                    }
                 }
                 val markdown = unquoted.trim()
                 if (markdown.isNotEmpty() && fetchedGraphics.none { it.graphicId == cleanId }) {
@@ -489,6 +533,9 @@ class TurnContextAccumulator(
             val res = json.decodeFromString<TopicOverviewResponse>(unquoted)
             val topicId = res.topicId.ifBlank { args["topicId"] ?: args["topic_id"] ?: return }
             lastTopicId = topicId
+            if (topicId.isNotBlank() && !topicDiscoveryOrder.contains(topicId)) {
+                topicDiscoveryOrder.add(topicId)
+            }
 
             val title = res.title
             if (AiJsonUtils.isValidTopicTitle(title)) {
@@ -509,13 +556,19 @@ class TurnContextAccumulator(
 
             // Graphics
             for (g in res.graphics) {
+                if (!g.isTable) continue
                 val gid = g.id
                 val cleanGid = AiJsonUtils.cleanGraphicId(gid)
                 graphicToTopic[gid] = topicId
                 graphicToTopic[cleanGid] = topicId
                 if (g.title.isNotBlank()) {
-                    graphicTitles[gid] = g.title
                     graphicTitles[cleanGid] = g.title
+                    if (gid != cleanGid) {
+                        graphicTitles[gid] = g.title
+                    }
+                }
+                if (!graphicDiscoveryOrder.contains(cleanGid)) {
+                    graphicDiscoveryOrder.add(cleanGid)
                 }
             }
 

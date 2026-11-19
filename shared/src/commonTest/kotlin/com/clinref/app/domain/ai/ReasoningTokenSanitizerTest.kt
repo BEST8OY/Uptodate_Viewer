@@ -54,4 +54,12 @@ class ReasoningTokenSanitizerTest {
         assertFalse(cleanAnswer.contains("1000 mg"))
         assertFalse(cleanAnswer.contains("<thought>"))
     }
+
+    @Test
+    fun `strips thinking tags (Claude and open-weights format)`() {
+        val input = "<thinking>Evaluating antibiotic resistance profile</thinking>Prescribe levofloxacin 750 mg daily."
+        val sanitized = ReasoningTokenSanitizer.sanitize(input)
+        assertEquals("Prescribe levofloxacin 750 mg daily.", sanitized.cleanText)
+        assertEquals("Evaluating antibiotic resistance profile", sanitized.reasoningText)
+    }
 }

@@ -15,7 +15,7 @@ object ReasoningTokenSanitizer {
     )
 
     private val REASONING_TAG_REGEX = Regex(
-        """(?is)<(thought|think|reasoning)(?:\s+[^>]*)?>([\s\S]*?)(?:</\1>|$)"""
+        """(?is)<(thought|think|reasoning|thinking)(?:\s+[^>]*)?>([\s\S]*?)(?:</\1>|$)"""
     )
 
     /**
