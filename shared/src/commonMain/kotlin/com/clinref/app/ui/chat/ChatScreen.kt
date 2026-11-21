@@ -77,7 +77,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.foundation.text.contextmenu.provider.LocalTextContextMenuToolbarProvider
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -97,7 +96,6 @@ import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
-import com.clinref.app.ui.chat.components.rememberReadOnlyChatContextMenuProvider
 import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.common.ScrollToBottomFAB
 import com.clinref.app.ui.common.setPlainText
@@ -160,9 +158,6 @@ fun ChatScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scrollController = rememberChatScrollController(conversationId, listState, scrollBehavior)
 
-    // Scoped read-only context menu provider applied ONLY to the message list (never ChatInputBar)
-    val messageListContextMenuProvider = rememberReadOnlyChatContextMenuProvider()
-
     val isGenerating = activeAssistantId != null || isAwaitingResponse
 
     val textFieldState = rememberTextFieldState()
@@ -213,9 +208,6 @@ fun ChatScreen(
         snapshotFlow { listState.isScrollInProgress to scrollController.isAtBottom }
             .distinctUntilChanged()
             .collect { (inProgress, atBottom) ->
-                if (inProgress) {
-                    messageListContextMenuProvider?.dismiss()
-                }
                 scrollController.onScrollStateObserved(inProgress, atBottom)
             }
     }
@@ -305,11 +297,8 @@ fun ChatScreen(
             }
     }
 
-    // 8. Dismiss keyboard & selection toolbar when overlays or editing activate
-    LaunchedEffect(isOverlayActive, editingUserMessageId) {
-        if (isOverlayActive || editingUserMessageId != null) {
-            messageListContextMenuProvider?.dismiss()
-        }
+    // 8. Dismiss keyboard when overlays activate
+    LaunchedEffect(isOverlayActive) {
         if (isOverlayActive) {
             focusManager.clearFocus()
             keyboardController?.hide()
@@ -451,13 +440,7 @@ fun ChatScreen(
                         }
                     }
 
-                    // Provide ReadOnlyChatContextMenuProvider ONLY to the message list so ChatInputBar keeps
-                    // its native editable Paste/Autofill toolbar intact.
-                    val provider = messageListContextMenuProvider
-                    CompositionLocalProvider(
-                        LocalTextContextMenuToolbarProvider provides (provider ?: LocalTextContextMenuToolbarProvider.current)
-                    ) {
-                        LazyColumn(
+                    LazyColumn(
                             state = listState,
                             modifier = Modifier
                                 .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
@@ -563,7 +546,6 @@ fun ChatScreen(
                         }
                     }
                 }
-            }
 
             // Edit-mode scrim
             AnimatedVisibility(
