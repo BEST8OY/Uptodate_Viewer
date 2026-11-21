@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 
 enum class ScrollFABDirection { UP, DOWN }
@@ -69,7 +71,9 @@ fun ScrollFAB(
                     defaultElevation = 2.dp,
                     pressedElevation = 4.dp
                 ),
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier
+                    .size(48.dp)
+                    .pointerHoverIcon(PointerIcon.Hand)
             ) {
                 Icon(
                     imageVector = if (direction == ScrollFABDirection.UP) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,

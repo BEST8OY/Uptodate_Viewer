@@ -111,6 +111,15 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -355,7 +364,38 @@ fun ConversationListContent(
     Scaffold(
         modifier = modifier
             .fillMaxSize()
-            .testTag("conversation_list_screen"),
+            .testTag("conversation_list_screen")
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    val isModifier = event.isCtrlPressed || event.isMetaPressed
+                    when {
+                        isModifier && event.key == Key.N && !uiState.isSelectionMode &&
+                            !isFabMenuExpanded && !uiState.showDeleteConfirmationDialog &&
+                            sessionToRename == null && !showPatientProfileSheet -> {
+                            showPatientProfileSheet = true
+                            true
+                        }
+                        event.key == Key.Escape -> {
+                            when {
+                                uiState.isSelectionMode -> {
+                                    onToggleSelectionMode()
+                                    true
+                                }
+                                isFabMenuExpanded -> {
+                                    isFabMenuExpanded = false
+                                    true
+                                }
+                                textFieldState.text.isNotEmpty() -> {
+                                    textFieldState.clearText()
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                        else -> false
+                    }
+                } else false
+            },
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = {
             SnackbarHost(hostState = snackbarHostState)
@@ -410,7 +450,9 @@ fun ConversationListContent(
                                 initialColor = MaterialTheme.colorScheme.primary,
                                 finalColor = MaterialTheme.colorScheme.primaryContainer
                             ),
-                            modifier = Modifier.testTag("new_consultation_fab")
+                            modifier = Modifier
+                                .testTag("new_consultation_fab")
+                                .pointerHoverIcon(PointerIcon.Hand)
                         ) {
                             val imageVector by remember {
                                 derivedStateOf {
@@ -445,7 +487,9 @@ fun ConversationListContent(
                         text = { Text("Patient Case") },
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.testTag("fab_with_profile")
+                        modifier = Modifier
+                            .testTag("fab_with_profile")
+                            .pointerHoverIcon(PointerIcon.Hand)
                     )
 
                     FloatingActionButtonMenuItem(
@@ -462,7 +506,9 @@ fun ConversationListContent(
                         text = { Text("Quick Consultation") },
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.testTag("fab_fast_consultation")
+                        modifier = Modifier
+                            .testTag("fab_fast_consultation")
+                            .pointerHoverIcon(PointerIcon.Hand)
                     )
                 }
             }
@@ -1001,6 +1047,7 @@ private fun ClinicalSessionCard(
         border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
         modifier = modifier
             .fillMaxWidth()
+            .pointerHoverIcon(PointerIcon.Hand)
             .combinedClickable(
                 onClick = if (isSelectionMode) onToggleSelect else onClick,
                 onLongClick = onLongClick

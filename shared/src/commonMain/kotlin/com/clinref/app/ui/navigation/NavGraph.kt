@@ -51,6 +51,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -232,7 +241,35 @@ fun NavGraph(
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    val isModifier = event.isCtrlPressed || event.isMetaPressed
+                    when {
+                        isModifier && event.key == Key.One -> {
+                            navigator.navigate(TocRoute)
+                            true
+                        }
+                        isModifier && event.key == Key.Two -> {
+                            navigator.navigate(HistoryRoute)
+                            true
+                        }
+                        isModifier && event.key == Key.Three -> {
+                            navigator.navigate(FavoritesRoute)
+                            true
+                        }
+                        isModifier && event.key == Key.Four -> {
+                            navigator.navigate(AiRoute)
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+    ) {
         val windowWidthClass = calculateWindowWidthClass(maxWidth)
         val isWideScreen = maxWidth >= AdaptiveTokens.BreakpointMedium
         val isExpandedScreen = windowWidthClass == WindowWidthClass.EXPANDED
@@ -416,7 +453,8 @@ private fun ClinRefNavRail(
                             contentDescription = route.title
                         )
                     },
-                    label = { Text(route.title) }
+                    label = { Text(route.title) },
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                 )
             }
         }
@@ -453,7 +491,8 @@ private fun BoxScope.ClinRefBottomBar(
                             contentDescription = route.title
                         )
                     },
-                    label = { Text(route.title) }
+                    label = { Text(route.title) },
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                 )
             }
         }

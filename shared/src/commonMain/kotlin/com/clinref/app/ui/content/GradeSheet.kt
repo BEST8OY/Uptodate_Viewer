@@ -1,6 +1,7 @@
 package com.clinref.app.ui.content
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,11 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import com.clinref.app.ui.adaptive.LocalIsWideScreen
+import com.clinref.app.ui.adaptive.AdaptiveTokens
 
 /**
- * GRADE recommendation explanation presented as a bottom sheet (dialog on wide screens),
+ * GRADE recommendation explanation presented as a bottom sheet,
  * mirroring the official UpToDate grade pages.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,39 +42,24 @@ fun GradeSheet(
     data: GradeSheetData,
     onDismiss: () -> Unit
 ) {
-    val isWideScreen = LocalIsWideScreen.current
-
-    if (isWideScreen) {
-        Dialog(onDismissRequest = onDismiss) {
-            Surface(
-                modifier = Modifier
-                    .widthIn(max = 600.dp)
-                    .fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp
-            ) {
-                GradeSheetContent(
-                    data = data,
-                    onDismiss = onDismiss,
-                    modifier = Modifier.padding(24.dp)
-                )
-            }
-        }
-    } else {
-        val sheetState = rememberBottomSheetState(
-            initialValue = SheetValue.Hidden,
-            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-        )
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+    )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
             GradeSheetContent(
                 data = data,
                 onDismiss = onDismiss,
                 modifier = Modifier
+                    .widthIn(max = AdaptiveTokens.MaxSettingsContentWidth)
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 8.dp)
                     .padding(bottom = 24.dp)

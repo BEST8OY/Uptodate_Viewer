@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -39,12 +37,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.GraphicData
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalIsWideScreen
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -54,7 +50,6 @@ fun GraphicSheet(
     onDismiss: () -> Unit,
     viewModel: GraphicViewModel = koinViewModel(),
 ) {
-    val isWideScreen = LocalIsWideScreen.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(graphicId) {
@@ -138,77 +133,61 @@ fun GraphicSheet(
         }
     }
 
-    if (isWideScreen) {
-        Dialog(onDismissRequest = onDismiss) {
-            Card(
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
+    val scope = rememberCoroutineScope()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = null,
+        sheetGesturesEnabled = false,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Column(
                 modifier = Modifier
                     .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                     .fillMaxWidth()
-                    .fillMaxHeight(0.85f)
-                    .padding(vertical = 16.dp)
+                    .fillMaxHeight()
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Clinical Reference Figure / Table",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
-                        }
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        bodyContent()
-                    }
-                }
-            }
-        }
-    } else {
-        val sheetState = rememberBottomSheetState(
-            initialValue = SheetValue.Expanded,
-            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-        )
-        val scope = rememberCoroutineScope()
-
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            dragHandle = null,
-            sheetGesturesEnabled = false,
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                IconButton(
-                    onClick = {
-                        scope.launch { sheetState.hide() }
-                            .invokeOnCompletion { if (!sheetState.isVisible) onDismiss() }
-                    },
-                    modifier = Modifier.align(Alignment.CenterEnd),
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
+                    Text(
+                        text = "Clinical Reference Figure / Table",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.weight(1f)
                     )
+                    IconButton(
+                        onClick = {
+                            scope.launch { sheetState.hide() }
+                                .invokeOnCompletion { if (!sheetState.isVisible) onDismiss() }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                        )
+                    }
                 }
-            }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.85f)
-            ) {
-                bodyContent()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    bodyContent()
+                }
             }
         }
     }

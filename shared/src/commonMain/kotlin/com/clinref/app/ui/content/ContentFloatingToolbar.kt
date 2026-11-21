@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -194,6 +196,7 @@ internal fun ContentFloatingToolbar(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .testTag("toolbar_find_prev")
+                                .pointerHoverIcon(if (isQueryNotEmpty) PointerIcon.Hand else PointerIcon.Default)
                                 .focusProperties { canFocus = interactive && isSearching }
                         ) {
                             Icon(
@@ -217,6 +220,7 @@ internal fun ContentFloatingToolbar(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .testTag("toolbar_find_next")
+                                .pointerHoverIcon(if (isQueryNotEmpty) PointerIcon.Hand else PointerIcon.Default)
                                 .focusProperties { canFocus = interactive && isSearching }
                         ) {
                             Icon(
@@ -238,7 +242,7 @@ internal fun ContentFloatingToolbar(
 
                     TooltipBox(
                         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { AccessiblePlainTooltip("Close search") },
+                        tooltip = { AccessiblePlainTooltip("Close search (Esc)") },
                         state = rememberTooltipState(),
                         modifier = Modifier.fillMaxHeight()
                     ) {
@@ -247,6 +251,7 @@ internal fun ContentFloatingToolbar(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .testTag("toolbar_search_close")
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .focusProperties { canFocus = interactive && isSearching }
                         ) {
                             Icon(
@@ -272,6 +277,7 @@ internal fun ContentFloatingToolbar(
                             shape = CircleShape,
                             modifier = Modifier
                                 .testTag("toolbar_search_fab")
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
@@ -290,6 +296,7 @@ internal fun ContentFloatingToolbar(
                             enabled = canGoBack,
                             modifier = Modifier
                                 .testTag("toolbar_back")
+                                .pointerHoverIcon(if (canGoBack) PointerIcon.Hand else PointerIcon.Default)
                                 .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -305,6 +312,7 @@ internal fun ContentFloatingToolbar(
                             enabled = canGoForward,
                             modifier = Modifier
                                 .testTag("toolbar_forward")
+                                .pointerHoverIcon(if (canGoForward) PointerIcon.Hand else PointerIcon.Default)
                                 .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
@@ -319,6 +327,7 @@ internal fun ContentFloatingToolbar(
                             onClick = onHomeClick,
                             modifier = Modifier
                                 .testTag("toolbar_home")
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.Default.Home, contentDescription = "Contents")
@@ -334,6 +343,7 @@ internal fun ContentFloatingToolbar(
                             enabled = outlineEnabled,
                             modifier = Modifier
                                 .testTag("toolbar_outline")
+                                .pointerHoverIcon(if (outlineEnabled) PointerIcon.Hand else PointerIcon.Default)
                                 .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(Icons.Default.Menu, contentDescription = "Outline")
@@ -348,6 +358,7 @@ internal fun ContentFloatingToolbar(
                             onClick = onFavoriteClick,
                             modifier = Modifier
                                 .testTag("toolbar_favorite")
+                                .pointerHoverIcon(PointerIcon.Hand)
                                 .focusProperties { canFocus = interactive && !isSearching }
                         ) {
                             Icon(

@@ -81,17 +81,14 @@ class ContentViewModel(
     private val _onOpenExternalUrl = MutableStateFlow<String?>(null)
     val onOpenExternalUrl: StateFlow<String?> = _onOpenExternalUrl.asStateFlow()
 
-    private val _contributorsDialog = MutableStateFlow<List<ContributorGroup>?>(null)
-    val contributorsDialog: StateFlow<List<ContributorGroup>?> = _contributorsDialog
-
     private val _topicReferences = MutableStateFlow<Map<Int, ReferenceItem>>(emptyMap())
     val topicReferences: StateFlow<Map<Int, ReferenceItem>> = _topicReferences.asStateFlow()
 
-    private val _referenceDialog = MutableStateFlow<ReferenceDialogData?>(null)
-    val referenceDialog: StateFlow<ReferenceDialogData?> = _referenceDialog.asStateFlow()
+    private val _referenceSheet = MutableStateFlow<ReferenceSheetData?>(null)
+    val referenceSheet: StateFlow<ReferenceSheetData?> = _referenceSheet.asStateFlow()
 
-    private val _gradeDialog = MutableStateFlow<GradeSheetData?>(null)
-    val gradeDialog: StateFlow<GradeSheetData?> = _gradeDialog.asStateFlow()
+    private val _gradeSheet = MutableStateFlow<GradeSheetData?>(null)
+    val gradeSheet: StateFlow<GradeSheetData?> = _gradeSheet.asStateFlow()
 
     /**
      * One-shot, imperative "scroll to this section now" commands (outline taps, same-topic links).
@@ -331,16 +328,16 @@ class ContentViewModel(
         }
     }
 
-    fun dismissReferenceDialog() {
-        _referenceDialog.value = null
+    fun dismissReferenceSheet() {
+        _referenceSheet.value = null
     }
 
-    fun dismissGradeDialog() {
-        _gradeDialog.value = null
+    fun dismissGradeSheet() {
+        _gradeSheet.value = null
     }
 
     fun jumpToReference(number: Int) {
-        dismissReferenceDialog()
+        dismissReferenceSheet()
         scrollToSection("ref_$number")
     }
 
@@ -362,9 +359,6 @@ class ContentViewModel(
             ?: data["section"]?.jsonPrimitive?.content
 
         when {
-            assetComponent in listOf("contributors", "disclosures") -> {
-                _contributorsDialog.value = _topicContent.value?.contributors
-            }
             assetType == "abstract" -> {
                 handleAbstractAction(items)
             }
@@ -451,7 +445,7 @@ class ContentViewModel(
             )
         }
 
-        _referenceDialog.value = ReferenceDialogData(references = matched)
+        _referenceSheet.value = ReferenceSheetData(references = matched)
     }
 
     private fun handleResourceAction(meta: JsonObject?, items: JsonArray?) {
@@ -463,7 +457,7 @@ class ContentViewModel(
         val type = items?.firstOrNull()?.jsonObject?.get("type")?.jsonPrimitive?.content
 
         if (gradeId != null || type == "grade") {
-            _gradeDialog.value = GradeSheetData.fromGradeId(gradeId ?: "1")
+            _gradeSheet.value = GradeSheetData.fromGradeId(gradeId ?: "1")
         }
     }
 
@@ -490,10 +484,6 @@ class ContentViewModel(
 
     fun clearNavigationToGraphic() {
         _onNavigateToGraphic.value = null
-    }
-
-    fun dismissContributorsDialog() {
-        _contributorsDialog.value = null
     }
 
     fun setActiveSection(sectionId: String?) {

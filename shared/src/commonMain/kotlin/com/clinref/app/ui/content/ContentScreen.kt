@@ -43,6 +43,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
@@ -87,9 +94,8 @@ fun ContentScreen(
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
-    val contributorsDialog by viewModel.contributorsDialog.collectAsStateWithLifecycle()
-    val referenceDialog by viewModel.referenceDialog.collectAsStateWithLifecycle()
-    val gradeDialog by viewModel.gradeDialog.collectAsStateWithLifecycle()
+    val referenceSheet by viewModel.referenceSheet.collectAsStateWithLifecycle()
+    val gradeSheet by viewModel.gradeSheet.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
     val canGoForward by viewModel.canGoForward.collectAsStateWithLifecycle()
@@ -117,9 +123,8 @@ fun ContentScreen(
         isLoading ||
         error != null ||
         document == null ||
-        contributorsDialog != null ||
-        referenceDialog != null ||
-        gradeDialog != null
+        referenceSheet != null ||
+        gradeSheet != null
 
     val scrollState = rememberArticleScrollState(pinnedVisible = pinToolbarVisible)
     // Immediate 0-frame visibility when entering a pinned state (e.g., opening search).
@@ -225,7 +230,23 @@ fun ContentScreen(
     }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    val isModifier = event.isCtrlPressed || event.isMetaPressed
+                    when {
+                        isModifier && event.key == Key.F && !isLoading && error == null && document != null -> {
+                            showSearch = true
+                            true
+                        }
+                        event.key == Key.Escape && showSearch -> {
+                            closeSearch()
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            },
         topBar = {
             ContentTopBar(
                 title = articleTitle,
@@ -341,17 +362,10 @@ fun ContentScreen(
         }
     }
 
-    contributorsDialog?.let { data ->
-        ContributorsDialog(
-            contributors = data,
-            onDismiss = { viewModel.dismissContributorsDialog() }
-        )
-    }
-
-    referenceDialog?.let { refData ->
+    referenceSheet?.let { refData ->
         ReferenceSheet(
             data = refData,
-            onDismiss = { viewModel.dismissReferenceDialog() },
+            onDismiss = { viewModel.dismissReferenceSheet() },
             onJumpTo = { num -> viewModel.jumpToReference(num) },
             onOpenUrl = { url ->
                 try {
@@ -361,10 +375,10 @@ fun ContentScreen(
         )
     }
 
-    gradeDialog?.let { gData ->
+    gradeSheet?.let { gData ->
         GradeSheet(
             data = gData,
-            onDismiss = { viewModel.dismissGradeDialog() }
+            onDismiss = { viewModel.dismissGradeSheet() }
         )
     }
 }

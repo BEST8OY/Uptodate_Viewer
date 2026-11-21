@@ -14,9 +14,9 @@ data class ReferenceItem(
 )
 
 /**
- * State for presenting reference citation details in a bottom sheet / dialog.
+ * State for presenting reference citation details in a bottom sheet.
  */
-data class ReferenceDialogData(
+data class ReferenceSheetData(
     val references: List<ReferenceItem>,
     val targetSectionId: String = "references"
 )

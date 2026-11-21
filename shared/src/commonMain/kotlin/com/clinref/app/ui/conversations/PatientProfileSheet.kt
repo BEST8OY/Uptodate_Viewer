@@ -1,6 +1,7 @@
 package com.clinref.app.ui.conversations
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,8 +15,6 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -32,12 +31,11 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalIsWideScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,8 +43,6 @@ fun PatientProfileSheet(
     onDismiss: () -> Unit,
     onStart: (PatientProfile) -> Unit
 ) {
-    val isWideScreen = LocalIsWideScreen.current
-
     val ageState = rememberTextFieldState()
     var sex by remember { mutableStateOf("") }
     val conditions = remember { mutableStateListOf<String>() }
@@ -196,29 +192,25 @@ fun PatientProfileSheet(
         }
     }
 
-    if (isWideScreen) {
-        Dialog(onDismissRequest = onDismiss) {
-            Card(
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+    )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
                 modifier = Modifier
                     .widthIn(max = AdaptiveTokens.MaxDialogWidth)
                     .fillMaxWidth()
-                    .padding(vertical = 16.dp)
             ) {
                 content()
             }
-        }
-    } else {
-        val sheetState = rememberBottomSheetState(
-            initialValue = SheetValue.Hidden,
-            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-        )
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState
-        ) {
-            content()
         }
     }
 }

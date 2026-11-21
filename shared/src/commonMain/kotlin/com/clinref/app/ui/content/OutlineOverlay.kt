@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.TableChart
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -65,6 +64,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -72,9 +73,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalIsWideScreen
 
 private enum class OverviewTab(val label: String) {
     OUTLINE("Outline"),
@@ -93,8 +92,6 @@ internal fun OutlineOverlay(
     modifier: Modifier = Modifier
 ) {
     if (!showOutline || outlineSections.isEmpty()) return
-
-    val isWideScreen = LocalIsWideScreen.current
 
     val allSections = remember(outlineSections) {
         outlineSections.filter { it.sectionType == SectionType.TOPIC }.distinctBy { it.id }
@@ -227,6 +224,7 @@ internal fun OutlineOverlay(
                         },
                         modifier = Modifier
                             .weight(1f)
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .semantics {
                                 role = Role.Tab
                                 selected = isSelected
@@ -420,55 +418,28 @@ internal fun OutlineOverlay(
         }
     }
 
-    if (isWideScreen) {
-        Dialog(onDismissRequest = onDismiss) {
-            Card(
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxDialogWidth)
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.85f)
-                    .padding(vertical = 16.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Topic Outline",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close outline")
-                        }
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(6.dp))
-                    sheetContent()
-                }
-            }
-        }
-    } else {
-        val sheetState = rememberBottomSheetState(
-            initialValue = SheetValue.Expanded,
-            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-        )
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = modifier
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+    )
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
+                .imePadding(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Column(
                 modifier = Modifier
+                    .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                     .fillMaxWidth()
-                    .fillMaxHeight(0.88f)
-                    .imePadding()
+                    .fillMaxHeight()
             ) {
                 Row(
                     modifier = Modifier

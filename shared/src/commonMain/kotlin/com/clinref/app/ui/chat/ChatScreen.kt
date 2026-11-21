@@ -68,15 +68,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.text.contextmenu.provider.LocalTextContextMenuToolbarProvider
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +97,7 @@ import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
-import com.clinref.app.ui.chat.components.rememberReadOnlyChatTextToolbar
+import com.clinref.app.ui.chat.components.rememberReadOnlyChatContextMenuProvider
 import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.common.ScrollToBottomFAB
 import com.clinref.app.ui.common.setPlainText
@@ -155,8 +160,8 @@ fun ChatScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scrollController = rememberChatScrollController(conversationId, listState, scrollBehavior)
 
-    // Scoped read-only text toolbar applied ONLY to the message list (never ChatInputBar)
-    val messageListTextToolbar = rememberReadOnlyChatTextToolbar()
+    // Scoped read-only context menu provider applied ONLY to the message list (never ChatInputBar)
+    val messageListContextMenuProvider = rememberReadOnlyChatContextMenuProvider()
 
     val isGenerating = activeAssistantId != null || isAwaitingResponse
 
@@ -209,7 +214,7 @@ fun ChatScreen(
             .distinctUntilChanged()
             .collect { (inProgress, atBottom) ->
                 if (inProgress) {
-                    messageListTextToolbar.dismiss()
+                    messageListContextMenuProvider?.dismiss()
                 }
                 scrollController.onScrollStateObserved(inProgress, atBottom)
             }
@@ -303,7 +308,7 @@ fun ChatScreen(
     // 8. Dismiss keyboard & selection toolbar when overlays or editing activate
     LaunchedEffect(isOverlayActive, editingUserMessageId) {
         if (isOverlayActive || editingUserMessageId != null) {
-            messageListTextToolbar.dismiss()
+            messageListContextMenuProvider?.dismiss()
         }
         if (isOverlayActive) {
             focusManager.clearFocus()
@@ -331,7 +336,17 @@ fun ChatScreen(
     Scaffold(
         modifier = modifier
             .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                    if (editingUserMessageId != null) {
+                        editingUserMessageId = null
+                        textFieldState.clearText()
+                        focusManager.clearFocus()
+                        true
+                    } else false
+                } else false
+            },
         contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -436,9 +451,12 @@ fun ChatScreen(
                         }
                     }
 
-                    // Provide ReadOnlyChatTextToolbar ONLY to the message list so ChatInputBar keeps
+                    // Provide ReadOnlyChatContextMenuProvider ONLY to the message list so ChatInputBar keeps
                     // its native editable Paste/Autofill toolbar intact.
-                    CompositionLocalProvider(LocalTextToolbar provides messageListTextToolbar) {
+                    val provider = messageListContextMenuProvider
+                    CompositionLocalProvider(
+                        LocalTextContextMenuToolbarProvider provides (provider ?: LocalTextContextMenuToolbarProvider.current)
+                    ) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier

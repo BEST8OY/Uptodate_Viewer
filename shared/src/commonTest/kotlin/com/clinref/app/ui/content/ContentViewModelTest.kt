@@ -474,7 +474,7 @@ class ContentViewModelTest {
     }
 
     @Test
-    fun `handleAction inline reference opens referenceDialog and does NOT load topic or show error`() = runTest(testDispatcher) {
+    fun `handleAction inline reference opens referenceSheet and does NOT load topic or show error`() = runTest(testDispatcher) {
         val topicId = "topic-100"
         val bodyHtml = """
             <p>Risk factors described in [<a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;abstract&quot;,&quot;topicId&quot;:&quot;$topicId&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;118701&quot;,&quot;type&quot;:&quot;abstract&quot;,&quot;number&quot;:&quot;60&quot;}]});">60</a>].</p>
@@ -505,16 +505,16 @@ class ContentViewModelTest {
         assertEquals(topicId, vm.currentTopicId.value)
         assertEquals(null, vm.error.value)
 
-        // It must have opened referenceDialog with reference 60
-        val dialogData = vm.referenceDialog.value
-        assertNotNull(dialogData)
-        assertEquals(1, dialogData?.references?.size)
-        assertEquals(60, dialogData?.references?.first()?.number)
-        assertEquals("Sibai BM. Preeclampsia research. Am J Obstet 1995; 172:642.", dialogData?.references?.first()?.citation)
+        // It must have opened referenceSheet with reference 60
+        val sheetData = vm.referenceSheet.value
+        assertNotNull(sheetData)
+        assertEquals(1, sheetData?.references?.size)
+        assertEquals(60, sheetData?.references?.first()?.number)
+        assertEquals("Sibai BM. Preeclampsia research. Am J Obstet 1995; 172:642.", sheetData?.references?.first()?.citation)
     }
 
     @Test
-    fun `handleAction bottom reference opens referenceDialog with citation details`() = runTest(testDispatcher) {
+    fun `handleAction bottom reference opens referenceSheet with citation details`() = runTest(testDispatcher) {
         val topicId = "topic-100"
         val bodyHtml = """
             <div id="references">
@@ -541,14 +541,14 @@ class ContentViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, vm.error.value)
-        val dialogData = vm.referenceDialog.value
-        assertNotNull(dialogData)
-        assertEquals(1, dialogData?.references?.first()?.number)
-        assertEquals("50", dialogData?.references?.first()?.abstractId)
+        val sheetData = vm.referenceSheet.value
+        assertNotNull(sheetData)
+        assertEquals(1, sheetData?.references?.first()?.number)
+        assertEquals("50", sheetData?.references?.first()?.abstractId)
     }
 
     @Test
-    fun `jumpToReference emits ref anchor to sectionJumps and dismisses dialog`() = runTest(testDispatcher) {
+    fun `jumpToReference emits ref anchor to sectionJumps and dismisses sheet`() = runTest(testDispatcher) {
         val vm = createViewModel()
         val jumps = mutableListOf<String>()
         val job = backgroundScope.launch(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler)) {
@@ -559,12 +559,12 @@ class ContentViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("ref_60"), jumps)
-        assertEquals(null, vm.referenceDialog.value)
+        assertEquals(null, vm.referenceSheet.value)
         job.cancel()
     }
 
     @Test
-    fun `handleAction grade resource opens gradeDialog and does not load topic`() = runTest(testDispatcher) {
+    fun `handleAction grade resource opens gradeSheet and does not load topic`() = runTest(testDispatcher) {
         val topicId = "topic-100"
         val bodyHtml = """
             <p>Recommendation [<a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;resource&quot;,&quot;gradeId&quot;:&quot;2&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;grades2.html&quot;,&quot;type&quot;:&quot;grade&quot;}]});">Grade 1B</a>].</p>
@@ -586,7 +586,7 @@ class ContentViewModelTest {
 
         assertEquals(null, vm.error.value)
         assertEquals(topicId, vm.currentTopicId.value)
-        val gradeData = vm.gradeDialog.value
+        val gradeData = vm.gradeSheet.value
         assertNotNull(gradeData)
         assertEquals("Grade 1B", gradeData?.grade)
         assertTrue(gradeData?.summary?.startsWith("A Grade 1B recommendation is a strong recommendation") == true)

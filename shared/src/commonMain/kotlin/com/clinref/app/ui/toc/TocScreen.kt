@@ -49,6 +49,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
@@ -177,7 +182,20 @@ fun TocScreen(
     }
 
     Scaffold(
-        modifier = modifier.testTag("toc_screen"),
+        modifier = modifier
+            .testTag("toc_screen")
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                    if (textFieldState.text.isNotEmpty()) {
+                        textFieldState.edit { replace(0, length, "") }
+                        skipNextQuery = true
+                        lastQuery = ""
+                        searchViewModel.onQueryChanged("")
+                        hasSearched = false
+                        true
+                    } else false
+                } else false
+            },
         topBar = {
             AppBarWithSearch(
                 state = searchBarState,
