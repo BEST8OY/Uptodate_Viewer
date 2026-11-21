@@ -9,7 +9,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,56 +35,39 @@ class ChatScrollControllerTest {
     fun testInitialState() {
         val controller = createController()
         assertFalse(controller.hasCompletedInitialScroll)
-        assertTrue(controller.isPinnedToBottom)
+        assertFalse(controller.showScrollToBottomFab)
     }
 
     @Test
-    fun testJumpToBottomForInitialLoadMarksCompleted() = runTest(testDispatcher) {
+    fun testJumpToInitialPositionMarksCompleted() = runTest(testDispatcher) {
         val controller = createController()
-        controller.jumpToBottomForInitialLoad()
+        val items = listOf(
+            ChatListItem.Message(MessageUiModel(id = "msg-1", role = "user", content = "Hi", timestamp = 100L)),
+            ChatListItem.Message(MessageUiModel(id = "msg-2", role = "assistant", content = "Hello", timestamp = 200L))
+        )
+        controller.jumpToInitialPosition(items, topHeaderCount = 0)
         assertTrue(controller.hasCompletedInitialScroll)
-        assertTrue(controller.isPinnedToBottom)
     }
 
     @Test
-    fun testUnpinOnlyFunctionsAfterInitialScrollCompleted() {
+    fun testJumpToInitialPositionEmptyList() = runTest(testDispatcher) {
         val controller = createController()
-        // Before initial scroll, unpin is ignored
-        controller.unpin()
-        assertTrue(controller.isPinnedToBottom)
-
-        // After initial scroll, unpin takes effect
-        testScope.runTest {
-            controller.jumpToBottomForInitialLoad()
-        }
-        controller.unpin()
-        assertFalse(controller.isPinnedToBottom)
+        controller.jumpToInitialPosition(emptyList(), topHeaderCount = 0)
+        assertTrue(controller.hasCompletedInitialScroll)
     }
 
     @Test
-    fun testOnScrollStateObservedTransitions() = runTest(testDispatcher) {
+    fun testScrollToIndexMarksCompleted() = runTest(testDispatcher) {
         val controller = createController()
-        controller.jumpToBottomForInitialLoad()
-
-        // Scrolling in progress while NOT at bottom unpins
-        controller.onScrollStateObserved(isScrollInProgress = true, atBottom = false)
-        assertFalse(controller.isPinnedToBottom)
-
-        // Reaching bottom re-pins
-        controller.onScrollStateObserved(isScrollInProgress = false, atBottom = true)
-        assertTrue(controller.isPinnedToBottom)
+        controller.scrollToIndex(0, animated = false)
+        assertTrue(controller.hasCompletedInitialScroll)
     }
 
     @Test
-    fun testOnConversationChangedResetsState() = runTest(testDispatcher) {
+    fun testScrollToBottomMarksCompleted() = runTest(testDispatcher) {
         val controller = createController()
-        controller.jumpToBottomForInitialLoad()
-        controller.unpin()
-        assertFalse(controller.isPinnedToBottom)
-
-        controller.onConversationChanged()
-        assertFalse(controller.hasCompletedInitialScroll)
-        assertTrue(controller.isPinnedToBottom)
+        controller.scrollToBottom(animated = false)
+        assertTrue(controller.hasCompletedInitialScroll)
     }
 
     @Test

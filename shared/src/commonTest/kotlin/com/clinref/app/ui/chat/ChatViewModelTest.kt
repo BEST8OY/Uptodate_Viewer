@@ -150,24 +150,7 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun testLoadConversationEmitsInitialLoadEvent() = runTest(testDispatcher) {
-        val m1 = MessageEntity("m1", "conv-1", "user", "Hello", 1000L)
-        coEvery { conversationRepository.getMessagesPage("conv-1", 50, 0) } returns listOf(m1)
-
-        val events = mutableListOf<ChatScrollEvent>()
-        val job = launch {
-            viewModel.scrollEvents.collect { events.add(it) }
-        }
-
-        viewModel.loadConversation("conv-1")
-        advanceUntilIdle()
-
-        assertTrue("InitialLoad event must be emitted", events.contains(ChatScrollEvent.InitialLoad))
-        job.cancel()
-    }
-
-    @Test
-    fun testSendMessageEmitsScrollToBottomEvent() = runTest(testDispatcher) {
+    fun testSendMessageEmitsScrollToMessageEvent() = runTest(testDispatcher) {
         viewModel.loadConversation("conv-1")
         advanceUntilIdle()
 
@@ -179,11 +162,11 @@ class ChatViewModelTest {
         viewModel.sendMessage("Checking renal function")
         advanceUntilIdle()
 
-        val event = events.filterIsInstance<ChatScrollEvent.ScrollToBottom>().firstOrNull { it.awaitMessageId != null }
-        assertNotNull("ScrollToBottom event must be emitted", event)
+        val event = events.filterIsInstance<ChatScrollEvent.ScrollToMessage>().firstOrNull()
+        assertNotNull("ScrollToMessage event must be emitted", event)
         assertTrue(event!!.animated)
         val userMsg = viewModel.messages.value.first { it.role == "user" }
-        assertEquals(userMsg.id, event.awaitMessageId)
+        assertEquals(userMsg.id, event.messageId)
         job.cancel()
     }
 

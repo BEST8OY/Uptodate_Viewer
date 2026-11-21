@@ -70,14 +70,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboard
@@ -189,11 +186,14 @@ fun ChatScreen(
         }
     }
 
-    // 1. Conversation load lifecycle & resilient initial scroll
+    val topHeaderCount = if (hasMoreMessages) 1 else 0
+
+    // 1. Load conversation
     LaunchedEffect(conversationId) {
         viewModel.loadConversation(conversationId)
     }
 
+    // 2. On chat load: position at the user's last message (not scrolled to bottom)
     LaunchedEffect(conversationId, loadedConversationId, isLoadingConversation) {
         if (loadedConversationId == conversationId &&
             !isLoadingConversation &&
@@ -202,29 +202,23 @@ fun ChatScreen(
             if (chatItems.isNotEmpty() || activeAssistantId != null) {
                 snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
             }
-            scrollController.jumpToBottomForInitialLoad()
+            scrollController.jumpToInitialPosition(chatItems, topHeaderCount)
         }
     }
 
-    // 2. Track sticky-bottom pin state + auto-dismiss text selection toolbar when scrolling
-    LaunchedEffect(listState, scrollController) {
-        snapshotFlow { listState.isScrollInProgress to scrollController.isAtBottom }
-            .distinctUntilChanged()
-            .collect { (inProgress, atBottom) ->
-                scrollController.onScrollStateObserved(inProgress, atBottom)
-            }
-    }
-
-    // 3. Explicit scroll events from ViewModel (new user message, generation start)
+    // 3. Explicit scroll events (new sent user message / error banner)
     LaunchedEffect(scrollController) {
         viewModel.scrollEvents.collectLatest { event ->
             when (event) {
-                ChatScrollEvent.InitialLoad -> {
-                    if (!scrollController.hasCompletedInitialScroll) {
-                        if (chatItems.isNotEmpty() || activeAssistantId != null) {
-                            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
-                        }
-                        scrollController.jumpToBottomForInitialLoad()
+                is ChatScrollEvent.ScrollToMessage -> {
+                    val items = snapshotFlow { chatItems }.first { list ->
+                        list.any { it.key == event.messageId }
+                    }
+                    val itemIdx = items.indexOfFirst { it.key == event.messageId }
+                    if (itemIdx >= 0) {
+                        val targetIdx = itemIdx + if (hasMoreMessages) 1 else 0
+                        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > targetIdx }
+                        scrollController.scrollToIndex(targetIdx, animated = event.animated)
                     }
                 }
                 is ChatScrollEvent.ScrollToBottom -> {
@@ -241,24 +235,12 @@ fun ChatScreen(
         }
     }
 
-    // 4. Restore exact pixel anchor after older messages are prepended; auto-follow new bottom items if pinned
-    val topHeaderCount = if (hasMoreMessages) 1 else 0
+    // 4. Restore exact pixel anchor ONLY when older messages are prepended (no auto-follow on new/completed messages)
     LaunchedEffect(chatItems, topHeaderCount) {
-        val didRestore = scrollController.restorePrependAnchorIfNeeded(chatItems, topHeaderCount)
-        if (!didRestore && scrollController.hasCompletedInitialScroll && scrollController.isPinnedToBottom) {
-            scrollController.followStreamingIfPinned()
-        }
+        scrollController.restorePrependAnchorIfNeeded(chatItems, topHeaderCount)
     }
 
-    // 5. Sticky-bottom auto-follow during live streaming (only observes while activeAssistantId != null)
-    LaunchedEffect(activeAssistantId) {
-        if (activeAssistantId == null) return@LaunchedEffect
-        viewModel.streamingUiState.collect {
-            scrollController.followStreamingIfPinned()
-        }
-    }
-
-    // 6. Top-edge pagination (strictly gated behind hasCompletedInitialScroll to prevent load-on-open cascade)
+    // 5. Top-edge pagination (strictly gated behind hasCompletedInitialScroll to prevent load-on-open cascade)
     val currentChatItems by rememberUpdatedState(chatItems)
     val currentIsLoadingOlder by rememberUpdatedState(isLoadingOlder)
     val currentHasMoreMessages by rememberUpdatedState(hasMoreMessages)
@@ -277,19 +259,15 @@ fun ChatScreen(
             }
     }
 
-    // 7. Zero-recomposition IME visibility observation via snapshotFlow
-    val currentOverlayActive by rememberUpdatedState(isOverlayActive)
+    // 6. Zero-recomposition IME visibility observation via snapshotFlow
     val imeInsets = WindowInsets.ime
     LaunchedEffect(imeInsets, density) {
         var previousHeight = 0
         snapshotFlow { imeInsets.getBottom(density) }
             .distinctUntilChanged()
             .collect { height ->
-                val opening = height > previousHeight && height > 0
                 val closing = height == 0 && previousHeight > 0
-                if (opening && !currentOverlayActive) {
-                    scrollController.onImeOpenedIfPinned()
-                } else if (closing) {
+                if (closing) {
                     focusManager.clearFocus()
                     if (editingUserMessageId != null) {
                         editingUserMessageId = null
@@ -300,7 +278,7 @@ fun ChatScreen(
             }
     }
 
-    // 8. Dismiss keyboard when overlays activate
+    // 7. Dismiss keyboard when overlays activate
     LaunchedEffect(isOverlayActive) {
         if (isOverlayActive) {
             focusManager.clearFocus()
@@ -432,28 +410,16 @@ fun ChatScreen(
                         }
                     }
 
-                    val userScrollUnpinConnection = remember(scrollController) {
-                        object : NestedScrollConnection {
-                            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                                if (source == NestedScrollSource.UserInput && available.y > 0f) {
-                                    scrollController.unpin()
-                                }
-                                return Offset.Zero
-                            }
-                        }
-                    }
-
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
                             .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                             .fillMaxWidth()
-                            .suppressTransientSelectAllContextMenu()
-                            .nestedScroll(userScrollUnpinConnection),
-                            contentPadding = PaddingValues(
-                                top = 8.dp,
-                                bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
-                            ),
+                            .suppressTransientSelectAllContextMenu(),
+                        contentPadding = PaddingValues(
+                            top = 8.dp,
+                            bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
+                        ),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             // Permanent top pagination slot while hasMoreMessages is true so

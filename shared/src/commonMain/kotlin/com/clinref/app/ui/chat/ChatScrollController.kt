@@ -12,20 +12,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-/**
- * Deterministic scroll controller for [ChatScreen].
- *
- * State machine:
- * - Starts pinned to bottom (`isPinnedToBottom = true`) on each conversation load.
- * - Unpins immediately when the user manually scrolls away from the bottom edge.
- * - Re-pins when the user returns near the bottom edge, sends a message, or taps the FAB.
- * - Auto-follows streaming content only while pinned and not actively dragged.
- * - Preserves exact visual anchor pixel offset when older messages are prepended.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Stable
 class ChatScrollController(
@@ -41,15 +30,8 @@ class ChatScrollController(
     var hasCompletedInitialScroll by mutableStateOf(false)
         private set
 
-    var isPinnedToBottom by mutableStateOf(true)
-        private set
-
     private var pendingPrependAnchor: PrependAnchor? = null
-    private var isProgrammaticScroll = false
 
-    /**
-     * True when the viewport is already at or within a small tolerance of the final item.
-     */
     val isAtBottom: Boolean by derivedStateOf {
         val layoutInfo = listState.layoutInfo
         val total = layoutInfo.totalItemsCount
@@ -60,130 +42,88 @@ class ChatScrollController(
         lastVisible.index >= total - 1 && (lastVisible.offset + lastVisible.size) <= viewportBottom + BOTTOM_TOLERANCE_PX
     }
 
-    /**
-     * Show the floating Scroll-to-Bottom button whenever the user is away from the bottom
-     * (including during active streaming so they can jump back to live output).
-     */
     val showScrollToBottomFab: Boolean by derivedStateOf {
         hasCompletedInitialScroll && !isAtBottom && listState.layoutInfo.totalItemsCount > 0
     }
 
-    fun onConversationChanged() {
-        hasCompletedInitialScroll = false
-        isPinnedToBottom = true
-        pendingPrependAnchor = null
-    }
-
     /**
-     * Unpins sticky-bottom follow when the user begins an upward scroll gesture.
+     * Initial conversation open: positions the viewport at the user's last message
+     * (so their final question and the start of the assistant response are immediately visible)
+     * rather than jumping to the bottom footer.
      */
-    fun unpin() {
-        if (hasCompletedInitialScroll) {
-            isPinnedToBottom = false
-        }
-    }
-
-    /**
-     * Called from a `snapshotFlow` observing `listState.isScrollInProgress` and `isAtBottom`.
-     */
-    fun onScrollStateObserved(isScrollInProgress: Boolean, atBottom: Boolean) {
-        if (!hasCompletedInitialScroll || isProgrammaticScroll) return
-        if (isScrollInProgress && !atBottom) {
-            isPinnedToBottom = false
-        } else if (atBottom) {
-            isPinnedToBottom = true
-        }
-    }
-
-    /**
-     * Performs the one-time initial jump to the end of a freshly loaded conversation.
-     */
-    suspend fun jumpToBottomForInitialLoad() {
+    suspend fun jumpToInitialPosition(chatItems: List<ChatListItem>, topHeaderCount: Int) {
         val total = listState.layoutInfo.totalItemsCount
         if (total > 0) {
-            isProgrammaticScroll = true
-            try {
-                collapseTopBarImmediate()
-                listState.scrollToItem(index = total - 1, scrollOffset = 0)
-            } finally {
-                isProgrammaticScroll = false
+            val lastUserIdx = chatItems.indexOfLast {
+                it is ChatListItem.Message && it.uiModel.role == "user"
             }
+            val targetIndex = if (lastUserIdx >= 0) {
+                (lastUserIdx + topHeaderCount).coerceIn(0, total - 1)
+            } else {
+                total - 1
+            }
+            if (targetIndex > topHeaderCount) {
+                collapseTopBarImmediate()
+            }
+            listState.scrollToItem(index = targetIndex, scrollOffset = 0)
         }
-        isPinnedToBottom = true
         hasCompletedInitialScroll = true
     }
 
     /**
-     * Scrolls to the bottom (animated or immediate), collapsing the flexible TopAppBar
-     * cleanly and re-pinning sticky-bottom follow.
+     * Scrolls a specific item (e.g., a newly sent user message) to the top of the viewport.
+     */
+    suspend fun scrollToIndex(index: Int, animated: Boolean) {
+        val total = listState.layoutInfo.totalItemsCount
+        if (total <= 0) {
+            hasCompletedInitialScroll = true
+            return
+        }
+        val targetIndex = index.coerceIn(0, total - 1)
+        if (animated) {
+            val collapseJob = if (targetIndex > 0) {
+                coroutineScope.launch { collapseTopBarAnimated() }
+            } else null
+            listState.animateScrollToItem(index = targetIndex, scrollOffset = 0)
+            collapseJob?.join()
+        } else {
+            if (targetIndex > 0) collapseTopBarImmediate()
+            listState.scrollToItem(index = targetIndex, scrollOffset = 0)
+        }
+        hasCompletedInitialScroll = true
+    }
+
+    /**
+     * Explicit jump to the very bottom (used by ScrollToBottomFAB and error messages).
      */
     suspend fun scrollToBottom(animated: Boolean) {
         val total = listState.layoutInfo.totalItemsCount
         if (total <= 0) {
-            isPinnedToBottom = true
             hasCompletedInitialScroll = true
             return
         }
-        isPinnedToBottom = true
-        isProgrammaticScroll = true
-        try {
-            val lastIndex = total - 1
-            if (animated) {
-                val collapseJob = coroutineScope.launch {
-                    val limit = scrollBehavior.state.heightOffsetLimit
-                    if (limit < 0f && scrollBehavior.state.heightOffset > limit) {
-                        Animatable(scrollBehavior.state.heightOffset).animateTo(limit) {
-                            scrollBehavior.state.heightOffset = value
-                        }
-                    }
-                }
-                listState.animateScrollToItem(index = lastIndex)
-                collapseJob.join()
-                if (listState.canScrollForward) {
-                    listState.scrollToItem(index = lastIndex, scrollOffset = 0)
-                }
-                collapseTopBarImmediate()
-            } else {
-                collapseTopBarImmediate()
+        val lastIndex = total - 1
+        if (animated) {
+            val collapseJob = coroutineScope.launch { collapseTopBarAnimated() }
+            listState.animateScrollToItem(index = lastIndex)
+            collapseJob.join()
+            if (listState.canScrollForward) {
                 listState.scrollToItem(index = lastIndex, scrollOffset = 0)
             }
-        } finally {
-            isProgrammaticScroll = false
-            hasCompletedInitialScroll = true
-        }
-    }
-
-    /**
-     * Lightweight, non-animated snap used while streaming text/steps grow.
-     * Never runs if the user has scrolled up or is actively dragging.
-     */
-    suspend fun followStreamingIfPinned() {
-        if (!hasCompletedInitialScroll || !isPinnedToBottom || listState.isScrollInProgress) return
-        withFrameNanos { /* await frame measurement */ }
-        if (!hasCompletedInitialScroll || !isPinnedToBottom || listState.isScrollInProgress) return
-        val currentTotal = listState.layoutInfo.totalItemsCount
-        if (currentTotal <= 0) return
-        isProgrammaticScroll = true
-        try {
             collapseTopBarImmediate()
-            listState.scrollToItem(index = currentTotal - 1, scrollOffset = 0)
-        } finally {
-            isProgrammaticScroll = false
+        } else {
+            collapseTopBarImmediate()
+            listState.scrollToItem(index = lastIndex, scrollOffset = 0)
         }
+        hasCompletedInitialScroll = true
     }
 
-    /**
-     * Captures the first visible chat item's key & pixel offset immediately before
-     * requesting an older page of messages.
-     */
     fun capturePrependAnchor(chatItems: List<ChatListItem>, topHeaderCount: Int) {
         if (pendingPrependAnchor != null || chatItems.isEmpty()) return
         val firstVisibleInfo = listState.layoutInfo.visibleItemsInfo
             .firstOrNull { it.index >= topHeaderCount && (it.index - topHeaderCount) < chatItems.size }
             ?: return
-        val itemIndex = firstVisibleInfo.index - topHeaderCount
-        val anchorItem = chatItems.getOrNull(itemIndex) ?: return
-        // offset is relative to viewport top; scrollToItem expects positive offset downward into item
+        val anchorItem = chatItems.getOrNull(firstVisibleInfo.index - topHeaderCount) ?: return
         val scrollOffset = (-firstVisibleInfo.offset).coerceAtLeast(0)
         pendingPrependAnchor = PrependAnchor(
             itemKey = anchorItem.key,
@@ -191,25 +131,16 @@ class ChatScrollController(
         )
     }
 
-    /**
-     * Restores exact pixel position after older messages have been prepended to [chatItems].
-     * Returns true if an anchor was matched and restored.
-     */
     suspend fun restorePrependAnchorIfNeeded(chatItems: List<ChatListItem>, topHeaderCount: Int): Boolean {
         val anchor = pendingPrependAnchor ?: return false
         val newItemIndex = chatItems.indexOfFirst { it.key == anchor.itemKey }
         if (newItemIndex >= 0) {
             pendingPrependAnchor = null
-            isProgrammaticScroll = true
-            try {
-                listState.scrollToItem(
-                    index = newItemIndex + topHeaderCount,
-                    scrollOffset = anchor.scrollOffset
-                )
-                return true
-            } finally {
-                isProgrammaticScroll = false
-            }
+            listState.scrollToItem(
+                index = newItemIndex + topHeaderCount,
+                scrollOffset = anchor.scrollOffset
+            )
+            return true
         }
         return false
     }
@@ -218,18 +149,11 @@ class ChatScrollController(
         pendingPrependAnchor = null
     }
 
-    /**
-     * Keeps the latest message visible when the soft keyboard opens while pinned at bottom.
-     */
-    suspend fun onImeOpenedIfPinned() {
-        if (!hasCompletedInitialScroll || !isPinnedToBottom) return
-        val total = listState.layoutInfo.totalItemsCount
-        if (total > 0) {
-            isProgrammaticScroll = true
-            try {
-                listState.scrollToItem(index = total - 1, scrollOffset = 0)
-            } finally {
-                isProgrammaticScroll = false
+    private suspend fun collapseTopBarAnimated() {
+        val limit = scrollBehavior.state.heightOffsetLimit
+        if (limit < 0f && scrollBehavior.state.heightOffset > limit) {
+            Animatable(scrollBehavior.state.heightOffset).animateTo(limit) {
+                scrollBehavior.state.heightOffset = value
             }
         }
     }

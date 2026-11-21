@@ -27,7 +27,11 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 sealed interface ChatScrollEvent {
-    data object InitialLoad : ChatScrollEvent
+    data class ScrollToMessage(
+        val messageId: String,
+        val animated: Boolean = true
+    ) : ChatScrollEvent
+
     data class ScrollToBottom(
         val animated: Boolean = true,
         val awaitMessageId: String? = null
@@ -147,7 +151,7 @@ class ChatViewModel(
                         messageOffset++
                         updateMessages(_messages.value + event.message.toUiModel())
                         _scrollEvents.tryEmit(
-                            ChatScrollEvent.ScrollToBottom(animated = true, awaitMessageId = event.message.id)
+                            ChatScrollEvent.ScrollToMessage(messageId = event.message.id, animated = true)
                         )
                     }
                     is ChatExecutionEvent.GenerationStarted -> {
@@ -235,9 +239,6 @@ class ChatViewModel(
                 _hasMoreMessages.value = messages.size >= PAGE_SIZE
                 val uiModels = messages.reversed().map { it.toUiModel() }
                 updateMessages(uiModels)
-                if (uiModels.isNotEmpty() || isGeneratingActive) {
-                    _scrollEvents.tryEmit(ChatScrollEvent.InitialLoad)
-                }
                 conversationRepository.markAsRead(conversationId)
             } finally {
                 _isLoadingConversation.value = false
