@@ -161,10 +161,6 @@ fun ChatScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scrollController = rememberChatScrollController(conversationId, listState, scrollBehavior)
 
-    // Tracks whether CopyKey was present in the current context menu pass to prevent
-    // transient "Select all"-only flash on tap-outside disposal (b/519816995)
-    val sawCopyInCurrentPass = remember { booleanArrayOf(false) }
-
     val isGenerating = activeAssistantId != null || isAwaitingResponse
 
     val textFieldState = rememberTextFieldState()
@@ -452,21 +448,7 @@ fun ChatScreen(
                         modifier = Modifier
                             .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                             .fillMaxWidth()
-                            .appendTextContextMenuComponents {
-                                // Guaranteed by Compose Foundation to run before any filterTextContextMenuComponents
-                                // on every menu build pass.
-                                sawCopyInCurrentPass[0] = false
-                            }
-                            .filterTextContextMenuComponents { component ->
-                                when (component.key) {
-                                    TextContextMenuKeys.CopyKey -> {
-                                        sawCopyInCurrentPass[0] = true
-                                        true
-                                    }
-                                    TextContextMenuKeys.SelectAllKey -> sawCopyInCurrentPass[0]
-                                    else -> true
-                                }
-                            }
+                            .suppressTransientSelectAllContextMenu()
                             .nestedScroll(userScrollUnpinConnection),
                             contentPadding = PaddingValues(
                                 top = 8.dp,
@@ -798,4 +780,42 @@ private fun StreamingAssistantMessage(
         onCopyMessage = onCopyMessage,
         modifier = modifier
     )
+}
+
+/**
+ * Workaround for Compose Foundation bug b/519816995:
+ * https://issuetracker.google.com/issues/519816995
+ * "New Context Menu implementation flickers on item changes, showing 'select all' on disposing"
+ *
+ * When tapping outside a [androidx.compose.foundation.text.selection.SelectionContainer] to dismiss,
+ * SelectionManager clears the selection a frame before ActionMode.finish() runs, causing Android to
+ * briefly flash a "Select all"-only floating toolbar (Copy drops out, Select all stays eligible).
+ *
+ * Compose guarantees all [appendTextContextMenuComponents] run before any [filterTextContextMenuComponents]
+ * on every menu build pass, and SelectionManager always emits [TextContextMenuKeys.CopyKey] before
+ * [TextContextMenuKeys.SelectAllKey]. We use the append block to reset a per-pass flag and drop
+ * [TextContextMenuKeys.SelectAllKey] whenever [TextContextMenuKeys.CopyKey] is absent, yielding an empty
+ * menu on the dismiss frame while keeping Copy, Select all, and system actions (Share, Translate,
+ * Web search, PROCESS_TEXT) intact while text is selected.
+ *
+ * Scoped to the message list only (must not wrap ChatInputBar). Safe to remove once upstream
+ * b/519816995 is fixed in Compose Foundation.
+ */
+@Composable
+private fun Modifier.suppressTransientSelectAllContextMenu(): Modifier {
+    val sawCopyInCurrentPass = remember { booleanArrayOf(false) }
+    return this
+        .appendTextContextMenuComponents {
+            sawCopyInCurrentPass[0] = false
+        }
+        .filterTextContextMenuComponents { component ->
+            when (component.key) {
+                TextContextMenuKeys.CopyKey -> {
+                    sawCopyInCurrentPass[0] = true
+                    true
+                }
+                TextContextMenuKeys.SelectAllKey -> sawCopyInCurrentPass[0]
+                else -> true
+            }
+        }
 }
