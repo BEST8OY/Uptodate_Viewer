@@ -26,6 +26,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
+import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.placeCursorAtEnd
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -157,6 +160,10 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scrollController = rememberChatScrollController(conversationId, listState, scrollBehavior)
+
+    // Tracks whether CopyKey was present in the current context menu pass to prevent
+    // transient "Select all"-only flash on tap-outside disposal (b/519816995)
+    val sawCopyInCurrentPass = remember { booleanArrayOf(false) }
 
     val isGenerating = activeAssistantId != null || isAwaitingResponse
 
@@ -441,11 +448,26 @@ fun ChatScreen(
                     }
 
                     LazyColumn(
-                            state = listState,
-                            modifier = Modifier
-                                .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
-                                .fillMaxWidth()
-                                .nestedScroll(userScrollUnpinConnection),
+                        state = listState,
+                        modifier = Modifier
+                            .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
+                            .fillMaxWidth()
+                            .appendTextContextMenuComponents {
+                                // Guaranteed by Compose Foundation to run before any filterTextContextMenuComponents
+                                // on every menu build pass.
+                                sawCopyInCurrentPass[0] = false
+                            }
+                            .filterTextContextMenuComponents { component ->
+                                when (component.key) {
+                                    TextContextMenuKeys.CopyKey -> {
+                                        sawCopyInCurrentPass[0] = true
+                                        true
+                                    }
+                                    TextContextMenuKeys.SelectAllKey -> sawCopyInCurrentPass[0]
+                                    else -> true
+                                }
+                            }
+                            .nestedScroll(userScrollUnpinConnection),
                             contentPadding = PaddingValues(
                                 top = 8.dp,
                                 bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
