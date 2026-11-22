@@ -103,6 +103,68 @@ class MedicalDatabaseTools(
         private val CELL_REGEX = Regex("""<(?:th|td)\b[^>]*>(.*?)</(?:th|td)>""", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         private val NEWLINE_REGEX = Regex("""[\r\n]+""")
         private val RAW_GRAPHIC_PREFIX_REGEX = Regex("(?i)^(?:graphic[-_]?(?:table[-_]?)?|table[-_]?)")
+
+        private val TAG_EVENT_REGEX = Regex(
+            """(<ul\b[^>]*>|</ul\b>|<li\b[^>]*>|<a\s+[^>]*href=['"][^'"]*['"][^>]*>.*?</a>)""",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+        )
+        private val HEADING_LEVEL_SNIPPET_REGEX = Regex("""class=["']h([1-6])["']|aria-level=["'](\d+)["']""", RegexOption.IGNORE_CASE)
+        private val REFERENCE_HEADER_REGEX = Regex("""<\w+\s+[^>]*(?:id=["']references["'])[^>]*>""", setOf(RegexOption.IGNORE_CASE))
+        private val HEX_ENTITY_REGEX = Regex("""&#[xX]([0-9a-fA-F]+);""")
+        private val DECIMAL_ENTITY_REGEX = Regex("""&#(\d+);""")
+        private val NAMED_ENTITY_REGEX = Regex("&[a-zA-Z0-9#]+;")
+
+        private val ENTITY_LOOKUP = mapOf(
+            "&nbsp;" to " ", "&#160;" to " ",
+            "&amp;" to "&", "&#38;" to "&",
+            "&lt;" to "<", "&#60;" to "<",
+            "&gt;" to ">", "&#62;" to ">",
+            "&quot;" to "\"", "&#34;" to "\"",
+            "&#39;" to "'", "&apos;" to "'",
+            "&mdash;" to "—", "&#8212;" to "—",
+            "&ndash;" to "–", "&#8211;" to "–",
+            "&ge;" to "≥", "&#8805;" to "≥",
+            "&le;" to "≤", "&#8804;" to "≤",
+            "&plusmn;" to "±", "&#177;" to "±",
+            "&micro;" to "µ", "&#181;" to "µ",
+            "&deg;" to "°", "&#176;" to "°",
+            "&bull;" to "•", "&#8226;" to "•",
+            "&#9679;" to "●",
+            "&lsquo;" to "‘", "&#8216;" to "‘",
+            "&rsquo;" to "’", "&#8217;" to "’",
+            "&ldquo;" to "“", "&#8220;" to "“",
+            "&rdquo;" to "”", "&#8221;" to "”",
+            "&para;" to "¶", "&#182;" to "¶",
+            "&sect;" to "§", "&#167;" to "§",
+            "&trade;" to "™", "&#8482;" to "™",
+            "&copy;" to "©", "&#169;" to "©",
+            "&reg;" to "®", "&#174;" to "®",
+            "&times;" to "×", "&#215;" to "×",
+            "&divide;" to "÷", "&#247;" to "÷",
+            "&Delta;" to "Δ", "&delta;" to "δ",
+            "&alpha;" to "α", "&beta;" to "β", "&gamma;" to "γ"
+        )
+
+        fun inferTopicType(title: String): String {
+            val clean = title.trim().lowercase()
+            return when {
+                clean.contains("drug information") -> "drug"
+                clean.startsWith("calculator:") || clean.contains("calculator") -> "calc"
+                clean.startsWith("lab interpretation:") -> "narrative"
+                else -> "medical"
+            }
+        }
+
+        private const val MAX_OUTLINE_CACHE_ENTRIES = 250
+    }
+
+    private val outlineCache = java.util.concurrent.ConcurrentHashMap<String, List<ParsedSection>>()
+
+    private fun getParsedSections(topicId: String, outlineHtml: String): List<ParsedSection> {
+        if (outlineCache.size > MAX_OUTLINE_CACHE_ENTRIES) {
+            outlineCache.clear()
+        }
+        return outlineCache.getOrPut(topicId) { parseOutlineSections(outlineHtml) }
     }
 
     fun searchTopics(query: String): SearchTopicsResponse {
@@ -147,11 +209,22 @@ class MedicalDatabaseTools(
 
     private fun formatSearchResults(searchResults: List<com.clinref.app.domain.SearchResult>): List<SearchResultTopicItem> {
         return searchResults.map { result ->
-            val id = when (result) {
-                is com.clinref.app.domain.SearchResult.Topic -> result.topicId
-                is com.clinref.app.domain.SearchResult.Graphic -> result.graphicId
+            when (result) {
+                is com.clinref.app.domain.SearchResult.Topic -> {
+                    SearchResultTopicItem(
+                        id = result.topicId,
+                        title = result.title,
+                        type = inferTopicType(result.title)
+                    )
+                }
+                is com.clinref.app.domain.SearchResult.Graphic -> {
+                    SearchResultTopicItem(
+                        id = result.graphicId,
+                        title = result.title,
+                        type = "table"
+                    )
+                }
             }
-            SearchResultTopicItem(id = id, title = result.title)
         }
     }
 
@@ -181,11 +254,12 @@ class MedicalDatabaseTools(
             )
         }
 
+        val parsedSections = getParsedSections(cleanTopicId, content.outlineHtml)
         return TopicOverviewResponse(
             topicId = cleanTopicId,
             title = title,
             topicType = topicType,
-            sections = parseOutlineSections(content.outlineHtml).map {
+            sections = parsedSections.map {
                 OutlineSectionItem(id = it.id, title = it.title, level = it.level, parentId = it.parentId)
             },
             graphics = content.graphics.filter { it.isTable }.map { OutlineGraphicItem(id = it.id, title = it.title) },
@@ -205,7 +279,7 @@ class MedicalDatabaseTools(
         val topicTitle = contentTitle(content, cleanTopicId)
 
         // Build section ID -> title map from parsed outline
-        val sections = parseOutlineSections(content.outlineHtml)
+        val sections = getParsedSections(cleanTopicId, content.outlineHtml)
         val idToTitle = sections.associate { it.id to it.title }
 
         val cleanUpper = sectionIds.map { it.trim().uppercase() }
@@ -428,11 +502,6 @@ class MedicalDatabaseTools(
     private fun parseOutlineSections(outlineHtml: String): List<ParsedSection> {
         if (outlineHtml.isBlank()) return emptyList()
 
-        val tagEventRegex = Regex(
-            """(<ul\b[^>]*>|</ul\b>|<li\b[^>]*>|<a\s+[^>]*href=['"][^'"]*['"][^>]*>.*?</a>)""",
-            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
-        )
-
         var depth = 0
         var inSrButton = false
         val parents = mutableMapOf<Int, String>()
@@ -440,7 +509,7 @@ class MedicalDatabaseTools(
         val rawSections = mutableListOf<ParsedSection>()
         val rawSectionIsSr = mutableListOf<Boolean>()
 
-        for (m in tagEventRegex.findAll(outlineHtml)) {
+        for (m in TAG_EVENT_REGEX.findAll(outlineHtml)) {
             val token = m.groupValues[1]
             val lower = token.lowercase()
             when {
@@ -497,7 +566,7 @@ class MedicalDatabaseTools(
         val targetLevel = if (currentIndex != -1) outlineSections[currentIndex].level else {
             // Determine level from heading tag in bodyHtml: <span class="hX" role="heading">
             val snippet = bodyHtml.substring(startIdx, minOf(startIdx + 300, bodyHtml.length))
-            val hlMatch = Regex("""class=["']h([1-6])["']|aria-level=["'](\d+)["']""", RegexOption.IGNORE_CASE).find(snippet)
+            val hlMatch = HEADING_LEVEL_SNIPPET_REGEX.find(snippet)
             if (hlMatch?.groupValues?.get(1)?.isNotEmpty() == true) {
                 hlMatch.groupValues[1].toIntOrNull() ?: 1
             } else if (hlMatch?.groupValues?.get(2)?.isNotEmpty() == true) {
@@ -525,11 +594,7 @@ class MedicalDatabaseTools(
         return if (nextMatchIdx != -1) {
             bodyHtml.substring(startIdx, nextMatchIdx)
         } else {
-            val referenceHeaderRegex = Regex(
-                """<\w+\s+[^>]*(?:id=["']references["'])[^>]*>""",
-                setOf(RegexOption.IGNORE_CASE)
-            )
-            val referencesMatch = referenceHeaderRegex.find(bodyHtml, startIndex = startMatch.range.last + 1)
+            val referencesMatch = REFERENCE_HEADER_REGEX.find(bodyHtml, startIndex = startMatch.range.last + 1)
             if (referencesMatch != null) {
                 bodyHtml.substring(startIdx, referencesMatch.range.first)
             } else {
@@ -661,47 +726,24 @@ class MedicalDatabaseTools(
     private fun decodeHtmlEntities(text: String): String {
         if (!text.contains('&')) return text
 
-        var s = text
-        // Named entities
-        s = s.replace("&nbsp;", " ").replace("&#160;", " ")
-        s = s.replace("&amp;", "&")
-        s = s.replace("&lt;", "<").replace("&gt;", ">")
-        s = s.replace("&quot;", "\"").replace("&apos;", "'").replace("&#39;", "'")
-        s = s.replace("&mdash;", "—").replace("&#8212;", "—")
-        s = s.replace("&ndash;", "–").replace("&#8211;", "–")
-        s = s.replace("&ge;", "≥").replace("&#8805;", "≥")
-        s = s.replace("&le;", "≤").replace("&#8804;", "≤")
-        s = s.replace("&plusmn;", "±").replace("&#177;", "±")
-        s = s.replace("&micro;", "µ").replace("&#181;", "µ")
-        s = s.replace("&deg;", "°").replace("&#176;", "°")
-        s = s.replace("&bull;", "•").replace("&#8226;", "•")
-        s = s.replace("&#9679;", "●")
-        s = s.replace("&lsquo;", "‘").replace("&#8216;", "‘")
-        s = s.replace("&rsquo;", "’").replace("&#8217;", "’")
-        s = s.replace("&ldquo;", "“").replace("&#8220;", "“")
-        s = s.replace("&rdquo;", "”").replace("&#8221;", "”")
-        s = s.replace("&para;", "¶").replace("&#182;", "¶")
-        s = s.replace("&sect;", "§").replace("&#167;", "§")
-        s = s.replace("&trade;", "™").replace("&#8482;", "™")
-        s = s.replace("&copy;", "©").replace("&#169;", "©")
-        s = s.replace("&reg;", "®").replace("&#174;", "®")
-        s = s.replace("&times;", "×").replace("&#215;", "×")
-        s = s.replace("&divide;", "÷").replace("&#247;", "÷")
-        s = s.replace("&Delta;", "Δ").replace("&delta;", "δ")
-        s = s.replace("&alpha;", "α").replace("&beta;", "β").replace("&gamma;", "γ")
-
-        // Hex numeric entities: &#x...;
-        s = s.replace(Regex("""&#x([0-9a-fA-F]+);""")) { m ->
-            m.groupValues[1].toIntOrNull(16)?.let { code ->
-                if (code in 32..65535) code.toChar().toString() else ""
-            } ?: m.value
+        var s = NAMED_ENTITY_REGEX.replace(text) { m ->
+            ENTITY_LOOKUP[m.value] ?: m.value
         }
 
-        // Decimal numeric entities: &#...;
-        s = s.replace(Regex("""&#(\d+);""")) { m ->
-            m.groupValues[1].toIntOrNull()?.let { code ->
-                if (code in 32..65535) code.toChar().toString() else ""
-            } ?: m.value
+        if (s.contains("&#x", ignoreCase = true)) {
+            s = HEX_ENTITY_REGEX.replace(s) { m ->
+                m.groupValues[1].toIntOrNull(16)?.let { code ->
+                    if (code in 32..65535) code.toChar().toString() else ""
+                } ?: m.value
+            }
+        }
+
+        if (s.contains("&#")) {
+            s = DECIMAL_ENTITY_REGEX.replace(s) { m ->
+                m.groupValues[1].toIntOrNull()?.let { code ->
+                    if (code in 32..65535) code.toChar().toString() else ""
+                } ?: m.value
+            }
         }
 
         return s

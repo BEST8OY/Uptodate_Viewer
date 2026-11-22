@@ -100,10 +100,14 @@ Formatting Rules:
         graphics: List<FetchedGraphic>
     ): String {
         val parts = mutableListOf<String>()
-        sections.forEach { sec ->
+        // Stable-sort by relevance score descending so highest-scored evidence appears first while preserving document order for ties
+        val sortedSections = sections.sortedByDescending { it.relevanceScore }
+        val sortedGraphics = graphics.sortedByDescending { it.relevanceScore }
+
+        sortedSections.forEach { sec ->
             // Suppress subsumed pointer stubs if content is already included in ancestor section above
             if (sec.contentSnippet.startsWith("(Content included in section [") &&
-                sections.any { !it.contentSnippet.startsWith("(Content included in section [") }
+                sortedSections.any { !it.contentSnippet.startsWith("(Content included in section [") }
             ) {
                 return@forEach
             }
@@ -117,12 +121,22 @@ Formatting Rules:
                 parts.add("Section: $headerTitle from topic $cleanTopicTitle")
             }
         }
-        graphics.forEach { gfx ->
+        sortedGraphics.forEach { gfx ->
             if (gfx.markdown.isNotBlank()) {
-                val title = gfx.title.takeIf { it.isNotBlank() && it != gfx.graphicId } ?: "Clinical Table"
+                val rawMarkdown = gfx.markdown.trim()
+                val extractedTitle = if (rawMarkdown.startsWith("### Graphic Table:")) {
+                    AiJsonUtils.GRAPHIC_TABLE_REGEX.find(rawMarkdown)?.groupValues?.get(1)?.trim().orEmpty()
+                } else ""
+                val title = gfx.title.takeIf { it.isNotBlank() && it != gfx.graphicId }
+                    ?: extractedTitle.ifEmpty { "Clinical Table" }
                 val topicName = gfx.topicTitle.takeIf { it.isNotBlank() && it != gfx.topicId }
                 val topicAttr = topicName?.let { " [Topic: $it]" }.orEmpty()
-                parts.add("Table: $title$topicAttr:\n${gfx.markdown}")
+                val cleanMarkdown = if (rawMarkdown.startsWith("### Graphic Table:")) {
+                    rawMarkdown.substringAfter("\n").trimStart()
+                } else {
+                    rawMarkdown
+                }
+                parts.add("Table: $title$topicAttr:\n$cleanMarkdown")
             }
         }
         return if (parts.isEmpty()) {

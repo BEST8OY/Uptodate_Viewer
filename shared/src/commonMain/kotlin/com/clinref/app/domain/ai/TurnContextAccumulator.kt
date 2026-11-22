@@ -35,6 +35,8 @@ class TurnContextAccumulator(
     private val graphicToTopic = ConcurrentHashMap<String, String>() // graphicId -> topicId
     private val topicDiscoveryOrder = CopyOnWriteArrayList<String>()
     private val graphicDiscoveryOrder = CopyOnWriteArrayList<String>()
+    private val sectionRelevanceScores = ConcurrentHashMap<String, Double>() // "topicId:sectionId" -> score
+    private val graphicRelevanceScores = ConcurrentHashMap<String, Double>() // cleanGraphicId -> score
     private var userQuestion: String = ""
     private var patientProfile: PatientProfile? = null
 
@@ -57,6 +59,8 @@ class TurnContextAccumulator(
         graphicToTopic.clear()
         topicDiscoveryOrder.clear()
         graphicDiscoveryOrder.clear()
+        sectionRelevanceScores.clear()
+        graphicRelevanceScores.clear()
         pendingToolArgs.clear()
         synchronized(stateLock) {
             executedToolCalls.clear()
@@ -92,6 +96,22 @@ class TurnContextAccumulator(
 
     fun hasFetchedGraphic(graphicId: String): Boolean =
         graphicIds.contains(AiJsonUtils.cleanGraphicId(graphicId))
+
+    fun hasInspectedTopic(topicId: String): Boolean =
+        outlineSections.containsKey(topicId)
+
+    fun recordSectionScore(topicId: String, sectionId: String, score: Double) {
+        if (sectionId.isNotBlank()) {
+            sectionRelevanceScores["$topicId:$sectionId"] = score
+        }
+    }
+
+    fun recordGraphicScore(graphicId: String, score: Double) {
+        val clean = AiJsonUtils.cleanGraphicId(graphicId)
+        if (clean.isNotBlank()) {
+            graphicRelevanceScores[clean] = score
+        }
+    }
 
     /**
      * Formats a summary of candidate topics, outline sections, and table graphics
@@ -207,7 +227,8 @@ class TurnContextAccumulator(
         val sectionsWithTitle = fetchedSections.map { sec ->
             val resolvedTitle = resolveTopicTitle(sec.topicId, sec.topicTitle)
             val resolvedSectionTitle = resolveSectionTitle(sec.topicId, sec.sectionId, sec.sectionTitle)
-            sec.copy(topicTitle = resolvedTitle, sectionTitle = resolvedSectionTitle)
+            val score = sectionRelevanceScores["${sec.topicId}:${sec.sectionId}"] ?: sec.relevanceScore
+            sec.copy(topicTitle = resolvedTitle, sectionTitle = resolvedSectionTitle, relevanceScore = score)
         }
 
         // Auto-populate refs from fetched sections and graphic IDs
@@ -255,7 +276,8 @@ class TurnContextAccumulator(
             val resolvedTitle = fg.title.ifBlank { graphicTitles[fg.graphicId] ?: "" }
             val resolvedTopic = fg.topicId.ifBlank { graphicToTopic[fg.graphicId] ?: "" }
             val resolvedTopicTitle = resolveTopicTitle(resolvedTopic)
-            fg.copy(title = resolvedTitle, topicId = resolvedTopic, topicTitle = resolvedTopicTitle)
+            val score = graphicRelevanceScores[fg.graphicId] ?: fg.relevanceScore
+            fg.copy(title = resolvedTitle, topicId = resolvedTopic, topicTitle = resolvedTopicTitle, relevanceScore = score)
         }
 
         return TurnContext(
@@ -431,13 +453,16 @@ class TurnContextAccumulator(
                             ?: args["section_title"]
                             ?: ""
                     )
+                    val defaultScore = if (sectionId.equals("FULL", ignoreCase = true)) 3.0 else 0.0
+                    val score = sectionRelevanceScores["$topicId:$sectionId"] ?: defaultScore
                     fetchedSections.add(
                         FetchedSection(
                             topicId = topicId,
                             topicTitle = finalTopicTitle,
                             sectionId = sectionId,
                             sectionTitle = resolvedTitle,
-                            contentSnippet = snippet
+                            contentSnippet = snippet,
+                            relevanceScore = score
                         )
                     )
                 }
@@ -575,13 +600,15 @@ class TurnContextAccumulator(
             // Calculator topic evidence
             val finalTopicTitle = resolveTopicTitle(topicId, title)
             if (res.topicType == "calc" && !hasFetchedSection(topicId, "FULL")) {
+                val score = sectionRelevanceScores["$topicId:FULL"] ?: 3.0
                 fetchedSections.add(
                     FetchedSection(
                         topicId = topicId,
                         topicTitle = finalTopicTitle,
                         sectionId = "FULL",
                         sectionTitle = "Calculator Tool Content",
-                        contentSnippet = res.markdown.trim()
+                        contentSnippet = res.markdown.trim(),
+                        relevanceScore = score
                     )
                 )
             }

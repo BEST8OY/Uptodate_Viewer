@@ -136,6 +136,9 @@ class DecisionGatesTest {
         assertTrue(res.ok)
         assertEquals(0, calls)
         assertTrue(res.recommendedSectionIds.isEmpty())
+        assertEquals(1, res.rankedSections.size)
+        assertEquals("FULL", res.rankedSections[0].id)
+        assertEquals(3.0, res.rankedSections[0].score, 0.001)
     }
 
     @Test
@@ -204,7 +207,7 @@ class DecisionGatesTest {
         assertTrue(res.ok)
         assertTrue(res.needsDrugMonograph)
         assertTrue("needs_drug_monograph" in capturedKeys)
-        assertEquals(70, capturedKeys.count { it.startsWith("sec_") })
+        assertEquals(minOf(sections.size, DecisionConfig.MAX_OUTLINE_SECTIONS_TO_SCORE), capturedKeys.count { it.startsWith("sec_") })
         assertEquals(1, capturedKeys.count { it.startsWith("gfx_") })
         assertEquals(25, capturedKeys.count { it.startsWith("rel_") })
         assertFalse(capturedKeys.any { it.contains("G_PHOTO") })
@@ -270,6 +273,34 @@ class DecisionGatesTest {
     }
 
     @Test
+    fun `injectOverviewRerankIntoJson does not emit low relevance hint for calculator topics`() {
+        val calcOverviewJson = json.encodeToString(
+            TopicOverviewResponse(
+                topicId = "Topic-Calc-1",
+                title = "CrCl Calculator",
+                topicType = "calc",
+                markdown = "CrCl = ..."
+            )
+        )
+        val calcRerank = OverviewRerankResult(
+            topicId = "Topic-Calc-1",
+            topicTitle = "CrCl Calculator",
+            rankedSections = listOf(RankedItem(id = "FULL", title = "CrCl Calculator", score = 3.0)),
+            recommendedSectionIds = emptyList(),
+            ok = true
+        )
+        val enriched = DecisionGates.injectOverviewRerankIntoJson(
+            toolJson = calcOverviewJson,
+            rerank = calcRerank,
+            autoPrefetched = true,
+            json = json
+        )
+        val block = json.parseToJsonElement(enriched).jsonObject["decisionRerank"]!!.jsonObject
+        val hint = block["hint"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        assertFalse(hint.contains("low relevance (<1.0)"))
+    }
+
+    @Test
     fun `rankOverviewItems default limits allow up to 8 sections and 4 tables`() = runTest {
         val transport = DecisionTransport { reqJson ->
             val qs = json.parseToJsonElement(reqJson).jsonObject["questions"]!!.jsonObject
@@ -317,5 +348,56 @@ class DecisionGatesTest {
         assertTrue(res.ok)
         assertEquals(8, res.recommendedSectionIds.size)
         assertEquals(4, res.recommendedGraphicIds.size)
+    }
+
+    @Test
+    fun `rankOverviewItems does not penalize parent if child does not meet sectionScoreThreshold`() = runTest {
+        val overview = TopicOverviewResponse(
+            topicId = "Topic-ParentChild",
+            title = "Hypertension Management",
+            topicType = "medical",
+            sections = listOf(
+                OutlineSectionItem(id = "sec-parent", title = "Initial Blood Pressure Management", level = 1),
+                OutlineSectionItem(id = "sec-child", title = "Lifestyle Modifications", level = 2, parentId = "sec-parent")
+            )
+        )
+
+        // Parent scores 1.9 (passes threshold 1.8), Child scores 1.6 (fails threshold 1.8)
+        val transport = DecisionTransport { reqJson ->
+            val qs = json.parseToJsonElement(reqJson).jsonObject["questions"]!!.jsonObject
+            val answers = buildJsonObject {
+                put("is_topic_relevant", buildJsonObject { put("type", "noul"); put("noul", 0.95); put("confidence", 0.9) })
+                qs.keys.filter { it.startsWith("sec_") }.forEach { key ->
+                    val s = if (key.contains("parent")) 1.9 else 1.6
+                    put(
+                        key,
+                        buildJsonObject {
+                            put("type", "score")
+                            put("score", s)
+                            put("confidence", 0.9)
+                        }
+                    )
+                }
+            }
+            json.encodeToString(
+                JsonObject.serializer(),
+                buildJsonObject {
+                    put("answers", answers)
+                    put("usage", buildJsonObject { put("total_input_tokens", 80) })
+                }
+            )
+        }
+
+        val res = DecisionGates.rankOverviewItems(
+            client = DecisionClient(transport),
+            question = "How to treat hypertension?",
+            patientProfileText = "",
+            overview = overview,
+            config = DecisionConfig(sectionScoreThreshold = 1.8)
+        )
+
+        assertTrue(res.ok)
+        // Parent must be retained and recommended because child failed the threshold and was dropped
+        assertEquals(listOf("sec-parent"), res.recommendedSectionIds)
     }
 }

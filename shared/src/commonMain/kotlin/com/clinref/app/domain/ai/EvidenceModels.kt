@@ -22,7 +22,8 @@ data class FetchedSection(
     val topicTitle: String,
     val sectionId: String,
     val sectionTitle: String,
-    val contentSnippet: String = ""
+    val contentSnippet: String = "",
+    val relevanceScore: Double = 0.0
 )
 
 /**
@@ -33,7 +34,8 @@ data class FetchedGraphic(
     val title: String = "",
     val markdown: String = "",
     val topicId: String = "",
-    val topicTitle: String = ""
+    val topicTitle: String = "",
+    val relevanceScore: Double = 0.0
 )
 
 /**

@@ -164,4 +164,110 @@ class SystemPromptTest {
         val topicRefs = turnContext.topicRefs
         assertTrue("UI chips must retain the specific subsection", topicRefs.any { it.sectionId == "H1595678546" })
     }
+
+    @Test
+    fun `evidenceSummaryFrom orders sections and graphics by relevanceScore descending without truncating content`() {
+        val secLow = FetchedSection(
+            topicId = "1",
+            sectionId = "S_LOW",
+            topicTitle = "Cardiology",
+            sectionTitle = "General Background",
+            contentSnippet = "Background epidemiology information.",
+            relevanceScore = 1.2
+        )
+        val secHigh = FetchedSection(
+            topicId = "1",
+            sectionId = "S_HIGH",
+            topicTitle = "Cardiology",
+            sectionTitle = "Dosing and Administration",
+            contentSnippet = "Primary first-line dosing is 5 mg daily.",
+            relevanceScore = 2.9
+        )
+        val gfxLow = FetchedGraphic(
+            graphicId = "G_LOW",
+            title = "Secondary monitoring table",
+            markdown = "| Param | Value |\n| --- | --- |\n| Lab | Normal |",
+            relevanceScore = 1.5
+        )
+        val gfxHigh = FetchedGraphic(
+            graphicId = "G_HIGH",
+            title = "Primary Dosing Table",
+            markdown = "| Drug | Dose |\n| --- | --- |\n| DrugA | 100 mg |",
+            relevanceScore = 2.8
+        )
+
+        val summary = SystemPrompt.evidenceSummaryFrom(
+            sections = listOf(secLow, secHigh),
+            graphics = listOf(gfxLow, gfxHigh)
+        )
+
+        // Verify high-relevance section appears before low-relevance section
+        val posHighSec = summary.indexOf("Dosing and Administration")
+        val posLowSec = summary.indexOf("General Background")
+        assertTrue("High relevance section must appear before low relevance section", posHighSec in 0 until posLowSec)
+
+        // Verify high-relevance graphic appears before low-relevance graphic
+        val posHighGfx = summary.indexOf("Primary Dosing Table")
+        val posLowGfx = summary.indexOf("Secondary monitoring table")
+        assertTrue("High relevance graphic must appear before low relevance graphic", posHighGfx in 0 until posLowGfx)
+
+        // Verify full untruncated content is preserved (no context cap)
+        assertTrue(summary.contains("Primary first-line dosing is 5 mg daily."))
+        assertTrue(summary.contains("Background epidemiology information."))
+        assertTrue(summary.contains("| Drug | Dose |"))
+        assertTrue(summary.contains("| Lab | Normal |"))
+    }
+
+    @Test
+    fun `evidenceSummaryFrom strips redundant Graphic Table markdown header to eliminate duplicate title`() {
+        val gfx = FetchedGraphic(
+            graphicId = "118967",
+            title = "Empiric Antibiotic Regimens",
+            markdown = "### Graphic Table: Empiric Antibiotic Regimens\n\n| Antibiotic | Dose |\n|---|---|\n| Amoxicillin | 1 g TID |",
+            topicId = "7027",
+            topicTitle = "CAP",
+            relevanceScore = 2.8
+        )
+
+        val summary = SystemPrompt.evidenceSummaryFrom(
+            sections = emptyList(),
+            graphics = listOf(gfx)
+        )
+
+        // Must contain the wrapped provenance header
+        assertTrue(summary.contains("Table: Empiric Antibiotic Regimens [Topic: CAP]:"))
+        // Must NOT duplicate ### Graphic Table: Empiric Antibiotic Regimens
+        assertFalse(summary.contains("### Graphic Table:"))
+        // Must retain table content
+        assertTrue(summary.contains("| Amoxicillin | 1 g TID |"))
+    }
+
+    @Test
+    fun `evidenceSummaryFrom orders calculator section ahead of lower-scored sections`() {
+        val calcSec = FetchedSection(
+            topicId = "calc-crcl",
+            topicTitle = "CrCl Cockcroft-Gault Calculator",
+            sectionId = "FULL",
+            sectionTitle = "Calculator Tool Content",
+            contentSnippet = "CrCl = [(140 - age) * weight] / (72 * SCr)",
+            relevanceScore = 3.0
+        )
+        val medSec = FetchedSection(
+            topicId = "med-afib",
+            topicTitle = "Atrial Fibrillation Management",
+            sectionId = "H1234",
+            sectionTitle = "Anticoagulation",
+            contentSnippet = "Oral anticoagulation recommended if CHA2DS2-VASc >= 2.",
+            relevanceScore = 2.8
+        )
+
+        val summary = SystemPrompt.evidenceSummaryFrom(
+            sections = listOf(medSec, calcSec),
+            graphics = emptyList()
+        )
+
+        val posCalc = summary.indexOf("Cockcroft-Gault")
+        val posMed = summary.indexOf("Atrial Fibrillation")
+        assertTrue("Calculator with score 3.0 must appear before section with score 2.8", posCalc in 0 until posMed)
+    }
 }
