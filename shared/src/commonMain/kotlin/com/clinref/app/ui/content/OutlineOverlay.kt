@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -154,7 +153,8 @@ internal fun OutlineOverlay(
 
     ClinRefBottomSheet(
         onDismiss = onDismiss,
-        modifier = modifier.fillMaxHeight(0.88f),
+        modifier = modifier,
+        heightFraction = 0.88f,
         title = "Topic Outline",
         maxWidth = AdaptiveTokens.MaxCatalogListWidth,
         showDivider = false

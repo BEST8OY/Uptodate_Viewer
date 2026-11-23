@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -55,6 +56,7 @@ fun ClinRefBottomSheet(
     subtitle: String? = null,
     titleBadge: (@Composable () -> Unit)? = null,
     maxWidth: Dp = BottomSheetDefaults.SheetMaxWidth,
+    heightFraction: Float? = null,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     showDragHandle: Boolean = true,
     showCloseButton: Boolean = true,
@@ -104,6 +106,10 @@ fun ClinRefBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (heightFraction != null) Modifier.fillMaxHeight(heightFraction)
+                    else Modifier
+                )
                 .imePadding()
         ) {
             if (title != null || showCloseButton || titleBadge != null) {
