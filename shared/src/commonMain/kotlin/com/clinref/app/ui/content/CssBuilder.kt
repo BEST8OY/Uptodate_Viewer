@@ -347,7 +347,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .utdArticleSection, #topicContent, #topicContentCalculator {
     max-width: 860px;
     margin: 0 auto;
-    padding: 24px 20px 96px;
+    padding: 24px 20px 120px;
     overflow-x: auto;
     -webkit-user-select: text;
     user-select: text;
@@ -429,7 +429,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 @media (min-width: 600px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 32px 40px 104px;
+        padding: 32px 40px 148px;
     }
 }
 """.trimIndent()
@@ -1225,11 +1225,16 @@ a:hover { text-decoration: underline; }
     margin: 0 auto;
 }
 
-.cntnt td {
+.cntnt td, .cntnt th {
     padding: 10px 12px;
     border: 1px solid var(--border);
     vertical-align: top;
     line-height: 1.5;
+    text-align: left;
+}
+
+.cntnt td ul, .cntnt td ol, .cntnt td li {
+    text-align: left;
 }
 
 .cntnt td ul, .cntnt td ol {

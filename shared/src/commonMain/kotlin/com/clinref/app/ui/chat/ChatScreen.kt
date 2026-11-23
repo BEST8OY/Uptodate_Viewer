@@ -423,7 +423,7 @@ fun ChatScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
+                            .widthIn(max = AdaptiveTokens.MaxChatInputWidth)
                             .fillMaxWidth()
                             .suppressTransientSelectAllContextMenu(),
                         contentPadding = PaddingValues(

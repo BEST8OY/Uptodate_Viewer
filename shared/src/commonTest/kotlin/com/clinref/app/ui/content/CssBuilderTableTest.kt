@@ -45,6 +45,7 @@ class CssBuilderTableTest {
         // Alignment
         assertTrue(css.contains(".centered,"), "Graphic CSS should include centered class")
         assertTrue(css.contains(".align_top,"), "Graphic CSS should include align_top class")
+        assertTrue(css.contains(".cntnt td, .cntnt th {"), "Graphic CSS should include cell left alignment")
 
         // Highlights
         assertTrue(css.contains(".highlight_lght_gray_text,"), "Graphic CSS should include highlight_lght_gray_text")

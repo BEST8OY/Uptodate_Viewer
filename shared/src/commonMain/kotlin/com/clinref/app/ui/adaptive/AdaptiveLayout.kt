@@ -25,7 +25,7 @@ object AdaptiveTokens {
     val BreakpointExpanded: Dp = 840.dp
 
     // Typographic reading bounds
-    val MaxChatAssistantWidth: Dp = 760.dp
+    val MaxChatAssistantWidth: Dp = 840.dp
     val MaxChatInputWidth: Dp = 840.dp
     val MaxSettingsContentWidth: Dp = 760.dp
     val MaxFormContentWidth: Dp = 720.dp
