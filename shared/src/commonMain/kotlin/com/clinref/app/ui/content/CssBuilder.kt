@@ -6,14 +6,19 @@ class CssBuilder(private val colors: ThemeColors) {
         val clean = hex.removePrefix("#")
         val (r, g, b) = when (clean.length) {
             3 -> listOf(
-                clean[0].toString().repeat(2).toInt(16),
-                clean[1].toString().repeat(2).toInt(16),
-                clean[2].toString().repeat(2).toInt(16),
+                clean[0].toString().repeat(2).toIntOrNull(16) ?: 0,
+                clean[1].toString().repeat(2).toIntOrNull(16) ?: 0,
+                clean[2].toString().repeat(2).toIntOrNull(16) ?: 0,
             )
             6 -> listOf(
-                clean.substring(0, 2).toInt(16),
-                clean.substring(2, 4).toInt(16),
-                clean.substring(4, 6).toInt(16),
+                clean.substring(0, 2).toIntOrNull(16) ?: 0,
+                clean.substring(2, 4).toIntOrNull(16) ?: 0,
+                clean.substring(4, 6).toIntOrNull(16) ?: 0,
+            )
+            8 -> listOf(
+                clean.substring(2, 4).toIntOrNull(16) ?: 0,
+                clean.substring(4, 6).toIntOrNull(16) ?: 0,
+                clean.substring(6, 8).toIntOrNull(16) ?: 0,
             )
             else -> return "rgba(0, 0, 0, $alpha)"
         }
@@ -45,8 +50,8 @@ class CssBuilder(private val colors: ThemeColors) {
             rootVariables(),
             graphicReset(),
             graphicLayout(),
-            sharedTableStyles(),
             graphicTableSpecifics(),
+            sharedTableStyles(),
             graphicNavigation(),
             responsive(),
             printStyles(),
@@ -59,6 +64,7 @@ class CssBuilder(private val colors: ThemeColors) {
     private fun rootVariables(): String = """
 /* Theme Tokens */
 :root {
+    color-scheme: ${if (colors.isDark) "dark" else "light"};
     --bg: ${colors.bg};
     --surface: ${colors.surface};
     --text: ${colors.text};
@@ -72,8 +78,10 @@ class CssBuilder(private val colors: ThemeColors) {
     --drug: ${colors.drug};
     --danger: ${colors.danger};
     --caution: ${colors.caution};
+    --on-caution: #000000;
     --grade: ${colors.grade};
     --selection: ${colors.selection};
+    --clinical-green: ${if (colors.isDark) "#34d399" else "#059669"};
     --primary-container: ${colors.primaryContainer};
     --on-primary-container: ${colors.onPrimaryContainer};
     --tertiary-container: ${colors.tertiaryContainer};
@@ -89,7 +97,7 @@ class CssBuilder(private val colors: ThemeColors) {
     background: var(--primary) !important;
     color: var(--on-primary) !important;
     font-weight: 600;
-    text-align: center;
+    text-align: center !important;
     padding: 10px 12px;
 }
 
@@ -115,7 +123,7 @@ class CssBuilder(private val colors: ThemeColors) {
     padding: 8px 12px;
 }
 
-.subtitle2 { text-align: center; }
+.subtitle2 { text-align: center !important; }
 .subtitle2_left { text-align: left; }
 .subtitle2_left_white { background: var(--surface) !important; color: var(--heading); font-weight: 600; padding: 8px 12px; text-align: left; }
 
@@ -239,7 +247,7 @@ td.container {
 /* Text accents & icons */
 .red, span.red, p.red { color: var(--danger) !important; font-weight: 600; }
 .blue, span.blue, p.blue { color: var(--primary) !important; }
-.green, span.green, p.green { color: var(--primary) !important; font-weight: 600; }
+.green, span.green, p.green { color: var(--clinical-green) !important; font-weight: 600; }
 .arrow, span.arrow { display: inline-block; font-weight: bold; color: var(--primary); }
 .lozenge, span.lozenge { display: inline-block; vertical-align: middle; font-size: 0.9em; }
 
@@ -290,7 +298,7 @@ td.container {
 
     fun resetAndBase(): String = """
 /* Reset & Base */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; }
 html {
     font-size: 100%;
     scroll-behavior: smooth;
@@ -299,6 +307,8 @@ html {
 }
 
 body {
+    margin: 0;
+    padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: 1rem;
     line-height: 1.6;
@@ -310,6 +320,9 @@ body {
     user-select: text;
 }
 
+ul, ol { padding-left: 24px; margin: 10px 0; }
+li { margin: 4px 0; }
+
 ::selection { background: var(--selection); color: var(--on-primary); }
 ::-moz-selection { background: var(--selection); color: var(--on-primary); }
 *::selection { background: var(--selection); color: var(--on-primary); }
@@ -319,7 +332,14 @@ strong, b { font-weight: 600; }
 i, em { font-style: italic; }
 sup { font-size: 0.7em; vertical-align: super; }
 sub { font-size: 0.7em; vertical-align: sub; }
-img { height: auto !important; display: block; }
+img { max-width: 100%; height: auto !important; }
+.figure img, .cntnt img {
+    display: block;
+    margin: 0 auto;
+    background: #ffffff;
+    padding: 6px;
+    border-radius: 6px;
+}
 
 a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
     outline: 2px solid var(--primary);
@@ -334,6 +354,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     margin: -1px !important;
     overflow: hidden !important;
     clip: rect(0, 0, 0, 0) !important;
+    clip-path: inset(50%) !important;
     white-space: nowrap !important;
     border: 0 !important;
 }
@@ -426,18 +447,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 #topicText { margin-top: 12px; }
 #topicText p { margin: 14px 0; text-align: left; }
-
-@media (min-width: 600px) {
-    .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 32px 40px 104px;
-    }
-}
 """.trimIndent()
 
     // ── Headings ─────────────────────────────────────────────────────
 
     fun headings(): String = """
 /* Headings */
+[id] { scroll-margin-top: 24px; }
 h1 {
     font-size: 1.5rem;
     font-weight: 700;
@@ -545,7 +561,7 @@ a:hover { text-decoration: underline; }
 
 .graphic:hover, .graphic_table:hover, .graphic_figure:hover {
     background: var(--primary);
-    color: var(--bg);
+    color: var(--on-primary);
     border-color: var(--primary);
     text-decoration: none;
 }
@@ -907,7 +923,7 @@ ${sharedTableStyles()}
 
 .ref-callout-list-link:hover {
     background: var(--primary);
-    color: var(--bg);
+    color: var(--on-primary);
     border-color: var(--primary);
     text-decoration: none;
 }
@@ -948,7 +964,7 @@ ${sharedTableStyles()}
     font-weight: 700;
     letter-spacing: 0.05em;
     background: var(--caution);
-    color: var(--text);
+    color: var(--on-caution, #000000) !important;
     padding: 1px 6px;
     border-radius: 3px;
     margin-right: 8px;
@@ -1009,8 +1025,13 @@ ${sharedTableStyles()}
     border-radius: 6px;
     background: var(--surface);
     color: var(--text);
-    min-width: 240px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     font-size: 0.9rem;
+}
+@media (min-width: 480px) {
+    .medCalcFontSelect { width: auto; min-width: 200px; }
 }
 
 .medCalcFontResultParam { font-weight: 600; color: var(--heading); }
@@ -1085,7 +1106,8 @@ ${sharedTableStyles()}
     line-height: 1.6;
 }
 
-#calc_main input[type="number"] {
+#calc_main input[type="number"],
+#calc_main input[type="text"] {
     padding: 8px 12px;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -1096,7 +1118,8 @@ ${sharedTableStyles()}
     transition: border-color 0.15s;
 }
 
-#calc_main input[type="number"]:focus {
+#calc_main input[type="number"]:focus,
+#calc_main input[type="text"]:focus {
     outline: none;
     border-color: var(--primary);
     box-shadow: 0 0 0 2px ${hexToRgba(colors.primary, 0.2f)};
@@ -1127,7 +1150,7 @@ ${sharedTableStyles()}
 #calc_buttons input[type="submit"]:hover,
 #calc_buttons input[type="button"]:hover {
     background: var(--primary);
-    color: var(--bg);
+    color: var(--on-primary);
     border-color: var(--primary);
 }
 
@@ -1209,8 +1232,10 @@ a:hover { text-decoration: underline; }
 .cntnt img {
     display: block;
     margin: 0 auto;
+    background: #ffffff;
+    padding: 6px;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: 6px;
 }
 """.trimIndent()
 
@@ -1327,8 +1352,8 @@ a:hover { text-decoration: underline; }
 
     table { font-size: 0.82rem; }
     th, td { padding: 8px 10px; }
-    .graphic table, .figure table { font-size: 0.8rem; }
-    .graphic td, .figure td { padding: 7px 9px; }
+    .graphic table, .figure table, .cntnt table { font-size: 0.8rem; }
+    .graphic td, .figure td, .cntnt td { padding: 7px 9px; }
 
     .grade { font-size: 0.7rem; padding: 1px 6px; }
     .graphic, .graphic_table, .graphic_figure { font-size: 0.75rem; padding: 2px 8px; }
@@ -1336,12 +1361,18 @@ a:hover { text-decoration: underline; }
     #topicContributors { padding: 12px 14px; }
     .meta-links-row { font-size: 0.85rem; }
 
-    #calc_main input[type="number"] { font-size: 0.9rem; }
+    #calc_main input[type="number"], #calc_main input[type="text"] { font-size: 0.9rem; }
 }
 
-@media (min-width: 481px) and (max-width: 768px) {
+@media (min-width: 481px) and (max-width: 599px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
         padding: 24px 20px 96px;
+    }
+}
+
+@media (min-width: 600px) {
+    .utdArticleSection, #topicContent, #topicContentCalculator {
+        padding: 32px 40px 104px;
     }
 }
 """.trimIndent()
@@ -1351,14 +1382,27 @@ a:hover { text-decoration: underline; }
     private fun printStyles(): String = """
 /* Print */
 @media print {
-    body { background: white; color: black; }
+    :root {
+        --bg: #ffffff !important;
+        --surface: #f8f9fa !important;
+        --text: #1a1a1a !important;
+        --heading: #111111 !important;
+        --border: #e0e0e0 !important;
+        --primary: #005fb0 !important;
+    }
+
+    body { background: white !important; color: black !important; }
 
     .collapsible-indication-title, .collapsible-title { cursor: default; }
     .collapsible-indication-title::after, .collapsible-title::after { display: none; }
 
     #calc_buttons { display: none; }
 
-    a[href]::after { content: " (" attr(href) ")"; font-size: 0.75em; color: #666; }
+    a[href^="http://"]::after, a[href^="https://"]::after {
+        content: " (" attr(href) ")";
+        font-size: 0.75em;
+        color: #666;
+    }
     a[href^="#"]::after { content: ""; }
 
     .grade { background: #eee; color: black; }
@@ -1366,7 +1410,13 @@ a:hover { text-decoration: underline; }
 
     .block.coi .drugH1, .block.war .drugH1 { break-inside: avoid; }
 
-    .visuallyHidden { position: absolute !important; width: 1px !important; height: 1px !important; clip: rect(0,0,0,0) !important; }
+    .visuallyHidden {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        clip: rect(0,0,0,0) !important;
+        clip-path: inset(50%) !important;
+    }
 }
 """.trimIndent()
 }

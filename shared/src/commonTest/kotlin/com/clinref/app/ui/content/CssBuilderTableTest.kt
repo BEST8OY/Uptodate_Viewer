@@ -70,4 +70,20 @@ class CssBuilderTableTest {
         // Red alert
         assertTrue(css.contains(".red,"), "Graphic CSS should include red alert")
     }
+
+    @Test
+    fun css_includesDarkModeContrastAndResponsiveFixes() {
+        val lightCss = CssBuilder(ThemeColors.light()).buildDocumentCss()
+        val darkCss = CssBuilder(ThemeColors.dark()).buildDocumentCss()
+
+        assertTrue(lightCss.contains("color-scheme: light;"), "Light CSS should set color-scheme: light")
+        assertTrue(darkCss.contains("color-scheme: dark;"), "Dark CSS should set color-scheme: dark")
+        assertTrue(darkCss.contains("--clinical-green:"), "CSS should declare --clinical-green")
+        assertTrue(darkCss.contains("--on-caution: #000000;"), "CSS should declare --on-caution")
+        assertTrue(darkCss.contains("[id] { scroll-margin-top: 24px; }"), "CSS should include scroll margin for anchors")
+        assertTrue(darkCss.contains("ul, ol { padding-left: 24px;"), "CSS should preserve list indentation")
+        assertTrue(darkCss.contains("img { max-width: 100%;"), "CSS should constrain images to 100% max width")
+        assertTrue(darkCss.contains("min-width: 481px) and (max-width: 599px)"), "CSS should use non-overlapping 481-599px media query")
+        assertTrue(darkCss.contains("a[href^=\"http://\"]::after"), "Print CSS should only append URL for external links")
+    }
 }
