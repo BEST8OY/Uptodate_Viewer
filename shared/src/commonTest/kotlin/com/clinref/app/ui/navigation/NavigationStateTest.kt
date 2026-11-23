@@ -1,16 +1,13 @@
 package com.clinref.app.ui.navigation
 
-import androidx.compose.runtime.mutableStateOf
-import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NavigationStateTest {
@@ -18,19 +15,7 @@ class NavigationStateTest {
     private fun createNavigator(
         startRoute: NavKey = TocRoute,
         topLevelRoutes: List<TopLevelRoute> = listOf(TocRoute, HistoryRoute, FavoritesRoute, AiRoute)
-    ): Navigator {
-        val topLevelState = mutableStateOf(startRoute)
-        val backStacks = topLevelRoutes.associate { route ->
-            route as NavKey to NavBackStack<NavKey>(route)
-        }
-        val state = NavigationState(
-            startRoute = startRoute,
-            topLevelRoute = topLevelState,
-            backStacks = backStacks,
-            entryDecorators = emptyList()
-        )
-        return Navigator(state)
-    }
+    ): Navigator = createTestNavigator(startRoute, topLevelRoutes)
 
     @Test
     fun `initial state starts at startRoute with isolated peer root stacks`() {
@@ -68,15 +53,31 @@ class NavigationStateTest {
     }
 
     @Test
-    fun `navigating to identical sub-route is idempotent and does not duplicate stack entry`() {
+    fun `navigating to existing sub-route in current stack brings it to front without duplicating`() {
         val navigator = createNavigator()
-        val contentRoute = ContentRoute("topic-123")
+        val routeA = ContentRoute("topic-A")
+        val routeB = ContentRoute("topic-B")
 
-        navigator.navigate(contentRoute)
-        navigator.navigate(contentRoute)
+        navigator.navigate(routeA)
+        navigator.navigate(routeB)
+        navigator.navigate(routeA)
 
-        val tocStack = navigator.state.backStacks[TocRoute]
-        assertEquals(2, tocStack?.size)
+        val tocStack = navigator.state.backStacks[TocRoute]?.toList()
+        assertEquals(listOf(TocRoute, routeB, routeA), tocStack)
+        assertEquals(3, tocStack?.size)
+    }
+
+    @Test
+    fun `navigating to already active top sub-route is a strict no-op`() {
+        val navigator = createNavigator()
+        val contentRoute = ContentRoute("topic-1")
+        navigator.navigate(contentRoute)
+        assertEquals(2, navigator.state.backStacks[TocRoute]?.size)
+
+        // Second navigate to identical top item does not mutate stack or re-add
+        navigator.navigate(contentRoute)
+        assertEquals(2, navigator.state.backStacks[TocRoute]?.size)
+        assertEquals(listOf<NavKey>(TocRoute, contentRoute), navigator.state.backStacks[TocRoute]?.toList())
     }
 
     @Test
@@ -124,6 +125,55 @@ class NavigationStateTest {
         assertEquals(listOf<NavKey>(TocRoute, content1), navigator.state.backStacks[TocRoute]?.toList())
 
         navigator.goBack()
+        assertEquals(listOf<NavKey>(TocRoute), navigator.state.backStacks[TocRoute]?.toList())
+    }
+
+    @Test
+    fun `popSubRoute pops expected sub-route and never pops root or triggers exit through home`() {
+        val navigator = createNavigator(startRoute = TocRoute)
+        navigator.navigate(HistoryRoute)
+        val contentRoute = ContentRoute("topic-hist")
+        navigator.navigate(contentRoute)
+
+        // First pop with expected key succeeds
+        val popped = navigator.popSubRoute(contentRoute)
+        assertTrue(popped)
+        assertEquals(listOf<NavKey>(HistoryRoute), navigator.state.backStacks[HistoryRoute]?.toList())
+
+        // Second pop when at root fails and does NOT exit through home
+        val poppedAgain = navigator.popSubRoute(contentRoute)
+        assertFalse(poppedAgain)
+        assertEquals(HistoryRoute, navigator.state.topLevelRoute)
+        assertEquals(listOf<NavKey>(HistoryRoute), navigator.state.backStacks[HistoryRoute]?.toList())
+    }
+
+    @Test
+    fun `popSubRoute ignores mismatching expected key`() {
+        val navigator = createNavigator()
+        val content1 = ContentRoute("topic-1")
+        val content2 = ContentRoute("topic-2")
+        navigator.navigate(content1)
+
+        val popped = navigator.popSubRoute(content2)
+        assertFalse(popped)
+        assertEquals(listOf<NavKey>(TocRoute, content1), navigator.state.backStacks[TocRoute]?.toList())
+    }
+
+    @Test
+    fun `navigateToHome from another tab switches to startRoute and pops startRoute stack to root`() {
+        val navigator = createNavigator(startRoute = TocRoute)
+        // Push sub-route on Toc
+        navigator.navigate(ContentRoute("topic-1"))
+        assertEquals(2, navigator.state.backStacks[TocRoute]?.size)
+
+        // Switch to AI and enter chat
+        navigator.navigate(AiRoute)
+        navigator.navigate(ChatRoute("session-1"))
+        assertEquals(AiRoute, navigator.state.topLevelRoute)
+
+        // Tapping Home navigates to startRoute AND pops Toc stack to root
+        navigator.navigateToHome()
+        assertEquals(TocRoute, navigator.state.topLevelRoute)
         assertEquals(listOf<NavKey>(TocRoute), navigator.state.backStacks[TocRoute]?.toList())
     }
 
@@ -214,8 +264,8 @@ class NavigationStateTest {
         assertEquals(2, navigator.state.backStacks[AiRoute]?.size)
         assertEquals(chatRoute, navigator.state.backStacks[AiRoute]?.last())
 
-        // Clinician taps "Home" from in-sheet reader, navigating to TocRoute (R2)
-        navigator.navigate(TocRoute)
+        // Clinician taps "Home" from in-sheet reader, navigating to TocRoute via navigateToHome()
+        navigator.navigateToHome()
         assertEquals(TocRoute, navigator.state.topLevelRoute)
 
         // AI backstack is preserved intact with the conversation still active (100% conversation preservation)
@@ -227,4 +277,3 @@ class NavigationStateTest {
         assertEquals(listOf<NavKey>(AiRoute, chatRoute), navigator.state.backStacks[AiRoute]?.toList())
     }
 }
-

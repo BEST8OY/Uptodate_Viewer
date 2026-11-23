@@ -5,7 +5,7 @@ import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 expect fun SetupScreen(
-    onSetupComplete: () -> Unit,
+    onSetupComplete: () -> Unit = {},
     viewModel: SetupViewModel = koinViewModel()
 )
 

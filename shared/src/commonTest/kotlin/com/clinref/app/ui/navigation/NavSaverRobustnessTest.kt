@@ -2,31 +2,22 @@ package com.clinref.app.ui.navigation
 
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.SaverScope
-import androidx.compose.runtime.saveable.listSaver
 import androidx.navigation3.runtime.NavKey
+import com.clinref.app.ui.chat.ChatOverlay
+import com.clinref.app.ui.chat.ChatOverlaySaver
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 /**
  * Unit-level robustness tests for Navigation 3 state restoration ([Saver]s
  * and polymorphic `navSavedStateConfig` serialization): valid roundtrips plus
  * corrupted, empty, and malformed saved data falling back safely.
- *
- * Consolidated from the former per-milestone adversarial-remedy file to sit
- * beside its canonical owner `NavigationStateTest`.
  */
-
-// Standalone request model mirroring ChatScreen's ArticleSheetRequest for saver testing
-data class TestArticleSheetRequest(
-    val topicId: String,
-    val sectionId: String? = null
-)
 
 private val DummySaverScope = object : SaverScope {
     override fun canBeSaved(value: Any): Boolean = true
@@ -35,29 +26,20 @@ private val DummySaverScope = object : SaverScope {
 class NavSaverRobustnessTest {
 
     @Test
-    fun `topLevelRoute Saver restores valid routes and safely falls back on corrupted or empty data`() {
+    fun `production topLevelRouteSaver restores valid routes and safely falls back on corrupted or empty data`() {
         val startRoute: NavKey = TocRoute
-        val routesSet = topLevelRoutes.toSet()
+        val saver = topLevelRouteSaver(startRoute = startRoute, topLevelRoutes = topLevelRoutesSet)
 
-        val saver = Saver<MutableState<NavKey>, Any>(
-            save = { state -> (state.value as? TopLevelRoute)?.title ?: state.value.toString() },
-            restore = { savedName ->
-                val restored = routesSet.firstOrNull {
-                    it.title == savedName || it.toString() == savedName
-                } ?: startRoute
-                mutableStateOf(restored)
-            }
-        )
-
-        // 1. All valid TopLevelRoutes save & restore correctly
+        // 1. All valid TopLevelRoutes save stable routeId & restore correctly
         topLevelRoutes.forEach { route ->
             val state = mutableStateOf<NavKey>(route)
             val saved = with(saver) { DummySaverScope.save(state) }
-            assertNotNull("Saved state must not be null", saved)
+            assertNotNull(saved, "Saved state must not be null")
+            assertEquals(route.routeId, saved, "Saved state must be stable routeId")
 
-            val restoredState = saver.restore(saved!!)
+            val restoredState = saver.restore(saved)
             assertNotNull(restoredState)
-            assertEquals("Restored route must match original", route, restoredState?.value)
+            assertEquals(route, restoredState.value, "Restored route must match original")
         }
 
         // 2. Adversarial: Corrupted / unknown route string falls back to startRoute
@@ -74,57 +56,64 @@ class NavSaverRobustnessTest {
         val subRouteSaved = "ContentRoute(topicId=123)"
         val restoredFromSubRoute = saver.restore(subRouteSaved)
         assertEquals(startRoute, restoredFromSubRoute?.value)
+
+        // 5. Backward compatibility: Saved by human-readable title still restores
+        topLevelRoutes.forEach { route ->
+            val restoredFromTitle = saver.restore(route.title)
+            assertEquals(route, restoredFromTitle?.value)
+        }
+
+        // 6. Backward compatibility: Saved by class simpleName still restores
+        topLevelRoutes.forEach { route ->
+            val restoredFromSimpleName = saver.restore(route::class.simpleName ?: "")
+            assertEquals(route, restoredFromSimpleName?.value)
+        }
+
+        // 7. Parameterized factory honors custom startRoute on fallback
+        val customStartRoute: NavKey = HistoryRoute
+        val customSaver = topLevelRouteSaver(startRoute = customStartRoute, topLevelRoutes = topLevelRoutesSet)
+        val customFallback = customSaver.restore("CorruptedData")
+        assertEquals(customStartRoute, customFallback?.value)
     }
 
     @Test
-    fun `ArticleSheetRequestSaver contract handles null sections, empty topics, and malformed lists`() {
-        // Mirrors ChatScreen's ArticleSheetRequestSaver: operates on the nullable
-        // request value; closed sheet (null) saves as emptyList and restores to null.
-        val articleSheetRequestSaver = listSaver<TestArticleSheetRequest?, String?>(
-            save = { value ->
-                if (value == null) emptyList() else listOf(value.topicId, value.sectionId)
-            },
-            restore = { list ->
-                val topic = list.getOrNull(0) ?: return@listSaver null
-                TestArticleSheetRequest(topicId = topic, sectionId = list.getOrNull(1))
-            }
-        )
-
-        // 1. Full request with section
-        val req1 = TestArticleSheetRequest(topicId = "topic-asthma", sectionId = "sec-treatment")
-        val saved1 = with(articleSheetRequestSaver) { DummySaverScope.save(req1) }
-        assertEquals(listOf("topic-asthma", "sec-treatment"), saved1)
-        val restored1 = articleSheetRequestSaver.restore(saved1!!)
+    fun `production ChatOverlaySaver contract handles articles, graphics, null values, and corrupted data`() {
+        // 1. Article request with section
+        val req1: ChatOverlay = ChatOverlay.Article(topicId = "topic-asthma", sectionId = "sec-treatment")
+        val saved1 = with(ChatOverlaySaver) { DummySaverScope.save(req1) }
+        assertEquals(listOf("article", "topic-asthma", "sec-treatment"), saved1)
+        val restored1 = ChatOverlaySaver.restore(saved1!!)
         assertEquals(req1, restored1)
 
-        // 2. Request without section
-        val req2 = TestArticleSheetRequest(topicId = "topic-copd", sectionId = null)
-        val saved2 = with(articleSheetRequestSaver) { DummySaverScope.save(req2) }
-        assertEquals(listOf("topic-copd", null), saved2)
-        val restored2 = articleSheetRequestSaver.restore(saved2!!)
+        // 2. Article request without section
+        val req2: ChatOverlay = ChatOverlay.Article(topicId = "topic-copd", sectionId = null)
+        val saved2 = with(ChatOverlaySaver) { DummySaverScope.save(req2) }
+        assertEquals(listOf("article", "topic-copd", null), saved2)
+        val restored2 = ChatOverlaySaver.restore(saved2!!)
         assertEquals(req2, restored2)
 
-        // 3. Adversarial: Empty list yields null
-        val restoredFromEmptyList = articleSheetRequestSaver.restore(emptyList<String?>())
-        assertNull("Restoring from empty list must return null", restoredFromEmptyList)
+        // 3. Graphic request
+        val req3: ChatOverlay = ChatOverlay.Graphic(graphicId = "graphic-12345")
+        val saved3 = with(ChatOverlaySaver) { DummySaverScope.save(req3) }
+        assertEquals(listOf("graphic", "graphic-12345", null), saved3)
+        val restored3 = ChatOverlaySaver.restore(saved3!!)
+        assertEquals(req3, restored3)
 
-        // 4. Adversarial: First item null yields null
-        val restoredFromNullTopic = articleSheetRequestSaver.restore(listOf(null, "sec-1"))
-        assertNull("Restoring from null topic must return null", restoredFromNullTopic)
+        // 4. Adversarial: Empty list yields null
+        val restoredFromEmptyList = ChatOverlaySaver.restore(emptyList<String?>())
+        assertNull(restoredFromEmptyList, "Restoring from empty list must return null")
 
-        // 5. Adversarial: Single element list restores with null section
-        val restoredFromSingle = articleSheetRequestSaver.restore(listOf("topic-single"))
-        assertEquals(TestArticleSheetRequest("topic-single", null), restoredFromSingle)
+        // 5. Adversarial: Unknown tag yields null
+        val restoredFromUnknown = ChatOverlaySaver.restore(listOf("unknown", "id"))
+        assertNull(restoredFromUnknown, "Restoring from unknown tag must return null")
 
-        // 6. Adversarial: Empty string topic is preserved
-        val restoredFromEmptyTopic = articleSheetRequestSaver.restore(listOf("", null))
-        assertEquals(TestArticleSheetRequest("", null), restoredFromEmptyTopic)
+        // 6. Adversarial: First item null yields null
+        val restoredFromNullTag = ChatOverlaySaver.restore(listOf(null, "sec-1"))
+        assertNull(restoredFromNullTag, "Restoring from null tag must return null")
 
-        // 7. Adversarial: null request (sheet closed) — saveable registry treats a
-        // null value as "nothing to save" (null return), and restoring empty data
-        // yields null (covered in case 3), keeping open/close states round-trip safe
-        val savedNull = with(articleSheetRequestSaver) { DummySaverScope.save(null) }
-        assertNull("Null request (closed sheet) must save as no-data rather than crashing on null members", savedNull)
+        // 7. Adversarial: null request (sheet closed) — returns null
+        val savedNull = with(ChatOverlaySaver) { DummySaverScope.save(null) }
+        assertNull(savedNull, "Null request (closed sheet) must save as null")
     }
 
     @Test
@@ -147,7 +136,7 @@ class NavSaverRobustnessTest {
         testRoutes.forEach { route ->
             val serialized = json.encodeToString<NavKey>(route)
             val deserialized = json.decodeFromString<NavKey>(serialized)
-            assertEquals("Roundtrip failed for $route", route, deserialized)
+            assertEquals(route, deserialized, "Roundtrip failed for $route")
         }
     }
 }

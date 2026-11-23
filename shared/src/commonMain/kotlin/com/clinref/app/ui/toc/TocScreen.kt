@@ -60,16 +60,17 @@ import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.TocItem
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalBottomBarVisible
+import com.clinref.app.ui.adaptive.LocalBottomBarPadding
+import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.search.SearchResultsContent
 import com.clinref.app.ui.search.SearchViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import androidx.navigation3.runtime.NavKey
 import com.clinref.app.ui.navigation.TocRoute
-import com.clinref.app.ui.navigation.bindReselectScrollToTop
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, FlowPreview::class)
 @Composable
@@ -77,7 +78,7 @@ fun TocScreen(
     onTopicSelected: (String) -> Unit,
     onGraphicSelected: (String) -> Unit,
     modifier: Modifier = Modifier,
-    reselectEvents: Flow<NavKey>? = null,
+    reselectEvents: Flow<NavKey> = emptyFlow(),
     viewModel: TocViewModel = koinViewModel(),
     searchViewModel: SearchViewModel = koinViewModel()
 ) {
@@ -104,8 +105,8 @@ fun TocScreen(
     var lastQuery by rememberSaveable { mutableStateOf("") }
 
     val isShowingResults = !expanded && hasSearched
-    val isBottomBarVisible = LocalBottomBarVisible.current
-    val bottomInsetPadding = if (isBottomBarVisible) 80.dp else 16.dp
+    val bottomBarPadding = LocalBottomBarPadding.current
+    val bottomInsetPadding = if (bottomBarPadding > 0.dp) bottomBarPadding else 16.dp
 
     BackHandler(enabled = expanded || isShowingResults) {
         if (isShowingResults) {

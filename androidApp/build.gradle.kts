@@ -70,11 +70,6 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.activity.compose)
 
-    // Navigation 3
-    implementation(libs.navigation3.runtime)
-    implementation(libs.navigation3.ui)
-    implementation(libs.lifecycle.viewmodel.navigation3)
-
     // DataStore
     implementation(libs.datastore.preferences)
 

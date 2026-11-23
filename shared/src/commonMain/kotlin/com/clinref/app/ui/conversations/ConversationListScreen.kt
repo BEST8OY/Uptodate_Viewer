@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -135,14 +134,15 @@ import androidx.navigation3.runtime.NavKey
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalBottomBarVisible
+import com.clinref.app.ui.adaptive.LocalBottomBarPadding
 import com.clinref.app.ui.common.BackHandler
+import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.ui.navigation.AiRoute
-import com.clinref.app.ui.navigation.bindReselectScrollToTop
 import com.clinref.app.util.formatTimestamp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -161,7 +161,7 @@ fun ConversationListScreen(
     onConversationSelected: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
-    reselectEvents: Flow<NavKey>? = null,
+    reselectEvents: Flow<NavKey> = emptyFlow(),
     viewModel: ConversationListViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -283,8 +283,6 @@ fun ConversationListContent(
     val motionScheme = MaterialTheme.motionScheme
     val scope = rememberCoroutineScope()
 
-    val isBottomBarVisible = LocalBottomBarVisible.current
-
     val textFieldState = rememberTextFieldState(initialText = uiState.searchQuery)
 
     // Speed Dial Menu State
@@ -401,12 +399,12 @@ fun ConversationListContent(
             SnackbarHost(hostState = snackbarHostState)
         },
         bottomBar = {
-            if (isBottomBarVisible) {
+            val bottomBarPadding = LocalBottomBarPadding.current
+            if (bottomBarPadding > 0.dp) {
                 Spacer(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .height(80.dp)
+                        .height(bottomBarPadding)
                 )
             }
         },

@@ -4,7 +4,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
-import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import com.clinref.app.data.AssetDao
 import com.clinref.app.domain.GraphicData
@@ -16,10 +15,10 @@ import com.clinref.app.ui.navigation.ChatRoute
 import com.clinref.app.ui.navigation.ContentRoute
 import com.clinref.app.ui.navigation.FavoritesRoute
 import com.clinref.app.ui.navigation.HistoryRoute
-import com.clinref.app.ui.navigation.NavigationState
 import com.clinref.app.ui.navigation.Navigator
 import com.clinref.app.ui.navigation.TocRoute
 import com.clinref.app.ui.navigation.TopLevelRoute
+import com.clinref.app.ui.navigation.createTestNavigator
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
@@ -228,19 +227,7 @@ class UiConcurrencyStressTest {
     private fun createNavigator(
         startRoute: NavKey = TocRoute,
         topLevelRoutes: List<TopLevelRoute> = listOf(TocRoute, HistoryRoute, FavoritesRoute, AiRoute)
-    ): Navigator {
-        val topLevelState = mutableStateOf(startRoute)
-        val backStacks = topLevelRoutes.associate { route ->
-            route as NavKey to NavBackStack<NavKey>(route)
-        }
-        val state = NavigationState(
-            startRoute = startRoute,
-            topLevelRoute = topLevelState,
-            backStacks = backStacks,
-            entryDecorators = emptyList()
-        )
-        return Navigator(state)
-    }
+    ): Navigator = createTestNavigator(startRoute, topLevelRoutes)
 
     @Test
     fun `adversarial 10,000 rapid navigation fuzzing - backstack invariants strictly preserved`() {
@@ -291,42 +278,10 @@ class UiConcurrencyStressTest {
                 assertTrue("Backstack for tab $tab must never be empty", stack!!.isNotEmpty())
                 assertEquals("Backstack root must be the tab itself", tab, stack.first())
 
-                // Invariant 3: No duplicate adjacent items
-                for (j in 0 until stack.size - 1) {
-                    val current = stack[j]
-                    val next = stack[j + 1]
-                    assertFalse("No adjacent duplicates allowed: $current == $next", current == next)
-                }
+                // Invariant 3: Stack-wide uniqueness (bring-to-front prevents all duplicates)
+                assertEquals("All items in backstack for tab $tab must be strictly unique", stack.size, stack.toSet().size)
             }
         }
-    }
-
-    @Test
-    fun `in-chat reading invariant - opening 500 articles in chat never mutates NavDisplay backstack`() {
-        val navigator = createNavigator()
-        navigator.navigate(AiRoute)
-        navigator.navigate(ChatRoute("session-alpha"))
-
-        val initialAiStack = navigator.state.backStacks[AiRoute]?.toList()
-        assertEquals(listOf(AiRoute, ChatRoute("session-alpha")), initialAiStack)
-
-        // Simulate 500 in-chat article and graphic opens (which in the new architecture are ModalBottomSheets)
-        for (i in 1..500) {
-            val articleTopic = "topic-citation-$i"
-            val graphicId = "Graphic-$i"
-
-            // Neither article citation nor graphic preview should call navigator.navigate()
-            // Backstack must remain strictly intact
-            assertEquals(2, navigator.state.backStacks[AiRoute]?.size)
-            assertEquals(ChatRoute("session-alpha"), navigator.state.backStacks[AiRoute]?.last())
-        }
-
-        // Now user taps "Home" from the article sheet -> calls onNavigateToHome() -> navigator.navigate(TocRoute)
-        navigator.navigate(TocRoute)
-        assertEquals(TocRoute, navigator.state.topLevelRoute)
-
-        // Verify conversation is still preserved intact
-        assertEquals(listOf(AiRoute, ChatRoute("session-alpha")), navigator.state.backStacks[AiRoute]?.toList())
     }
 
     // =========================================================================

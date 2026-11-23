@@ -21,8 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.clinref.app.ui.navigation.FavoritesRoute
-import com.clinref.app.ui.navigation.bindReselectScrollToTop
-import kotlinx.coroutines.flow.Flow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -58,9 +56,12 @@ import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import com.clinref.app.domain.FavoriteEntry
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalBottomBarVisible
+import com.clinref.app.ui.adaptive.LocalBottomBarPadding
+import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.common.showUndoSnackbar
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ListItemDefaults
@@ -69,9 +70,9 @@ import androidx.compose.material3.ListItemDefaults
 @Composable
 fun FavoritesScreen(
     onTopicSelected: (String) -> Unit,
-    currentRoute: NavKey,
+    onGraphicSelected: (String) -> Unit = {},
     modifier: Modifier = Modifier,
-    reselectEvents: Flow<NavKey>? = null,
+    reselectEvents: Flow<NavKey> = emptyFlow(),
     viewModel: FavoritesViewModel = koinViewModel()
 ) {
     val listState = rememberLazyListState()
@@ -86,12 +87,8 @@ fun FavoritesScreen(
     var pendingDelete by remember { mutableStateOf<List<FavoriteEntry>>(emptyList()) }
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    val isBottomBarVisible = LocalBottomBarVisible.current
-    val bottomInsetPadding = if (isBottomBarVisible) 80.dp else 16.dp
-
-    LaunchedEffect(currentRoute) {
-        selectedIds = emptySet()
-    }
+    val bottomBarPadding = LocalBottomBarPadding.current
+    val bottomInsetPadding = if (bottomBarPadding > 0.dp) bottomBarPadding else 16.dp
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose {
@@ -276,7 +273,11 @@ fun FavoritesScreen(
                                 if (isSelectionMode) {
                                     selectedIds = if (isSelected) selectedIds - entry.topicId else selectedIds + entry.topicId
                                 } else {
-                                    onTopicSelected(entry.topicId)
+                                    if (entry.topicId.startsWith("Graphic-")) {
+                                        onGraphicSelected(entry.topicId.removePrefix("Graphic-"))
+                                    } else {
+                                        onTopicSelected(entry.topicId)
+                                    }
                                 }
                             },
                             onLongPress = {

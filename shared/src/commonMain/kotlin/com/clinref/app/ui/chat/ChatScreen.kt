@@ -112,18 +112,29 @@ private object ChatListKeys {
     const val BOTTOM_ANCHOR = "bottom_anchor"
 }
 
-data class ArticleSheetRequest(
-    val topicId: String,
-    val sectionId: String? = null
-)
+sealed interface ChatOverlay {
+    data class Article(val topicId: String, val sectionId: String? = null) : ChatOverlay
+    data class Graphic(val graphicId: String) : ChatOverlay
+}
 
-private val ArticleSheetRequestSaver = listSaver<ArticleSheetRequest?, String?>(
-    save = { value ->
-        if (value == null) emptyList() else listOf(value.topicId, value.sectionId)
+internal val ChatOverlaySaver = listSaver<ChatOverlay?, String?>(
+    save = { overlay ->
+        when (overlay) {
+            is ChatOverlay.Article -> listOf("article", overlay.topicId, overlay.sectionId)
+            is ChatOverlay.Graphic -> listOf("graphic", overlay.graphicId, null)
+            null -> emptyList()
+        }
     },
     restore = { list ->
-        val topic = list.getOrNull(0) ?: return@listSaver null
-        ArticleSheetRequest(topicId = topic, sectionId = list.getOrNull(1))
+        when (list.firstOrNull()) {
+            "article" -> list.getOrNull(1)?.let { topicId ->
+                ChatOverlay.Article(topicId, list.getOrNull(2))
+            }
+            "graphic" -> list.getOrNull(1)?.let { graphicId ->
+                ChatOverlay.Graphic(graphicId)
+            }
+            else -> null
+        }
     }
 )
 
@@ -168,21 +179,20 @@ fun ChatScreen(
         with(density) { chatInputHeightPx.toDp() }
     }
 
-    var activeArticle by rememberSaveable(stateSaver = ArticleSheetRequestSaver) {
-        mutableStateOf<ArticleSheetRequest?>(null)
+    var activeOverlay by rememberSaveable(stateSaver = ChatOverlaySaver) {
+        mutableStateOf<ChatOverlay?>(null)
     }
-    var activeGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
     var inArticleGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
-    val isOverlayActive = activeArticle != null || activeGraphicId != null
+    val isOverlayActive = activeOverlay != null
 
     val handleNavigateToContent: (String, String?) -> Unit = remember {
         { topicId, sectionId ->
-            activeArticle = ArticleSheetRequest(topicId, sectionId)
+            activeOverlay = ChatOverlay.Article(topicId, sectionId)
         }
     }
     val handleGraphicSelected: (String) -> Unit = remember {
         { graphicId ->
-            activeGraphicId = graphicId.removePrefix("Graphic-")
+            activeOverlay = ChatOverlay.Graphic(graphicId.removePrefix("Graphic-"))
         }
     }
 
@@ -610,69 +620,70 @@ fun ChatScreen(
         }
     }
 
-    val currentArticle = activeArticle
-    if (currentArticle != null) {
-        val articleSheetState = rememberBottomSheetState(
-            initialValue = SheetValue.Hidden,
-            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-        )
-        val articleStoreOwner = remember(currentArticle.topicId) {
-            object : ViewModelStoreOwner {
-                override val viewModelStore = ViewModelStore()
+    when (val overlay = activeOverlay) {
+        is ChatOverlay.Article -> {
+            val articleSheetState = rememberBottomSheetState(
+                initialValue = SheetValue.Hidden,
+                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+            )
+            val articleStoreOwner = remember(overlay.topicId) {
+                object : ViewModelStoreOwner {
+                    override val viewModelStore = ViewModelStore()
+                }
             }
-        }
-        DisposableEffect(articleStoreOwner) {
-            onDispose {
-                articleStoreOwner.viewModelStore.clear()
+            DisposableEffect(articleStoreOwner) {
+                onDispose {
+                    articleStoreOwner.viewModelStore.clear()
+                }
             }
-        }
 
-        ModalBottomSheet(
-            onDismissRequest = {
-                activeArticle = null
-                inArticleGraphicId = null
-            },
-            sheetState = articleSheetState,
-            dragHandle = null,
-            sheetGesturesEnabled = false,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            CompositionLocalProvider(
-                LocalViewModelStoreOwner provides articleStoreOwner
+            ModalBottomSheet(
+                onDismissRequest = {
+                    activeOverlay = null
+                    inArticleGraphicId = null
+                },
+                sheetState = articleSheetState,
+                dragHandle = null,
+                sheetGesturesEnabled = false,
+                modifier = Modifier.fillMaxSize()
             ) {
-                ContentScreen(
-                    topicId = currentArticle.topicId,
-                    sectionId = currentArticle.sectionId,
-                    isModal = true,
-                    onBack = {
-                        activeArticle = null
-                        inArticleGraphicId = null
-                    },
-                    onHome = {
-                        activeArticle = null
-                        inArticleGraphicId = null
-                        onNavigateToHome()
-                    },
-                    onGraphicSelected = { graphicId ->
-                        inArticleGraphicId = graphicId.removePrefix("Graphic-")
-                    }
-                )
-            }
+                CompositionLocalProvider(
+                    LocalViewModelStoreOwner provides articleStoreOwner
+                ) {
+                    ContentScreen(
+                        topicId = overlay.topicId,
+                        sectionId = overlay.sectionId,
+                        isModal = true,
+                        onBack = {
+                            activeOverlay = null
+                            inArticleGraphicId = null
+                        },
+                        onHome = {
+                            activeOverlay = null
+                            inArticleGraphicId = null
+                            onNavigateToHome()
+                        },
+                        onGraphicSelected = { graphicId ->
+                            inArticleGraphicId = graphicId.removePrefix("Graphic-")
+                        }
+                    )
+                }
 
-            if (inArticleGraphicId != null) {
-                GraphicSheet(
-                    graphicId = inArticleGraphicId!!,
-                    onDismiss = { inArticleGraphicId = null }
-                )
+                if (inArticleGraphicId != null) {
+                    GraphicSheet(
+                        graphicId = inArticleGraphicId!!,
+                        onDismiss = { inArticleGraphicId = null }
+                    )
+                }
             }
         }
-    }
-
-    if (activeGraphicId != null) {
-        GraphicSheet(
-            graphicId = activeGraphicId!!,
-            onDismiss = { activeGraphicId = null }
-        )
+        is ChatOverlay.Graphic -> {
+            GraphicSheet(
+                graphicId = overlay.graphicId,
+                onDismiss = { activeOverlay = null }
+            )
+        }
+        null -> {}
     }
 }
 

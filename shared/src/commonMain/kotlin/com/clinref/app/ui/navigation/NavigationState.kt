@@ -1,9 +1,8 @@
 package com.clinref.app.ui.navigation
 
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -11,36 +10,42 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.rememberViewModelStoreOwner
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavEntry
-import androidx.navigation3.runtime.NavEntryDecorator
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.rememberDecoratedNavEntries
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
-import androidx.savedstate.serialization.SavedStateConfiguration
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
-import kotlinx.serialization.modules.subclass
 
-val navSavedStateConfig = SavedStateConfiguration {
-    serializersModule = SerializersModule {
-        polymorphic(NavKey::class) {
-            subclass(TocRoute::class, TocRoute.serializer())
-            subclass(HistoryRoute::class, HistoryRoute.serializer())
-            subclass(FavoritesRoute::class, FavoritesRoute.serializer())
-            subclass(AiRoute::class, AiRoute.serializer())
-            subclass(ContentRoute::class, ContentRoute.serializer())
-            subclass(AiSettingsRoute::class, AiSettingsRoute.serializer())
-            subclass(ChatRoute::class, ChatRoute.serializer())
+internal fun topLevelRouteSaver(
+    startRoute: NavKey,
+    topLevelRoutes: Set<NavKey>
+): Saver<MutableState<NavKey>, String> = Saver(
+    save = { state ->
+        when (val route = state.value) {
+            is TopLevelRoute -> route.routeId
+            else -> route.toString()
         }
+    },
+    restore = { savedName ->
+        val restored = topLevelRoutes.firstOrNull { route ->
+            when (route) {
+                is TopLevelRoute -> route.routeId == savedName ||
+                    route::class.simpleName == savedName ||
+                    route.title == savedName ||
+                    route.toString() == savedName
+                else -> route.toString() == savedName
+            }
+        } ?: startRoute
+        mutableStateOf(restored)
     }
-}
+)
 
 @Composable
 fun rememberNavigationState(
@@ -49,13 +54,7 @@ fun rememberNavigationState(
 ): NavigationState {
     val topLevelRoute = rememberSaveable(
         startRoute, topLevelRoutes,
-        saver = Saver(
-            save = { state -> (state.value as? TopLevelRoute)?.title ?: state.value.toString() },
-            restore = { savedName ->
-                val restored = topLevelRoutes.firstOrNull { (it as? TopLevelRoute)?.title == savedName || it.toString() == savedName } ?: startRoute
-                mutableStateOf(restored)
-            }
-        )
+        saver = remember(startRoute, topLevelRoutes) { topLevelRouteSaver(startRoute, topLevelRoutes) }
     ) {
         mutableStateOf(startRoute)
     }
@@ -66,18 +65,11 @@ fun rememberNavigationState(
         }
     }
 
-    val saveableDecorator = rememberSaveableStateHolderNavEntryDecorator<NavKey>()
-    val viewModelDecorator = rememberViewModelStoreNavEntryDecorator<NavKey>()
-    val entryDecorators = remember(saveableDecorator, viewModelDecorator) {
-        listOf(saveableDecorator, viewModelDecorator)
-    }
-
-    return remember(startRoute, topLevelRoutes, entryDecorators) {
+    return remember(startRoute, topLevelRoutes, backStacks, topLevelRoute) {
         NavigationState(
             startRoute = startRoute,
             topLevelRoute = topLevelRoute,
-            backStacks = backStacks,
-            entryDecorators = entryDecorators
+            backStacks = backStacks
         )
     }
 }
@@ -85,10 +77,23 @@ fun rememberNavigationState(
 class NavigationState(
     val startRoute: NavKey,
     topLevelRoute: MutableState<NavKey>,
-    val backStacks: Map<NavKey, NavBackStack<NavKey>>,
-    private val entryDecorators: List<NavEntryDecorator<NavKey>>
+    val backStacks: Map<NavKey, NavBackStack<NavKey>>
 ) {
+    init {
+        require(startRoute in backStacks) {
+            "startRoute ($startRoute) must be present in topLevelRoutes: ${backStacks.keys}"
+        }
+    }
+
     var topLevelRoute: NavKey by topLevelRoute
+        internal set
+
+    val currentStack: NavBackStack<NavKey>?
+        get() = backStacks[topLevelRoute]
+
+    val isOnSubRoute: Boolean by derivedStateOf {
+        (currentStack?.size ?: 0) > 1
+    }
 
     @Composable
     fun toDecoratedEntries(
@@ -96,6 +101,14 @@ class NavigationState(
     ): List<NavEntry<NavKey>> {
         val decoratedEntries = backStacks.mapValues { (routeKey, stack) ->
             key(routeKey) {
+                val saveableDecorator = rememberSaveableStateHolderNavEntryDecorator<NavKey>()
+                val viewModelStoreOwner = rememberViewModelStoreOwner()
+                val viewModelDecorator = rememberViewModelStoreNavEntryDecorator<NavKey>(
+                    viewModelStoreOwner = viewModelStoreOwner
+                )
+                val entryDecorators = remember(saveableDecorator, viewModelDecorator) {
+                    listOf(saveableDecorator, viewModelDecorator)
+                }
                 rememberDecoratedNavEntries(
                     backStack = stack,
                     entryDecorators = entryDecorators,
@@ -110,10 +123,13 @@ class NavigationState(
 }
 
 class Navigator(val state: NavigationState) {
-    private val _reselectEvents = MutableSharedFlow<NavKey>(extraBufferCapacity = 1)
+    private val _reselectEvents = MutableSharedFlow<NavKey>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val reselectEvents: SharedFlow<NavKey> = _reselectEvents.asSharedFlow()
 
-    fun onReselect(route: NavKey) {
+    private fun onReselect(route: NavKey) {
         val stack = state.backStacks[route]
         if (stack != null && stack.size > 1) {
             // Re-selecting active top-level route while in sub-route pops sub-stack to root
@@ -136,10 +152,28 @@ class Navigator(val state: NavigationState) {
             }
         } else {
             val currentStack = state.backStacks[state.topLevelRoute] ?: return
-            if (currentStack.lastOrNull() != route) {
-                currentStack.add(route)
+            if (currentStack.lastOrNull() == route) return
+            if (route in currentStack) {
+                currentStack.remove(route)
             }
+            currentStack.add(route)
         }
+    }
+
+    fun navigateToHome() {
+        state.topLevelRoute = state.startRoute
+        val startStack = state.backStacks[state.startRoute] ?: return
+        while (startStack.size > 1) {
+            startStack.removeLastOrNull()
+        }
+    }
+
+    fun popSubRoute(expected: NavKey? = null): Boolean {
+        val currentStack = state.backStacks[state.topLevelRoute] ?: return false
+        if (currentStack.size <= 1) return false
+        if (expected != null && currentStack.lastOrNull() != expected) return false
+        currentStack.removeLastOrNull()
+        return true
     }
 
     fun goBack() {
@@ -156,20 +190,3 @@ class Navigator(val state: NavigationState) {
         }
     }
 }
-
-/**
- * Binds a LazyListState to reselection events for a specific navigation route.
- * Reselecting the active top-level route scrolls the list to top.
- */
-@Composable
-fun LazyListState.bindReselectScrollToTop(reselectEvents: Flow<NavKey>?, targetRoute: NavKey) {
-    LaunchedEffect(this, reselectEvents, targetRoute) {
-        reselectEvents?.collect { route ->
-            if (route == targetRoute) {
-                animateScrollToItem(0)
-            }
-        }
-    }
-}
-
-

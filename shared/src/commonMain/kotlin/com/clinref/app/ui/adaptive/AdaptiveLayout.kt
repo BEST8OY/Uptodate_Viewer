@@ -17,7 +17,7 @@ enum class WindowWidthClass {
  * Global composition locals for responsive and adaptive layout awareness.
  */
 val LocalWindowWidthClass = compositionLocalOf { WindowWidthClass.COMPACT }
-val LocalBottomBarVisible = compositionLocalOf { false }
+val LocalBottomBarPadding = compositionLocalOf { 0.dp }
 val LocalIsWideScreen = compositionLocalOf { false }
 
 object AdaptiveTokens {

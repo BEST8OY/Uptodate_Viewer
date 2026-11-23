@@ -1,31 +1,35 @@
 package com.clinref.app.ui.navigation
 
 import androidx.navigation3.runtime.NavKey
+import androidx.savedstate.serialization.SavedStateConfiguration
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.polymorphic
+import kotlinx.serialization.modules.subclass
 
 @Serializable
 sealed interface TopLevelRoute : NavKey {
-    val title: String
+    val routeId: String
 }
 
 @Serializable
 data object TocRoute : TopLevelRoute {
-    override val title = "Contents"
+    override val routeId = "toc"
 }
 
 @Serializable
 data object HistoryRoute : TopLevelRoute {
-    override val title = "History"
+    override val routeId = "history"
 }
 
 @Serializable
 data object FavoritesRoute : TopLevelRoute {
-    override val title = "Favorites"
+    override val routeId = "favorites"
 }
 
 @Serializable
 data object AiRoute : TopLevelRoute {
-    override val title = "AI"
+    override val routeId = "ai"
 }
 
 @Serializable
@@ -45,3 +49,21 @@ val topLevelRoutes: List<TopLevelRoute> = listOf(
 )
 
 val topLevelRoutesSet: Set<TopLevelRoute> = topLevelRoutes.toSet()
+
+/**
+ * Polymorphic serializer configuration for all Navigation 3 keys.
+ * Co-located with route definitions to ensure newly added keys are registered.
+ */
+val navSavedStateConfig = SavedStateConfiguration {
+    serializersModule = SerializersModule {
+        polymorphic(NavKey::class) {
+            subclass(TocRoute::class, TocRoute.serializer())
+            subclass(HistoryRoute::class, HistoryRoute.serializer())
+            subclass(FavoritesRoute::class, FavoritesRoute.serializer())
+            subclass(AiRoute::class, AiRoute.serializer())
+            subclass(ContentRoute::class, ContentRoute.serializer())
+            subclass(AiSettingsRoute::class, AiSettingsRoute.serializer())
+            subclass(ChatRoute::class, ChatRoute.serializer())
+        }
+    }
+}

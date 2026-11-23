@@ -53,6 +53,7 @@ kotlin {
                 implementation(libs.koin.compose.viewmodel)
                 implementation(libs.lifecycle.viewmodel)
                 implementation(libs.lifecycle.viewmodel.savedstate)
+                implementation(libs.lifecycle.viewmodel.compose)
                 implementation(libs.navigation3.runtime)
                 implementation(libs.navigation3.ui)
                 implementation(libs.lifecycle.viewmodel.navigation3)
@@ -77,6 +78,7 @@ kotlin {
 
         commonTest {
             dependencies {
+                implementation(kotlin("test"))
                 implementation(libs.junit)
                 implementation(libs.mockk)
                 implementation(libs.coroutines.test)
