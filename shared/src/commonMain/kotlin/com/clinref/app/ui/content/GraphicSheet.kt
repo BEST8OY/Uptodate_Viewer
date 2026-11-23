@@ -75,7 +75,6 @@ fun GraphicSheet(
         onDismiss = onDismiss,
         modifier = modifier,
         heightFraction = 0.88f,
-        title = "Clinical Reference Figure / Table",
         maxWidth = AdaptiveTokens.MaxCatalogListWidth,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         showDragHandle = false,
