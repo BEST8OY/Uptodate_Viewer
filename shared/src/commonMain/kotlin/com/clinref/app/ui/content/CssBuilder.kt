@@ -1158,15 +1158,24 @@ a:hover { text-decoration: underline; }
     list-style-position: outside;
 }
 .cntnt td li { margin: 4px 0; padding: 0 0 0 4px; line-height: 1.5; }
-.cntnt td ul { list-style-type: disc; }
+
+.cntnt td ul, .cntnt td ul.decimal_heading { list-style-type: disc; }
+.cntnt td ul ul, .cntnt td ul.list_second_level { list-style-type: circle; }
+.cntnt td ul ul ul, .cntnt td ul.list_third_level { list-style-type: square; }
+
 .cntnt td ol { list-style-type: decimal; }
 .cntnt td ol.numbers_to_nine, .cntnt td ol.decimal_heading { list-style-type: decimal; }
 .cntnt td ol.list_upper_alpha { list-style-type: upper-alpha; }
 .cntnt td ol.list_lower_alpha { list-style-type: lower-alpha; }
+.cntnt td ol.list_upper_roman { list-style-type: upper-roman; }
 .cntnt td ol.list_lower_roman { list-style-type: lower-roman; }
-.cntnt td ol.numbers_no_heading { list-style-type: none; padding-left: 0; }
-.cntnt td ul.decimal_heading { list-style-type: decimal; }
-.cntnt td ul.none { list-style-type: none; padding-left: 0; }
+
+.cntnt td ul.none, .cntnt td ol.none, .cntnt td ol.numbers_no_heading, .cntnt td li.none {
+    list-style-type: none !important;
+    padding-left: 0 !important;
+}
+
+.cntnt td li > ul, .cntnt td li > ol { margin: 2px 0; }
 
 .cntnt td p { margin: 0; line-height: 1.5; }
 .cntnt td p.extra_spacing_top { margin-top: 16px; }

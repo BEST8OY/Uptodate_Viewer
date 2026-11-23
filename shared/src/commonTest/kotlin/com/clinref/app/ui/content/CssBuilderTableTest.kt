@@ -50,6 +50,10 @@ class CssBuilderTableTest {
         assertTrue(css.contains("ol.numbers_to_nine,"), "Graphic CSS should include numbers_to_nine list format")
         assertTrue(css.contains("ol.list_upper_alpha {"), "Graphic CSS should include list_upper_alpha format")
         assertTrue(css.contains("ol.list_lower_alpha {"), "Graphic CSS should include list_lower_alpha format")
+        assertTrue(css.contains("ol.list_upper_roman {"), "Graphic CSS should include list_upper_roman format")
+        assertTrue(css.contains("ul.decimal_heading {"), "Graphic CSS should include ul.decimal_heading bullet format")
+        assertTrue(css.contains("ul.list_second_level {"), "Graphic CSS should include list_second_level circle format")
+        assertTrue(css.contains("li.none {"), "Graphic CSS should include li.none unstyled format")
 
         // Red alert
         assertTrue(css.contains(".red,"), "Graphic CSS should include red alert")
