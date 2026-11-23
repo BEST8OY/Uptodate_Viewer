@@ -55,6 +55,7 @@ actual fun GraphicWebView(
                     isFocusable = true
                     isFocusableInTouchMode = true
                     isLongClickable = true
+                    setOnApplyWindowInsetsListener { _, insets -> insets }
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             onPageFinished()

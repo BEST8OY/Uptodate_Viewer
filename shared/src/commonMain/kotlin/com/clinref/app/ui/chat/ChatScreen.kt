@@ -52,8 +52,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -88,6 +86,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -640,41 +639,38 @@ fun ChatScreen(
                 inArticleGraphicId = null
             }
 
-            Dialog(
-                onDismissRequest = ::dismissArticleOverlay,
-                properties = DialogProperties(
-                    usePlatformDefaultWidth = false,
-                    dismissOnBackPress = true,
-                    dismissOnClickOutside = false
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    CompositionLocalProvider(
-                        LocalViewModelStoreOwner provides articleStoreOwner
-                    ) {
-                        ContentScreen(
-                            topicId = overlay.topicId,
-                            sectionId = overlay.sectionId,
-                            isModal = true,
-                            onBack = ::dismissArticleOverlay,
-                            onHome = {
-                                dismissArticleOverlay()
-                                onNavigateToHome()
-                            },
-                            onGraphicSelected = { graphicId ->
-                                inArticleGraphicId = normalizeGraphicId(graphicId)
-                            }
-                        )
+            BackHandler(enabled = true) {
+                dismissArticleOverlay()
+            }
 
-                        inArticleGraphicId?.let { graphicId ->
-                            GraphicSheet(
-                                graphicId = graphicId,
-                                onDismiss = { inArticleGraphicId = null }
-                            )
+            Surface(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(100f),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                CompositionLocalProvider(
+                    LocalViewModelStoreOwner provides articleStoreOwner
+                ) {
+                    ContentScreen(
+                        topicId = overlay.topicId,
+                        sectionId = overlay.sectionId,
+                        isModal = true,
+                        onBack = ::dismissArticleOverlay,
+                        onHome = {
+                            dismissArticleOverlay()
+                            onNavigateToHome()
+                        },
+                        onGraphicSelected = { graphicId ->
+                            inArticleGraphicId = normalizeGraphicId(graphicId)
                         }
+                    )
+
+                    inArticleGraphicId?.let { graphicId ->
+                        GraphicSheet(
+                            graphicId = graphicId,
+                            onDismiss = { inArticleGraphicId = null }
+                        )
                     }
                 }
             }
