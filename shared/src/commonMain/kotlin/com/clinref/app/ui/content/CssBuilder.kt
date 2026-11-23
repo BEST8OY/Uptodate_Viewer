@@ -347,7 +347,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .utdArticleSection, #topicContent, #topicContentCalculator {
     max-width: 860px;
     margin: 0 auto;
-    padding: 24px 20px 120px;
+    padding: 24px 20px 96px;
     overflow-x: auto;
     -webkit-user-select: text;
     user-select: text;
@@ -429,7 +429,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 @media (min-width: 600px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 32px 40px 148px;
+        padding: 32px 40px 104px;
     }
 }
 """.trimIndent()
