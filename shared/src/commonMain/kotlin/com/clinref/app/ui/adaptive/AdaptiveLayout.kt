@@ -1,5 +1,9 @@
 package com.clinref.app.ui.adaptive
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -19,6 +23,16 @@ enum class WindowWidthClass {
 val LocalWindowWidthClass = compositionLocalOf { WindowWidthClass.COMPACT }
 val LocalBottomBarPadding = compositionLocalOf { 0.dp }
 val LocalIsWideScreen = compositionLocalOf { false }
+
+/**
+ * Computes a unified bottom list/content padding that harmonizes Desktop, narrow Android (with
+ * bottom navigation bar overlay), and wide Android (with edge-to-edge system navigation bar).
+ */
+@Composable
+fun rememberContentBottomPadding(extra: Dp = 16.dp): Dp {
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    return maxOf(LocalBottomBarPadding.current, navBarBottom) + extra
+}
 
 object AdaptiveTokens {
     val BreakpointMedium: Dp = 600.dp

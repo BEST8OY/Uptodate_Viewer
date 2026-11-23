@@ -11,9 +11,13 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.layout.widthIn
@@ -60,7 +64,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import com.clinref.app.domain.HistoryEntry
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalBottomBarPadding
+import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.common.showUndoSnackbar
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -87,8 +91,7 @@ fun HistoryScreen(
     var pendingDelete by remember { mutableStateOf<List<HistoryEntry>>(emptyList()) }
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    val bottomBarPadding = LocalBottomBarPadding.current
-    val bottomInsetPadding = if (bottomBarPadding > 0.dp) bottomBarPadding else 16.dp
+    val bottomInsetPadding = rememberContentBottomPadding(16.dp)
 
     LifecycleStartEffect(Unit) {
         onStopOrDispose {
@@ -124,6 +127,7 @@ fun HistoryScreen(
 
     Scaffold(
         modifier = modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
+        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         snackbarHost = {
             Box(modifier = Modifier.padding(bottom = bottomInsetPadding)) {
                 SnackbarHost(snackbarHostState)

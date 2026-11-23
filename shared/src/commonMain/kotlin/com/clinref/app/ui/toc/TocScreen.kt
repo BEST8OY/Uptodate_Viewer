@@ -3,12 +3,17 @@ package com.clinref.app.ui.toc
 import com.clinref.app.ui.common.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -60,7 +65,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.TocItem
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalBottomBarPadding
+import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.search.SearchResultsContent
 import com.clinref.app.ui.search.SearchViewModel
@@ -105,8 +110,7 @@ fun TocScreen(
     var lastQuery by rememberSaveable { mutableStateOf("") }
 
     val isShowingResults = !expanded && hasSearched
-    val bottomBarPadding = LocalBottomBarPadding.current
-    val bottomInsetPadding = if (bottomBarPadding > 0.dp) bottomBarPadding else 16.dp
+    val bottomInsetPadding = rememberContentBottomPadding(16.dp)
 
     BackHandler(enabled = expanded || isShowingResults) {
         if (isShowingResults) {
@@ -197,6 +201,7 @@ fun TocScreen(
                     } else false
                 } else false
             },
+        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         topBar = {
             AppBarWithSearch(
                 state = searchBarState,
@@ -344,8 +349,8 @@ fun TocScreen(
                             modifier = Modifier
                                 .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                                 .fillMaxWidth()
-                                .padding(padding)
-                                .padding(bottom = bottomInsetPadding)
+                                .padding(padding),
+                            contentPadding = PaddingValues(bottom = bottomInsetPadding)
                         ) {
                             items(
                                 items = visibleTocItems,
