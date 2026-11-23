@@ -23,7 +23,7 @@ load_dotenv()
 
 from database import ClinRefDatabase
 from html_parser import extract_outline_sections
-from safety_validator import PatientProfile, SafetyValidator, TurnContext
+from evidence_models import PatientProfile, ToolCallRecord, TurnContext
 from system_prompt import build_system_prompt, extract_patient_context
 from tools import init_tools
 
@@ -671,28 +671,13 @@ def run_tests(db_path: str):
         else:
             print(f"  SKIP — asset not found for {topic_id}\n")
 
-    # Test 4: Safety validator
-    print("Test 4: Safety validator")
-    validator = SafetyValidator()
-
-    # Test no-tool-calls block (clinical response)
+    # Test 4: Evidence context tracking
+    print("Test 4: Evidence context tracking")
     ctx = TurnContext(answer="The dose is 5 mg.")
-    result = validator.validate(ctx)
-    assert not result.passed
-    assert "Clinical recommendations require database verification" in result.blocked_reason
-    print("  No-tool-calls block (clinical): PASS")
+    assert not ctx.has_evidence
+    print("  Zero evidence context: PASS")
 
-    # Test no-tool-calls blocks greetings too (Rule 0 never bypasses; Change 1 moves
-    # greetings to the entry router, so the validator has no answer-side bypass left)
-    ctx = TurnContext(answer="Hello!", user_question="hello")
-    result = validator.validate(ctx)
-    assert not result.passed
-    assert "No database tools were executed" in result.blocked_reason
-    print("  No-tool-calls block (greeting): PASS")
-
-    # Test no-section block
-    from safety_validator import ToolCallRecord
-    ctx = TurnContext(
+    ctx2 = TurnContext(
         tool_calls=[ToolCallRecord(
             tool_name="search_topics",
             arguments={"query": "test"},
@@ -700,10 +685,8 @@ def run_tests(db_path: str):
             success=True,
         )]
     )
-    result = validator.validate(ctx)
-    assert not result.passed
-    assert "section or table content" in result.blocked_reason.lower()
-    print("  No-section block: PASS")
+    assert not ctx2.has_evidence
+    print("  Search-only turn lacks section evidence: PASS")
 
     print("\nAll tests passed!")
     db.close()

@@ -27,10 +27,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from agy_chat_model import call_gemini_via_agy
 from eval_prompt import PREAMBLE_RE, is_bluf
 from eval_retrieval import TOOL_DECLARATIONS, parse_tool_calls_from_response
-from safety_validator import (
+from evidence_models import (
     PatientProfile,
-    SafetyValidator,
     TurnContext,
+    extract_quantities,
 )
 from system_prompt import (
     CANONICAL_ABSTENTION,
@@ -444,8 +444,6 @@ def evaluate_suite_a_case(case: Dict[str, Any], model: str, verbose: bool = Fals
 
 def evaluate_suite_b_case(case: Dict[str, Any], model: str, verbose: bool = False) -> Dict[str, Any]:
     """Evaluate Gate 2 Closed-Book Safety Revision."""
-    validator = SafetyValidator()
-
     # Build prompt
     system_text = static_clinical_guidance()
     if case.get("patient_profile"):
@@ -488,16 +486,11 @@ def evaluate_suite_b_case(case: Dict[str, Any], model: str, verbose: bool = Fals
         print(f"\n[Raw Revision Response for {case['id']}] ({duration:.2f}s):")
         print(answer)
 
-    # Validate against SafetyValidator
-    ctx = TurnContext(
-        tool_calls=[],
-        answer=answer,
-        tool_results=[case["evidence_snippet"]],
-        user_question=case["question"],
-        patient_profile=case.get("patient_profile"),
-    )
-    val_res = validator.validate_answer(ctx)
-    val_passed = val_res.passed if val_res else True
+    # Quantity verification
+    ans_q = extract_quantities(answer)
+    corpus_q = extract_quantities(case.get("evidence_snippet", "") + " " + case.get("question", ""))
+    unverified = set(ans_q.keys()) - set(corpus_q.keys())
+    val_passed = len(unverified) == 0
 
     checks: Dict[str, bool] = {}
     checks["safety_validator_pass"] = val_passed

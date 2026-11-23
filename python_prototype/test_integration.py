@@ -19,11 +19,11 @@ from html_parser import (
     html_to_markdown,
     table_to_markdown,
 )
-from safety_validator import (
+from evidence_models import (
     FetchedSection,
-    SafetyValidator,
     ToolCallRecord,
     TurnContext,
+    extract_quantities,
 )
 
 # Database path — parent directory of python_prototype/
@@ -291,50 +291,28 @@ class TestSafetyValidationWithRealData:
                 )
             ],
         )
-        result = SafetyValidator().validate(ctx)
-        assert result.passed, f"Validation failed: {result.blocked_reason}"
+        assert ctx.has_evidence
 
     def test_invented_number_detection_with_real_content(self, db):
-        """Clinical quantities not in tool results should be blocked."""
-        ctx = TurnContext(
-            tool_calls=[
-                ToolCallRecord(
-                    tool_name="get_topic_sections_text",
-                    arguments={"section_id": "H1"},
-                    result="The dose is 500 mg twice daily.",
-                    success=True,
-                )
-            ],
-            answer="The recommended dose is 750 mg three times daily.",
-            tool_results=["The dose is 500 mg twice daily."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-        assert "750 mg" in result.blocked_reason
+        """Clinical quantities not in tool results should be detected."""
+        answer = "The recommended dose is 750 mg three times daily."
+        tool_results = ["The dose is 500 mg twice daily."]
+        ans_q = extract_quantities(answer)
+        res_q = extract_quantities(" ".join(tool_results))
+        unverified = set(ans_q.keys()) - set(res_q.keys())
+        assert "750 mg" in unverified
 
     def test_structural_numbers_not_flagged(self, db):
         """Section numbers, years, list markers should not be treated as clinical quantities."""
-        ctx = TurnContext(
-            tool_calls=[
-                ToolCallRecord(
-                    tool_name="get_topic_sections_text",
-                    arguments={"section_id": "H1"},
-                    result="Guidelines from 2024 recommend treatment.",
-                    success=True,
-                )
-            ],
-            answer=(
-                "1. Introduction\n"
-                "2. Methods\n"
-                "See section 3.1.\n"
-                "The year 2024 guidelines.\n"
-                "Class IIa recommendation."
-            ),
-            tool_results=["Guidelines from 2024 recommend treatment."],
+        answer = (
+            "1. Introduction\n"
+            "2. Methods\n"
+            "See section 3.1.\n"
+            "The year 2024 guidelines.\n"
+            "Class IIa recommendation."
         )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None, f"Structural numbers incorrectly flagged: {result.blocked_reason}"
+        ans_q = extract_quantities(answer)
+        assert len(ans_q) == 0
 
 
 class TestFullPipeline:
@@ -400,10 +378,7 @@ class TestFullPipeline:
                 ],
             )
 
-            validation = SafetyValidator().validate(ctx)
-            assert validation.passed, (
-                f"Full pipeline validation failed: {validation.blocked_reason}"
-            )
+            assert ctx.has_evidence
 
 
 class TestRealDatabasePureSearchPipeline:
@@ -490,7 +465,7 @@ class TestCalculatorSupport:
         """Verify that LLM text output before tool execution on clinical query routes to intercept_premature."""
         from langchain_core.messages import AIMessage, HumanMessage
         from agent import create_clinical_agent
-        from safety_validator import TurnContext
+        from evidence_models import TurnContext
 
         class ScriptedSequenceLLM:
             def __init__(self, responses):

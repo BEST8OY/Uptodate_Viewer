@@ -28,6 +28,18 @@ _db: Optional[ClinRefDatabase] = None
 MAX_SECTIONS_PER_CALL = 20
 
 
+def infer_topic_type(title: str) -> str:
+    """Infers topic type from topic title (matches Kotlin MedicalDatabaseTools.inferTopicType)."""
+    clean = (title or "").strip().lower()
+    if "drug information" in clean:
+        return "drug"
+    if clean.startswith("calculator:") or "calculator" in clean:
+        return "calc"
+    if clean.startswith("lab interpretation:"):
+        return "narrative"
+    return "medical"
+
+
 # ---------------------------------------------------------------------------
 # Pydantic Response Models (1:1 with Kotlin MedicalDatabaseResponses.kt)
 # ---------------------------------------------------------------------------
@@ -37,7 +49,7 @@ class SearchResultTopicItem(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
     id: str
     title: str
-    type: str = "topic"
+    type: str = "medical"
 
     def __str__(self) -> str:
         return self.model_dump_json()
@@ -511,7 +523,10 @@ def search_topics(
     if results:
         return SearchTopicsResponse(
             query=clean_query,
-            results=[SearchResultTopicItem(id=r["id"], title=r["title"]) for r in results][:8],
+            results=[
+                SearchResultTopicItem(id=r["id"], title=r["title"], type=infer_topic_type(r["title"]))
+                for r in results
+            ][:8],
             message="Success",
         )
 
@@ -522,7 +537,10 @@ def search_topics(
         if retry_results:
             return SearchTopicsResponse(
                 query=suggestion,
-                results=[SearchResultTopicItem(id=r["id"], title=r["title"]) for r in retry_results][:8],
+                results=[
+                    SearchResultTopicItem(id=r["id"], title=r["title"], type=infer_topic_type(r["title"]))
+                    for r in retry_results
+                ][:8],
                 refine_with=[s for s in suggestions if s != suggestion],
                 message=f"Auto-refined from '{clean_query}' to '{suggestion}'",
                 autoRefined=True,

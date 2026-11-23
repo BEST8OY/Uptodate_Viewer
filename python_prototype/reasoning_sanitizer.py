@@ -4,7 +4,7 @@ import re
 from typing import NamedTuple
 
 REASONING_TAG_PATTERN = re.compile(
-    r"(?is)<(thought|think|reasoning)(?:\s+[^>]*)?>([\s\S]*?)(?:</\1>|$)"
+    r"(?is)<(thought|think|reasoning|thinking)(?:\s+[^>]*)?>([\s\S]*?)(?:</\1>|$)"
 )
 
 
@@ -98,11 +98,11 @@ class ReasoningStreamFilter:
                 if ch == ">":
                     self._tag_buffer.clear()
                     lower = buf_str.lower()
-                    if lower in ("<thought>", "<think>", "<reasoning>") or lower.startswith(
-                        ("<thought ", "<think ", "<reasoning ")
+                    if lower in ("<thought>", "<think>", "<reasoning>", "<thinking>") or lower.startswith(
+                        ("<thought ", "<think ", "<reasoning ", "<thinking ")
                     ):
                         self._in_reasoning = True
-                    elif lower in ("</thought>", "</think>", "</reasoning>"):
+                    elif lower in ("</thought>", "</think>", "</reasoning>", "</thinking>"):
                         self._in_reasoning = False
                     else:
                         if self._in_reasoning:

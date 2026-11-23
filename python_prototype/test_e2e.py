@@ -29,7 +29,8 @@ from clinical_source import (
 )
 from database import ClinRefDatabase
 from router import CANNED_SMALL_TALK_REPLY
-from safety_validator import (
+from system_prompt import CANONICAL_ABSTENTION
+from evidence_models import (
     FetchedSection,
     ToolCallRecord,
     TurnContext,
@@ -267,191 +268,7 @@ class TestClinicalInquiryE2E:
         final_state = agent.invoke(initial_state)
         last_msg = final_state["messages"][-1]
         assert isinstance(last_msg, AIMessage)
-        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
-        assert "database verification" in last_msg.content
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 2. In-Graph Multi-Turn Self-Correction Remediation Loops
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestRemediationLoopE2E:
-    """Test in-graph self-correction remediation loops triggered by safety failures."""
-
-    def test_in_graph_self_correction_remediation_loop(self, db):
-        """Graph catches invented number on turn 1 -> injects correction prompt -> model rectifies on turn 2."""
-        tool_list = [tools.get_topic_sections_text]
-
-        # Turn 1: LLM fetches section
-        resp_turn1 = AIMessage(
-            content="",
-            tool_calls=[{
-                "name": "get_topic_sections_text",
-                "args": {"topic_id": "1", "section_ids": ["H1"]},
-                "id": "call_1",
-            }]
-        )
-        resp_turn1b = AIMessage(content="Evidence retrieved.")
-        # Turn 2: LLM produces invalid response with an invented statistic (99.4%)
-        resp_turn2 = AIMessage(
-            content="Evidence demonstrates a 99.4% efficacy rate across clinical trials."
-        )
-        # Turn 3: LLM receives correction prompt and self-corrects to verified text without invented numbers
-        resp_turn3 = AIMessage(
-            content="Practice Changing Updates outline key clinical evidence and practice changes."
-        )
-
-        mock_llm = ScriptedSequenceLLM([resp_turn1, resp_turn1b, resp_turn2, resp_turn3])
-        agent = create_clinical_agent(
-            llm=mock_llm,
-            tools=tool_list,
-            system_prompt="Clinical System Prompt",
-            max_safety_retries=2,
-        )
-
-        initial_state = {
-            "messages": [HumanMessage(content="What are the updates?")],
-            "system_prompt": "Clinical System Prompt",
-            "turn_context": TurnContext().model_dump(),
-            "user_question": "What are the updates?",
-            "gate1_retries": 0,
-            "gate2_revisions": 0,
-            "validation_result": None,
-            "tool_rounds": 0,
-        }
-
-        final_state = agent.invoke(initial_state)
-
-        # 1. State machine conducted a remediation retry
-        assert final_state["gate2_revisions"] == 1
-
-        # 2. Final message is clean, verified, and not blocked
-        last_msg = final_state["messages"][-1]
-        assert isinstance(last_msg, AIMessage)
-        assert not last_msg.content.startswith("Clinical Response Verification Blocked")
-
-        # 3. Intermediate messages include the Change-2 Phase-2 revision prompt
-        messages = final_state["messages"]
-        has_correction_msg = any(
-            isinstance(m, HumanMessage)
-            and "SYSTEM NOTICE — SAFETY REVISION (NO TOOLS ACTIVE):" in m.content
-            and "[UNVERIFIED_QTY]" in m.content
-            for m in messages
-        )
-        assert has_correction_msg is True
-
-        # 4. Final validation passed
-        assert final_state["validation_result"]["passed"] is True
-
-    def test_remediation_retries_exhaustion_emits_terminal_blocked_message(self, db):
-        """Graph repeatedly failing safety validation halts at terminal block when retry budget is exhausted."""
-        tool_list = [tools.get_topic_sections_text]
-
-        # LLM continually emits invented numbers
-        resp_turn1 = AIMessage(
-            content="",
-            tool_calls=[{
-                "name": "get_topic_sections_text",
-                "args": {"topic_id": "1", "section_ids": ["H1"]},
-                "id": "call_1",
-            }]
-        )
-        resp_turn1b = AIMessage(content="Evidence retrieved.")
-        resp_turn2 = AIMessage(content="Efficacy is 99.1%.")
-        resp_turn3 = AIMessage(content="Still claiming 99.2% efficacy.")
-
-        mock_llm = ScriptedSequenceLLM([resp_turn1, resp_turn1b, resp_turn2, resp_turn3])
-        agent = create_clinical_agent(
-            llm=mock_llm,
-            tools=tool_list,
-            system_prompt="Clinical Prompt",
-            max_safety_retries=1,  # Only 1 retry allowed
-        )
-
-        initial_state = {
-            "messages": [HumanMessage(content="What is the efficacy?")],
-            "system_prompt": "Clinical Prompt",
-            "turn_context": TurnContext().model_dump(),
-            "user_question": "What is the efficacy?",
-            "retry_count": 0,
-            "validation_result": None,
-            "tool_rounds": 0,
-        }
-
-        final_state = agent.invoke(initial_state)
-        last_msg = final_state["messages"][-1]
-        assert isinstance(last_msg, AIMessage)
-        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
-        assert final_state["validation_result"]["passed"] is False
-
-    def test_second_quantity_failure_escalates_to_tool_enabled_retrieval(self, db):
-        """A dose that was never retrieved cannot be fixed without tools.
-
-        First failure -> tool-free SAFETY REVISION. If the model keeps the value, the second
-        failure escalates back to Phase 1 with the offending values named, so the graph can
-        actually retrieve the drug topic instead of dead-ending.
-        """
-        tool_list = [tools.get_topic_sections_text]
-
-        def section_call(tag: str) -> AIMessage:
-            return AIMessage(
-                content="",
-                tool_calls=[{
-                    "name": "get_topic_sections_text",
-                    "args": {"topic_id": "1", "section_ids": ["H1"]},
-                    "id": tag,
-                }]
-            )
-
-        invented = AIMessage(content="Use 750 mg every 6 hours for 99.4% of patients.")
-        corrected = AIMessage(
-            content="**Top of scope:** Practice Changing Updates outline key clinical evidence."
-        )
-
-        mock_llm = ScriptedSequenceLLM([
-            section_call("call_1"),                    # evidence round
-            AIMessage(content="Evidence retrieved."),
-            invented,                                  # synthesis -> UNVERIFIED_QTY (revision 1)
-            invented,                                  # revision 1 still failing -> escalate
-            section_call("call_2"),                    # Phase-1 escalation: tools handed back
-            AIMessage(content="Evidence retrieved."),
-            corrected,                                 # synthesis -> passes
-        ])
-        agent = create_clinical_agent(
-            llm=mock_llm,
-            tools=tool_list,
-            system_prompt="Clinical Prompt",
-            max_safety_retries=2,
-        )
-
-        final_state = agent.invoke({
-            "messages": [HumanMessage(content="What is the dose?")],
-            "system_prompt": "Clinical Prompt",
-            "turn_context": TurnContext().model_dump(),
-            "user_question": "What is the dose?",
-            "gate1_retries": 0,
-            "gate2_revisions": 0,
-            "validation_result": None,
-            "tool_rounds": 0,
-        })
-
-        contents = [str(m.content) for m in final_state["messages"]]
-        assert any("SYSTEM NOTICE — SAFETY REVISION" in c for c in contents), \
-            "first quantity failure must try the cheap tool-free revision"
-        assert any("MISSING EVIDENCE FOR STATED QUANTITIES" in c for c in contents), \
-            "second quantity failure must escalate with the values named"
-        escalation = next(c for c in contents if "MISSING EVIDENCE FOR STATED QUANTITIES" in c)
-        assert "750 mg" in escalation, "the escalation names the unretrieved value"
-        assert "searchTopics(" in escalation, "the escalation commands retrieval"
-
-        # The escalation really ran a new evidence round, and the turn recovered.
-        assert sum(1 for m in final_state["messages"]
-                   if isinstance(m, AIMessage) and m.tool_calls) == 2
-        assert final_state["validation_result"]["passed"] is True
-        # Escalation grants the fresh draft its own revision budget, so the counter restarts.
-        assert final_state["gate2_escalations"] == 1
-        assert final_state["gate2_revisions"] == 0
+        assert last_msg.content == CANONICAL_ABSTENTION
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -745,11 +562,10 @@ class TestPrematureInterceptionGraphE2E:
         assert "getTopicSectionsText(" in notice
         assert "getGraphicContent(" in notice
         assert "MANDATORY CLINICAL DIRECTIVE" not in notice
-        # 3. Terminal NO_TOOLS block (the safe response was still tool-free)
+        # 3. Terminal block: canonical abstention when no evidence retrieved
         last_msg = final_state["messages"][-1]
         assert isinstance(last_msg, AIMessage)
-        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
-        assert "No database tools were executed" in last_msg.content
+        assert last_msg.content == CANONICAL_ABSTENTION
 
     def test_premature_interception_after_tool_rounds_with_no_evidence(self, db):
         """A search-only round does not license a text answer: the content-blind exit
@@ -777,11 +593,10 @@ class TestPrematureInterceptionGraphE2E:
             if isinstance(m, HumanMessage) and "SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED" in m.content
         ]
         assert len(interceptions) == 2
-        # Terminal block comes from Gate 1's section-content rule, done after search hits
+        # Terminal block: canonical abstention when no evidence retrieved
         last_msg = final_state["messages"][-1]
         assert isinstance(last_msg, AIMessage)
-        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
-        assert "section or table content" in last_msg.content
+        assert last_msg.content == CANONICAL_ABSTENTION
 
     def test_sequential_search_finds_topics_and_passes(self, db):
         """Sequential search in Phase 1: the first search yields nothing, second search
@@ -831,43 +646,8 @@ class TestPrematureInterceptionGraphE2E:
             for m in final_state["messages"]
         )
 
-    def test_multi_violation_draft_uses_revision_template(self, db):
-        """Collect-ALL Gate 2 e2e: one draft trips UNVERIFIED_QTY and VISUAL together;
-        the Phase-2 revision template lists BOTH codes and the revised turn passes."""
-        llm = ScriptedSequenceLLM([
-            AIMessage(
-                content="",
-                tool_calls=[{
-                    "name": "get_topic_sections_text",
-                    "args": {"topic_id": "1", "section_ids": ["H1"]},
-                    "id": "call_1",
-                }],
-            ),
-            AIMessage(content="Evidence retrieved."),
-            AIMessage(content="The scan reveals a mass with 99.4% efficacy."),
-            AIMessage(content="The retrieved practice-change section is summarized in evidence."),
-        ])
-        agent = create_clinical_agent(
-            llm=llm,
-            tools=[tools.get_topic_sections_text],
-            system_prompt="Test Prompt",
-            max_safety_retries=2,
-        )
-
-        final_state = agent.invoke(change1_initial_state("Read the updates."))
-
-        revisions = [
-            m for m in final_state["messages"]
-            if isinstance(m, HumanMessage) and "SYSTEM NOTICE — SAFETY REVISION (NO TOOLS ACTIVE):" in m.content
-        ]
-        assert len(revisions) == 1
-        revision = revisions[0].content
-        assert "[UNVERIFIED_QTY]" in revision
-        assert "[VISUAL]" in revision
-        assert final_state["validation_result"]["passed"] is True
-
     def test_full_two_retry_premature_budget_exhaustion(self):
-        """With max_safety_retries=1 and max_premature_retries=2, exactly 2 interceptions then a clean terminal block."""
+        """With max_safety_retries=1 and max_premature_retries=2, exactly 2 interceptions then canonical abstention."""
         llm = ScriptedSequenceLLM([AIMessage(content=f"Turn {i}: Give 500 mg amoxicillin orally twice daily.") for i in range(1, 5)])
         agent = create_clinical_agent(
             llm=llm,
@@ -888,7 +668,7 @@ class TestPrematureInterceptionGraphE2E:
 
         last_msg = final_state["messages"][-1]
         assert isinstance(last_msg, AIMessage)
-        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
+        assert last_msg.content == CANONICAL_ABSTENTION
 
     def test_response_with_fetched_evidence_routes_to_validation_not_interception(self):
         """When fetched_sections has evidence, a direct text response routes to validation, never to interception."""

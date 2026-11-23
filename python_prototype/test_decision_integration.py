@@ -594,3 +594,122 @@ def test_rank_overview_default_section_and_table_limits():
     assert res.ok
     assert len(res.recommended_section_ids) == 8
     assert len(res.recommended_graphic_ids) == 4
+
+
+def test_infer_topic_type():
+    from tools import infer_topic_type
+    assert infer_topic_type("Apixaban: Drug information") == "drug"
+    assert infer_topic_type("Amoxicillin (pediatric): Drug information") == "drug"
+    assert infer_topic_type("CHA2DS2-VASc score (calculator)") == "calc"
+    assert infer_topic_type("GFR Cockcroft-Gault Calculator: Clinical calculation") == "calc"
+    assert infer_topic_type("Lab interpretation: Ferritin") == "narrative"
+    assert infer_topic_type("Treatment of community-acquired pneumonia in adults") == "medical"
+
+
+def test_rank_overview_parent_penalty_only_when_child_meets_threshold():
+    def handler(call):
+        qs = call["questions"]
+        answers = {}
+        for k in qs:
+            if "sec_parent" in k:
+                answers[k] = _score(1.9, 0.9)
+            elif "sec_child" in k:
+                answers[k] = _score(1.6, 0.9)
+            else:
+                answers[k] = _score(0.5, 0.9)
+        return _resp(answers, input_tokens=80)
+
+    client = DecisionClient(sdk_client=FakeSdkClient(handler))
+    sections = [
+        {"id": "sec_parent", "title": "Initial Blood Pressure Management", "level": 1},
+        {"id": "sec_child", "title": "Lifestyle Modifications", "level": 2, "parentId": "sec_parent"},
+    ]
+    res = rank_overview_items(
+        client,
+        "How to treat hypertension?",
+        topic_id="Topic-HTN",
+        topic_title="Hypertension Management",
+        topic_type="medical",
+        sections=sections,
+        graphics=[],
+        related_topics=[],
+        config=DecisionConfig(section_score_threshold=1.8),
+    )
+    assert res.ok
+    # Parent must be retained and recommended because child (1.6) failed threshold (1.8)
+    assert res.recommended_section_ids == ["sec_parent"]
+
+
+def test_inject_overview_rerank_prunes_low_scoring_sections_when_large():
+    from decision_gates import OverviewRerankResult, RankedItem, inject_overview_rerank_into_json
+    overview_data = {
+        "topicId": "Topic-Large",
+        "title": "Large Topic",
+        "topicType": "medical",
+        "sections": [
+            {"id": f"S{i}", "title": f"Section {i}", "level": 1}
+            for i in range(1, 25)
+        ],
+        "graphics": [],
+    }
+    overview_json = json.dumps(overview_data)
+    ranked_sections = [
+        RankedItem(id="S1", title="Section 1", score=2.8),
+        RankedItem(id="S2", title="Section 2", score=2.5),
+    ] + [
+        RankedItem(id=f"S{i}", title=f"Section {i}", score=0.4)
+        for i in range(3, 25)
+    ]
+    rerank = OverviewRerankResult(
+        topic_id="Topic-Large",
+        topic_title="Large Topic",
+        section_scores=ranked_sections,
+        recommended_section_ids=["S1", "S2"],
+        ok=True,
+    )
+    enriched = inject_overview_rerank_into_json(overview_json, rerank, auto_prefetched=True)
+    parsed = json.loads(enriched)
+    retained_sections = parsed.get("sections", [])
+    # Low-scoring sections (< 1.0) are pruned from the 24 sections when len > 15
+    assert len(retained_sections) < 24
+    assert any(s["id"] == "S1" for s in retained_sections)
+    assert any(s["id"] == "S2" for s in retained_sections)
+
+
+def test_option_a_related_topic_gating():
+    def handler(call):
+        qs = call["questions"]
+        answers = {}
+        for k in qs:
+            if "rel_high" in k:
+                answers[k] = _score(2.9, 0.9)
+            elif "rel_borderline" in k:
+                answers[k] = _score(2.5, 0.9)
+            elif "sec_best" in k:
+                answers[k] = _score(2.7, 0.9)
+            else:
+                answers[k] = _score(1.0, 0.9)
+        return _resp(answers, input_tokens=100)
+
+    client = DecisionClient(sdk_client=FakeSdkClient(handler))
+    sections = [{"id": "sec_best", "title": "Main treatment", "level": 1}]
+    related = [
+        {"id": "rel_high", "title": "Critical related topic"},
+        {"id": "rel_borderline", "title": "Borderline topic"},
+    ]
+    res = rank_overview_items(
+        client,
+        "Critical condition management?",
+        topic_id="Topic-Crit",
+        topic_title="Critical condition",
+        topic_type="medical",
+        sections=sections,
+        graphics=[],
+        related_topics=related,
+    )
+    assert res.ok
+    # Both score >= 2.0 (topic_score_threshold), so both are recommended related topics
+    assert res.recommended_related_topic_ids == ["rel_high", "rel_borderline"]
+    # Option A: rel_high has score 2.9 (>= 2.6 and >= 2.8), so needs_related_topic is True
+    assert res.needs_related_topic is True
+

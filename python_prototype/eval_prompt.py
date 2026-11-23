@@ -22,11 +22,13 @@ from typing import Any, Dict, List, Optional
 
 from agy_chat_model import call_gemini_via_agy
 
-from safety_validator import extract_quantities
+from evidence_models import extract_quantities
 from system_prompt import (
     CANONICAL_ABSTENTION,
+    RETRIEVAL_SYSTEM_PROMPT,
     STATIC_CLINICAL_GUIDANCE,
     SYNTHESIS_CONTRACT,
+    SYNTHESIS_SYSTEM_PROMPT,
     build_system_prompt,
     extract_patient_context,
 )
@@ -268,22 +270,19 @@ def run_synthesis_benchmark(
     for i, case in enumerate(cases, 1):
         print(f"[{i:2d}/{len(cases):2d}] {case['id']:<35} ({case.get('category', 'general')}) ... ", end="", flush=True)
 
-        profile_block = f"\n\n{case['patient_profile']}" if case.get("patient_profile") else ""
-        system_prompt = f"{STATIC_CLINICAL_GUIDANCE}{profile_block}"
+        profile_block = f"\n\n<active_patient_profile>\n{case['patient_profile']}\n</active_patient_profile>" if case.get("patient_profile") else ""
         evidence_content = case.get("evidence", "").strip() or "No section text was successfully fetched in the prior turn."
 
-        synthesis_prompt = f"""{system_prompt}
-
-CLINICAL SYNTHESIS DIRECTIVE (CLOSED-BOOK — NO TOOLS ACTIVE)
+        synthesis_prompt = f"""{SYNTHESIS_SYSTEM_PROMPT}
 
 <retrieved_evidence>
 {evidence_content}
-</retrieved_evidence>
+</retrieved_evidence>{profile_block}
 
-{SYNTHESIS_CONTRACT}
-
-CLINICAL INQUIRY:
-{case['question']}"""
+<clinical_inquiry>
+{case['question']}
+</clinical_inquiry>
+Start Line 1 immediately with your `**1–2 sentence bold direct clinical conclusion.**` followed by `---` and `###` sections as needed."""
 
         if provider in ("gemini", "agy"):
             answer = call_gemini_via_agy(synthesis_prompt, model=model)

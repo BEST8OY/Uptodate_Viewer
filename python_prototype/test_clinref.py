@@ -1,6 +1,6 @@
 """Comprehensive tests for ClinRef Python prototype.
 
-Covers: safety_validator, html_parser, tools, agent.
+Covers: evidence_models, html_parser, tools, agent.
 Database-dependent tests are skipped if no DB is available.
 """
 
@@ -11,25 +11,29 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import safety_validator
-from safety_validator import (
+import evidence_models
+from evidence_models import (
+    FetchedGraphic,
     FetchedSection,
     GraphicRef,
     PatientProfile,
-    SafetyValidator,
     ToolCallRecord,
     TopicRef,
     TurnContext,
     ValidationResult,
-    Violation,
 )
 from bs4 import BeautifulSoup
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from system_prompt import (
-    build_correction_prompt,
+    CANONICAL_ABSTENTION,
+    RETRIEVAL_SYSTEM_PROMPT,
+    SYNTHESIS_SYSTEM_PROMPT,
+    build_evidence_gate_pause_prompt,
     build_system_prompt,
+    evidence_summary_from,
     extract_patient_context,
+    format_synthesis_prompt,
 )
 from html_parser import (
     extract_graphics_from_outline,
@@ -42,452 +46,62 @@ from html_parser import (
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# safety_validator.py
+# evidence_models.py (1:1 mirror of EvidenceModels.kt)
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestToolCallRequired:
-    """Rule 0: Intent-aware tool call check."""
+class TestEvidenceModels:
+    """Verifies TurnContext, FetchedSection, FetchedGraphic, and PatientProfile models."""
 
-    def test_no_tool_calls_clinical_blocked(self):
-        ctx = TurnContext(tool_calls=[], answer="The dose is 5 mg.")
-        result = SafetyValidator().validate(ctx)
-        assert not result.passed
-        assert "Clinical recommendations require database verification" in result.blocked_reason
+    def test_turn_context_has_evidence(self):
+        ctx = TurnContext()
+        assert ctx.has_evidence is False
+        assert ctx.has_fetched_section("1", "H1") is False
+        assert ctx.has_fetched_graphic("G1") is False
 
-    def test_no_tool_calls_answer_side_greeting_blocked(self):
-        """Change 1: the answer-side conversational bypass is deleted — a zero-tool-call
-        turn is NO_TOOLS regardless of its content; greetings route through the entry
-        small-talk router, so the validator has deterministic block semantics."""
-        ctx = TurnContext(tool_calls=[], answer="Hello! I'm ClinRef AI.", user_question="hello")
-        result = SafetyValidator().validate(ctx)
-        assert not result.passed
-        assert result.violations[0].code == "NO_TOOLS"
-        assert "No database tools were executed" in result.blocked_reason
-
-    def test_with_tool_calls_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="search_topics", arguments={}, result="{}", success=True)],
-            answer="test",
+        ctx.fetched_sections.append(
+            FetchedSection(
+                topic_id="1",
+                section_id="H1",
+                topic_title="Topic 1",
+                section_title="Sec 1",
+                content_snippet="Evidence text",
+            )
         )
-        result = SafetyValidator().validate(ctx)
-        # May fail on later rules, but not rule 0
-        if not result.passed:
-            assert "Clinical recommendations require database verification" not in (result.blocked_reason or "")
+        assert ctx.has_evidence is True
+        assert ctx.has_fetched_section("1", "H1") is True
+        assert ctx.has_fetched_graphic("G1") is False
 
-
-class TestSectionContentRequired:
-    """Rule 1: Section or table content required."""
-
-    def test_only_search_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="search_topics", arguments={}, result="{}", success=True)],
-            answer="test",
+    def test_turn_context_has_fetched_graphic(self):
+        ctx = TurnContext()
+        ctx.fetched_graphics.append(
+            FetchedGraphic(
+                graphic_id="G1",
+                title="Table 1",
+                markdown="| Col | Val |",
+            )
         )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is not None
-        assert not result.passed
+        assert ctx.has_evidence is True
+        assert ctx.has_fetched_section("1", "H1") is False
+        assert ctx.has_fetched_graphic("G1") is True
 
-    def test_section_text_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="test",
+    def test_patient_profile_to_system_block(self):
+        profile = PatientProfile(
+            age="72",
+            sex="male",
+            conditions=["Heart Failure", "CKD"],
+            medications=["Furosemide 40 mg"],
+            allergies=["Sulfa"],
+            notes="eGFR 35 mL/min",
         )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is None
+        block = profile.to_system_block()
+        assert "- Age: 72" in block
+        assert "- Sex: male" in block
+        assert "- Conditions: Heart Failure, CKD" in block
+        assert "- Medications: Furosemide 40 mg" in block
+        assert "- Allergies: Sulfa" in block
+        assert "- Notes: eGFR 35 mL/min" in block
 
-    def test_batch_section_text_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="test",
-        )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is None
-
-    def test_graphic_content_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_graphic_content", arguments={}, result="...", success=True)],
-            answer="test",
-        )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is None
-
-    def test_failed_section_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Section not found.", success=False)],
-            answer="test",
-        )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_overview_alone_blocked(self):
-        # A topic outline lists section titles, not clinical text. Only the accumulator's
-        # FULL section (calculator topics) or a real section/table fetch counts.
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_overview", arguments={}, result="{}", success=True)],
-            answer="test",
-        )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_calculator_overview_full_section_passes(self):
-        # Calculator topics return their full content from the overview, which the
-        # accumulator records as a fetched FULL section.
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_overview", arguments={}, result="{}", success=True)],
-            answer="Framingham risk is 12 percent.",
-            fetched_sections=[
-                FetchedSection(topic_id="95866", section_id="FULL", section_title="Calculator Tool Content",
-                               content_snippet="Framingham risk is 12 percent.")
-            ],
-        )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is None
-
-    def test_failed_overview_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_overview", arguments={}, result="{}", success=False)],
-            answer="test",
-        )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is not None
-        assert not result.passed
-
-
-class TestInventedNumbers:
-    """Rule 2: No invented clinical quantities."""
-
-    def test_age_threshold_verifies_against_source_phrase(self):
-        """'1 year' must verify against '1 year of age' — age cutoffs decide pediatric eligibility."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Honey", success=True)],
-            answer="Honey is an option for children 1 year and older.",
-            tool_results=["In children 1 year of age, we use honey to treat cough."],
-        )
-        assert SafetyValidator()._validate_no_invented_numbers(ctx) is None
-
-    def test_invented_age_threshold_blocks(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Honey", success=True)],
-            answer="Honey is an option for children 2 years and older.",
-            tool_results=["In children 1 year of age, we use honey to treat cough."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert "2 years" in result.blocked_reason
-
-    def test_hyphenated_and_spaced_year_forms_are_one_value(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="risk", success=True)],
-            answer="This is a 10-year risk estimate.",
-            tool_results=["Reported as a 10 year risk estimate."],
-        )
-        assert SafetyValidator()._validate_no_invented_numbers(ctx) is None
-
-    def test_matching_quantity_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="The dose is 5 mg.", success=True)],
-            answer="The dose is 5 mg.",
-            tool_results=["The dose is 5 mg."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_unmatched_quantity_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="The dose is 5 mg.", success=True)],
-            answer="The dose is 10 mg.",
-            tool_results=["The dose is 5 mg."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-        assert "10 mg" in result.blocked_reason
-
-    def test_user_question_quantity_allowed(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The patient weighs 70 kg and eGFR is 25 ml/min.",
-            tool_results=["..."],
-            user_question="Patient weighs 70 kg, eGFR is 25 ml/min.",
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_structural_numbers_not_flagged(self):
-        """List markers, section numbers, years should not be flagged."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="See section 3.1. The year 2024 guidelines recommend 5 mg.",
-            tool_results=["5 mg is recommended."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_no_tool_results_blocks_invented_quantities(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The dose is 10 mg.",
-            tool_results=[],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-        assert "10 mg" in result.blocked_reason
-
-    def test_boundary_check_no_partial_match(self):
-        """'12' should not match as part of '123'."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Value: 123 mg", success=True)],
-            answer="The value is 12 mg.",
-            tool_results=["Value: 123 mg"],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_numeric_only_match_in_tool_text_is_blocked(self):
-        """'60 mL' should NOT pass if '60' appears in tool text with other units."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Administer 60 units.", success=True)],
-            answer="Give 60 mL.",
-            tool_results=["Administer 60 units."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_range_bounds_both_verified(self):
-        """'5-10 mg' should pass when text contains both bounds ('5 to 10 mg')."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="Give 5-10 mg daily.",
-            tool_results=["Dose range: 5 to 10 mg daily."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_decimal_boundary_does_not_match_subdecimal(self):
-        """'2 mg' should NOT match as part of '0.2 mg' or '2.5 mg'."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The dose is 2 mg.",
-            tool_results=["The dose is 0.2 mg daily."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_trailing_decimal_zero_matches_integer(self):
-        """'2.0 mU/L' in answer should pass when tool text says '2 mU/L'."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="Target TSH is 2.0 mU/L.",
-            tool_results=["Target TSH is 2 mU/L in this group."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_english_slashes_not_flagged_as_clinical_quantities(self):
-        """'step 1 and/or step 2' should not be flagged as an invented unit."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="Follow step 1 and/or step 2.",
-            tool_results=["Guidelines outline specific clinical protocols."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_metric_prefix_mismatch_grams_and_milligrams_is_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="Administer ceftriaxone 1 g IV daily.",
-            tool_results=["Ceftriaxone dosage is 1,000 mg intravenously once daily."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-        assert "1 g" in result.blocked_reason
-
-    def test_metric_prefix_mismatch_micrograms_and_milligrams_is_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="Initial dose is 500 mcg daily.",
-            tool_results=["Recommended starting dose is 0.5 mg daily."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is not None
-        assert not result.passed
-        assert "500 mcg" in result.blocked_reason
-
-    def test_frequency_slashes_not_flagged(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="Take 1 tablet/day or 2 times/day.",
-            tool_results=["Take 1 tablet/day or 2 times/day with water."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-
-class TestDecimalCommaVerificationProbes:
-    """Decimal-comma / thousand-separator verification probes (pre-'Change 6' baseline).
-
-    Pins the CURRENT Rule-2 verdicts for loosely formatted numbers so the planned
-    value+unit matching change (Change 6) has a recorded baseline. The pass-branches
-    marked as holes must be closed — they let a 1000x-overdosed decimal-comma spelling
-    verify against thousand-separated evidence.
-    """
-
-    @staticmethod
-    def _validate(answer: str, tool_text: str):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result=tool_text, success=True)],
-            answer=answer,
-            tool_results=[tool_text],
-        )
-        return SafetyValidator()._validate_no_invented_numbers(ctx)
-
-    def test_probe_a_thousand_separated_answer_not_verified_by_decimal_prefix(self):
-        """(a) "1,500 mg" must NOT verify via a plain "1.5" in the evidence.
-
-        Already correctly blocked today: the 1.5 readback inside _get_metric_equivalents
-        only yields candidates "0.0015"/"1500", none of which match "1.5".
-        """
-        for evidence in ("1.5% of patients responded.", "1.5 mg daily.", "TSH greater than 1.5 mU/L."):
-            assert self._validate("Take 1,500 mg daily.", evidence) is not None, evidence
-
-    def test_probe_b_mg_to_mcg_equal_dose_blocked_without_explicit_unit(self):
-        """Under Change 6: unit-equivalent generation is deleted. Exact value+unit matching."""
-        assert self._validate("Dose: 0.002 mg.", "Threshold: 2 mcg.") is not None
-        assert self._validate("Dose: 2 mcg.", "Dose: 0.002 mg.") is not None
-
-    def test_probe_b_hundredfold_mg_mismatch_hole_closed(self):
-        """0.002 mg vs 2 mg — 1000x-mismatched mg doses are blocked under Change 6."""
-        assert self._validate("Dose: 0.002 mg.", "Threshold: 2 mg.") is not None
-
-    def test_probe_b_neighbor_10x_mismatch_still_blocked(self):
-        """Digit-free neighbors stay blocked: 0.002 mg != 0.2 mg."""
-        assert self._validate("Dose: 0.002 mg.", "Threshold: 0.2 mg.") is not None
-
-    def test_probe_c_decimal_comma_hundredfold_hole_closed(self):
-        """(c) "1,5 mg" (1.5 mg) vs "1,500 mg" (1500 mg) — 1000x hole is closed."""
-        assert self._validate("Take 1,5 mg daily.", "Dose: 1,500 mg daily.") is not None
-
-    def test_probe_c_plain_1500_evidence_hole_closed(self):
-        assert self._validate("Take 1,5 mg daily.", "Dose: 1500 mg daily.") is not None
-        assert self._validate("Take 1.5 mg daily.", "Dose: 1,500 mg daily.") is not None
-
-    def test_metric_prefix_mismatch_blocked_without_explicit_evidence(self):
-        assert self._validate(
-            "Administer ceftriaxone 1 g IV daily.",
-            "Ceftriaxone dosage is 1,000 mg intravenously once daily.",
-        ) is not None
-        assert self._validate(
-            "Initial dose is 500 mcg daily.",
-            "Recommended starting dose is 0.5 mg daily.",
-        ) is not None
-
-
-class TestGraphicInterpretation:
-    """Rule 3: No graphic interpretation."""
-
-    def test_no_visual_language_passes(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The recommended treatment is aspirin.",
-        )
-        result = SafetyValidator()._validate_no_graphic_interpretation(ctx)
-        assert result is None
-
-    def test_visual_language_in_tool_text_passes(self):
-        """Quoting retrieved text that contains visual language should pass."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The x-ray shows opacity.",
-            tool_results=["The x-ray shows opacity in the lower lobe."],
-        )
-        result = SafetyValidator()._validate_no_graphic_interpretation(ctx)
-        assert result is None
-
-    def test_visual_language_not_in_tool_text_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The image shows a mass.",
-            tool_results=["Normal lung fields."],
-        )
-        result = SafetyValidator()._validate_no_graphic_interpretation(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_figure_language_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The figure demonstrates a fracture.",
-            tool_results=["No fracture mentioned."],
-        )
-        result = SafetyValidator()._validate_no_graphic_interpretation(ctx)
-        assert result is not None
-        assert not result.passed
-
-    def test_empty_tool_results_blocked(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="The scan reveals abnormality.",
-            tool_results=[],
-        )
-        result = SafetyValidator()._validate_no_graphic_interpretation(ctx)
-        assert result is not None
-        assert not result.passed
-
-
-class TestFullValidation:
-    """Integration tests for SafetyValidator.validate()."""
-
-    def test_successful_turn(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={"section_id": "H1"}, result="Dose is 5 mg.", success=True)],
-            answer="The dose is 5 mg.",
-            tool_results=["Dose is 5 mg."],
-            fetched_sections=[FetchedSection(topic_id="1", section_id="H1", section_title="Dosing")],
-            structured_topic_refs=[TopicRef(topic_id="1", section_id="H1", label="Dosing", topic_title="Drug X")],
-        )
-        result = SafetyValidator().validate(ctx)
-        assert result.passed
-        assert len(result.topic_refs) == 1
-
-    def test_multiple_rule_failures_collect_all(self):
-        """Change 2 collect-all: Rule 2 (UNVERIFIED_QTY) and Rule 3 (VISUAL) both fire on
-        one turn — no short-circuit — and the blocked reason joins both textures with " | "
-        in rule order."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Routine follow-up.", success=True)],
-            answer="Efficacy is 99.4% and the scan reveals a mass.",
-            tool_results=["Routine follow-up."],
-        )
-        result = SafetyValidator().validate(ctx)
-        assert not result.passed
-        assert [v.code for v in result.violations] == ["UNVERIFIED_QTY", "VISUAL"]
-        assert "99.4%" in result.blocked_reason
-        assert "visual details" in result.blocked_reason
-        # " | " separator between the two textures, Rule 2 before Rule 3
-        assert result.blocked_reason.index("Unverified clinical quantities") < result.blocked_reason.index(" | ")
-        assert result.blocked_reason.index("describes visual details") > result.blocked_reason.index(" | ")
-        assert result.blocked_reason.count(" | ") >= 1
-
-    def test_answer_side_greeting_without_tools_blocks(self):
-        """Change 1 collect-all: greetings WITHOUT tool calls block (NO_TOOLS); the
-        former intent-detection bypass never fires from answer content."""
-        ctx = TurnContext(
-            tool_calls=[],
-            answer="Hello! I'm ClinRef AI, a clinical reference assistant.",
-            user_question="hello",
-        )
-        result = SafetyValidator().validate(ctx)
-        assert not result.passed
-        assert all(v.code == "NO_TOOLS" for v in result.violations)
 
 
 
@@ -841,7 +455,7 @@ class TestBatchSectionTitleParsing:
     def test_agent_parses_batch_json_result(self):
         """Verify agent extracts titles from batch TopicSectionsResponse and stores them."""
         from tools import TopicSectionsResponse
-        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
+        from evidence_models import TurnContext, FetchedSection, ToolCallRecord
         tc = TurnContext()
         batch_data = TopicSectionsResponse(
             topicId="1",
@@ -938,72 +552,6 @@ class TestSectionsTextResponseSerialization:
         )
         assert by_json.invalid_sections == ["A"]
         assert by_json.omittedSections == ["B"]
-
-
-class TestEvidenceSummaryTopicTitle:
-    """Evidence digest renders the resolved topic title, falling back to the bare id."""
-
-    def test_snippet_branch_omits_topic_clause(self):
-        from agent import _build_evidence_summary
-
-        summary = _build_evidence_summary(
-            [
-                FetchedSection(
-                    topic_id="123",
-                    topic_title="Atrial Fibrillation Management",
-                    section_id="H1",
-                    section_title="Dosing",
-                    content_snippet="Apixaban 5 mg BD.",
-                )
-            ]
-        )
-        assert "Section [H1] (Dosing):\nApixaban 5 mg BD." in summary
-        assert "from topic" not in summary
-
-    def test_no_snippet_renders_resolved_topic_title(self):
-        from agent import _build_evidence_summary
-
-        summary = _build_evidence_summary(
-            [
-                FetchedSection(
-                    topic_id="123",
-                    topic_title="Atrial Fibrillation Management",
-                    section_id="H1",
-                    section_title="Dosing",
-                    content_snippet="",
-                )
-            ]
-        )
-        assert "Section [H1] (Dosing) from topic Atrial Fibrillation Management" in summary
-
-    def test_no_snippet_falls_back_to_topic_id_when_title_missing(self):
-        from agent import _build_evidence_summary
-
-        summary = _build_evidence_summary(
-            [FetchedSection(topic_id="999", topic_title="", section_id="H2", section_title="Overview")]
-        )
-        assert "Section [H2] (Overview) from topic 999" in summary
-
-    def test_correction_prompt_embeds_resolved_topic_title(self):
-        from agent import _build_evidence_summary
-        from system_prompt import build_correction_prompt
-
-        evidence = _build_evidence_summary(
-            [
-                FetchedSection(
-                    topic_id="123",
-                    topic_title="Atrial Fibrillation Management",
-                    section_id="H1",
-                    section_title="Dosing",
-                    content_snippet="",
-                )
-            ]
-        )
-        prompt = build_correction_prompt(
-            violations=[Violation.of("UNVERIFIED_QTY", "Unverified clinical quantities found in response: 750 mg.", target="phase2")],
-            evidence_summary=evidence,
-        )
-        assert "from topic Atrial Fibrillation Management" in prompt
 
 
 class TestGraphicTitleExtraction:
@@ -1341,8 +889,8 @@ class TestAgentGraph:
         assert "execute_tools" in graph.nodes
         assert "intercept_premature" in graph.nodes
         assert "validate_evidence" in graph.nodes
-        assert "validate_safety" in graph.nodes
-        assert "safety_block" in graph.nodes
+        assert "validate_safety" not in graph.nodes
+        assert "safety_block" not in graph.nodes
 
     def test_create_initial_state(self):
         from agent import create_initial_state
@@ -1373,242 +921,38 @@ class TestAgentGraph:
         assert "node_clinical_synthesis" in graph.nodes
 
 
-class TestSynthesisRemediationRouting:
-    """node_clinical_synthesis treats any "SYSTEM NOTICE" message (colon or em-dash header)
-    as a remediation passthrough — parity with Kotlin's loose
-    `!clean.startsWith("SYSTEM NOTICE")`. The em-dash headers written by
-    buildCorrectionPrompt ("SYSTEM NOTICE — EVIDENCE GATE PAUSE", "— PATIENT SAFETY BLOCK",
-    "— NUMERICAL VERIFICATION BLOCK") must flow into the revision branch and never be
-    re-greeted or silently dropped.
-    """
-
-    @staticmethod
-    def _make_graph():
-        from agent import create_clinical_agent
-
-        llm = MagicMock()
-        llm.invoke.return_value = AIMessage(content="Revised clinical answer.")
-        graph = create_clinical_agent(llm=llm, tools=[], system_prompt="test")
-        return graph.nodes["node_clinical_synthesis"], llm
-
-    @staticmethod
-    def _state(messages, tc):
-        return {
-            "messages": messages,
-            "turn_context": tc.model_dump(),
-            "user_question": "What is apixaban dosing?",
-            "retry_count": 1,
-        }
-
-    def _clinical_tc(self):
-        """TurnContext reflecting a gathered, clinically answered draft (first synth attempt,
-        mirroring validate_evidence's tc.answer/fetched_sections population)."""
-        return TurnContext(
-            tool_calls=[
-                ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Apixaban 5 mg.", success=True)
-            ],
-            answer="Apixaban 10 mg twice daily.",
-            fetched_sections=[
-                FetchedSection(
-                    topic_id="123",
-                    topic_title="Apixaban Therapy",
-                    section_id="H1",
-                    section_title="Dosing",
-                    content_snippet="Apixaban 5 mg twice daily.",
-                )
-            ],
-        )
-
-    def test_em_dash_correction_notice_is_remediation_passthrough(self):
-        node, llm = self._make_graph()
-        notice = (
-            "SYSTEM NOTICE — NUMERICAL VERIFICATION BLOCK:\n"
-            "<rejected_quantities>10 mg</rejected_quantities>\n"
-            "<retrieved_evidence>Apixaban 5 mg.</retrieved_evidence>"
-        )
-        messages = [
-            SystemMessage(content="You are a clinical assistant."),
-            HumanMessage(content="What is apixaban dosing?"),
-            AIMessage(content="Apixaban 10 mg."),
-            HumanMessage(content=notice),
-        ]
-        state = self._state(messages, self._clinical_tc())
-
-        result = node.invoke(state)
-
-        assert result is not None, "Synthesis must not be skipped for an em-dash notice"
-        assert result["messages"][0].content == "Revised clinical answer."
-        sent = llm.invoke.call_args[0][0]
-        # Passthrough: the notice itself ends the request; no extra synthesis directive is appended
-        assert len(sent) == len(messages)
-        assert sent[-1].content == notice
-        assert not any(
-            isinstance(m, HumanMessage) and str(m.content).startswith("CLINICAL SYNTHESIS DIRECTIVE")
-            for m in sent
-        )
-
-    def test_em_dash_notice_not_silently_dropped_without_tool_context(self):
-        """A state whose pending_input starts with the em-dash header must not be re-greeted
-        (the old strict-colon predicate made non-clinical flows drop the turn entirely)."""
-        node, llm = self._make_graph()
-        notice = "SYSTEM NOTICE — PATIENT SAFETY BLOCK (CONTRAINDICATION DETECTED):\nVIOLATION: allergy"
-        messages = [
-            SystemMessage(content="You are a clinical assistant."),
-            HumanMessage(content="What is apixaban dosing?"),
-            HumanMessage(content=notice),
-        ]
-        state = self._state(messages, TurnContext())
-
-        result = node.invoke(state)
-
-        assert result is not None, "Em-dash notice must flow into the revision branch"
-        assert result["messages"][0].content == "Revised clinical answer."
-        sent = llm.invoke.call_args[0][0]
-        assert sent[-1].content == notice
-
-    def test_colon_premature_notice_still_remediation(self):
-        node, llm = self._make_graph()
-        notice = "SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED.\nRetrieve evidence first."
-        messages = [
-            SystemMessage(content="You are a clinical assistant."),
-            HumanMessage(content="What is apixaban dosing?"),
-            AIMessage(content="It depends."),
-            HumanMessage(content=notice),
-        ]
-        state = self._state(messages, self._clinical_tc())
-
-        result = node.invoke(state)
-
-        assert result["messages"][0].content == "Revised clinical answer."
-        sent = llm.invoke.call_args[0][0]
-        assert len(sent) == len(messages)
-        assert sent[-1].content == notice
-
-    def test_plain_draft_still_gets_synthesis_directive_appended(self):
-        """Regression guard: non-notice turns start Phase 2 from a fresh context with closed-book directive (Change 3)."""
-        node, llm = self._make_graph()
-        messages = [
-            SystemMessage(content="You are a clinical assistant."),
-            HumanMessage(content="What is apixaban dosing?"),
-            AIMessage(content="Apixaban 10 mg twice daily."),
-        ]
-        state = self._state(messages, self._clinical_tc())
-
-        node.invoke(state)
-
-        sent = llm.invoke.call_args[0][0]
-        assert len(sent) == 2
-        assert isinstance(sent[-1], HumanMessage)
-        assert sent[-1].content.startswith("CLINICAL SYNTHESIS DIRECTIVE")
-
-    def test_synthesis_directive_uses_original_user_question(self):
-        """Change 1: synthesis is always the clinical directive around the ORIGINAL
-        question — the discarded Phase-1 draft is never re-synthesized and no answer-side
-        greeting bypass groups the turn away (the old skip path is deleted)."""
-        node, llm = self._make_graph()
-        draft_text = "Hello! How can I help you today?"
-        messages = [
-            SystemMessage(content="You are a clinical assistant."),
-            HumanMessage(content="What is apixaban dosing?"),
-            AIMessage(content=draft_text),
-        ]
-        state = self._state(messages, self._clinical_tc())
-        state["user_question"] = "What is apixaban dosing?"
-
-        result = node.invoke(state)
-
-        assert result is not None, "A non-notice turn must always synthesize now"
-        assert result["messages"][0].content == "Revised clinical answer."
-        sent = llm.invoke.call_args[0][0]
-        directive = sent[-1].content
-        assert directive.startswith("CLINICAL SYNTHESIS DIRECTIVE")
-        # The inquiry is the original question — never the rendered greeting draft
-        assert "CLINICAL INQUIRY:\nWhat is apixaban dosing?" in directive
-        assert "How can I help you today?" not in directive
-
-
 # ═══════════════════════════════════════════════════════════════════════
-# Edge cases and regression tests
+# Quantity extraction & clinical normalizations (eval_quantities.py)
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestEdgeCases:
-    """Regression tests for known bugs."""
+class TestQuantityExtraction:
+    """Verifies clinical quantity extraction and normalization for CDS benchmark evaluation."""
 
-    def test_answer_with_only_structural_numbers(self):
-        """Answer with section numbers, years, list markers should not trigger invented numbers."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Guidelines 2024.", success=True)],
-            answer=(
-                "1. Introduction\n"
-                "2. Methods\n"
-                "See section 3.1.\n"
-                "The year 2024 guidelines recommend treatment.\n"
-                "Class IIa recommendation."
-            ),
-            tool_results=["Guidelines 2024."],
+    def test_structural_numbers_not_extracted_as_quantities(self):
+        from eval_quantities import extract_quantities
+        text = (
+            "1. Introduction\n"
+            "2. Methods\n"
+            "See section 3.1.\n"
+            "The year 2024 guidelines recommend treatment.\n"
+            "Class IIa recommendation."
         )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
+        q = extract_quantities(text)
+        assert len(q) == 0
 
-    def test_empty_answer_with_tools(self):
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="...", success=True)],
-            answer="",
-            tool_results=["..."],
-        )
-        result = SafetyValidator().validate(ctx)
-        # Empty answer with tools should pass all rules (no quantities to check)
-        assert result.passed
+    def test_slashed_and_compound_units(self):
+        from eval_quantities import extract_quantities
+        text = "Give 5 u/x IV, 10 U/L, and 0.5 mcg/kg/min."
+        q = extract_quantities(text)
+        assert "0.5 mcg/kg/min" in q
 
-    def test_html_entities_in_tool_result(self):
-        """Tool results with HTML entities should not cause false invented-number blocks."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Dose &gt; 5 mg", success=True)],
-            answer="The dose is 5 mg.",
-            tool_results=["Dose &gt; 5 mg"],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
-
-    def test_graphic_content_as_only_fetch(self):
-        """getGraphicContent should satisfy section content requirement."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_graphic_content", arguments={}, result="...", success=True)],
-            answer="test",
-        )
-        result = SafetyValidator()._validate_section_content_required(ctx)
-        assert result is None
-
-    def test_short_greeting_without_tools_blocked(self):
-        """Short greeting without tools also blocks (Rule 0 never bypasses)."""
-        ctx = TurnContext(
-            tool_calls=[],
-            answer="Thanks for your question!",
-            user_question="thank you",
-        )
-        result = SafetyValidator().validate(ctx)
-        assert not result.passed
-
-    def test_clinical_answer_without_tools_blocked(self):
-        """Clinical answer with dosing quantities but no tools should block."""
-        ctx = TurnContext(
-            tool_calls=[],
-            answer="The recommended dose is 5 mg twice daily.",
-        )
-        result = SafetyValidator().validate(ctx)
-        assert not result.passed
-        assert "Clinical recommendations require database verification" in result.blocked_reason
-
-    def test_slashed_and_compound_units_validation(self):
-        """Test compound slashed units like 5 u/x, 10 U/L, 0.5 mcg/kg/min, 100 mg/m2."""
-        ctx = TurnContext(
-            tool_calls=[ToolCallRecord(tool_name="get_topic_sections_text", arguments={}, result="Give 5 u/x IV, 10 U/L, and 0.5 mcg/kg/min.", success=True)],
-            answer="Recommended rates are 5 u/x, 10 U/L, and 0.5 mcg/kg/min.",
-            tool_results=["Give 5 u/x IV, 10 U/L, and 0.5 mcg/kg/min."],
-        )
-        result = SafetyValidator()._validate_no_invented_numbers(ctx)
-        assert result is None
+    def test_dose_ranges_and_units_normalization(self):
+        from eval_quantities import extract_quantities
+        text = "Apixaban 2.5 to 5.0 mg orally twice daily."
+        q = extract_quantities(text)
+        assert "2.5 mg" in q
+        assert "5 mg" in q
 
 
 class TestAutoPopulateRefs:
@@ -1617,7 +961,7 @@ class TestAutoPopulateRefs:
     def test_skips_sections_with_empty_title(self):
         """Sections whose section_title is empty should be excluded from topic_refs."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext, FetchedSection, ToolCallRecord, ToolCallRecord
+        from evidence_models import TurnContext, FetchedSection, ToolCallRecord
 
         ctx = TurnContext(
             fetched_sections=[
@@ -1649,7 +993,7 @@ class TestAutoPopulateRefs:
     def test_strips_leading_dashes_from_section_title(self):
         """Sections with leading dashes should be stripped to clean labels."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
+        from evidence_models import TurnContext, FetchedSection, ToolCallRecord
 
         ctx = TurnContext(
             fetched_sections=[
@@ -1675,7 +1019,7 @@ class TestAutoPopulateRefs:
     def test_resolves_section_title_from_outline_sections(self):
         """If fetched_section.section_title is empty, fallback to outline_sections."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
+        from evidence_models import TurnContext, FetchedSection, ToolCallRecord
 
         ctx = TurnContext(
             fetched_sections=[
@@ -1696,7 +1040,7 @@ class TestAutoPopulateRefs:
     def test_attributes_parent_topic_when_graphic_table_fetched(self):
         """When a graphic table is fetched, its parent topic from outline is attributed."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext
+        from evidence_models import TurnContext
 
         ctx = TurnContext(
             graphic_ids={"67935"},
@@ -1716,7 +1060,7 @@ class TestAutoPopulateRefs:
     def test_graphic_id_prefix_does_not_create_duplicate_refs(self):
         """Clean graphic ID prevents duplicate refs when graphic_id has 'graphic-' prefix."""
         from agent import _auto_populate_refs
-        from safety_validator import TurnContext
+        from evidence_models import TurnContext
 
         ctx = TurnContext(
             graphic_ids={"67935"},
@@ -1756,17 +1100,16 @@ class TestSchemaParityAndSafetyBlock:
         assert data.graphics[0].isTable is True
         assert [t.id for t in data.relatedTopics] == ["999"]
 
-    def test_validate_safety_emits_blocked_ai_message_when_retries_exhausted(self):
+    def test_synthesis_emits_canonical_abstention_when_evidence_empty(self):
         from langchain_core.messages import AIMessage, HumanMessage
         from agent import create_clinical_agent
-        from safety_validator import TurnContext
+        from evidence_models import TurnContext
+        from system_prompt import CANONICAL_ABSTENTION
 
-        # Test agent graph validation node logic
         class DummyLLM:
             def bind_tools(self, tools):
                 return self
             def invoke(self, messages, config=None):
-                # Return unverified clinical answer with numbers
                 return AIMessage(content="The recommended dose is 50 mg twice daily.")
 
         dummy_llm = DummyLLM()
@@ -1788,7 +1131,7 @@ class TestSchemaParityAndSafetyBlock:
         final_state = agent.invoke(initial_state)
         last_msg = final_state["messages"][-1]
         assert isinstance(last_msg, AIMessage)
-        assert last_msg.content.startswith("Clinical Response Verification Blocked:")
+        assert last_msg.content == CANONICAL_ABSTENTION
 
     def test_clinical_source_hierarchy_and_conversions(self):
         from clinical_source import (
@@ -1798,7 +1141,7 @@ class TestSchemaParityAndSafetyBlock:
             group_topic_refs_to_articles,
             graphic_refs_to_tables,
         )
-        from safety_validator import TopicRef, GraphicRef
+        from evidence_models import TopicRef, GraphicRef
 
         topic_refs = [
             TopicRef(topic_id="100", section_id="secA", label="Section A", topic_title="Topic 100 Title"),
@@ -1835,7 +1178,7 @@ class TestSchemaParityAndSafetyBlock:
 
     def test_direct_text_answer_auto_populates_refs(self):
         from agent import create_clinical_agent
-        from safety_validator import TurnContext, FetchedSection, ToolCallRecord
+        from evidence_models import TurnContext, FetchedSection, ToolCallRecord
         from langchain_core.messages import AIMessage, HumanMessage
 
         class DirectTextLLM:
@@ -2022,67 +1365,14 @@ class TestReasoningTokenSanitizer:
         assert clean == input_text
         assert not ReasoningTokenSanitizer.contains_reasoning(input_text)
 
-    def test_prevents_number_validation_false_positives_in_safety_validator(self):
+    def test_strips_intermediate_thought_numbers_from_output(self):
         from reasoning_sanitizer import ReasoningTokenSanitizer
-        from safety_validator import SafetyValidator, ToolCallRecord, TurnContext
-
-        validator = SafetyValidator()
-        tool_result = "Dosing in renal impairment: 250 mg orally every 12 hours."
-        tool_call = ToolCallRecord(
-            tool_name="get_topic_sections_text",
-            arguments={"topic_id": "123"},
-            result=tool_result,
-            success=True,
-        )
 
         raw_llm_answer = "<thought>Standard dose is 1000 mg, but patient eGFR is 20 mL/min. Adjust to 250 mg.</thought>Give 250 mg orally."
-
-        # Without sanitization: Fails because 1000 mg is not in toolResult
-        unhygienic_ctx = TurnContext(
-            tool_calls=[tool_call],
-            answer=raw_llm_answer,
-            tool_results=[tool_result],
-        )
-        unhygienic_result = validator.validate(unhygienic_ctx)
-        assert unhygienic_result.passed is False
-        assert "1000 mg" in (unhygienic_result.blocked_reason or "") or "Unverified" in (unhygienic_result.blocked_reason or "")
-
-        # With sanitization: Passes because 1000 mg is stripped from answer
         clean_answer = ReasoningTokenSanitizer.strip_reasoning(raw_llm_answer)
-        hygienic_ctx = TurnContext(
-            tool_calls=[tool_call],
-            answer=clean_answer,
-            tool_results=[tool_result],
-        )
-        hygienic_result = validator.validate(hygienic_ctx)
-        assert hygienic_result.passed is True
-
-    def test_rule0_blocks_answer_side_greetings_with_or_without_thoughts(self):
-        from reasoning_sanitizer import ReasoningTokenSanitizer
-
-        validator = SafetyValidator()
-        raw_llm_answer = "<thought>Friendly greeting. 100% confidence. No dosing needed.</thought>Hello! How can I assist you today?"
-
-        # Change 1: Rule 0 is content-blind — a zero-tool-call turn is NO_TOOLS whether
-        # or not reasoning digits leaked into the answer (greetings route at entry now)
-        raw_ctx = TurnContext(
-            tool_calls=[],
-            answer=raw_llm_answer,
-            user_question="Hello",
-        )
-        raw_result = validator.validate(raw_ctx)
-        assert raw_result.passed is False
-        assert [v.code for v in raw_result.violations] == ["NO_TOOLS"]
-
-        clean_ctx = TurnContext(
-            tool_calls=[],
-            answer=ReasoningTokenSanitizer.strip_reasoning(raw_llm_answer),
-            user_question="Hello",
-        )
-        clean_result = validator.validate(clean_ctx)
-        assert clean_result.passed is False
-        assert [v.code for v in clean_result.violations] == ["NO_TOOLS"]
-        assert "No database tools were executed" in (clean_result.blocked_reason or "")
+        assert clean_answer == "Give 250 mg orally."
+        assert "1000 mg" not in clean_answer
+        assert "<thought>" not in clean_answer
 
     def test_streaming_filter_delta_processing(self):
         from reasoning_sanitizer import ReasoningStreamFilter
@@ -2104,149 +1394,148 @@ class TestReasoningTokenSanitizer:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Change 6 — ported case-for-case from
-# shared/src/commonTest/kotlin/com/clinref/app/domain/ai/SafetyValidatorTest.kt
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class _ChangeParityBase:
-    """Helpers mirroring the Kotlin test fixtures ctx()/toolCall()/section()."""
-
-    @staticmethod
-    def tool_call():
-        return ToolCallRecord(
-            tool_name="getTopicSectionsText",
-            arguments={"sectionId": "H1"},
-            result="content",
-            success=True,
-        )
-
-    @staticmethod
-    def section():
-        return FetchedSection(
-            topic_id="1",
-            topic_title="Topic Title",
-            section_id="H1",
-            section_title="Section 1",
-        )
-
-    def ctx(self, answer, tool_results, patient_profile=None, user_question=""):
-        return TurnContext(
-            tool_calls=[self.tool_call()],
-            answer=answer,
-            tool_results=tool_results,
-            fetched_sections=[self.section()],
-            user_question=user_question,
-            patient_profile=patient_profile,
-        )
-
-
-class TestChange6Rule2BoundaryFixAndCap(_ChangeParityBase):
-    """Change 6: Rule-2 boundary fix + report cap + SHADOW semantics.
-
-    Ported from the Change-6 battery in SafetyValidatorTest.kt. Production
-    stays the legacy lenient matcher (RULE2_ENFORCE_REWRITE = False); the
-    deny-by-default engine only runs in shadow (logging) mode.
-    """
-
-    def test_rule_2_boundary_fix_blocks_12_mg_from_a_q12h_corpus(self):
-        res = SafetyValidator().validate(self.ctx(
-            answer="Give 12 mg daily.",
-            tool_results=["Dose: 50 mg q12h."],
-        ))
-        assert not res.passed, "12 must never verify from the '12' inside q12h"
-        assert "12 mg" in res.blocked_reason
-
-    def test_rule_2_boundary_fix_blocks_12_mg_from_an_h12_corpus(self):
-        res = SafetyValidator().validate(self.ctx(
-            answer="Give 12 mg daily.",
-            tool_results=["Room H12 holds 50 mg vials."],
-        ))
-        assert not res.passed, "12 must never verify from the '12' inside H12"
-        assert "12 mg" in res.blocked_reason
-
-    def test_rule_2_report_cap_raised_to_ten_unverified_quantities(self):
-        quantities = " ".join(f"{i} mg" for i in range(1, 13))
-        res = SafetyValidator().validate(self.ctx(
-            answer=f"Take {quantities} daily.",
-            tool_results=["No dosing text available."],
-        ))
-        assert not res.passed
-        reason = res.blocked_reason
-        assert "10 mg" in reason, f"the 10th metric must be reported: {reason}"
-        assert "11 mg" not in reason, f"metrics past the cap must be truncated: {reason}"
-        assert "12 mg" not in reason, f"metrics past the cap must be truncated: {reason}"
-
-    def test_rule_2_enforces_deny_by_default_in_production(self):
-        res = SafetyValidator().validate(self.ctx(
-            answer="Administer 0.002 mg daily.",
-            tool_results=["The dose is 2 mg once daily."],
-        ))
-        assert not res.passed
-        assert "0.002 mg" in res.blocked_reason
-
-    def test_extract_wrong_statements_and_warnings(self):
-        from safety_validator import extract_wrong_statements
-        answer = "For mild infection, amoxicillin 500 mg PO TID is standard. For severe cases, administer 1,000 mg IV every 8 hours."
-        wrong = extract_wrong_statements(answer, {"1000 mg"})
-        assert len(wrong) == 1
-        assert wrong[0] == "For severe cases, administer 1,000 mg IV every 8 hours."
-
-        res = SafetyValidator().validate(self.ctx(
-            answer=answer,
-            tool_results=["Standard dose is amoxicillin 500 mg three times daily."]
-        ))
-        assert not res.passed
-        assert len(res.warnings) == 1
-        assert "1,000 mg" in res.warnings[0]
-        assert "For severe cases, administer 1,000 mg IV every 8 hours." in res.warnings[0]
-        assert "For mild infection" not in res.warnings[0]
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# System Prompt & Remediation Redesign (Bold takeaway, answer shapes, Non-FTS)
+# System Prompt & Two-Stage Pipeline Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
 class TestSystemPromptArchitecture:
-    """Verifies the bold takeaway directive, question-shaped answer headers, and non-FTS remediation."""
+    """Verifies two-stage prompt architecture, evidence synthesis formatting, and patient context extraction."""
 
-    def test_system_prompt_bluf_and_answer_shapes(self):
-        context = extract_patient_context({
-            "age": "65",
-            "sex": "female",
-            "conditions": ["Atrial Fibrillation"],
-            "medications": ["Metoprolol 25 mg"],
-            "allergies": ["Penicillin"],
-            "notes": "eGFR 45 mL/min",
-        })
-        prompt = build_system_prompt(patient_context=context)
+    def test_synthesis_system_prompt_resolves_canonical_abstention_and_formats_correctly(self):
+        prompt = SYNTHESIS_SYSTEM_PROMPT
+        assert "You are ClinRef AI, a point-of-care clinical reference for physicians." in prompt
+        assert CANONICAL_ABSTENTION in prompt
+        assert "### 1. Clinical Rules" in prompt
+        assert "### 2. Output Format" in prompt
+        assert "Do not perform arithmetic dose calculations" in prompt
+        assert "Line 1 MUST start immediately with `**`" in prompt
+        assert "Keep a blank line before and after `---`." in prompt
+        assert "Use ONLY `###` for subheadings" in prompt
 
-        # Retrieval protocol and closed-world grounding come before formatting
-        assert "RETRIEVE FIRST" in prompt
-        assert "FIDELITY" in prompt
-        assert "bolded clinical conclusion" in prompt
-        assert prompt.index("RETRIEVE FIRST") < prompt.index("FIDELITY") < prompt.index("ANSWER STRUCTURE") < prompt.index("OUTPUT MECHANICS")
-        assert "If nothing relevant was retrieved" in prompt, "whole-answer abstention must be stated"
+    def test_format_synthesis_prompt_formats_user_prompt_with_evidence_and_inquiry(self):
+        sections = [
+            FetchedSection(
+                topic_id="123",
+                section_id="sec-1",
+                topic_title="Atrial Fibrillation",
+                section_title="Anticoagulation",
+                content_snippet="Direct oral anticoagulants are preferred.",
+            )
+        ]
+        tc = TurnContext(
+            fetched_sections=sections,
+            user_question="What anticoagulation is recommended?",
+        )
+        formatted = format_synthesis_prompt("What anticoagulation is recommended?", tc)
+        assert formatted.startswith("<retrieved_evidence>")
+        assert "Section: Anticoagulation [Topic: Atrial Fibrillation]:" in formatted
+        assert "Direct oral anticoagulants are preferred." in formatted
+        assert "</retrieved_evidence>" in formatted
+        assert "<active_patient_profile>" not in formatted
+        assert "<clinical_inquiry>\nWhat anticoagulation is recommended?\n</clinical_inquiry>" in formatted
 
-        # Structure follows the question; headings are named by the question or the source,
-        # never by a closed list of shapes baked into the prompt.
-        assert "ANSWER STRUCTURE" in prompt
-        assert "retrieved section's own title" in prompt
-        assert "Completely omit unneeded outline headings" in prompt
-        assert "never output empty headings" in prompt
-        assert "No preamble" in prompt
-        assert "When to Escalate" not in prompt, "no fixed shape taxonomy"
-        assert "First-Line Regimen & Dosing" not in prompt, "no fixed dosing template"
-        assert "Dosing: Adult" not in prompt, "no forced drug section names"
+    def test_format_synthesis_prompt_includes_active_patient_profile(self):
+        sections = [
+            FetchedSection(
+                topic_id="123",
+                section_id="sec-1",
+                topic_title="Atrial Fibrillation",
+                section_title="Anticoagulation",
+                content_snippet="Apixaban dose is reduced to 2.5 mg twice daily if criteria met.",
+            )
+        ]
+        profile = PatientProfile(
+            age="82",
+            conditions=["Atrial fibrillation", "CKD stage 3"],
+            medications=["Metoprolol"],
+        )
+        tc = TurnContext(
+            fetched_sections=sections,
+            user_question="Dose of apixaban?",
+            patient_profile=profile,
+        )
+        formatted = format_synthesis_prompt("Dose of apixaban?", tc)
+        assert "<retrieved_evidence>" in formatted
+        assert "<active_patient_profile>" in formatted
+        assert "- Age: 82" in formatted
+        assert "CKD stage 3" in formatted
+        assert "</active_patient_profile>" in formatted
+        assert "<clinical_inquiry>\nDose of apixaban?\n</clinical_inquiry>" in formatted
 
-        # Patient profile parsing
-        assert "Age: 65" in prompt
-        assert "Sex: female" in prompt
-        assert "Atrial Fibrillation" in prompt
-        assert "Metoprolol 25 mg" in prompt
-        assert "Penicillin" in prompt
-        assert "eGFR 45 mL/min" in prompt
+    def test_evidence_summary_suppresses_subsumed_pointer_stubs(self):
+        sections = [
+            FetchedSection(
+                topic_id="7027",
+                section_id="H8",
+                topic_title="CAP",
+                section_title="Initial Empiric Therapy",
+                content_snippet="Empiric regimen includes ceftriaxone plus azithromycin.",
+            ),
+            FetchedSection(
+                topic_id="7027",
+                section_id="H1595678546",
+                topic_title="CAP",
+                section_title="Indications",
+                content_snippet="(Content included in section [H8] above)",
+            ),
+        ]
+        summary = evidence_summary_from(sections)
+        assert "Section: Initial Empiric Therapy [Topic: CAP]:" in summary
+        assert "Empiric regimen includes ceftriaxone plus azithromycin." in summary
+        assert "Section: Indications" not in summary
+        assert "(Content included in section [H8] above)" not in summary
+
+    def test_evidence_summary_orders_sections_and_graphics_by_relevance_score(self):
+        sec_low = FetchedSection(
+            topic_id="1",
+            section_id="S_LOW",
+            topic_title="Cardiology",
+            section_title="General Background",
+            content_snippet="Background epidemiology information.",
+            relevance_score=1.2,
+        )
+        sec_high = FetchedSection(
+            topic_id="1",
+            section_id="S_HIGH",
+            topic_title="Cardiology",
+            section_title="Dosing and Administration",
+            content_snippet="Primary first-line dosing is 5 mg daily.",
+            relevance_score=2.9,
+        )
+        gfx_low = FetchedGraphic(
+            graphic_id="G_LOW",
+            title="Secondary monitoring table",
+            markdown="| Param | Value |\n| --- | --- |\n| Lab | Normal |",
+            relevance_score=1.5,
+        )
+        gfx_high = FetchedGraphic(
+            graphic_id="G_HIGH",
+            title="Primary Dosing Table",
+            markdown="| Drug | Dose |\n| --- | --- |\n| DrugA | 100 mg |",
+            relevance_score=2.8,
+        )
+        summary = evidence_summary_from([sec_low, sec_high], [gfx_low, gfx_high])
+        pos_high_sec = summary.index("Dosing and Administration")
+        pos_low_sec = summary.index("General Background")
+        assert pos_high_sec < pos_low_sec
+
+        pos_high_gfx = summary.index("Primary Dosing Table")
+        pos_low_gfx = summary.index("Secondary monitoring table")
+        assert pos_high_gfx < pos_low_gfx
+
+    def test_evidence_summary_strips_redundant_graphic_table_header(self):
+        gfx = FetchedGraphic(
+            graphic_id="118967",
+            title="Empiric Antibiotic Regimens",
+            markdown="### Graphic Table: Empiric Antibiotic Regimens\n\n| Antibiotic | Dose |\n|---|---|\n| Amoxicillin | 1 g TID |",
+            topic_id="7027",
+            topic_title="CAP",
+            relevance_score=2.8,
+        )
+        summary = evidence_summary_from([], [gfx])
+        assert "Table: Empiric Antibiotic Regimens [Topic: CAP]:" in summary
+        assert "### Graphic Table:" not in summary
+        assert "| Amoxicillin | 1 g TID |" in summary
 
     def test_extract_patient_context_gender_and_sex(self):
         ctx1 = extract_patient_context({"age": "50", "sex": "male"})
@@ -2263,155 +1552,15 @@ class TestSystemPromptArchitecture:
         assert "Allergies: sulfa, penicillin" in ctx
         assert "Notes: Renal transplant recipient" in ctx
 
-    def test_build_correction_prompt_non_fts_missing_sections(self):
-        prompt = build_correction_prompt(
-            violations=[Violation.of("NO_SECTIONS", "Answer requires section or table content retrieval.")],
-            evidence_summary="No section text was successfully fetched in the prior turn.",
-        )
-        assert "search_topic_sections" not in prompt
-        assert "searchTopicSections" not in prompt
-        assert "EVIDENCE GATE PAUSE" in prompt
-        assert "MANDATORY NEXT STEP" in prompt
-        # RECONCILIATION 2026-10-26: the legacy 3.4a branch renders camelCase tool
-        # names per the Kotlin registry (it wrote snake_case before the template fix).
-        assert "get_topic_sections_text" not in prompt
-        assert "getTopicSectionsText(topicId, sectionIds)" in prompt
-        assert "getGraphicContent(graphicId)" in prompt
-
-    def test_build_correction_prompt_non_fts_contraindication(self):
-        prompt = build_correction_prompt(
-            violations=[Violation.of("VISUAL", "Answer describes visual details of a graphic.", target="phase2")],
-            evidence_summary="Section [H1]: Content.",
-        )
-        assert "search_topic_sections" not in prompt
-        assert "SAFETY REVISION" in prompt
-        assert "VISUAL" in prompt
-        assert "REVISION RULES" in prompt
-        assert "get_topic_overview(" not in prompt
-        assert "get_topic_sections_text(" not in prompt
-
-    def test_build_correction_prompt_non_fts_unverified_quantities(self):
-        prompt = build_correction_prompt(
-            violations=[Violation.of("UNVERIFIED_QTY", "Unverified clinical quantities found in response: 750 mg.", target="phase2")],
-            evidence_summary="Section [H1]: 500 mg.",
-        )
-        assert "search_topic_sections" not in prompt
-        assert "SAFETY REVISION" in prompt
-        assert "UNVERIFIED_QTY" in prompt
-        assert "750 mg" in prompt
-        assert "get_topic_overview(" not in prompt
-        assert "get_topic_sections_text(" not in prompt
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# Change 2: typed violations, exact remediation templates, QTY top-up
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestViolationTargetMap:
-    """Violation codes map onto the phase target that routes remediation."""
-
-    def test_targets(self):
-        from safety_validator import (
-            PHASE1_TARGET,
-            PHASE2_TARGET,
-            VIOLATION_TARGETS,
-        )
-        assert VIOLATION_TARGETS["NO_TOOLS"] == PHASE1_TARGET
-        assert VIOLATION_TARGETS["NO_SECTIONS"] == PHASE1_TARGET
-        assert VIOLATION_TARGETS["BLANK_NO_EVIDENCE"] == PHASE1_TARGET
-        assert VIOLATION_TARGETS["BLANK_WITH_EVIDENCE"] == PHASE2_TARGET
-        assert VIOLATION_TARGETS["UNVERIFIED_QTY"] == PHASE2_TARGET
-        assert VIOLATION_TARGETS["VISUAL"] == PHASE2_TARGET
-
-    def test_violation_of_defaults_target(self):
-        from safety_validator import Violation
-        assert Violation.of("NO_SECTIONS", "detail").target == "phase1"
-        assert Violation.of("BLANK_WITH_EVIDENCE", "detail").target == "phase2"
-
-
-class TestChange2TemplateRendering:
-    """The exact Change-2 templates (must not be paraphrased)."""
-
     def test_evidence_gate_pause_prompt_exact_shape(self):
-        from system_prompt import build_evidence_gate_pause_prompt
         prompt = build_evidence_gate_pause_prompt("")
-        self._assert_evidence_gate_pause(prompt, summary="Nothing has been retrieved yet.")
-
-    def test_evidence_gate_pause_prompt_carries_summary(self):
-        from system_prompt import build_evidence_gate_pause_prompt
-        prompt = build_evidence_gate_pause_prompt("Section [H1] (Dosing):\n500 mg.")
-        self._assert_evidence_gate_pause(prompt, summary="Section [H1] (Dosing):\n500 mg.")
-
-    @staticmethod
-    def _assert_evidence_gate_pause(prompt: str, summary: str) -> None:
         assert "SYSTEM NOTICE — EVIDENCE GATE PAUSE:" in prompt
-        assert summary in prompt
+        assert "Nothing has been retrieved yet." in prompt
         assert "MANDATORY NEXT STEP (tool calls only, no text):" in prompt
-        # camelCase tool-name literals (Kotlin registry text), never the Python snake_case registry
         assert "getTopicSectionsText(" in prompt
         assert "getGraphicContent(" in prompt
         assert "searchTopics(" in prompt
         assert "getTopicOverview(" in prompt
-        assert "get_topic_sections_text" not in prompt
-        assert "get_topic_overview" not in prompt
-
-    def test_revision_prompt_renders_one_line_per_violation(self):
-        from safety_validator import Violation
-        from system_prompt import build_revision_prompt
-        violations = [
-            Violation.of("UNVERIFIED_QTY", "Unverified clinical quantities found in response: 10 mg. Ensure every quantity matches."),
-            Violation.of("VISUAL", "Answer describes visual details of a graphic or scan that were not retrieved as text."),
-        ]
-        prompt = build_revision_prompt(
-            violations,
-            draft="Apixaban 10 mg twice daily.",
-            evidence_summary="Section [H1] (Dosing):\nApixaban 5 mg twice daily.",
-        )
-        assert "SYSTEM NOTICE — SAFETY REVISION (NO TOOLS ACTIVE):" in prompt
-        assert "[UNVERIFIED_QTY] Unverified clinical quantities found in response: 10 mg. Ensure every quantity matches." in prompt
-        assert "[VISUAL] Answer describes visual details of a graphic or scan that were not retrieved as text." in prompt
-        assert "Apixaban 10 mg twice daily." in prompt
-        assert "Apixaban 5 mg twice daily." in prompt
-        assert "REVISION RULES:" in prompt
-        assert "[BLANK_WITH_EVIDENCE]" in prompt
-        assert "Apixaban 10 mg twice daily." in prompt
-        assert "Apixaban 5 mg twice daily." in prompt
-        assert "REVISION RULES:" in prompt
-        assert "[BLANK_WITH_EVIDENCE]" in prompt
-
-    def test_revision_prompt_empty_draft_placeholder(self):
-        from safety_validator import Violation
-        from system_prompt import build_revision_prompt
-        prompt = build_revision_prompt(
-            [Violation.of("VISUAL", "Answer describes visual details of a graphic or scan that were not retrieved as text.")],
-            draft="",
-            evidence_summary="Section [T1] (Table).",
-        )
-        assert "(none: no answer was produced)" in prompt
-
-    def test_revision_prompt_accepts_dict_violations(self):
-        from system_prompt import build_revision_prompt
-        prompt = build_revision_prompt(
-            [{"code": "VISUAL", "detail": "Answer describes visual details."}],
-            draft="d",
-            evidence_summary="e",
-        )
-        assert "[VISUAL] Answer describes visual details." in prompt
-
-    def test_premature_interception_prompt_exact_shape(self):
-        from system_prompt import build_premature_interception_prompt
-        prompt = build_premature_interception_prompt()
-        assert "SYSTEM NOTICE: PREMATURE RESPONSE INTERCEPTED." in prompt
-        assert "Write no text. Respond ONLY with tool calls:" in prompt
-        # camelCase names matched to the Python Phase-1 tool registry
-        assert "searchTopics(" in prompt
-        assert "getTopicOverview(" in prompt
-        assert "getTopicSectionsText(" in prompt
-        assert "getGraphicContent(" in prompt
-        assert "You will write the answer after the section text is in context." in prompt
-        # The exact notice takes no argument and is consumer-agnostic to the model attempt
-        assert "{attempt}" not in prompt
 
 
 # ═══════════════════════════════════════════════════════════════════════

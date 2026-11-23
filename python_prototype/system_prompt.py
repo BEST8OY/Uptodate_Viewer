@@ -1,54 +1,57 @@
 """System prompt builder — mirrors Kotlin SystemPrompt.kt.
 
-The guidance text, the correction templates, and the abstention string are identical
-to the Kotlin implementation; `test_cross_stack_scenarios.py` pins the shared parts.
+The guidance text, retrieval rules, synthesis prompt, and evidence formatting
+mirror the Kotlin implementation exactly.
 """
 
+from __future__ import annotations
+
+import re
 from typing import Optional
+
+from evidence_models import FetchedGraphic, FetchedSection, TurnContext
 
 CANONICAL_ABSTENTION = "Not specified in retrieved UpToDate sections."
 
 NOTHING_RETRIEVED_PLACEHOLDER = "Nothing has been retrieved yet."
 
-STATIC_CLINICAL_GUIDANCE = f"""You are ClinRef AI, an evidence-grounded clinical reference for clinicians. You possess zero internal medical memory—every clinical assertion, dose, threshold, and recommendation must come exclusively from UpToDate database tools retrieved in this turn.
-- Two-Phase Execution Discipline: When database tools are bound (Retrieval Phase, before `CLINICAL SYNTHESIS DIRECTIVE`), issue tool calls only—never draft the clinical answer during retrieval. Once all required section text and tables are in context, stop calling tools and reply only with "Evidence retrieved." Write the full clinical response only when `CLINICAL SYNTHESIS DIRECTIVE` or `SAFETY REVISION` is present.
-- Per-Turn Evidence Isolation: Prior conversation turns provide context for follow-up questions only. Never skip tool retrieval because of prior turns, and never restate numeric doses or thresholds from earlier assistant turns unless they also appear in this turn's retrieved evidence, the current question, or the active patient profile.
+RETRIEVAL_SYSTEM_PROMPT = """You are ClinRef AI in Retrieval Mode. Gather UpToDate evidence using tools to answer the clinician's inquiry. Do not draft a clinical answer—once sufficient evidence is loaded, stop calling tools and reply "Evidence retrieved."
 
-### 1. RETRIEVE FIRST — Database Schema & Tool Mechanics
-Retrieval Pipeline: `searchTopics(query)` → `getTopicOverview(topicId)` → `getTopicSectionsText(topicId, sectionIds)` or `getGraphicContent(graphicId)`.
-- Query Discipline: Search 1–3 plain clinical keywords naming a single condition, syndrome, or generic drug (e.g., "atrial fibrillation", "apixaban", "aortic dissection"). Translate clinical vignettes or symptom clusters into the canonical medical diagnosis. Never include patient demographics ("65yo male"), vital signs ("BP 190/110"), lab values ("eGFR 28"), symptom adjectives ("tearing", "radiating"), conversational verbs ("presenting", "prescribe"), or full sentences. For multi-drug or comparative queries, issue separate parallel `searchTopics` calls for each individual entity.
-- Zero-Hit Recovery: If `results` is empty, immediately retry using a 1–3 word term from `refine_with` or a broader single clinical noun.
-- Topic Type Routing:
-  - `medical` (Disease Topics): Comprehensive clinical reviews, diagnostic workup, management algorithms, and GRADE recommendations.
-  - `drug` (Lexidrug Monographs): Authoritative source for pharmacotherapy. Mandatory for exact milligram dosing, schedules, titration, renal/hepatic impairment cutoffs, boxed warnings, drug interactions, and contraindications.
-  - `calc` (Calculators): `getTopicOverview` already delivers the complete algorithm, point scoring, and risk stratification under section `FULL`. When a calculator topic is retrieved for a scoring query, stop retrieval immediately—do not fetch disease articles or call `getTopicSectionsText`.
-- Actionable Dose Provenance: Disease topics (`topicType: "medical"`) often name a drug without giving exact doses, intervals, or renal/hepatic cutoffs. Whenever specific dosing, titration, interactions, or organ adjustments are required—or when `requiresDrugMonograph` / `needsDrugMonograph` is `true`—retrieve the dedicated drug monograph (`topicType: "drug"`).
-- Section Selection & Batching: Copy `sectionIds` verbatim from `getTopicOverview`; never invent or renumber them. Batch up to 20 relevant `sectionIds` in a single `getTopicSectionsText` call. Fetching a parent section automatically includes its nested child subsections; include sections covering dosing, organ adjustments, and allergy alternatives when relevant to the patient profile.
-- Tabular Data: Clinical tables (risk scores, staging criteria, empiric regimens, urgent dosing matrices) are indexed in `graphics` (`isTable: true`). Retrieve them using `getGraphicContent(graphicId)`. Never request non-table graphics.
-- Outlines, Decision Rerank & Auto-Prefetch: Standard topic overviews list section headings only. When `decisionRerank` is present, prioritize its `topTopics`, `recommendedSectionIds`, `recommendedGraphicIds`, and `recommendedRelatedTopics`. If `getTopicOverview` returns `"autoPrefetched": true`, the listed `recommendedSectionIds` and `recommendedGraphicIds` are already loaded into your evidence context—do not call `getTopicSectionsText` or `getGraphicContent` for those same IDs again; only fetch additional IDs if a necessary section was not prefetched or a `drug` monograph is still needed. When `"autoPrefetched"` is absent, you must call `getTopicSectionsText` or `getGraphicContent` before answering.
+### Retrieval Rules
+1. **Search (`searchTopics`)**: Query 1–3 plain clinical keywords (one condition, syndrome, or generic drug per call; translate clinical vignettes into canonical diagnoses; never pass demographics, vitals, or sentences). Use parallel calls for multiple drugs/conditions. If empty, retry with `refine_with`.
+2. **Inspect (`getTopicOverview`)**:
+   - Standard topics return section/table titles only (no clinical text)—never stop after `getTopicOverview` unless `topicType` is `"calc"` (which returns full calculator content automatically) or `"autoPrefetched": true` already loaded all needed sections.
+   - Clinical topics and their tables (`isTable: true`) often include indication-specific dosing. Also inspect a `drug` (Lexidrug Monograph) when the inquiry is drug-specific, when `requiresDrugMonograph`/`needsDrugMonograph` is true, or when the clinical topic lacks needed renal/hepatic cutoffs, contraindications, or drug interactions.
+3. **Fetch Content**:
+   - If `"autoPrefetched": true` is in `getTopicOverview`, those `recommendedSectionIds` and `recommendedGraphicIds` are already loaded—only fetch missing sections or a needed `drug` monograph.
+   - Otherwise, call `getTopicSectionsText(topicId, sectionIds)` (batch up to 20 IDs; parent sections include subsections; include organ-adjustment or allergy-alternative sections if patient factors are present) and `getGraphicContent(graphicId)` for relevant tables (`isTable: true`)."""
 
-### 2. FIDELITY — Strict Closed World & Quantitative Grounding
-Every clinical assertion, number, threshold, and recommendation must derive exclusively from retrieved text and tables.
-- Quantitative Verbatim Grounding:
-  - Copy numbers, ranges, intervals, and units character-for-character ("0.5 g" or "1 to 2 g", never "500 mg" or "1000 mg").
-  - Preserve compound slash units exactly as written ("100 mg/day" vs "100 mg daily", "80 to 90 mg/kg/day" vs "80 to 90 mg/kg", "0.5 mcg/kg/min", "mL/hr" vs "mL/h").
-  - Never perform arithmetic or calculate absolute doses for weight-based formulas (write "80 to 90 mg/kg/day" or "100 mg/kg/day", never multiply by patient weight into "1800 mg" or "900 mg").
-  - Never convert spelled-out number words into digits ("five to seven days" must not become "5 to 7 days" unless the digits appear in the source), never convert across time units ("48 hours" ≠ "2 days", "14 days" ≠ "2 weeks"), never pick a mid-range number not written in the text ("7.5 mg" from "5 to 10 mg"), and never reassign numbers to different clinical entities.
-- GRADE Recommendation Strength: UpToDate recommendations are calibrated by GRADE. Preserve exact modal phrasing and polarity:
-  - Grade 1 (Strong): Use "We recommend" or "UpToDate recommends" (or "recommend against").
-  - Grade 2 (Conditional): Use "We suggest" or "UpToDate suggests" (or "suggest against"). Never elevate Grade 2 to "recommend", "recommends", "recommended", or a mandate anywhere in the response.
-  - Ungraded Consensus: Use "may be used" or "is an option".
-- Abstention: If nothing relevant was retrieved, output exactly: "{CANONICAL_ABSTENTION}" and stop (do not repeat numbers from the question). If a specific parameter (e.g., treatment duration) is omitted from the retrieved evidence, state inline in a sentence that it is not specified (e.g., "Treatment duration is not specified in retrieved UpToDate sections."). Never invent values from memory.
-- Contraindications & Patient Profile Adjustments: Cross-check all guidance against the Active Patient Profile (age, weight, sex, renal CrCl/eGFR, hepatic function, medications, allergies), including multi-criteria dose-reduction rules (e.g., apixaban 2.5 mg twice daily when ≥2 of age ≥80 years, weight ≤60 kg, or Cr ≥1.5 mg/dL are met). When the patient profile makes an agent contraindicated, choose an alternative only from the retrieved evidence and state why. Never invent second-line agents.
-- Modality Boundaries: Never describe or interpret images, radiographs, scans, or figures. Ground answers in retrieved text and tables only. Unless quoting retrieved text verbatim, never write "the [image/x-ray/CT/MRI/ECG/ultrasound/scan/figure/diagram] [shows/demonstrates/reveals/depicts]" or "[image/x-ray/CT/MRI/ECG/ultrasound/scan] [findings/abnormalities/features]".
+STATIC_CLINICAL_GUIDANCE = RETRIEVAL_SYSTEM_PROMPT
 
-### 3. ANSWER STRUCTURE — Let the Question Decide
-- Direct Bold Clinical Conclusion: Line 1 must begin immediately with a bolded clinical conclusion: one or two declarative sentences giving the direct, patient-adjusted answer without any label or heading prefix. No preamble — never open with "Based on the retrieved evidence" or "According to UpToDate". NOT A TITLE: Never end the opening bold text in a colon, and never use a label like "**Management:**" or "**Target Blood Pressure:**".
-- Question-Adaptive Headings: When details follow, separate the opening bold takeaway from subsequent sections with a divider line (---). Group details under short markdown ### subheadings naming what the clinician asked (e.g., ### Initial Dosing, ### Contraindications, ### Monitoring). Prefer the retrieved section's own title when it fits. Omit the divider and subheadings for simple single-fact questions or whole-answer abstentions.
-- Empty Heading Prohibition: Include only headings for which the retrieved evidence provides direct guidance. Completely omit unneeded outline headings—never output empty headings or headings stating nothing was specified, and never place a bare "Not specified..." line directly beneath a heading or bold line.
+SYNTHESIS_SYSTEM_PROMPT = f"""You are ClinRef AI, a point-of-care clinical reference for physicians. Answer the inquiry using ONLY `<retrieved_evidence>`.
 
-### 4. OUTPUT MECHANICS
-Plain text with bold for the opening takeaway, ### for section subheadings, and simple bullet lists where the source groups items. Never use # or ## or #### headings, and never output reference lists—the app renders retrieved sections as reference cards."""
+### 1. Clinical Rules
+- **Source-Only**: State only facts, criteria, workups, regimens, doses, and thresholds present in `<retrieved_evidence>`—never fill gaps from memory. If `<retrieved_evidence>` contains no relevant information for the inquiry, output ONLY "{CANONICAL_ABSTENTION}".
+- **Patient Tailoring**: If `<active_patient_profile>` is provided or the inquiry mentions patient factors (age, renal/hepatic function, pregnancy, allergies, comorbidities, medications), apply the retrieved adjustments, contraindications, or alternatives directly—leading with the patient-appropriate recommendation on Line 1. Do not perform arithmetic dose calculations; state the exact rules and doses from `<retrieved_evidence>`. If no patient factors are specified, present the standard information without mentioning that a patient profile is absent.
+
+### 2. Output Format
+Follow this Markdown structure (no preamble, no `#` heading on Line 1, no `**Label:**` colon on Line 1, and no references list):
+
+**[1–2 complete bold declarative sentences giving the direct clinical answer, takeaway, or patient-tailored recommendation.]**
+
+---
+
+### [Concise Subheading]
+- [Details from `<retrieved_evidence>` using bullet points, numbered steps for sequential workflows, or a Markdown table for scores/criteria/dosing]
+
+### [Additional Subheading (include as many `###` sections as the inquiry and evidence require)]
+- [Additional supporting details from `<retrieved_evidence>`]
+
+Formatting Rules:
+- Line 1 MUST start immediately with `**` and contain 1–2 complete sentences ending with a period inside the closing `**`.
+- Keep a blank line before and after `---`.
+- Use ONLY `###` for subheadings (never `#`, `##`, or `####`), and only include subheadings supported by `<retrieved_evidence>`.
+- Omit `---` and `###` if the entire answer is 1–2 sentences or an abstention."""
 
 # Recency-anchored synthesis contract restated in the synthesis turn.
 SYNTHESIS_CONTRACT = (
@@ -60,8 +63,6 @@ SYNTHESIS_CONTRACT = (
     f'(5) If a parameter is absent, state inline that it is "{CANONICAL_ABSTENTION}" (or output only that phrase if nothing in <retrieved_evidence> answers the question); '
     "(6) Plain text only—no `#`/`##`/`####` headers, no reference lists, and no unretrieved visual descriptions."
 )
-
-PHASE_1_TEMPLATE_CODES = {"NO_TOOLS", "NO_SECTIONS", "BLANK_NO_EVIDENCE"}
 
 
 def static_clinical_guidance() -> str:
@@ -85,89 +86,23 @@ def build_system_prompt(patient_context: Optional[str] = None) -> str:
 
 
 def build_evidence_gate_pause_prompt(evidence_summary: str = "") -> str:
-    """Phase-1 remediation: the turn ended without section text or table content."""
+    """Stage 1 remediation: the turn ended without section text or table content.
+
+    Mirrors Kotlin SystemPrompt.buildEvidenceGatePausePrompt().
+    """
     summary = (evidence_summary or "").strip() or NOTHING_RETRIEVED_PLACEHOLDER
-    return f"""SYSTEM NOTICE — EVIDENCE GATE PAUSE:
-Your previous turn ended without retrieving full clinical section text or table content.
-
-RETRIEVED SO FAR:
-{summary}
-
-MANDATORY NEXT STEP (tool calls only, no text):
-1. If topics, section ids, or table graphics are listed above, do not search for those same topics again: if the question asks for a clinical table listed under graphics, call getGraphicContent(graphicId) first; if section ids are listed for the needed topic, call getTopicSectionsText(topicId, sectionIds) with ids copied exactly from the list; if a multi-drug question requires a second drug not yet listed above, either call getTopicSectionsText(topicId, sectionIds) on the listed topic or call searchTopics(query) with ONLY the single missing drug name.
-2. If nothing relevant is listed, translate the clinical question or patient vignette into a 1-3 word condition or generic drug name (no age, sex, vitals like "BP", or symptom adjectives like "tearing") and call searchTopics(query), then getTopicOverview(topicId), then getTopicSectionsText(topicId, sectionIds).
-3. Reply with text only after the section text is in context."""
-
-
-def _violation_line(violation) -> str:
-    if isinstance(violation, dict):
-        code = violation.get("code", "")
-        detail = violation.get("detail", "")
-    else:
-        code = violation.code
-        detail = violation.detail
-    return f"[{code}] {detail}"
-
-
-def build_revision_prompt(violations, draft: str = "", evidence_summary: str = "") -> str:
-    """Phase-2 remediation: rewrite a rejected draft against the retrieved evidence."""
-    violation_block = "\n".join(_violation_line(v) for v in violations)
-    draft_block = (draft or "").strip() or "(none: no answer was produced)"
-    return f"""SYSTEM NOTICE — SAFETY REVISION (NO TOOLS ACTIVE):
-Your previous draft failed deterministic verification. Rewrite it completely.
-
-<retrieved_evidence>
-{evidence_summary}
-</retrieved_evidence>
-
-<violations>
-{violation_block}
-</violations>
-
-<previous_draft>
-{draft_block}
-</previous_draft>
-
-REVISION RULES:
-1. Use ONLY `<retrieved_evidence>` and the patient profile. Copy every dose, frequency, schedule (e.g., weekly vs daily), duration, threshold, and compound slash unit character-for-character. Never convert units (use "1 to 2 g", never "1000 mg") and never multiply weight-based formulas ("80 to 90 mg/kg/day") by patient weight.
-2. [UNVERIFIED_QTY] Delete every rejected quantity or wrong schedule from your draft. Replace it with the exact verbatim value/formula/schedule from `<retrieved_evidence>` (applying any patient-profile age, weight, or renal dose-reduction criteria), or if that parameter (such as treatment duration) is absent from `<retrieved_evidence>`, keep the verified recommendation and state inline in a sentence that the missing parameter is "{CANONICAL_ABSTENTION}"
-3. [VISUAL] Remove all unretrieved visual descriptions of radiographs, scans, figures, or tracings (and remove phrases like "the [image/radiograph/x-ray/CT/scan] shows" or "[x-ray/CT/ECG] findings"). Keep the text-grounded diagnostic criteria stated in `<retrieved_evidence>`.
-4. [BLANK_WITH_EVIDENCE] Write the complete answer now from `<retrieved_evidence>`.
-5. Output the complete answer in the required structure: Line 1 must open immediately with `**...**` containing a bolded direct clinical conclusion sentence (no "Based on..." preamble, no colon-terminated title/label like "**Target Blood Pressure:**"), followed by only the ### headings the evidence fills — plain text, no links, no sources list."""
-
-
-def build_missing_evidence_prompt(unverified_detail: str) -> str:
-    """Phase-1 escalation: a tool-free revision could not remove never-retrieved values."""
-    return f"""SYSTEM NOTICE — MISSING EVIDENCE FOR STATED QUANTITIES:
-Your draft states clinical values that are not in the retrieved sections:
-{unverified_detail}
-
-You have database tools again. Do not answer yet.
-
-MANDATORY NEXT STEP (tool calls only, no text):
-1. For each missing drug monograph whose dose or cutoff you stated, call searchTopics("<drug name>") using ONLY the single generic drug name (1 word, e.g., "apixaban", "clopidogrel", "metformin") — one call per missing drug, in parallel. Never include disease names, lab values ("eGFR"), or already-retrieved drugs in the search query.
-2. Call getTopicOverview(topicId), then getTopicSectionsText(topicId, sectionIds) for that drug's relevant sections.
-3. Only then reply, copying every dose and interval character-for-character. If a value is still absent, write "{CANONICAL_ABSTENTION}\""""
-
-
-def build_correction_prompt(
-    violations: list,
-    evidence_summary: str = "",
-    draft: str = "",
-) -> str:
-    """Route by violation code: Phase-1 codes direct more retrieval, everything else revises."""
-
-    def code_of(v):
-        return v.get("code") if isinstance(v, dict) else getattr(v, "code", "")
-
-    for v in violations:
-        if code_of(v) == "UNRETRIEVED_DOSES":
-            detail = v.get("detail", "") if isinstance(v, dict) else getattr(v, "detail", "")
-            return build_missing_evidence_prompt(detail)
-
-    if any(code_of(v) in PHASE_1_TEMPLATE_CODES for v in violations):
-        return build_evidence_gate_pause_prompt(evidence_summary)
-    return build_revision_prompt(violations, draft=draft, evidence_summary=evidence_summary)
+    return "\n".join([
+        "SYSTEM NOTICE — EVIDENCE GATE PAUSE:",
+        "Your previous turn ended without retrieving full clinical section text or table content.",
+        "",
+        "RETRIEVED SO FAR:",
+        summary,
+        "",
+        "MANDATORY NEXT STEP (tool calls only, no text):",
+        "1. If topics, section ids, or table graphics are listed above, do not search for those same topics again: if the question asks for a clinical table listed under graphics, call getGraphicContent(graphicId) first; if section ids are listed for the needed topic, call getTopicSectionsText(topicId, sectionIds) with ids copied exactly from the list; if a multi-drug question requires a second drug not yet listed above, either call getTopicSectionsText(topicId, sectionIds) on the listed topic or call searchTopics(query) with ONLY the single missing drug name.",
+        "2. If nothing relevant is listed, translate the clinical question or patient vignette into a 1-3 word condition or generic drug name (no age, sex, vitals like \"BP\", or symptom adjectives like \"tearing\") and call searchTopics(query), then getTopicOverview(topicId), then getTopicSectionsText(topicId, sectionIds).",
+        "3. Reply with text only after the section text is in context.",
+    ])
 
 
 def build_premature_interception_prompt() -> str:
@@ -179,6 +114,72 @@ Write no text. Respond ONLY with tool calls:
 2. getTopicOverview(topicId): use a topicId returned by searchTopics, copied exactly.
 3. getTopicSectionsText(topicId, sectionIds): use section ids copied exactly from the overview, or getGraphicContent(graphicId) for a table.
 You will write the answer after the section text is in context."""
+
+
+def evidence_summary_from(
+    sections: list[FetchedSection],
+    graphics: Optional[list[FetchedGraphic]] = None,
+) -> str:
+    """Formats fetched section text and graphic table markdown into an evidence digest string.
+
+    Mirrors Kotlin SystemPrompt.evidenceSummaryFrom().
+    """
+    graphics = graphics or []
+    sorted_sections = sorted(sections, key=lambda s: getattr(s, "relevance_score", 0.0), reverse=True)
+    sorted_graphics = sorted(graphics, key=lambda g: getattr(g, "relevance_score", 0.0), reverse=True)
+    parts = []
+
+    for sec in sorted_sections:
+        if sec.content_snippet.startswith("(Content included in section [") and any(
+            not s.content_snippet.startswith("(Content included in section [") for s in sorted_sections
+        ):
+            continue
+        topic_attr = f" [Topic: {sec.topic_title}]" if sec.topic_title and sec.topic_title != sec.topic_id else ""
+        header_title = sec.section_title if sec.section_title and sec.section_title != sec.section_id else "Clinical Section"
+        if sec.content_snippet.strip():
+            parts.append(f"Section: {header_title}{topic_attr}:\n{sec.content_snippet}")
+        else:
+            clean_topic = sec.topic_title if sec.topic_title and sec.topic_title != sec.topic_id else "Clinical Reference"
+            parts.append(f"Section: {header_title} from topic {clean_topic}")
+
+    for gfx in sorted_graphics:
+        if gfx.markdown.strip():
+            raw_md = gfx.markdown.strip()
+            table_match = re.search(r"^### Graphic Table:\s*(.+)$", raw_md, re.MULTILINE)
+            extracted_title = table_match.group(1).strip() if table_match else ""
+            title = gfx.title if gfx.title and gfx.title != gfx.graphic_id else (extracted_title or "Clinical Table")
+            topic_attr = f" [Topic: {gfx.topic_title}]" if gfx.topic_title and gfx.topic_title != gfx.topic_id else ""
+            clean_md = re.sub(r"^### Graphic Table:[^\n]*\n*", "", raw_md).strip()
+            parts.append(f"Table: {title}{topic_attr}:\n{clean_md}")
+
+    if not parts:
+        return "No section text was successfully fetched in the prior turn."
+    return "\n---\n".join(parts)
+
+
+def format_synthesis_prompt(user_question: str, tc: TurnContext) -> str:
+    """Stage 2 User Prompt: Wraps <retrieved_evidence>, <active_patient_profile>, and inquiry.
+
+    Mirrors Kotlin SystemPrompt.formatSynthesisPrompt().
+    """
+    evidence_summary = evidence_summary_from(tc.fetched_sections, tc.fetched_graphics)
+    patient_block = tc.patient_profile.to_system_block() if tc.patient_profile else ""
+
+    parts = [
+        "<retrieved_evidence>",
+        evidence_summary,
+        "</retrieved_evidence>",
+    ]
+    if patient_block.strip():
+        parts.extend(["", "<active_patient_profile>", patient_block.strip(), "</active_patient_profile>"])
+    parts.extend([
+        "",
+        "<clinical_inquiry>",
+        user_question.strip(),
+        "</clinical_inquiry>",
+        "Start Line 1 immediately with your `**1–2 sentence bold direct clinical conclusion.**` followed by `---` and `###` sections as needed.",
+    ])
+    return "\n".join(parts)
 
 
 def _profile_block(patient_context: str) -> str:
