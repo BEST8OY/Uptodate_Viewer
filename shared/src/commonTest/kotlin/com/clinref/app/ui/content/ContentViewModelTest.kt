@@ -640,4 +640,53 @@ class ContentViewModelTest {
 
         assertEquals("https://www.ameriburn.org/burn-care", vm.onOpenExternalUrl.value)
     }
+
+    @Test
+    fun `activeSheet enforces mutual exclusivity and unknown grade falls back safely`() = runTest(testDispatcher) {
+        val topicId = "topic-200"
+        val bodyHtml = """
+            <p><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;resource&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;custom-grade.html&quot;,&quot;type&quot;:&quot;grade&quot;}]});">Grade Unknown</a></p>
+            <p><a href="javascript:appAction({&quot;meta&quot;:{&quot;assetType&quot;:&quot;abstract&quot;},&quot;data&quot;:[{&quot;id&quot;:&quot;101&quot;,&quot;number&quot;:&quot;1&quot;}]});">Ref 1</a></p>
+        """.trimIndent()
+
+        every { contentRepository.getTopicContent(topicId) } returns ContentRepository.TopicContent(
+            bodyHtml = bodyHtml,
+            title = "Testing Sheets"
+        )
+        every { contentRepository.getTopicTitle(topicId) } returns "Testing Sheets"
+        coEvery { readingPositionRepository.get(topicId) } returns null
+
+        val vm = createViewModel()
+        vm.loadTopic(topicId)
+        advanceUntilIdle()
+
+        // 1. Open grade with unknown ID -> must safely fall back to generic GRADE overview (NOT Grade 1A)
+        vm.handleAction("action_0")
+        advanceUntilIdle()
+
+        val activeSheet = vm.activeSheet.value
+        val gradeSheet = activeSheet as? ContentSheet.Grade
+        assertNotNull(gradeSheet)
+        assertEquals("GRADE Recommendation", gradeSheet?.data?.grade)
+        assertEquals(GradeSheetData.GENERIC_RECOMMENDATION, gradeSheet?.data)
+        assertEquals(GradeSheetData.GENERIC_RECOMMENDATION, vm.gradeSheet.value)
+        assertEquals(null, vm.referenceSheet.value)
+
+        // 2. Open reference -> replaces activeSheet with References, clearing Grade
+        vm.handleAction("action_1")
+        advanceUntilIdle()
+
+        val refSheet = vm.activeSheet.value as? ContentSheet.References
+        assertNotNull(refSheet)
+        assertEquals(1, refSheet?.data?.references?.first()?.number)
+        assertEquals(null, vm.gradeSheet.value)
+        assertNotNull(vm.referenceSheet.value)
+
+        // 3. Dismiss sheet -> activeSheet becomes null
+        vm.dismissSheet()
+        advanceUntilIdle()
+        assertEquals(null, vm.activeSheet.value)
+        assertEquals(null, vm.gradeSheet.value)
+        assertEquals(null, vm.referenceSheet.value)
+    }
 }

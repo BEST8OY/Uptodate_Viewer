@@ -14,6 +14,14 @@ data class ReferenceItem(
 )
 
 /**
+ * Mutually exclusive bottom sheet display state for ContentScreen.
+ */
+sealed interface ContentSheet {
+    data class References(val data: ReferenceSheetData) : ContentSheet
+    data class Grade(val data: GradeSheetData) : ContentSheet
+}
+
+/**
  * State for presenting reference citation details in a bottom sheet.
  */
 data class ReferenceSheetData(
@@ -35,7 +43,16 @@ data class GradeSheetData(
     val letterExplanation: String
 ) {
     companion object {
-        fun fromGradeId(gradeId: String): GradeSheetData = when (gradeId) {
+        val GENERIC_RECOMMENDATION = GradeSheetData(
+            grade = "GRADE Recommendation",
+            summary = "UpToDate applies the GRADE system (Grading of Recommendations Assessment, Development " +
+                "and Evaluation) to classify the strength of each recommendation and the quality of the " +
+                "supporting evidence.",
+            tierExplanation = "",
+            letterExplanation = ""
+        )
+
+        fun fromGradeId(gradeId: String?): GradeSheetData = when (gradeId) {
             "1" -> GradeSheetData(
                 grade = "Grade 1A",
                 summary = "A Grade 1A recommendation is a strong recommendation, and applies to most patients in " +
@@ -82,14 +99,7 @@ data class GradeSheetData(
                 tierExplanation = UTD_GRADE_2_EXPLANATION,
                 letterExplanation = UTD_GRADE_C_EXPLANATION
             )
-            else -> GradeSheetData(
-                grade = "GRADE Recommendation",
-                summary = "UpToDate applies the GRADE system (Grading of Recommendations Assessment, Development " +
-                    "and Evaluation) to classify the strength of each recommendation and the quality of the " +
-                    "supporting evidence.",
-                tierExplanation = "",
-                letterExplanation = ""
-            )
+            else -> GENERIC_RECOMMENDATION
         }
     }
 }

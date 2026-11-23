@@ -30,6 +30,12 @@ class GraphicViewModel(
         load(graphicId)
     }
 
+    fun clearGraphic() {
+        loadJob?.cancel()
+        lastGraphicId = null
+        _uiState.value = GraphicUiState.Loading
+    }
+
     fun retry() {
         lastGraphicId?.let { load(it) }
     }

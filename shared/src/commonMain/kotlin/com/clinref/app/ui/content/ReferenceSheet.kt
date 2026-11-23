@@ -1,7 +1,6 @@
 package com.clinref.app.ui.content
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -9,53 +8,45 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.common.ClinRefBottomSheet
 import com.clinref.app.ui.common.setPlainText
 import com.clinref.app.util.UrlUtils
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,31 +56,24 @@ fun ReferenceSheet(
     onJumpTo: (Int) -> Unit = {},
     onOpenUrl: (String) -> Unit = {}
 ) {
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-    )
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
-    ) {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            ReferenceSheetContent(
-                data = data,
-                onDismiss = onDismiss,
-                onJumpTo = onJumpTo,
-                onOpenUrl = onOpenUrl,
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxSettingsContentWidth)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-                    .padding(bottom = 24.dp)
-            )
-        }
+    ClinRefBottomSheet(
+        onDismiss = onDismiss,
+        title = if (data.references.size == 1) "Reference" else "References (${data.references.size})",
+        maxWidth = AdaptiveTokens.MaxSettingsContentWidth,
+        containerColor = MaterialTheme.colorScheme.surface,
+        showDivider = true
+    ) { dismiss ->
+        ReferenceSheetContent(
+            data = data,
+            onDismiss = dismiss,
+            onJumpTo = onJumpTo,
+            onOpenUrl = onOpenUrl,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(bottom = 24.dp)
+        )
     }
 }
 
@@ -102,77 +86,46 @@ private fun ReferenceSheetContent(
     modifier: Modifier = Modifier
 ) {
     val clipboard = LocalClipboard.current
-    val coroutineScope = rememberCoroutineScope()
-    var copiedRefNumber by remember { mutableStateOf<Int?>(null) }
+    var copiedRefKey by remember(data) { mutableStateOf<String?>(null) }
+    var copyTrigger by remember(data) { mutableIntStateOf(0) }
 
-    fun copyCitation(ref: ReferenceItem) {
-        clipboard.setPlainText(ref.citation)
-        copiedRefNumber = ref.number
-        coroutineScope.launch {
+    LaunchedEffect(copiedRefKey, copyTrigger) {
+        if (copiedRefKey != null) {
             delay(2000)
-            if (copiedRefNumber == ref.number) {
-                copiedRefNumber = null
-            }
+            copiedRefKey = null
         }
     }
 
-    Column(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = if (data.references.size == 1) "Reference" else "References (${data.references.size})",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+    fun copyCitation(refKey: String, citation: String) {
+        clipboard.setPlainText(citation)
+        copiedRefKey = refKey
+        copyTrigger++
+    }
 
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant,
-            modifier = Modifier.padding(vertical = 12.dp)
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 480.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(data.references) { ref ->
-                ReferenceItemView(
-                    ref = ref,
-                    isCopied = copiedRefNumber == ref.number,
-                    onJumpTo = {
-                        onJumpTo(ref.number)
-                        onDismiss()
-                    },
-                    onOpenPubMed = {
-                        val url = ref.pubmedUrl.ifEmpty {
-                            "https://pubmed.ncbi.nlm.nih.gov/?term=" + UrlUtils.urlEncode(ref.citation)
-                        }
-                        onOpenUrl(url)
-                    },
-                    onOpenScholar = {
-                        onOpenUrl("https://scholar.google.com/scholar?q=" + UrlUtils.urlEncode(ref.citation))
-                    },
-                    onCopy = { copyCitation(ref) }
-                )
-            }
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        itemsIndexed(data.references, key = { idx, ref -> "${idx}_${ref.number}_${ref.citation.hashCode()}" }) { _, ref ->
+            val refKey = "${ref.number}_${ref.citation.hashCode()}"
+            ReferenceItemView(
+                ref = ref,
+                isCopied = copiedRefKey == refKey,
+                onJumpTo = {
+                    onJumpTo(ref.number)
+                    onDismiss()
+                },
+                onOpenPubMed = {
+                    val url = ref.pubmedUrl.ifEmpty {
+                        "https://pubmed.ncbi.nlm.nih.gov/?term=" + UrlUtils.urlEncode(ref.citation)
+                    }
+                    onOpenUrl(url)
+                },
+                onOpenScholar = {
+                    onOpenUrl("https://scholar.google.com/scholar?q=" + UrlUtils.urlEncode(ref.citation))
+                },
+                onCopy = { copyCitation(refKey, ref.citation) }
+            )
         }
     }
 }
@@ -224,7 +177,8 @@ private fun ReferenceItemView(
                         style = MaterialTheme.typography.labelSmall,
                         fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

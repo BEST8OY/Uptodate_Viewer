@@ -3,65 +3,68 @@ package com.clinref.app.ui.content
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.GraphicData
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import kotlinx.coroutines.launch
+import com.clinref.app.ui.common.ClinRefBottomSheet
+import org.koin.compose.viewmodel.koinViewModel
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+private val GRAPHIC_PREFIX_REGEX = Regex("^graphic-", RegexOption.IGNORE_CASE)
+
+internal fun normalizeGraphicId(id: String): String =
+    id.trim().replaceFirst(GRAPHIC_PREFIX_REGEX, "")
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GraphicSheet(
     graphicId: String,
     onDismiss: () -> Unit,
     viewModel: GraphicViewModel = koinViewModel(),
+    modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val cleanId = remember(graphicId) { normalizeGraphicId(graphicId) }
 
-    LaunchedEffect(graphicId) {
-        viewModel.loadGraphic(graphicId)
+    LaunchedEffect(cleanId) {
+        viewModel.loadGraphic(cleanId)
     }
 
+    DisposableEffect(cleanId) {
+        onDispose {
+            viewModel.clearGraphic()
+        }
+    }
+
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val colorScheme = MaterialTheme.colorScheme
     val themeColors = remember(colorScheme) { ThemeColors.fromColorScheme(colorScheme) }
     val graphicCss = remember(themeColors) { CssBuilder(themeColors).buildGraphicPopupCss() }
 
-    var sheetLoading by remember(graphicId) { mutableStateOf(true) }
-    var webViewError by remember(graphicId) { mutableStateOf(false) }
+    var sheetLoading by remember(cleanId) { mutableStateOf(true) }
+    var webViewError by remember(cleanId) { mutableStateOf(false) }
 
     fun retryLoading() {
         sheetLoading = true
@@ -69,13 +72,57 @@ fun GraphicSheet(
         viewModel.retry()
     }
 
-    val bodyContent = @Composable {
-        if (webViewError || uiState is GraphicUiState.Error) {
+    ClinRefBottomSheet(
+        onDismiss = onDismiss,
+        modifier = modifier.fillMaxHeight(0.88f),
+        title = "Clinical Reference Figure / Table",
+        maxWidth = AdaptiveTokens.MaxCatalogListWidth,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        showDragHandle = false,
+        showDivider = true,
+        sheetGesturesEnabled = false
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            GraphicBodyContent(
+                cleanId = cleanId,
+                uiState = uiState,
+                graphicCss = graphicCss,
+                sheetLoading = sheetLoading,
+                webViewError = webViewError,
+                onPageFinished = { sheetLoading = false },
+                onPageError = {
+                    sheetLoading = false
+                    webViewError = true
+                },
+                onRetry = ::retryLoading,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun GraphicBodyContent(
+    cleanId: String,
+    uiState: GraphicUiState,
+    graphicCss: String,
+    sheetLoading: Boolean,
+    webViewError: Boolean,
+    onPageFinished: () -> Unit,
+    onPageError: () -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    when {
+        webViewError || uiState is GraphicUiState.Error -> {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                contentAlignment = Alignment.Center,
+                modifier = modifier,
+                contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -92,114 +139,47 @@ fun GraphicSheet(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.error
                     )
-                    TextButton(onClick = ::retryLoading) {
+                    TextButton(onClick = onRetry) {
                         Text("Retry")
                     }
                 }
             }
-        } else {
-            when (val state = uiState) {
-                GraphicUiState.Loading -> Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
-                }
-
-                GraphicUiState.Error -> Unit
-
-                is GraphicUiState.Success -> {
-                    val fullHtml = remember(state.data, graphicCss) {
-                        buildGraphicHtml(state.data, graphicCss)
-                    }
-
-                    GraphicWebView(
-                        graphicId = graphicId,
-                        fullHtml = fullHtml,
-                        sheetLoading = sheetLoading,
-                        onPageFinished = { sheetLoading = false },
-                        onPageError = {
-                            sheetLoading = false
-                            webViewError = true
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .fillMaxHeight(),
-                    )
-                }
-            }
         }
-    }
+        uiState is GraphicUiState.Success && normalizeGraphicId(uiState.graphicId).equals(cleanId, ignoreCase = true) -> {
+            val fullHtml = remember(uiState.data, graphicCss) {
+                buildGraphicHtml(uiState.data, graphicCss)
+            }
 
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-    )
-    val scope = rememberCoroutineScope()
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        sheetGesturesEnabled = false,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.88f),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Column(
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
-                    .fillMaxWidth()
-                    .fillMaxHeight()
+            GraphicWebView(
+                graphicId = cleanId,
+                fullHtml = fullHtml,
+                sheetLoading = sheetLoading,
+                onPageFinished = onPageFinished,
+                onPageError = onPageError,
+                modifier = modifier
+            )
+        }
+        else -> {
+            // Initial loading or transitional stale-guard while fetching requested cleanId
+            Box(
+                modifier = modifier,
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Clinical Reference Figure / Table",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = {
-                            scope.launch { sheetState.hide() }
-                                .invokeOnCompletion { if (!sheetState.isVisible) onDismiss() }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                ) {
-                    bodyContent()
-                }
+                ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
             }
         }
     }
 }
 
 private val BASE64_VALIDATION_REGEX = Regex("^[A-Za-z0-9+/=\n\r ]+$")
+private val IMG_SRC_REGEX = Regex("<img\\s+([^>]*?)src=[\"'][^\"']*[\"']", RegexOption.IGNORE_CASE)
 
 internal fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
     var html = graphicData.imageHtml
     val base64Image = graphicData.base64Image
     if (base64Image != null && BASE64_VALIDATION_REGEX.matches(base64Image)) {
-        html = html.replaceFirst(Regex("<img\\s+([^>]*?)src=[\"'][^\"']*[\"']"), "<img $1src=\"data:image/png;base64,$base64Image\"")
+        val cleanB64 = base64Image.filterNot(Char::isWhitespace)
+        html = html.replaceFirst(IMG_SRC_REGEX, "<img $1src=\"data:image/png;base64,$cleanB64\"")
     }
     html = html.replace("class=\"graphic\"", "class=\"graphic_view\"")
 
@@ -214,4 +194,3 @@ internal fun buildGraphicHtml(graphicData: GraphicData, css: String): String {
         </html>
     """.trimIndent()
 }
-

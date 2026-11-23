@@ -8,17 +8,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
@@ -27,7 +25,6 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
@@ -39,20 +36,16 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +67,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.common.ClinRefBottomSheet
 
 private enum class OverviewTab(val label: String) {
     OUTLINE("Outline"),
@@ -84,15 +78,12 @@ private enum class OverviewTab(val label: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun OutlineOverlay(
-    showOutline: Boolean,
     outlineSections: List<OutlineSection>,
     activeSectionId: String?,
     onSectionClick: (OutlineSection) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (!showOutline || outlineSections.isEmpty()) return
-
     val allSections = remember(outlineSections) {
         outlineSections.filter { it.sectionType == SectionType.TOPIC }.distinctBy { it.id }
     }
@@ -112,6 +103,10 @@ internal fun OutlineOverlay(
         }
     }
 
+    val summaryIndex = remember(allSections, summarySection) {
+        summarySection?.let { allSections.indexOf(it) } ?: -1
+    }
+
     val defaultTab = remember(outlineSections) {
         when {
             allSections.isNotEmpty() -> OverviewTab.OUTLINE
@@ -120,9 +115,9 @@ internal fun OutlineOverlay(
         }
     }
 
-    var selectedTab by rememberSaveable { mutableStateOf(defaultTab) }
+    var selectedTab by rememberSaveable(outlineSections) { mutableStateOf(defaultTab) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var selectedGraphicSubtype by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedGraphicSubtype by rememberSaveable(outlineSections) { mutableStateOf<String?>(null) }
 
     val graphicSubtypes = remember(allGraphics) {
         val present = allGraphics.map { it.graphicSubtype }.distinct().filter { it.isNotBlank() }
@@ -131,30 +126,44 @@ internal fun OutlineOverlay(
         } else emptyList()
     }
 
-    val filteredSections = remember(allSections, searchQuery) {
-        val list = if (searchQuery.isBlank()) allSections
-        else allSections.filter { it.title.contains(searchQuery, ignoreCase = true) }
-        list.distinctBy { it.id }
+    val effectiveGraphicSubtype = if (selectedGraphicSubtype in graphicSubtypes) selectedGraphicSubtype else null
+
+    val subtypeCounts = remember(allGraphics) {
+        allGraphics.groupingBy { it.graphicSubtype }.eachCount()
     }
 
-    val filteredGraphics = remember(allGraphics, searchQuery, selectedGraphicSubtype) {
+    val filteredSections = remember(allSections, searchQuery) {
+        if (searchQuery.isBlank()) allSections
+        else allSections.filter { it.title.contains(searchQuery, ignoreCase = true) }
+    }
+
+    val filteredGraphics = remember(allGraphics, searchQuery, effectiveGraphicSubtype) {
         allGraphics.filter { item ->
-            val matchesSubtype = selectedGraphicSubtype == null || item.graphicSubtype == selectedGraphicSubtype
+            val matchesSubtype = effectiveGraphicSubtype == null || item.graphicSubtype == effectiveGraphicSubtype
             val matchesQuery = searchQuery.isBlank() ||
                 item.title.contains(searchQuery, ignoreCase = true) ||
                 item.graphicLabel.contains(searchQuery, ignoreCase = true)
             matchesSubtype && matchesQuery
-        }.distinctBy { it.id }
+        }
     }
 
     val filteredRelated = remember(allRelated, searchQuery) {
-        val list = if (searchQuery.isBlank()) allRelated
+        if (searchQuery.isBlank()) allRelated
         else allRelated.filter { it.title.contains(searchQuery, ignoreCase = true) }
-        list.distinctBy { it.id }
     }
 
-    val sheetContent = @Composable {
-        Column(modifier = Modifier.fillMaxWidth()) {
+    ClinRefBottomSheet(
+        onDismiss = onDismiss,
+        modifier = modifier.fillMaxHeight(0.88f),
+        title = "Topic Outline",
+        maxWidth = AdaptiveTokens.MaxCatalogListWidth,
+        showDivider = false
+    ) { dismiss ->
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
             // Instant Search Field
             OutlinedTextField(
                 value = searchQuery,
@@ -207,7 +216,8 @@ internal fun OutlineOverlay(
                     .padding(horizontal = 16.dp, vertical = 6.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(3.dp),
+                    .padding(3.dp)
+                    .selectableGroup(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 OverviewTab.entries.forEach { tab ->
@@ -294,8 +304,8 @@ internal fun OutlineOverlay(
                             "graphic_movie" -> "Videos"
                             else -> subtype.removePrefix("graphic_").replaceFirstChar { it.uppercase() }
                         }
-                        val count = if (subtype == null) allGraphics.size else allGraphics.count { it.graphicSubtype == subtype }
-                        val isSelected = selectedGraphicSubtype == subtype
+                        val count = if (subtype == null) allGraphics.size else subtypeCounts[subtype] ?: 0
+                        val isSelected = effectiveGraphicSubtype == subtype
 
                         FilterChip(
                             selected = isSelected,
@@ -335,12 +345,15 @@ internal fun OutlineOverlay(
                                 .padding(bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            if (searchQuery.isBlank() && summarySection != null && allSections.indexOf(summarySection) > 0) {
+                            if (searchQuery.isBlank() && summarySection != null && summaryIndex > 0) {
                                 item(key = "shortcut_summary_and_recommendations") {
                                     SummaryQuickJumpCard(
                                         title = summarySection.title,
                                         isActive = summarySection.id == activeSectionId,
-                                        onClick = { onSectionClick(summarySection) }
+                                        onClick = {
+                                            onSectionClick(summarySection)
+                                            dismiss()
+                                        }
                                     )
                                 }
                             }
@@ -352,7 +365,10 @@ internal fun OutlineOverlay(
                                 OutlineSectionItem(
                                     section = section,
                                     isActive = section.id == activeSectionId,
-                                    onClick = { onSectionClick(section) }
+                                    onClick = {
+                                        onSectionClick(section)
+                                        dismiss()
+                                    }
                                 )
                             }
                         }
@@ -380,7 +396,10 @@ internal fun OutlineOverlay(
                             ) { graphic ->
                                 GraphicOverviewItem(
                                     graphic = graphic,
-                                    onClick = { onSectionClick(graphic) }
+                                    onClick = {
+                                        onSectionClick(graphic)
+                                        dismiss()
+                                    }
                                 )
                             }
                         }
@@ -408,55 +427,15 @@ internal fun OutlineOverlay(
                             ) { topic ->
                                 RelatedTopicItem(
                                     topic = topic,
-                                    onClick = { onSectionClick(topic) }
+                                    onClick = {
+                                        onSectionClick(topic)
+                                        dismiss()
+                                    }
                                 )
                             }
                         }
                     }
                 }
-            }
-        }
-    }
-
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-    )
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.88f)
-                .imePadding(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Column(
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
-                    .fillMaxWidth()
-                    .fillMaxHeight()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Topic Outline",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close outline")
-                    }
-                }
-                sheetContent()
             }
         }
     }

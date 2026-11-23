@@ -43,16 +43,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumFlexibleTopAppBar
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -101,6 +100,7 @@ import com.clinref.app.ui.common.ScrollToBottomFAB
 import com.clinref.app.ui.common.setPlainText
 import com.clinref.app.ui.content.ContentScreen
 import com.clinref.app.ui.content.GraphicSheet
+import com.clinref.app.ui.content.normalizeGraphicId
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -622,10 +622,6 @@ fun ChatScreen(
 
     when (val overlay = activeOverlay) {
         is ChatOverlay.Article -> {
-            val articleSheetState = rememberBottomSheetState(
-                initialValue = SheetValue.Hidden,
-                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-            )
             val articleStoreOwner = remember(overlay.topicId) {
                 object : ViewModelStoreOwner {
                     override val viewModelStore = ViewModelStore()
@@ -637,43 +633,47 @@ fun ChatScreen(
                 }
             }
 
-            ModalBottomSheet(
-                onDismissRequest = {
-                    activeOverlay = null
-                    inArticleGraphicId = null
-                },
-                sheetState = articleSheetState,
-                dragHandle = null,
-                sheetGesturesEnabled = false,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                CompositionLocalProvider(
-                    LocalViewModelStoreOwner provides articleStoreOwner
-                ) {
-                    ContentScreen(
-                        topicId = overlay.topicId,
-                        sectionId = overlay.sectionId,
-                        isModal = true,
-                        onBack = {
-                            activeOverlay = null
-                            inArticleGraphicId = null
-                        },
-                        onHome = {
-                            activeOverlay = null
-                            inArticleGraphicId = null
-                            onNavigateToHome()
-                        },
-                        onGraphicSelected = { graphicId ->
-                            inArticleGraphicId = graphicId.removePrefix("Graphic-")
-                        }
-                    )
-                }
+            fun dismissArticleOverlay() {
+                activeOverlay = null
+                inArticleGraphicId = null
+            }
 
-                if (inArticleGraphicId != null) {
-                    GraphicSheet(
-                        graphicId = inArticleGraphicId!!,
-                        onDismiss = { inArticleGraphicId = null }
-                    )
+            Dialog(
+                onDismissRequest = ::dismissArticleOverlay,
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = false
+                )
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    CompositionLocalProvider(
+                        LocalViewModelStoreOwner provides articleStoreOwner
+                    ) {
+                        ContentScreen(
+                            topicId = overlay.topicId,
+                            sectionId = overlay.sectionId,
+                            isModal = true,
+                            onBack = ::dismissArticleOverlay,
+                            onHome = {
+                                dismissArticleOverlay()
+                                onNavigateToHome()
+                            },
+                            onGraphicSelected = { graphicId ->
+                                inArticleGraphicId = normalizeGraphicId(graphicId)
+                            }
+                        )
+
+                        inArticleGraphicId?.let { graphicId ->
+                            GraphicSheet(
+                                graphicId = graphicId,
+                                onDismiss = { inArticleGraphicId = null }
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -1,36 +1,25 @@
 package com.clinref.app.ui.content
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.common.ClinRefBottomSheet
 
 /**
  * GRADE recommendation explanation presented as a bottom sheet,
@@ -42,86 +31,34 @@ fun GradeSheet(
     data: GradeSheetData,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-    )
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface
-    ) {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            GradeSheetContent(
-                data = data,
-                onDismiss = onDismiss,
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxSettingsContentWidth)
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-                    .padding(bottom = 24.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun GradeSheetContent(
-    data: GradeSheetData,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ClinRefBottomSheet(
+        onDismiss = onDismiss,
+        maxWidth = AdaptiveTokens.MaxSettingsContentWidth,
+        containerColor = MaterialTheme.colorScheme.surface,
+        showDivider = true,
+        title = "Recommendation",
+        titleBadge = {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(6.dp)
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = data.grade,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
                 Text(
-                    text = "Recommendation",
-                    style = MaterialTheme.typography.titleLarge,
+                    text = data.grade,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
         }
-
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant,
-            modifier = Modifier.padding(vertical = 12.dp)
-        )
-
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 480.dp)
-                .verticalScroll(rememberScrollState()),
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Card(

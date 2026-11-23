@@ -1,111 +1,136 @@
 package com.clinref.app.ui.conversations
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.common.ClinRefBottomSheet
 
+private val StringListSaver = listSaver<List<String>, String>(
+    save = { it },
+    restore = { it.toList() }
+)
+
+private fun List<String>.addUniqueTrimmed(raw: CharSequence): List<String> {
+    val trimmed = raw.toString().trim()
+    if (trimmed.isBlank() || any { it.equals(trimmed, ignoreCase = true) }) return this
+    return this + trimmed
+}
+
+/**
+ * Modal bottom sheet for capturing or editing patient clinical context.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PatientProfileSheet(
     onDismiss: () -> Unit,
-    onStart: (PatientProfile) -> Unit
+    onStart: (PatientProfile) -> Unit,
+    initialProfile: PatientProfile = PatientProfile()
 ) {
-    val ageState = rememberTextFieldState()
-    var sex by remember { mutableStateOf("") }
-    val conditions = remember { mutableStateListOf<String>() }
-    val medications = remember { mutableStateListOf<String>() }
-    val allergies = remember { mutableStateListOf<String>() }
-    val notesState = rememberTextFieldState()
+    val ageState = rememberSaveable(initialProfile, saver = TextFieldState.Saver) {
+        TextFieldState(initialProfile.age)
+    }
+    var sex by rememberSaveable(initialProfile) { mutableStateOf(initialProfile.sex) }
+    var conditions by rememberSaveable(initialProfile, stateSaver = StringListSaver) {
+        mutableStateOf(initialProfile.conditions)
+    }
+    var medications by rememberSaveable(initialProfile, stateSaver = StringListSaver) {
+        mutableStateOf(initialProfile.medications)
+    }
+    var allergies by rememberSaveable(initialProfile, stateSaver = StringListSaver) {
+        mutableStateOf(initialProfile.allergies)
+    }
+    val notesState = rememberSaveable(initialProfile, saver = TextFieldState.Saver) {
+        TextFieldState(initialProfile.notes)
+    }
 
     val conditionInputState = rememberTextFieldState()
     val medicationInputState = rememberTextFieldState()
     val allergyInputState = rememberTextFieldState()
 
-    val content = @Composable {
+    ClinRefBottomSheet(
+        onDismiss = onDismiss,
+        title = "Patient Profile",
+        maxWidth = AdaptiveTokens.MaxDialogWidth,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        showDivider = true
+    ) { dismiss ->
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 24.dp)
-                .imePadding()
-                .verticalScroll(rememberScrollState()),
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                text = "Patient Profile",
-                style = MaterialTheme.typography.headlineSmall
-            )
             Text(
                 text = "Optional — helps tailor clinical answers to the patient context.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Age
-            OutlinedTextField(
-                state = ageState,
-                label = { Text("Age") },
-                placeholder = { Text("e.g. 45") },
-                modifier = Modifier.fillMaxWidth(),
-                lineLimits = TextFieldLineLimits.SingleLine
-            )
-
-            // Sex Selection
+            // Age & Sex Row
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Sex",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "Demographics",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
                 )
-                val sexOptions = listOf("Female", "Male", "Other")
-                SingleChoiceSegmentedButtonRow(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    sexOptions.forEachIndexed { index, option ->
-                        SegmentedButton(
-                            selected = sex == option,
-                            onClick = {
-                                sex = if (sex == option) "" else option
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = sexOptions.size)
-                        ) {
-                            Text(
-                                text = option,
-                                style = MaterialTheme.typography.labelMedium
-                            )
+
+                OutlinedTextField(
+                    state = ageState,
+                    label = { Text("Age") },
+                    placeholder = { Text("e.g. 54 or 8 months") },
+                    modifier = Modifier.fillMaxWidth(),
+                    lineLimits = TextFieldLineLimits.SingleLine
+                )
+
+                // Sex selector
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Biological Sex",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        val options = listOf("Female", "Male", "Other")
+                        options.forEachIndexed { index, option ->
+                            SegmentedButton(
+                                selected = sex.equals(option, ignoreCase = true),
+                                onClick = {
+                                    sex = if (sex.equals(option, ignoreCase = true)) "" else option
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+                            ) {
+                                Text(option, style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 }
@@ -118,13 +143,12 @@ fun PatientProfileSheet(
                 state = conditionInputState,
                 items = conditions,
                 onAdd = {
-                    val text = conditionInputState.text.toString().trim()
-                    if (text.isNotBlank()) {
-                        conditions.add(text)
+                    if (conditionInputState.text.isNotBlank()) {
+                        conditions = conditions.addUniqueTrimmed(conditionInputState.text)
                         conditionInputState.clearText()
                     }
                 },
-                onRemove = { conditions.remove(it) }
+                onRemove = { toRemove -> conditions = conditions.filterNot { it == toRemove } }
             )
 
             // Medications
@@ -134,13 +158,12 @@ fun PatientProfileSheet(
                 state = medicationInputState,
                 items = medications,
                 onAdd = {
-                    val text = medicationInputState.text.toString().trim()
-                    if (text.isNotBlank()) {
-                        medications.add(text)
+                    if (medicationInputState.text.isNotBlank()) {
+                        medications = medications.addUniqueTrimmed(medicationInputState.text)
                         medicationInputState.clearText()
                     }
                 },
-                onRemove = { medications.remove(it) }
+                onRemove = { toRemove -> medications = medications.filterNot { it == toRemove } }
             )
 
             // Allergies
@@ -150,13 +173,12 @@ fun PatientProfileSheet(
                 state = allergyInputState,
                 items = allergies,
                 onAdd = {
-                    val text = allergyInputState.text.toString().trim()
-                    if (text.isNotBlank()) {
-                        allergies.add(text)
+                    if (allergyInputState.text.isNotBlank()) {
+                        allergies = allergies.addUniqueTrimmed(allergyInputState.text)
                         allergyInputState.clearText()
                     }
                 },
-                onRemove = { allergies.remove(it) }
+                onRemove = { toRemove -> allergies = allergies.filterNot { it == toRemove } }
             )
 
             // Notes
@@ -177,13 +199,13 @@ fun PatientProfileSheet(
                         PatientProfile(
                             age = ageState.text.toString().trim(),
                             sex = sex.trim(),
-                            conditions = conditions.toList(),
-                            medications = medications.toList(),
-                            allergies = allergies.toList(),
+                            conditions = conditions.addUniqueTrimmed(conditionInputState.text),
+                            medications = medications.addUniqueTrimmed(medicationInputState.text),
+                            allergies = allergies.addUniqueTrimmed(allergyInputState.text),
                             notes = notesState.text.toString().trim()
                         )
                     )
-                    onDismiss()
+                    dismiss()
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -191,27 +213,4 @@ fun PatientProfileSheet(
             }
         }
     }
-
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-    )
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState
-    ) {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxDialogWidth)
-                    .fillMaxWidth()
-            ) {
-                content()
-            }
-        }
-    }
 }
-

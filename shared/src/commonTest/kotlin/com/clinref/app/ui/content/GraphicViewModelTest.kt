@@ -100,4 +100,33 @@ class GraphicViewModelTest {
 
         assertEquals(GraphicUiState.Success(data2), vm.uiState.value)
     }
+
+    @Test
+    fun `loadGraphic emits Success with graphicId and clears state on clearGraphic`() = runTest(dispatcher.scheduler) {
+        val data = GraphicData(id = "12345", imageHtml = "<p>table</p>")
+        every { assetRepository.getGraphic("12345") } returns data
+        val vm = viewModel()
+
+        vm.loadGraphic("12345")
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertEquals(GraphicUiState.Success(data), state)
+        if (state is GraphicUiState.Success) {
+            assertEquals("12345", state.graphicId)
+        }
+
+        vm.clearGraphic()
+        assertEquals(GraphicUiState.Loading, vm.uiState.value)
+    }
+
+    @Test
+    fun `normalizeGraphicId strips graphic prefix case-insensitively`() {
+        assertEquals("123", normalizeGraphicId("123"))
+        assertEquals("123", normalizeGraphicId("Graphic-123"))
+        assertEquals("123", normalizeGraphicId("graphic-123"))
+        assertEquals("123", normalizeGraphicId("GRAPHIC-123"))
+        assertEquals("123a", normalizeGraphicId("graphic-123a"))
+        assertEquals("123", normalizeGraphicId("  GRAPHIC-123  "))
+    }
 }

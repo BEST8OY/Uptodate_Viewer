@@ -94,8 +94,7 @@ fun ContentScreen(
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val showOutline by viewModel.showOutline.collectAsStateWithLifecycle()
     val outlineSections by viewModel.outlineSections.collectAsStateWithLifecycle()
-    val referenceSheet by viewModel.referenceSheet.collectAsStateWithLifecycle()
-    val gradeSheet by viewModel.gradeSheet.collectAsStateWithLifecycle()
+    val activeSheet by viewModel.activeSheet.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val canGoBack by viewModel.canGoBack.collectAsStateWithLifecycle()
     val canGoForward by viewModel.canGoForward.collectAsStateWithLifecycle()
@@ -123,8 +122,7 @@ fun ContentScreen(
         isLoading ||
         error != null ||
         document == null ||
-        referenceSheet != null ||
-        gradeSheet != null
+        activeSheet != null
 
     val scrollState = rememberArticleScrollState(pinnedVisible = pinToolbarVisible)
     // Immediate 0-frame visibility when entering a pinned state (e.g., opening search).
@@ -166,7 +164,7 @@ fun ContentScreen(
     fun handleTopBarBackNavigation() {
         when {
             showSearch -> closeSearch()
-            showOutline -> viewModel.toggleOutline()
+            showOutline -> viewModel.dismissOutline()
             isModal -> onBack()
             canGoBack -> viewModel.goBack()
             else -> onBack()
@@ -188,7 +186,7 @@ fun ContentScreen(
     BackHandler(enabled = showSearch || showOutline || canGoBack) {
         when {
             showSearch -> closeSearch()
-            showOutline -> viewModel.toggleOutline()
+            showOutline -> viewModel.dismissOutline()
             canGoBack -> viewModel.goBack()
         }
     }
@@ -330,24 +328,22 @@ fun ContentScreen(
                         }
                     }
 
-                    OutlineOverlay(
-                        showOutline = showOutline,
-                        outlineSections = outlineSections,
-                        activeSectionId = activeSectionId,
-                        onSectionClick = { section ->
-                            viewModel.setActiveSection(section.id)
-                            val actionJson = section.actionJson
-                            if (actionJson != null) {
-                                viewModel.handleOutlineAction(actionJson)
-                            } else {
-                                viewModel.scrollToSection(section.id)
-                            }
-                            if (section.sectionType != SectionType.GRAPHIC) {
-                                viewModel.toggleOutline()
-                            }
-                        },
-                        onDismiss = { viewModel.toggleOutline() }
-                    )
+                    if (showOutline && outlineSections.isNotEmpty()) {
+                        OutlineOverlay(
+                            outlineSections = outlineSections,
+                            activeSectionId = activeSectionId,
+                            onSectionClick = { section ->
+                                viewModel.setActiveSection(section.id)
+                                val actionJson = section.actionJson
+                                if (actionJson != null) {
+                                    viewModel.handleOutlineAction(actionJson)
+                                } else {
+                                    viewModel.scrollToSection(section.id)
+                                }
+                            },
+                            onDismiss = { viewModel.dismissOutline() }
+                        )
+                    }
                 }
             }
 
@@ -362,24 +358,26 @@ fun ContentScreen(
         }
     }
 
-    referenceSheet?.let { refData ->
-        ReferenceSheet(
-            data = refData,
-            onDismiss = { viewModel.dismissReferenceSheet() },
-            onJumpTo = { num -> viewModel.jumpToReference(num) },
-            onOpenUrl = { url ->
-                try {
-                    uriHandler.openUri(url)
-                } catch (_: Exception) {}
-            }
-        )
-    }
-
-    gradeSheet?.let { gData ->
-        GradeSheet(
-            data = gData,
-            onDismiss = { viewModel.dismissGradeSheet() }
-        )
+    when (val sheet = activeSheet) {
+        is ContentSheet.References -> {
+            ReferenceSheet(
+                data = sheet.data,
+                onDismiss = { viewModel.dismissSheet() },
+                onJumpTo = { num -> viewModel.scrollToSection("ref_$num") },
+                onOpenUrl = { url ->
+                    try {
+                        uriHandler.openUri(url)
+                    } catch (_: Exception) {}
+                }
+            )
+        }
+        is ContentSheet.Grade -> {
+            GradeSheet(
+                data = sheet.data,
+                onDismiss = { viewModel.dismissSheet() }
+            )
+        }
+        null -> {}
     }
 }
 

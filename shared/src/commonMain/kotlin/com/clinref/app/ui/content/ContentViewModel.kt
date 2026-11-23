@@ -19,9 +19,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -44,6 +47,7 @@ class ContentViewModel(
         private const val KEY_CURRENT_TOPIC_ID = "current_topic_id"
         private const val KEY_NAVIGATION_HISTORY = "navigation_history"
         private const val KEY_HISTORY_INDEX = "history_index"
+        private val GRADE_ID_REGEX = Regex("""grades?(\d+)\.html""")
     }
 
     private var _themeColors: ThemeColors? = null
@@ -84,11 +88,16 @@ class ContentViewModel(
     private val _topicReferences = MutableStateFlow<Map<Int, ReferenceItem>>(emptyMap())
     val topicReferences: StateFlow<Map<Int, ReferenceItem>> = _topicReferences.asStateFlow()
 
-    private val _referenceSheet = MutableStateFlow<ReferenceSheetData?>(null)
-    val referenceSheet: StateFlow<ReferenceSheetData?> = _referenceSheet.asStateFlow()
+    private val _activeSheet = MutableStateFlow<ContentSheet?>(null)
+    val activeSheet: StateFlow<ContentSheet?> = _activeSheet.asStateFlow()
 
-    private val _gradeSheet = MutableStateFlow<GradeSheetData?>(null)
-    val gradeSheet: StateFlow<GradeSheetData?> = _gradeSheet.asStateFlow()
+    val referenceSheet: StateFlow<ReferenceSheetData?> = _activeSheet
+        .map { (it as? ContentSheet.References)?.data }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val gradeSheet: StateFlow<GradeSheetData?> = _activeSheet
+        .map { (it as? ContentSheet.Grade)?.data }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
      * One-shot, imperative "scroll to this section now" commands (outline taps, same-topic links).
@@ -328,21 +337,25 @@ class ContentViewModel(
         }
     }
 
+    fun dismissSheet() {
+        _activeSheet.value = null
+    }
+
     fun dismissReferenceSheet() {
-        _referenceSheet.value = null
+        dismissSheet()
     }
 
     fun dismissGradeSheet() {
-        _gradeSheet.value = null
+        dismissSheet()
     }
 
     fun jumpToReference(number: Int) {
-        dismissReferenceSheet()
+        dismissSheet()
         scrollToSection("ref_$number")
     }
 
     private fun executeActionJson(jsonStr: String) {
-        val data = Json.parseToJsonElement(jsonStr).jsonObject
+        val data = runCatching { Json.parseToJsonElement(jsonStr).jsonObject }.getOrNull() ?: return
         val meta = data["meta"]?.jsonObject
         val items = data["data"]?.jsonArray
 
@@ -445,19 +458,19 @@ class ContentViewModel(
             )
         }
 
-        _referenceSheet.value = ReferenceSheetData(references = matched)
+        _activeSheet.value = ContentSheet.References(ReferenceSheetData(references = matched))
     }
 
     private fun handleResourceAction(meta: JsonObject?, items: JsonArray?) {
         val gradeId = meta?.get("gradeId")?.jsonPrimitive?.content
             ?: items?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content?.let { id ->
-                Regex("""grades?(\d+)\.html""").find(id)?.groupValues?.get(1)
+                GRADE_ID_REGEX.find(id)?.groupValues?.getOrNull(1)
             }
 
         val type = items?.firstOrNull()?.jsonObject?.get("type")?.jsonPrimitive?.content
 
         if (gradeId != null || type == "grade") {
-            _gradeSheet.value = GradeSheetData.fromGradeId(gradeId ?: "1")
+            _activeSheet.value = ContentSheet.Grade(GradeSheetData.fromGradeId(gradeId))
         }
     }
 
@@ -467,6 +480,10 @@ class ContentViewModel(
 
     fun toggleOutline() {
         _showOutline.value = !_showOutline.value
+    }
+
+    fun dismissOutline() {
+        _showOutline.value = false
     }
 
     fun toggleFavorite() {

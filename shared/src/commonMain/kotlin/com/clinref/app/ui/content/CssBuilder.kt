@@ -93,6 +93,21 @@ class CssBuilder(private val colors: ThemeColors) {
     padding: 10px 12px;
 }
 
+.subtitle1_single, .subtitle1_left {
+    background: var(--primary) !important;
+    color: var(--on-primary) !important;
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 12px;
+}
+
+.subtitle1_left_white, .subtitle1_single_white {
+    background: var(--bg) !important;
+    color: var(--primary) !important;
+    font-weight: 600;
+    border-bottom: 2px solid var(--primary) !important;
+}
+
 .subtitle2, .subtitle2_left {
     background: var(--surface) !important;
     color: var(--heading);
@@ -102,15 +117,93 @@ class CssBuilder(private val colors: ThemeColors) {
 
 .subtitle2 { text-align: center; }
 .subtitle2_left { text-align: left; }
+.subtitle2_left_white { background: var(--surface) !important; color: var(--heading); font-weight: 600; padding: 8px 12px; text-align: left; }
+
+.subtitle2_single {
+    background: var(--surface) !important;
+    color: var(--heading) !important;
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 12px;
+}
+
+.subtitle3, .subtitle3_left, .subtitle3_left_align, .subtitle3_single {
+    background: var(--surface) !important;
+    color: var(--heading) !important;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 6px 10px;
+    border-top: 1px solid var(--border-emphasis);
+    border-bottom: 1px solid var(--border-emphasis);
+}
+.subtitle3_left, .subtitle3_left_align, .subtitle3_single { text-align: left; }
+.subtitle3 { text-align: center; }
+
+.centered, td.centered, th.centered { text-align: center !important; }
+.align_middle, td.align_middle { vertical-align: middle !important; }
 
 .indent1 { padding-left: 24px !important; font-weight: 500; }
-.indent2 { padding-left: 40px !important; }
+.indent2 { padding-left: 40px !important; color: var(--text-secondary); }
+.indent3 { padding-left: 56px !important; }
+.indent4 { padding-left: 72px !important; }
+.indent5 { padding-left: 88px !important; }
 
 .divider_bottom { border-bottom: 2px solid var(--border-emphasis) !important; }
 .divider_top { border-top: 2px solid var(--border-emphasis) !important; }
+tr.border_bottom_thick td { border-bottom: 2px solid var(--border-emphasis) !important; }
+tr.border_top_thick td { border-top: 2px solid var(--border-emphasis) !important; }
+.border_right_thick { border-right: 2px solid var(--border-emphasis) !important; }
+
+.highlight_blue_text { background: var(--primary-container) !important; color: var(--on-primary-container) !important; }
+.highlight_lght_orange_text { background: var(--tertiary-container) !important; color: var(--on-tertiary-container) !important; }
+
+.highlight_lght_gray_text, tr.highlight_lght_gray_text td, td.highlight_lght_gray_text {
+    background: var(--surface) !important;
+}
+.highlight_gray_text, tr.highlight_gray_text td, td.highlight_gray_text {
+    background: var(--border) !important;
+}
+.highlight_sub2_gray_text, tr.highlight_sub2_gray_text td {
+    background: var(--surface) !important;
+}
+
+.sublist1_start, .sublist1 {
+    padding-left: 24px !important;
+    font-weight: 500;
+    border-top: none !important;
+}
+.sublist1_start { border-top: 1px solid var(--border) !important; }
+
+.sublist2, .sublist2_start {
+    padding-left: 40px !important;
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+.sublist2_start { border-top: 1px solid var(--border) !important; }
+.sublist3 { padding-left: 56px !important; color: var(--text-tertiary); }
+
+.sublist_other_start, .sublist_other {
+    border-top: none !important;
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+.sublist_other_start {
+    border-top: 1px solid var(--border) !important;
+    color: var(--text);
+    font-size: 1em;
+}
 
 .nowrap_whitespace { white-space: nowrap; }
 .extra_spacing_top { margin-top: 12px; }
+
+.red, span.red { color: var(--danger) !important; font-weight: 600; }
+.arrow, span.arrow { display: inline-block; font-weight: bold; color: var(--primary); }
+.primarybox_left {
+    background: var(--primary-container) !important;
+    color: var(--on-primary-container) !important;
+    border-left: 4px solid var(--primary) !important;
+    font-weight: 500;
+}
 """.trimIndent()
 
     // ── Reset & Base ─────────────────────────────────────────────────
@@ -547,7 +640,7 @@ th {
 
 ${sharedTableStyles()}
 
-.graphic tbody tr:nth-child(even) td:not(.subtitle1):not(.subtitle2):not(.subtitle2_left) {
+.graphic tbody tr:nth-child(even) td:not([class*="subtitle"]) {
     background: var(--surface);
 }
 """.trimIndent()
@@ -1059,43 +1152,6 @@ a:hover { text-decoration: underline; }
     line-height: 1.5;
 }
 
-.subtitle1_single, .subtitle1_left {
-    background: var(--primary) !important;
-    color: var(--on-primary) !important;
-    font-weight: 600;
-    text-align: left;
-    padding: 10px 12px;
-}
-
-.indent2 { color: var(--text-secondary); }
-
-tr.border_bottom_thick td { border-bottom: 2px solid var(--border-emphasis) !important; }
-tr.border_top_thick td { border-top: 2px solid var(--border-emphasis) !important; }
-.border_right_thick { border-right: 2px solid var(--border-emphasis) !important; }
-
-.highlight_blue_text { background: var(--primary-container) !important; color: var(--on-primary-container) !important; }
-.highlight_lght_orange_text { background: var(--tertiary-container) !important; color: var(--on-tertiary-container) !important; }
-
-.subtitle2_left_white { background: var(--surface) !important; color: var(--heading); font-weight: 600; padding: 8px 12px; text-align: left; }
-
-.sublist1_start, .sublist1 {
-    padding-left: 24px !important;
-    font-weight: 500;
-    border-top: none !important;
-}
-.sublist1_start { border-top: 1px solid var(--border) !important; }
-
-.sublist_other_start, .sublist_other {
-    border-top: none !important;
-    color: var(--text-secondary);
-    font-size: 0.9em;
-}
-.sublist_other_start {
-    border-top: 1px solid var(--border) !important;
-    color: var(--text);
-    font-size: 1em;
-}
-
 .cntnt td ul, .cntnt td ol {
     margin: 4px 0;
     padding-left: 20px;
@@ -1104,7 +1160,12 @@ tr.border_top_thick td { border-top: 2px solid var(--border-emphasis) !important
 .cntnt td li { margin: 4px 0; padding: 0 0 0 4px; line-height: 1.5; }
 .cntnt td ul { list-style-type: disc; }
 .cntnt td ol { list-style-type: decimal; }
-.cntnt td ul.decimal_heading, .cntnt td ol.decimal_heading { list-style-type: decimal; }
+.cntnt td ol.numbers_to_nine, .cntnt td ol.decimal_heading { list-style-type: decimal; }
+.cntnt td ol.list_upper_alpha { list-style-type: upper-alpha; }
+.cntnt td ol.list_lower_alpha { list-style-type: lower-alpha; }
+.cntnt td ol.list_lower_roman { list-style-type: lower-roman; }
+.cntnt td ol.numbers_no_heading { list-style-type: none; padding-left: 0; }
+.cntnt td ul.decimal_heading { list-style-type: decimal; }
 .cntnt td ul.none { list-style-type: none; padding-left: 0; }
 
 .cntnt td p { margin: 0; line-height: 1.5; }
