@@ -24,12 +24,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -134,7 +137,7 @@ import androidx.navigation3.runtime.NavKey
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalBottomBarPadding
+import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.common.showUndoSnackbar
@@ -359,6 +362,10 @@ fun ConversationListContent(
         )
     }
 
+    val bottomInsetPadding = rememberContentBottomPadding(16.dp)
+    val fabBottomPadding = rememberContentBottomPadding(0.dp)
+    val listBottomPadding = rememberContentBottomPadding(88.dp)
+
     Scaffold(
         modifier = modifier
             .fillMaxSize()
@@ -394,18 +401,11 @@ fun ConversationListContent(
                     }
                 } else false
             },
+        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         containerColor = MaterialTheme.colorScheme.surface,
         snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState)
-        },
-        bottomBar = {
-            val bottomBarPadding = LocalBottomBarPadding.current
-            if (bottomBarPadding > 0.dp) {
-                Spacer(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(bottomBarPadding)
-                )
+            Box(modifier = Modifier.padding(bottom = bottomInsetPadding)) {
+                SnackbarHost(hostState = snackbarHostState)
             }
         },
         topBar = {
@@ -429,6 +429,7 @@ fun ConversationListContent(
         floatingActionButton = {
             AnimatedVisibility(
                 visible = !uiState.isSelectionMode,
+                modifier = Modifier.padding(bottom = fabBottomPadding),
                 enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
                     fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
                 exit = scaleOut(
@@ -545,7 +546,7 @@ fun ConversationListContent(
                         modifier = Modifier
                             .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
                             .fillMaxWidth(),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = listBottomPadding),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Section 1: Pinned Consultations
