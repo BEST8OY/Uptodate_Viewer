@@ -30,6 +30,12 @@ class CssBuilderTableTest {
         assertTrue(css.contains(".red,"), "Document CSS should include red alert class")
         assertTrue(css.contains(".arrow,"), "Document CSS should include arrow class")
         assertTrue(css.contains(".primarybox_left {"), "Document CSS should include primarybox_left")
+        assertTrue(css.contains(".primarybox_center {"), "Document CSS should include primarybox_center")
+        assertTrue(css.contains(".primarybox_key {"), "Document CSS should include primarybox_key")
+        assertTrue(css.contains(".large_checkmark {"), "Document CSS should include large_checkmark")
+        assertTrue(css.contains("table.container {"), "Document CSS should include table.container")
+        assertTrue(css.contains(".border_left_thick,"), "Document CSS should include border_left_thick")
+        assertTrue(css.contains(".border_bottom_white,"), "Document CSS should include border_bottom_white")
     }
 
     @Test
@@ -38,9 +44,14 @@ class CssBuilderTableTest {
 
         // Alignment
         assertTrue(css.contains(".centered,"), "Graphic CSS should include centered class")
+        assertTrue(css.contains(".align_top,"), "Graphic CSS should include align_top class")
 
         // Highlights
         assertTrue(css.contains(".highlight_lght_gray_text,"), "Graphic CSS should include highlight_lght_gray_text")
+        assertTrue(css.contains(".highlight_sub3_gray_text,"), "Graphic CSS should include highlight_sub3_gray_text")
+        assertTrue(css.contains(".highlight_red_text,"), "Graphic CSS should include highlight_red_text")
+        assertTrue(css.contains(".highlight_yellow_text,"), "Graphic CSS should include highlight_yellow_text")
+        assertTrue(css.contains(".highlight_green_text,"), "Graphic CSS should include highlight_green_text")
 
         // Subtitles
         assertTrue(css.contains(".subtitle3_left_align,"), "Graphic CSS should include subtitle3_left_align")
