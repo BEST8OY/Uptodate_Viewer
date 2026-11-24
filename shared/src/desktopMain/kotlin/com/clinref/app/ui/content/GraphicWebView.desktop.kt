@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
@@ -22,27 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import java.awt.Color
 import java.awt.Desktop
-import java.awt.Toolkit
-import java.awt.event.KeyEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import java.net.URI
-import javax.swing.JEditorPane
-import javax.swing.JMenuItem
-import javax.swing.JPopupMenu
-import javax.swing.JScrollPane
-import javax.swing.KeyStroke
-import javax.swing.event.HyperlinkEvent
-import javax.swing.text.DefaultCaret
-import javax.swing.text.html.HTMLEditorKit
-
-private inline fun runOnEdt(crossinline block: () -> Unit) {
-    if (javax.swing.SwingUtilities.isEventDispatchThread()) {
-        block()
-    } else {
-        javax.swing.SwingUtilities.invokeLater { block() }
-    }
-}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -54,6 +35,9 @@ actual fun GraphicWebView(
     onPageError: () -> Unit,
     modifier: Modifier
 ) {
+    val currentOnPageFinished = rememberUpdatedState(onPageFinished)
+    val currentOnPageError = rememberUpdatedState(onPageError)
+
     val bgColor = MaterialTheme.colorScheme.background
     val primaryColor = MaterialTheme.colorScheme.primary
     val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
@@ -62,84 +46,36 @@ actual fun GraphicWebView(
     val awtSelectedTextColor = remember(onPrimaryColor) { Color(onPrimaryColor.toArgb()) }
 
     val (editorPane, scrollPane) = remember {
-        val pane = JEditorPane().apply {
-            isEditable = false
-            contentType = "text/html"
-            editorKit = HTMLEditorKit()
-            background = awtBgColor
-            selectionColor = awtSelectionColor
-            selectedTextColor = awtSelectedTextColor
-            (caret as? DefaultCaret)?.let { defaultCaret ->
-                defaultCaret.isSelectionVisible = true
-            }
-            addHyperlinkListener { e ->
-                if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-                    val desc = e.description ?: e.url?.toString()
-                    if (desc != null && (desc.startsWith("http://") || desc.startsWith("https://"))) {
-                        try {
-                            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                                Desktop.getDesktop().browse(URI(desc))
-                            }
-                        } catch (_: Exception) { }
-                    }
+        createHtmlEditorPane(
+            bgColor = awtBgColor,
+            selectionColor = awtSelectionColor,
+            selectedTextColor = awtSelectedTextColor,
+            onHyperlink = { _, desc ->
+                if (desc.startsWith("http://") || desc.startsWith("https://")) {
+                    try {
+                        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                            Desktop.getDesktop().browse(URI(desc))
+                        }
+                    } catch (_: Exception) { }
                 }
             }
-            val popup = JPopupMenu().apply {
-                val copyItem = JMenuItem("Copy").apply {
-                    accelerator = KeyStroke.getKeyStroke(
-                        KeyEvent.VK_C,
-                        Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
-                    )
-                    addActionListener { copy() }
-                }
-                val selectAllItem = JMenuItem("Select All").apply {
-                    accelerator = KeyStroke.getKeyStroke(
-                        KeyEvent.VK_A,
-                        Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
-                    )
-                    addActionListener { selectAll() }
-                }
-                add(copyItem)
-                add(selectAllItem)
-            }
-            addMouseListener(object : MouseAdapter() {
-                override fun mousePressed(e: MouseEvent) = maybeShowPopup(e)
-                override fun mouseReleased(e: MouseEvent) = maybeShowPopup(e)
-                private fun maybeShowPopup(e: MouseEvent) {
-                    if (e.isPopupTrigger) {
-                        requestFocusInWindow()
-                        popup.getComponent(0).isEnabled = selectionStart != selectionEnd
-                        popup.show(this@apply, e.x, e.y)
-                    }
-                }
-            })
-        }
-        val scroll = JScrollPane(pane).apply {
-            border = null
-            background = awtBgColor
-            viewport.background = awtBgColor
-        }
-        pane to scroll
+        )
     }
 
     LaunchedEffect(awtBgColor, awtSelectionColor, awtSelectedTextColor) {
         runOnEdt {
-            editorPane.background = awtBgColor
-            editorPane.selectionColor = awtSelectionColor
-            editorPane.selectedTextColor = awtSelectedTextColor
-            scrollPane.background = awtBgColor
-            scrollPane.viewport.background = awtBgColor
+            syncSwingColors(editorPane, scrollPane, awtBgColor, awtSelectionColor, awtSelectedTextColor)
         }
     }
 
     LaunchedEffect(fullHtml) {
-        try {
-            runOnEdt {
+        runOnEdt {
+            try {
                 editorPane.text = fullHtml
+                currentOnPageFinished.value()
+            } catch (_: Exception) {
+                currentOnPageError.value()
             }
-            onPageFinished()
-        } catch (_: Exception) {
-            onPageError()
         }
     }
 
@@ -170,4 +106,3 @@ actual fun GraphicWebView(
         }
     }
 }
-

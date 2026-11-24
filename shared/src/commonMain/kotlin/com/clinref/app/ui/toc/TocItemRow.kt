@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.TocItem
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -35,6 +36,12 @@ fun TocItemRow(
     onResolveTopicId: (String) -> String? = { null },
     modifier: Modifier = Modifier
 ) {
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val maxLevel = if (adaptiveInfo.isCompact) 4 else 6
+    val clampedLevel = level.coerceAtMost(maxLevel)
+    val indentStep = if (adaptiveInfo.isCompact) 16.dp else 24.dp
+    val startPadding = adaptiveInfo.horizontalMargin + (indentStep * clampedLevel)
+
     SegmentedListItem(
         onClick = {
             if (item.isLeaf) {
@@ -53,7 +60,7 @@ fun TocItemRow(
         },
         shapes = ListItemDefaults.segmentedShapes(index = index, count = totalCount),
         modifier = modifier
-            .padding(start = (16 + level * 24).dp)
+            .padding(start = startPadding, end = adaptiveInfo.horizontalMargin)
             .pointerHoverIcon(PointerIcon.Hand)
             .semantics(mergeDescendants = true) {
                 if (!item.isLeaf) {

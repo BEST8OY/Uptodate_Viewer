@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.SearchOff
@@ -27,12 +29,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.Audience
 import com.clinref.app.domain.SearchResult
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
+import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -46,27 +52,33 @@ fun SearchResultsContent(
     onGraphicSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val bottomInsetPadding = rememberContentBottomPadding(16.dp)
+
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
         LazyColumn(
             modifier = Modifier
-                .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
-                .fillMaxWidth()
+                .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(top = 4.dp, bottom = bottomInsetPadding),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             item {
                 FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Audience.entries.forEach { audience ->
                         FilterChip(
                             selected = selectedAudience == audience,
                             onClick = { onAudienceChanged(audience) },
-                            label = { Text(audience.label) }
+                            label = { Text(audience.label) },
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                         )
                     }
                 }
@@ -145,12 +157,19 @@ fun SearchResultsContent(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 8.dp)
                             .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
                     )
                 }
-                items(searchResults.size) { idx ->
-                    val result = searchResults[idx]
+                itemsIndexed(
+                    items = searchResults,
+                    key = { _, result ->
+                        when (result) {
+                            is SearchResult.Topic -> "t_${result.topicId}"
+                            is SearchResult.Graphic -> "g_${result.graphicId}"
+                        }
+                    }
+                ) { idx, result ->
                     SegmentedListItem(
                         onClick = {
                             when (result) {
@@ -159,6 +178,9 @@ fun SearchResultsContent(
                             }
                         },
                         shapes = ListItemDefaults.segmentedShapes(index = idx, count = searchResults.size),
+                        modifier = Modifier
+                            .padding(horizontal = adaptiveInfo.horizontalMargin)
+                            .pointerHoverIcon(PointerIcon.Hand),
                         content = { Text(result.title) }
                     )
                 }

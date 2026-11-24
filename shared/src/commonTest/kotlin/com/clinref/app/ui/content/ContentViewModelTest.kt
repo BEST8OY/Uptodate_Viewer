@@ -689,4 +689,33 @@ class ContentViewModelTest {
         assertEquals(null, vm.gradeSheet.value)
         assertEquals(null, vm.referenceSheet.value)
     }
+
+    @Test
+    fun `setThemeColors regenerates html when light dynamic color changes without changing isDark`() = runTest(testDispatcher) {
+        val topicId = "theme-test-1"
+        val bodyHtml = "<p>Theme test content</p>"
+        every { contentRepository.getTopicContent(topicId) } returns ContentRepository.TopicContent(
+            bodyHtml = bodyHtml,
+            title = "Theme Test"
+        )
+        every { contentRepository.getTopicTitle(topicId) } returns "Theme Test"
+        coEvery { readingPositionRepository.get(topicId) } returns null
+
+        val vm = createViewModel()
+        vm.loadTopic(topicId)
+        advanceUntilIdle()
+
+        val initialHtml = vm.document.value?.html
+        assertNotNull(initialHtml)
+
+        val customLight = ThemeColors.light().copy(
+            primary = "#006A60"
+        )
+        vm.setThemeColors(customLight)
+        advanceUntilIdle()
+
+        val updatedHtml = vm.document.value?.html
+        assertNotNull(updatedHtml)
+        assertTrue(updatedHtml?.contains("#006A60") == true)
+    }
 }

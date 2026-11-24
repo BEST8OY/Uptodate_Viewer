@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,8 +23,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
@@ -43,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +59,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
@@ -246,15 +247,28 @@ fun ContentScreen(
                             showSearch = true
                             true
                         }
-                        event.key == Key.Escape && showSearch -> {
-                            closeSearch()
-                            true
+                        event.key == Key.Escape -> {
+                            when {
+                                showSearch -> {
+                                    closeSearch()
+                                    true
+                                }
+                                showOutline -> {
+                                    viewModel.dismissOutline()
+                                    true
+                                }
+                                activeSheet != null -> {
+                                    viewModel.dismissSheet()
+                                    true
+                                }
+                                else -> false
+                            }
                         }
                         else -> false
                     }
                 } else false
             },
-        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         topBar = {
             ContentTopBar(
                 title = articleTitle,
@@ -270,7 +284,9 @@ fun ContentScreen(
                 .consumeWindowInsets(padding)
                 .clipToBounds()
         ) {
-            val isImeActive = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+            val density = LocalDensity.current
+            val imeInsets = WindowInsets.ime
+            val isImeActive by remember(density) { derivedStateOf { imeInsets.getBottom(density) > 0 } }
             val toolbarBottomPadding = if (isImeActive) 8.dp else 16.dp
 
             AnimatedVisibility(
@@ -324,40 +340,38 @@ fun ContentScreen(
                 )
             }
 
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(modifier = Modifier.weight(1f)) {
-                    HtmlContentWebView(
-                        document = document,
-                        controller = webView,
-                        modifier = Modifier.fillMaxSize()
-                    )
+            Box(modifier = Modifier.fillMaxSize()) {
+                HtmlContentWebView(
+                    document = document,
+                    controller = webView,
+                    modifier = Modifier.fillMaxSize()
+                )
 
-                    if (!showOutline) {
-                        error?.let { errorMsg ->
-                            ContentErrorView(
-                                errorMsg = errorMsg,
-                                onRetry = { viewModel.open(topicId, sectionId = sectionId) },
-                                modifier = Modifier.align(Alignment.Center)
-                            )
-                        }
-                    }
-
-                    if (showOutline && outlineSections.isNotEmpty()) {
-                        OutlineOverlay(
-                            outlineSections = outlineSections,
-                            activeSectionId = activeSectionId,
-                            onSectionClick = { section ->
-                                viewModel.setActiveSection(section.id)
-                                val actionJson = section.actionJson
-                                if (actionJson != null) {
-                                    viewModel.handleOutlineAction(actionJson)
-                                } else {
-                                    viewModel.scrollToSection(section.id)
-                                }
-                            },
-                            onDismiss = { viewModel.dismissOutline() }
+                if (!showOutline) {
+                    error?.let { errorMsg ->
+                        ContentErrorView(
+                            errorMsg = errorMsg,
+                            onRetry = { viewModel.open(topicId, sectionId = sectionId) },
+                            modifier = Modifier.align(Alignment.Center)
                         )
                     }
+                }
+
+                if (showOutline && outlineSections.isNotEmpty()) {
+                    OutlineOverlay(
+                        outlineSections = outlineSections,
+                        activeSectionId = activeSectionId,
+                        onSectionClick = { section ->
+                            viewModel.setActiveSection(section.id)
+                            val actionJson = section.actionJson
+                            if (actionJson != null) {
+                                viewModel.handleOutlineAction(actionJson)
+                            } else {
+                                viewModel.scrollToSection(section.id)
+                            }
+                        },
+                        onDismiss = { viewModel.dismissOutline() }
+                    )
                 }
             }
 

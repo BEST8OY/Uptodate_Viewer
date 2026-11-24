@@ -32,34 +32,46 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
+ * Specification of a swipe action to display in [SegmentedDismissBackground].
+ */
+data class DismissAction(
+    val label: String,
+    val icon: ImageVector,
+    val containerColor: Color? = null,
+    val contentColor: Color? = null,
+)
+
+/**
  * Common M3 Expressive dismiss background for segmented list items using a separating pill architecture.
  *
  * Rather than filling the entire row beneath the card (which causes subpixel edge and corner bleed),
  * the background is drawn strictly inside the exposed gap left behind by the translating card,
  * separated by a dynamic 2dp gap that tapers to 0px on dismissal.
  *
- * Because zero background pixels exist underneath the moving card, background bleed is geometrically
- * impossible, and the foreground [androidx.compose.material3.SegmentedListItem] can retain its native
- * [androidx.compose.material3.ListItemShapes] without workarounds.
+ * Supports both [startAction] (revealed when swiping start-to-end) and [endAction] (revealed when swiping end-to-start).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SegmentedDismissBackground(
     dismissState: SwipeToDismissBoxState,
     shape: Shape,
-    actionLabel: String,
-    actionIcon: ImageVector,
     modifier: Modifier = Modifier,
-    targetDirection: SwipeToDismissBoxValue = SwipeToDismissBoxValue.EndToStart,
+    startAction: DismissAction? = null,
+    endAction: DismissAction? = null,
 ) {
     val slicePath = remember { Path() }
-    val isStartToEnd = targetDirection == SwipeToDismissBoxValue.StartToEnd
-    val containerColor = if (isStartToEnd) {
+    val direction = dismissState.dismissDirection
+    val isStartToEnd = direction == SwipeToDismissBoxValue.StartToEnd
+    val activeAction = if (isStartToEnd) startAction else endAction
+
+    if (activeAction == null) return
+
+    val containerColor = activeAction.containerColor ?: if (isStartToEnd) {
         MaterialTheme.colorScheme.tertiaryContainer
     } else {
         MaterialTheme.colorScheme.errorContainer
     }
-    val contentColor = if (isStartToEnd) {
+    val contentColor = activeAction.contentColor ?: if (isStartToEnd) {
         MaterialTheme.colorScheme.onTertiaryContainer
     } else {
         MaterialTheme.colorScheme.onErrorContainer
@@ -89,24 +101,24 @@ fun SegmentedDismissBackground(
             ) {
                 if (isStartToEnd) {
                     Icon(
-                        imageVector = actionIcon,
+                        imageVector = activeAction.icon,
                         contentDescription = null,
                         tint = contentColor,
                         modifier = Modifier.size(20.dp),
                     )
                     Text(
-                        text = actionLabel,
+                        text = activeAction.label,
                         color = contentColor,
                         style = MaterialTheme.typography.labelLarge,
                     )
                 } else {
                     Text(
-                        text = actionLabel,
+                        text = activeAction.label,
                         color = contentColor,
                         style = MaterialTheme.typography.labelLarge,
                     )
                     Icon(
-                        imageVector = actionIcon,
+                        imageVector = activeAction.icon,
                         contentDescription = null,
                         tint = contentColor,
                         modifier = Modifier.size(20.dp),
@@ -115,6 +127,29 @@ fun SegmentedDismissBackground(
             }
         }
     }
+}
+
+/**
+ * Backward-compatible overload for single-direction dismiss background.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SegmentedDismissBackground(
+    dismissState: SwipeToDismissBoxState,
+    shape: Shape,
+    actionLabel: String,
+    actionIcon: ImageVector,
+    modifier: Modifier = Modifier,
+    targetDirection: SwipeToDismissBoxValue = SwipeToDismissBoxValue.EndToStart,
+) {
+    val action = DismissAction(label = actionLabel, icon = actionIcon)
+    SegmentedDismissBackground(
+        dismissState = dismissState,
+        shape = shape,
+        modifier = modifier,
+        startAction = if (targetDirection == SwipeToDismissBoxValue.StartToEnd) action else null,
+        endAction = if (targetDirection == SwipeToDismissBoxValue.EndToStart) action else null,
+    )
 }
 
 /**

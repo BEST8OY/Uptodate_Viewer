@@ -79,7 +79,7 @@ fun ModelSelectionSheet(
         title = "Select Inference Model",
         subtitle = "Choose from suggested models or enter any custom identifier",
         sheetState = sheetState,
-        maxWidth = AdaptiveTokens.MaxFormContentWidth,
+        maxWidth = AdaptiveTokens.MaxFormWidth,
         showDivider = true
     ) { dismiss ->
         Column(

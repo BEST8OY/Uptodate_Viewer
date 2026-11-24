@@ -77,7 +77,7 @@ fun PatientProfileSheet(
     ClinRefBottomSheet(
         onDismiss = onDismiss,
         title = "Patient Profile",
-        maxWidth = AdaptiveTokens.MaxDialogWidth,
+        maxWidth = AdaptiveTokens.MaxSheetCompactWidth,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         showDivider = true
     ) { dismiss ->

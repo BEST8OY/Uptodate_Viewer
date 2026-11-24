@@ -18,6 +18,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -256,5 +257,74 @@ class SettingsViewModelTest {
         // Uncommitted edits are discarded and persisted state is restored
         assertEquals("gemini-2.5-flash", viewModel.configuration.value.model)
         assertEquals("AIza-persisted-key", viewModel.apiKey.value)
+    }
+
+    @Test
+    fun `rapid provider switch cancels prior model fetching and adopts latest provider models`() = runTest {
+        val initialConfig = AiConfiguration(provider = AiProvider.GOOGLE, isConfigured = true)
+        val securePreferences = FakeSecurePreferences(initialConfig)
+
+        val googleModels = listOf("gemini-2.5-flash", "gemini-2.5-pro")
+        val anthropicModels = listOf("claude-3-5-sonnet-latest", "claude-3-opus")
+
+        coEvery { koogAgentFactory.getAvailableModels(AiProvider.GOOGLE, any()) } coAnswers {
+            kotlinx.coroutines.delay(500)
+            googleModels
+        }
+        coEvery { koogAgentFactory.getAvailableModels(AiProvider.ANTHROPIC, any()) } coAnswers {
+            kotlinx.coroutines.delay(10)
+            anthropicModels
+        }
+
+        val viewModel = SettingsViewModel(
+            securePreferences = securePreferences,
+            koogAgentFactory = koogAgentFactory,
+            reliabilityManager = reliabilityManager
+        )
+        advanceUntilIdle()
+
+        viewModel.updateProvider(AiProvider.GOOGLE)
+        advanceTimeBy(50)
+        viewModel.updateProvider(AiProvider.ANTHROPIC)
+        advanceUntilIdle()
+
+        assertEquals(AiProvider.ANTHROPIC, viewModel.configuration.value.provider)
+        assertEquals(anthropicModels, viewModel.availableModels.value)
+    }
+
+    @Test
+    fun `updateProvider cancels in-flight delayed reload`() = runTest {
+        val initialConfig = AiConfiguration(provider = AiProvider.GOOGLE, isConfigured = true)
+        val securePreferences = FakeSecurePreferences(initialConfig)
+        val googleModels = listOf("gemini-2.5-flash")
+        val anthropicModels = listOf("claude-3-5-sonnet")
+
+        coEvery { koogAgentFactory.getAvailableModels(AiProvider.GOOGLE, any()) } coAnswers {
+            kotlinx.coroutines.delay(500)
+            googleModels
+        }
+        coEvery { koogAgentFactory.getAvailableModels(AiProvider.ANTHROPIC, any()) } coAnswers {
+            kotlinx.coroutines.delay(10)
+            anthropicModels
+        }
+
+        val viewModel = SettingsViewModel(
+            securePreferences = securePreferences,
+            koogAgentFactory = koogAgentFactory,
+            reliabilityManager = reliabilityManager
+        )
+        advanceUntilIdle()
+
+        // Trigger reload (which triggers model fetching with 500ms delay)
+        viewModel.reload()
+        advanceTimeBy(50)
+
+        // Immediately switch provider to Anthropic
+        viewModel.updateProvider(AiProvider.ANTHROPIC)
+        advanceUntilIdle()
+
+        // Verify Anthropic state is retained and delayed reload did not clobber it
+        assertEquals(AiProvider.ANTHROPIC, viewModel.configuration.value.provider)
+        assertEquals(anthropicModels, viewModel.availableModels.value)
     }
 }

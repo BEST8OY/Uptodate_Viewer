@@ -21,9 +21,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -42,6 +44,9 @@ actual fun GraphicWebView(
     modifier: Modifier
 ) {
     val context = LocalContext.current
+    val currentOnPageFinished by rememberUpdatedState(onPageFinished)
+    val currentOnPageError by rememberUpdatedState(onPageError)
+    val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
     var loadedHtml by remember(graphicId) { mutableStateOf<String?>(null) }
 
     Box(
@@ -52,13 +57,14 @@ actual fun GraphicWebView(
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
+                    setBackgroundColor(backgroundColor)
                     isFocusable = true
                     isFocusableInTouchMode = true
                     isLongClickable = true
                     setOnApplyWindowInsetsListener { _, insets -> insets }
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
-                            onPageFinished()
+                            currentOnPageFinished()
                         }
 
                         override fun onReceivedError(
@@ -67,7 +73,7 @@ actual fun GraphicWebView(
                             error: WebResourceError?,
                         ) {
                             if (request?.isForMainFrame == true) {
-                                onPageError()
+                                currentOnPageError()
                             }
                         }
 
@@ -77,7 +83,10 @@ actual fun GraphicWebView(
                         ): Boolean {
                             val url = request?.url?.toString() ?: return false
                             if (url.startsWith("http://") || url.startsWith("https://")) {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                } catch (_: Exception) {
+                                }
                                 return true
                             }
                             return false
@@ -93,6 +102,7 @@ actual fun GraphicWebView(
                 }
             },
             update = { webView ->
+                webView.setBackgroundColor(backgroundColor)
                 if (loadedHtml != fullHtml) {
                     loadedHtml = fullHtml
                     webView.loadDataWithBaseURL(null, fullHtml, "text/html", "UTF-8", null)

@@ -78,7 +78,7 @@ fun rememberClinrefMarkdownDimens(): MarkdownDimens = markdownDimens(
     blockQuoteThickness = 0.dp, // Drawn cleanly by our custom clinical callout container
     codeBackgroundCornerSize = 6.dp,
     tableCellPadding = 10.dp,
-    tableCellWidth = 160.dp,
+    tableCellWidth = MarkdownTableCellWidth,
     tableCornerSize = 12.dp
 )
 

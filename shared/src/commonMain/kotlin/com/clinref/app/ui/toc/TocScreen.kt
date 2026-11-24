@@ -1,6 +1,7 @@
 package com.clinref.app.ui.toc
 
 import com.clinref.app.ui.common.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,14 +11,17 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
@@ -59,25 +63,27 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.TocItem
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.search.SearchResultsContent
 import com.clinref.app.ui.search.SearchViewModel
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import androidx.navigation3.runtime.NavKey
 import com.clinref.app.ui.navigation.TocRoute
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class, FlowPreview::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TocScreen(
     onTopicSelected: (String) -> Unit,
@@ -110,6 +116,7 @@ fun TocScreen(
     var lastQuery by rememberSaveable { mutableStateOf("") }
 
     val isShowingResults = !expanded && hasSearched
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
     val bottomInsetPadding = rememberContentBottomPadding(16.dp)
 
     BackHandler(enabled = expanded || isShowingResults) {
@@ -123,7 +130,7 @@ fun TocScreen(
 
     LaunchedEffect(Unit) {
         snapshotFlow { textFieldState.text.toString() }
-            .debounce(300)
+            .distinctUntilChanged()
             .collect { q ->
                 if (skipNextQuery) {
                     skipNextQuery = false
@@ -201,18 +208,27 @@ fun TocScreen(
                     } else false
                 } else false
             },
-        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         topBar = {
             AppBarWithSearch(
                 state = searchBarState,
                 inputField = inputField,
             )
             ExpandedFullScreenContainedSearchBar(state = searchBarState, inputField = inputField) {
+                val searchBottomInset = WindowInsets.navigationBars
+                    .only(WindowInsetsSides.Bottom)
+                    .asPaddingValues()
+                    .calculateBottomPadding()
+
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                     LazyColumn(
                         modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
+                            .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
                             .fillMaxWidth()
+                            .imePadding()
+                            .padding(horizontal = adaptiveInfo.horizontalMargin),
+                        contentPadding = PaddingValues(bottom = searchBottomInset + 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         if (textFieldState.text.isEmpty() && suggestions.isEmpty()) {
                             item {
@@ -241,8 +257,10 @@ fun TocScreen(
                         }
 
                         if (suggestions.isNotEmpty()) {
-                            items(suggestions.size) { idx ->
-                                val suggestion = suggestions[idx]
+                            itemsIndexed(
+                                items = suggestions,
+                                key = { _, suggestion -> suggestion }
+                            ) { idx, suggestion ->
                                 SegmentedListItem(
                                     onClick = {
                                         skipNextQuery = true
@@ -253,6 +271,7 @@ fun TocScreen(
                                         scope.launch { searchBarState.animateToCollapsed() }
                                     },
                                     shapes = ListItemDefaults.segmentedShapes(index = idx, count = suggestions.size),
+                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                                     leadingContent = {
                                         Icon(
                                             imageVector = Icons.Default.Search,
@@ -285,7 +304,10 @@ fun TocScreen(
             when {
                 isLoading -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(bottom = bottomInsetPadding),
                         contentAlignment = Alignment.Center
                     ) {
                         ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
@@ -293,7 +315,10 @@ fun TocScreen(
                 }
                 error != null -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(bottom = bottomInsetPadding),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -320,7 +345,10 @@ fun TocScreen(
                 }
                 tocItems.isEmpty() -> {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(bottom = bottomInsetPadding),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -347,30 +375,24 @@ fun TocScreen(
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
-                                .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
+                                .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
                                 .fillMaxWidth()
                                 .padding(padding),
-                            contentPadding = PaddingValues(bottom = bottomInsetPadding)
+                            contentPadding = PaddingValues(bottom = bottomInsetPadding),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            items(
+                            itemsIndexed(
                                 items = visibleTocItems,
-                                key = { (_, _, uniqueKey) -> uniqueKey }
-                            ) { (item, level, uniqueKey) ->
+                                key = { _, (_, _, uniqueKey) -> uniqueKey }
+                            ) { index, (item, level, _) ->
                                 TocItemRow(
                                     item = item,
                                     level = level,
-                                    index = visibleTocItems.indexOfFirst { it.third == uniqueKey },
+                                    index = index,
                                     totalCount = visibleTocItems.size,
                                     isExpanded = item.id in expandedIds,
                                     onTopicSelected = onTopicSelected,
-                                    onGraphicSelected = { graphicId ->
-                                        val id = if (graphicId.startsWith("Graphic-")) {
-                                            graphicId.removePrefix("Graphic-")
-                                        } else {
-                                            graphicId
-                                        }
-                                        onGraphicSelected(id)
-                                    },
+                                    onGraphicSelected = onGraphicSelected,
                                     onLoadChildren = viewModel::loadChildren,
                                     onToggleExpand = viewModel::toggleExpanded,
                                     onResolveTopicId = { tocId -> viewModel.resolveTopicId(tocId) }

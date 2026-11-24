@@ -59,7 +59,7 @@ fun ReferenceSheet(
     ClinRefBottomSheet(
         onDismiss = onDismiss,
         title = if (data.references.size == 1) "Reference" else "References (${data.references.size})",
-        maxWidth = AdaptiveTokens.MaxSettingsContentWidth,
+        maxWidth = AdaptiveTokens.MaxSheetReadingWidth,
         containerColor = MaterialTheme.colorScheme.surface,
         showDivider = true
     ) { dismiss ->

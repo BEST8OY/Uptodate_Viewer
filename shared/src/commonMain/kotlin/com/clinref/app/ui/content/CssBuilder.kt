@@ -368,7 +368,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .utdArticleSection, #topicContent, #topicContentCalculator {
     max-width: 860px;
     margin: 0 auto;
-    padding: 24px 20px 96px;
+    padding: 24px 20px 120px;
     overflow-x: auto;
     -webkit-user-select: text;
     user-select: text;
@@ -1341,7 +1341,7 @@ a:hover { text-decoration: underline; }
 /* Responsive */
 @media (max-width: 480px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 16px 12px 96px;
+        padding: 16px 12px 120px;
     }
 
     h1 { font-size: 1.35rem; }
@@ -1366,13 +1366,13 @@ a:hover { text-decoration: underline; }
 
 @media (min-width: 481px) and (max-width: 599px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 24px 20px 96px;
+        padding: 24px 20px 120px;
     }
 }
 
 @media (min-width: 600px) {
     .utdArticleSection, #topicContent, #topicContentCalculator {
-        padding: 32px 40px 104px;
+        padding: 32px 40px 120px;
     }
 }
 """.trimIndent()

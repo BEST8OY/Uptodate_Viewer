@@ -9,6 +9,7 @@ import com.clinref.app.domain.ai.KoogAgentFactory
 import com.clinref.app.domain.ai.ReliabilityManager
 import com.clinref.app.domain.ai.defaultSettingsForProvider
 import com.clinref.shared.secure.SecurePreferences
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,12 +40,17 @@ class SettingsViewModel(
     private val _isSaving = MutableStateFlow(false)
     val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
 
+    private var reloadJob: Job? = null
+    private var loadModelsJob: Job? = null
+
     init {
         reload()
     }
 
     fun reload() {
-        viewModelScope.launch {
+        reloadJob?.cancel()
+        loadModelsJob?.cancel()
+        reloadJob = viewModelScope.launch {
             _configuration.value = securePreferences.configuration.first()
             val config = _configuration.value
             _apiKey.value = securePreferences.getApiKey(config.provider)
@@ -69,7 +75,9 @@ class SettingsViewModel(
             model = defaultModel,
             providerSettings = defaultSettingsForProvider(provider)
         )
-        viewModelScope.launch {
+        reloadJob?.cancel()
+        loadModelsJob?.cancel()
+        loadModelsJob = viewModelScope.launch {
             _apiKey.value = securePreferences.getApiKey(provider)
             loadModels(provider, "")
         }
@@ -104,31 +112,40 @@ class SettingsViewModel(
         _configuration.value = _configuration.value.copy(model = model)
     }
 
-    fun updateTemperature(temp: Float) {
+    private fun updateCommonParams(temperature: Float? = null, maxTokens: Int? = null) {
         val current = _configuration.value
         val newSettings = when (val s = current.providerSettings) {
-            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(temperature = temp)
-            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(temperature = temp)
-            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(temperature = temp)
-            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(temperature = temp)
-            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(temperature = temp)
-            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(temperature = temp)
+            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(
+                temperature = temperature ?: s.temperature,
+                maxTokens = maxTokens ?: s.maxTokens
+            )
+            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(
+                temperature = temperature ?: s.temperature,
+                maxTokens = maxTokens ?: s.maxTokens
+            )
+            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(
+                temperature = temperature ?: s.temperature,
+                maxTokens = maxTokens ?: s.maxTokens
+            )
+            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(
+                temperature = temperature ?: s.temperature,
+                maxTokens = maxTokens ?: s.maxTokens
+            )
+            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(
+                temperature = temperature ?: s.temperature,
+                maxTokens = maxTokens ?: s.maxTokens
+            )
+            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(
+                temperature = temperature ?: s.temperature,
+                maxTokens = maxTokens ?: s.maxTokens
+            )
         }
         _configuration.value = current.copy(providerSettings = newSettings)
     }
 
-    fun updateMaxTokens(tokens: Int) {
-        val current = _configuration.value
-        val newSettings = when (val s = current.providerSettings) {
-            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(maxTokens = tokens)
-            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(maxTokens = tokens)
-            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(maxTokens = tokens)
-            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(maxTokens = tokens)
-            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(maxTokens = tokens)
-            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(maxTokens = tokens)
-        }
-        _configuration.value = current.copy(providerSettings = newSettings)
-    }
+    fun updateTemperature(temp: Float) = updateCommonParams(temperature = temp)
+
+    fun updateMaxTokens(tokens: Int) = updateCommonParams(maxTokens = tokens)
 
     fun updateProviderSettings(settings: com.clinref.app.domain.ai.ProviderSettings) {
         _configuration.value = _configuration.value.copy(providerSettings = settings)

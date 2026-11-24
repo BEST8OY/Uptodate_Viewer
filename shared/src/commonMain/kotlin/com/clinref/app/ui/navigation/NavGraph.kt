@@ -5,8 +5,16 @@ import androidx.compose.animation.ContentTransform
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -39,12 +47,10 @@ import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
 import androidx.navigation3.scene.Scene
 import com.clinref.app.data.DatabaseManager
-import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalBottomBarPadding
-import com.clinref.app.ui.adaptive.LocalIsWideScreen
-import com.clinref.app.ui.adaptive.LocalWindowWidthClass
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.adaptive.WindowWidthClass
-import com.clinref.app.ui.adaptive.calculateWindowWidthClass
+import com.clinref.app.ui.adaptive.calculateWindowAdaptiveInfo
 import com.clinref.app.ui.chat.ChatScreen
 import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.content.ContentScreen
@@ -60,17 +66,26 @@ import com.clinref.app.ui.toc.TocScreen
 fun NavGraph(
     databaseManager: DatabaseManager
 ) {
-    val isConfigured by databaseManager.isConfiguredFlow.collectAsStateWithLifecycle()
+    val windowInfo = LocalWindowInfo.current
+    val density = LocalDensity.current
+    val containerWidthDp = with(density) { windowInfo.containerSize.width.toDp() }
+    val containerHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
+    val adaptiveInfo = calculateWindowAdaptiveInfo(containerWidthDp, containerHeightDp)
 
-    if (!isConfigured) {
-        SetupScreen()
-        return
-    }
+    CompositionLocalProvider(
+        LocalWindowAdaptiveInfo provides adaptiveInfo
+    ) {
+        val isConfigured by databaseManager.isConfiguredFlow.collectAsStateWithLifecycle()
 
-    val navigationState = rememberNavigationState(
-        startRoute = TocRoute,
-        topLevelRoutes = topLevelRoutesSet
-    )
+        if (!isConfigured) {
+            SetupScreen()
+            return@CompositionLocalProvider
+        }
+
+        val navigationState = rememberNavigationState(
+            startRoute = TocRoute,
+            topLevelRoutes = topLevelRoutesSet
+        )
 
     val navigator = remember(navigationState) { Navigator(navigationState) }
     var selectedGraphicId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -89,7 +104,7 @@ fun NavGraph(
                         navigator.navigate(ContentRoute(topicId))
                     },
                     onGraphicSelected = { graphicId ->
-                        selectedGraphicId = graphicId.removePrefix("Graphic-")
+                        selectedGraphicId = graphicId
                     },
                     reselectEvents = navigator.reselectEvents
                 )
@@ -123,7 +138,7 @@ fun NavGraph(
                     onBack = { navigator.popSubRoute(key) },
                     onHome = { navigator.navigateToHome() },
                     onGraphicSelected = { graphicId ->
-                        selectedGraphicId = graphicId.removePrefix("Graphic-")
+                        selectedGraphicId = graphicId
                     }
                 )
             }
@@ -154,11 +169,8 @@ fun NavGraph(
         }
     }
 
-    val windowInfo = LocalWindowInfo.current
-    val density = LocalDensity.current
-    val containerWidthDp = with(density) { windowInfo.containerSize.width.toDp() }
-    val windowWidthClass = calculateWindowWidthClass(containerWidthDp)
-    val isWideScreen = containerWidthDp >= AdaptiveTokens.BreakpointMedium
+    val windowWidthClass = adaptiveInfo.widthClass
+    val isWideScreen = adaptiveInfo.useNavigationRail
     val isExpandedScreen = windowWidthClass == WindowWidthClass.EXPANDED
     val bottomBarVisible = !navigationState.isOnSubRoute && !isWideScreen
     val navRailVisible = isWideScreen && (isExpandedScreen || !navigationState.isOnSubRoute)
@@ -167,6 +179,16 @@ fun NavGraph(
     var bottomBarHeightPx by remember { mutableIntStateOf(0) }
     val bottomBarHeightDp = remember(bottomBarHeightPx, density) {
         with(density) { bottomBarHeightPx.toDp() }
+    }
+    val navBarBottom = WindowInsets.safeDrawing
+        .only(WindowInsetsSides.Bottom)
+        .exclude(WindowInsets.ime)
+        .asPaddingValues()
+        .calculateBottomPadding()
+    val effectiveBottomBarHeightDp = if (!adaptiveInfo.useNavigationRail) {
+        if (bottomBarHeightDp > 0.dp) bottomBarHeightDp else (80.dp + navBarBottom)
+    } else {
+        0.dp
     }
 
     val forwardTransition: AnimatedContentTransitionScope<Scene<NavKey>>.() -> ContentTransform = remember(motion) {
@@ -261,9 +283,7 @@ fun NavGraph(
             }
     ) {
         CompositionLocalProvider(
-            LocalBottomBarPadding provides if (bottomBarVisible) bottomBarHeightDp else 0.dp,
-            LocalIsWideScreen provides isWideScreen,
-            LocalWindowWidthClass provides windowWidthClass
+            LocalBottomBarPadding provides effectiveBottomBarHeightDp
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
                 ClinRefNavRail(
@@ -273,7 +293,15 @@ fun NavGraph(
                     motion = motion
                 )
 
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .consumeWindowInsets(
+                            if (navRailVisible) WindowInsets.safeDrawing.only(WindowInsetsSides.Start)
+                            else WindowInsets(0, 0, 0, 0)
+                        )
+                ) {
                     NavDisplay(
                         entries = navigationState.toDecoratedEntries(entryProvider),
                         onBack = {
@@ -303,4 +331,5 @@ fun NavGraph(
             )
         }
     }
+}
 }

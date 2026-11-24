@@ -268,4 +268,30 @@ class ConversationListViewModelTest {
         coVerify { conversationRepository.togglePin("c2") }
         coVerify(exactly = 0) { conversationRepository.togglePin("c1") }
     }
+
+    @Test
+    fun `external deletion of conversations prunes selectedIds`() = runTest(testDispatcher) {
+        conversationsFlow.value = sampleEntities()
+        val viewModel = ConversationListViewModel(conversationRepository)
+        advanceUntilIdle()
+
+        viewModel.toggleItemSelection("c1")
+        viewModel.toggleItemSelection("c2")
+        assertEquals(setOf("c1", "c2"), viewModel.uiState.value.selectedIds)
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+
+        // c2 is deleted externally
+        conversationsFlow.value = listOf(sampleEntities().first())
+        advanceUntilIdle()
+
+        assertEquals(setOf("c1"), viewModel.uiState.value.selectedIds)
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+
+        // c1 is also deleted externally -> selection mode exits automatically
+        conversationsFlow.value = emptyList()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
+        assertFalse(viewModel.uiState.value.isSelectionMode)
+    }
 }

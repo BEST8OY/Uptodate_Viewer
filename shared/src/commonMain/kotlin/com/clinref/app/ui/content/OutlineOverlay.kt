@@ -66,12 +66,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.common.ClinRefBottomSheet
 
-private enum class OverviewTab(val label: String) {
-    OUTLINE("Outline"),
-    GRAPHICS("Graphics"),
-    RELATED("Related Topics")
+private enum class OverviewTab(val fullLabel: String, val compactLabel: String) {
+    OUTLINE("Outline", "Outline"),
+    GRAPHICS("Graphics", "Graphics"),
+    RELATED("Related Topics", "Related");
+
+    fun label(isCompact: Boolean): String = if (isCompact) compactLabel else fullLabel
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -156,7 +159,7 @@ internal fun OutlineOverlay(
         modifier = modifier,
         heightFraction = 0.88f,
         title = "Topic Outline",
-        maxWidth = AdaptiveTokens.MaxCatalogListWidth,
+        maxWidth = AdaptiveTokens.MaxSheetWideWidth,
         showDivider = false
     ) { dismiss ->
         Column(
@@ -209,6 +212,8 @@ internal fun OutlineOverlay(
                     .padding(horizontal = 16.dp, vertical = 6.dp)
             )
 
+            val adaptiveInfo = LocalWindowAdaptiveInfo.current
+
             // Segmented Pill Navigation Row
             Row(
                 modifier = Modifier
@@ -249,7 +254,7 @@ internal fun OutlineOverlay(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = tab.label,
+                                text = tab.label(adaptiveInfo.isCompact),
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 ),
@@ -468,6 +473,7 @@ private fun SummaryQuickJumpCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 6.dp)
+            .pointerHoverIcon(PointerIcon.Hand)
     ) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -521,7 +527,9 @@ private fun OutlineSectionItem(
         } else {
             if (isRoot) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent
         },
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerHoverIcon(PointerIcon.Hand)
     ) {
         Row(
             modifier = Modifier
@@ -581,7 +589,9 @@ private fun GraphicOverviewItem(
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerHoverIcon(PointerIcon.Hand)
     ) {
         Row(
             modifier = Modifier
@@ -629,7 +639,9 @@ private fun RelatedTopicItem(
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerHoverIcon(PointerIcon.Hand)
     ) {
         Row(
             modifier = Modifier

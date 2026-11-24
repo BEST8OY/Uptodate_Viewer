@@ -33,7 +33,7 @@ fun GradeSheet(
 ) {
     ClinRefBottomSheet(
         onDismiss = onDismiss,
-        maxWidth = AdaptiveTokens.MaxSettingsContentWidth,
+        maxWidth = AdaptiveTokens.MaxSheetReadingWidth,
         containerColor = MaterialTheme.colorScheme.surface,
         showDivider = true,
         title = "Recommendation",

@@ -3,7 +3,6 @@ package com.clinref.app.ui.content
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.clinref.app.data.ContributorGroup
 import com.clinref.app.domain.ReadingPosition
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.FavoriteRepository
@@ -144,9 +143,9 @@ class ContentViewModel(
     }
 
     fun setThemeColors(colors: ThemeColors) {
-        val previous = _themeColors ?: ThemeColors.light()
+        val effectivePrevious = _themeColors ?: ThemeColors.light()
         _themeColors = colors
-        if (previous.isDark != colors.isDark) regenerateHtml()
+        if (effectivePrevious != colors) regenerateHtml()
     }
 
     /**
@@ -341,14 +340,6 @@ class ContentViewModel(
         _activeSheet.value = null
     }
 
-    fun dismissReferenceSheet() {
-        dismissSheet()
-    }
-
-    fun dismissGradeSheet() {
-        dismissSheet()
-    }
-
     fun jumpToReference(number: Int) {
         dismissSheet()
         scrollToSection("ref_$number")
@@ -359,7 +350,6 @@ class ContentViewModel(
         val meta = data["meta"]?.jsonObject
         val items = data["data"]?.jsonArray
 
-        val assetComponent = meta?.get("assetComponent")?.jsonPrimitive?.content
         val rawAssetType = meta?.get("assetType")?.jsonPrimitive?.content
             ?: items?.firstOrNull()?.jsonObject?.get("type")?.jsonPrimitive?.content
             ?: data["type"]?.jsonPrimitive?.content

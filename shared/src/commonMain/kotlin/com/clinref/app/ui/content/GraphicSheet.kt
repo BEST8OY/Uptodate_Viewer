@@ -75,7 +75,7 @@ fun GraphicSheet(
         onDismiss = onDismiss,
         modifier = modifier,
         heightFraction = 0.88f,
-        maxWidth = AdaptiveTokens.MaxCatalogListWidth,
+        maxWidth = AdaptiveTokens.MaxSheetWideWidth,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         showDragHandle = false,
         showDivider = true,

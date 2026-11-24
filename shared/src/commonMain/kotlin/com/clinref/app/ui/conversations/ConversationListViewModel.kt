@@ -2,7 +2,6 @@ package com.clinref.app.ui.conversations
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.clinref.app.data.local.entity.ConversationEntity
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.repository.ConversationRepository
@@ -53,7 +52,8 @@ class ConversationListViewModel(
             _uiState.update { it.copy(isLoading = true) }
             try {
                 conversationRepository.getAllConversations().collect { entities ->
-                    val currentSelected = _uiState.value.selectedIds
+                    val validIds = entities.mapTo(HashSet(entities.size)) { it.id }
+                    val currentSelected = _uiState.value.selectedIds.intersect(validIds)
                     val uiModels = entities.map { entity ->
                         val profile = try {
                             json.decodeFromString<PatientProfile>(entity.patientProfile)
@@ -80,6 +80,8 @@ class ConversationListViewModel(
                             filteredConversations = filtered,
                             pinnedConversations = pinned,
                             recentConversations = recent,
+                            selectedIds = currentSelected,
+                            isSelectionMode = currentSelected.isNotEmpty() && state.isSelectionMode,
                             isLoading = false
                         )
                     }

@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -55,7 +54,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
@@ -65,13 +63,13 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -79,7 +77,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -102,7 +99,8 @@ import com.clinref.app.domain.ai.AiProvider
 import com.clinref.app.domain.ai.DecisionMode
 import com.clinref.app.domain.ai.ProviderSettings
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.adaptive.LocalWindowWidthClass
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
+import com.clinref.app.ui.common.AdaptiveTopAppBar
 import com.clinref.app.ui.adaptive.WindowWidthClass
 import com.clinref.app.ui.common.BackHandler
 import kotlin.math.abs
@@ -124,10 +122,6 @@ fun AiSettingsScreen(
     val availableModels by viewModel.availableModels.collectAsStateWithLifecycle()
     val testResult by viewModel.testResult.collectAsStateWithLifecycle()
     val isSaving by viewModel.isSaving.collectAsStateWithLifecycle()
-
-    LaunchedEffect(Unit) {
-        viewModel.reload()
-    }
 
     AiSettingsContent(
         configuration = configuration,
@@ -182,6 +176,25 @@ fun AiSettingsContent(
     var showDecisionApiKey by rememberSaveable { mutableStateOf(false) }
     var showModelSheet by rememberSaveable { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+
+    var maxTokensText by rememberSaveable(configuration.provider) {
+        mutableStateOf(configuration.maxTokens.toString())
+    }
+    var lastSyncedMaxTokens by rememberSaveable(configuration.provider) {
+        mutableIntStateOf(configuration.maxTokens)
+    }
+
+    LaunchedEffect(configuration.maxTokens) {
+        if (configuration.maxTokens != lastSyncedMaxTokens) {
+            lastSyncedMaxTokens = configuration.maxTokens
+            maxTokensText = configuration.maxTokens.toString()
+        }
+    }
+
+    val parsedTokens = maxTokensText.toIntOrNull()
+    val isTokensOutOfRange = maxTokensText.isNotEmpty() && (parsedTokens == null || parsedTokens !in 256..131_072)
+    val isSaveEnabled = !isSaving && !isTokensOutOfRange && maxTokensText.isNotEmpty()
 
     BackHandler(enabled = showModelSheet) {
         showModelSheet = false
@@ -191,11 +204,12 @@ fun AiSettingsContent(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         topBar = {
-            MediumTopAppBar(
+            AdaptiveTopAppBar(
                 title = {
                     Text(
                         text = "AI Orchestration",
-                        style = MaterialTheme.typography.headlineMedium
+                        style = if (adaptiveInfo.isCompactHeight) MaterialTheme.typography.titleLarge
+                               else MaterialTheme.typography.headlineMedium
                     )
                 },
                 navigationIcon = {
@@ -224,7 +238,7 @@ fun AiSettingsContent(
                 ) {
                     Row(
                         modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxFormContentWidth)
+                            .widthIn(max = AdaptiveTokens.MaxFormWidth)
                             .fillMaxWidth()
                             .windowInsetsPadding(
                                 WindowInsets.safeDrawing
@@ -247,7 +261,7 @@ fun AiSettingsContent(
                             onClick = onSave,
                             modifier = Modifier.weight(1f).height(52.dp),
                             shape = ButtonDefaults.shape,
-                            enabled = !isSaving
+                            enabled = isSaveEnabled
                         ) {
                             Text("Save", style = MaterialTheme.typography.labelLarge)
                         }
@@ -266,7 +280,7 @@ fun AiSettingsContent(
         ) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxFormContentWidth)
+                    .widthIn(max = AdaptiveTokens.MaxFormWidth)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 12.dp),
@@ -430,21 +444,21 @@ fun AiSettingsContent(
                         }
 
                         // Token Limits
-                        var maxTokensText by rememberSaveable(configuration.provider) {
-                            mutableStateOf(configuration.maxTokens.toString())
-                        }
-                        LaunchedEffect(configuration.maxTokens) {
-                            if (maxTokensText.toIntOrNull() != configuration.maxTokens && maxTokensText.isNotEmpty()) {
-                                maxTokensText = configuration.maxTokens.toString()
-                            }
-                        }
                         OutlinedTextField(
                             value = maxTokensText,
                             onValueChange = { raw ->
-                                val digitsOnly = raw.filter { it.isDigit() }
+                                val digitsOnly = raw.filter(Char::isDigit).take(6)
                                 maxTokensText = digitsOnly
-                                digitsOnly.toIntOrNull()?.coerceIn(256, 131_072)?.let(onUpdateMaxTokens)
+                                val parsed = digitsOnly.toIntOrNull()
+                                if (parsed != null && parsed in 256..131_072) {
+                                    lastSyncedMaxTokens = parsed
+                                    onUpdateMaxTokens(parsed)
+                                }
                             },
+                            isError = isTokensOutOfRange,
+                            supportingText = if (isTokensOutOfRange) {
+                                { Text("Enter a value between 256 and 131,072") }
+                            } else null,
                             label = { Text("Max Output Tokens") },
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.medium,
@@ -462,12 +476,30 @@ fun AiSettingsContent(
                                 OpenAISettingsPanel(settings, onUpdate = onUpdateProviderSettings)
                             is ProviderSettings.Anthropic ->
                                 AnthropicSettingsPanel(settings, onUpdate = onUpdateProviderSettings)
-                            is ProviderSettings.MistralAI ->
-                                MistralAISettingsPanel(settings, onUpdate = onUpdateProviderSettings)
-                            is ProviderSettings.OpenRouter ->
-                                OpenRouterSettingsPanel(settings, onUpdate = onUpdateProviderSettings)
-                            is ProviderSettings.Ollama ->
-                                OllamaSettingsPanel()
+                            is ProviderSettings.MistralAI -> {
+                                ProviderSettingsHeader("Mistral AI Settings")
+                                Text(
+                                    text = "Mistral AI models utilize the standard gateway endpoint and inference parameters (Temperature and Max Output Tokens) configured above.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            is ProviderSettings.OpenRouter -> {
+                                ProviderSettingsHeader("OpenRouter Settings")
+                                Text(
+                                    text = "OpenRouter routes inference across 300+ upstream LLMs using your chosen model identifier. Common parameters like Temperature and Max Output Tokens are configured above.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            is ProviderSettings.Ollama -> {
+                                ProviderSettingsHeader("Ollama Settings")
+                                Text(
+                                    text = "Ollama runs open-weights models locally via your local server endpoint configured above.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -765,8 +797,8 @@ private fun ProviderSelectionGrid(
     onProviderSelected: (AiProvider) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val widthClass = LocalWindowWidthClass.current
-    val columns = if (widthClass == WindowWidthClass.EXPANDED) 3 else 2
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val columns = if (adaptiveInfo.widthClass == WindowWidthClass.EXPANDED) 3 else 2
 
     val providers = remember { AiProvider.entries }
     val chunkedProviders = remember(columns) { providers.chunked(columns) }

@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -37,6 +39,8 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -44,19 +48,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,7 +77,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
@@ -93,9 +98,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.clinref.app.domain.ai.TopicRef
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
+import com.clinref.app.ui.common.AdaptiveTopAppBar
 import com.clinref.app.ui.common.BackHandler
 import com.clinref.app.ui.common.ScrollToBottomFAB
 import com.clinref.app.ui.common.setPlainText
@@ -188,12 +195,13 @@ fun ChatScreen(
 
     val handleNavigateToContent: (String, String?) -> Unit = remember {
         { topicId, sectionId ->
+            inArticleGraphicId = null
             activeOverlay = ChatOverlay.Article(topicId, sectionId)
         }
     }
     val handleGraphicSelected: (String) -> Unit = remember {
         { graphicId ->
-            activeOverlay = ChatOverlay.Graphic(graphicId.removePrefix("Graphic-"))
+            activeOverlay = ChatOverlay.Graphic(normalizeGraphicId(graphicId))
         }
     }
 
@@ -289,9 +297,12 @@ fun ChatScreen(
             }
     }
 
-    // 7. Dismiss keyboard when overlays activate
-    LaunchedEffect(isOverlayActive) {
-        if (isOverlayActive) {
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val isSupportingPaneActive = adaptiveInfo.supportsSupportingPane && activeOverlay is ChatOverlay.Article
+
+    // 7. Dismiss keyboard when overlays activate (modal mode only)
+    LaunchedEffect(isOverlayActive, isSupportingPaneActive) {
+        if (isOverlayActive && !isSupportingPaneActive) {
             focusManager.clearFocus()
             keyboardController?.hide()
         }
@@ -314,81 +325,119 @@ fun ChatScreen(
         keyboardController?.hide()
     }
 
-    Scaffold(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection)
-            .onPreviewKeyEvent { event ->
+            .onKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
-                    if (editingUserMessageId != null) {
-                        editingUserMessageId = null
-                        textFieldState.clearText()
-                        focusManager.clearFocus()
-                        true
-                    } else false
+                    when {
+                        inArticleGraphicId != null -> {
+                            inArticleGraphicId = null
+                            true
+                        }
+                        activeOverlay != null -> {
+                            activeOverlay = null
+                            true
+                        }
+                        editingUserMessageId != null -> {
+                            editingUserMessageId = null
+                            textFieldState.clearText()
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                            true
+                        }
+                        else -> false
+                    }
                 } else false
-            },
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-        containerColor = MaterialTheme.colorScheme.surface,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            MediumFlexibleTopAppBar(
-                title = {
-                    Text(
-                        text = conversationTitle.ifBlank { "Clinical Workspace" },
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+            }
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .weight(if (isSupportingPaneActive) 0.48f else 1f)
+                    .fillMaxHeight()
+                    .consumeWindowInsets(
+                        if (isSupportingPaneActive) WindowInsets.safeDrawing.only(WindowInsetsSides.End)
+                        else WindowInsets(0, 0, 0, 0)
                     )
-                },
-                subtitle = {
-                    Text(
-                        text = "${config.provider.displayName} · ${config.model.ifBlank { "Default" }}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
+            ) {
+                Scaffold(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    snackbarHost = { SnackbarHost(snackbarHostState) },
+                    topBar = {
+                        AdaptiveTopAppBar(
+                            title = {
+                                Text(
+                                    text = conversationTitle.ifBlank { "Clinical Workspace" },
+                                    style = if (adaptiveInfo.isCompactHeight) {
+                                        MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    } else {
+                                        MaterialTheme.typography.titleLarge.copy(
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            subtitle = {
+                                Text(
+                                    text = "${config.provider.displayName} · ${config.model.ifBlank { "Default" }}",
+                                    style = if (adaptiveInfo.isCompactHeight) {
+                                        MaterialTheme.typography.bodySmall
+                                    } else {
+                                        MaterialTheme.typography.bodyMedium
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            navigationIcon = {
+                                IconButton(onClick = onBack) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            },
+                            actions = {
+                                if (onNavigateToSettings != null) {
+                                    IconButton(
+                                        onClick = onNavigateToSettings,
+                                        modifier = Modifier.minimumInteractiveComponentSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = "AI Settings",
+                                            tint = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            },
+                            scrollBehavior = scrollBehavior,
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                            )
                         )
                     }
-                },
-                actions = {
-                    if (onNavigateToSettings != null) {
-                        IconButton(
-                            onClick = onNavigateToSettings,
-                            modifier = Modifier.minimumInteractiveComponentSize()
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "AI Settings",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                )
-            )
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .consumeWindowInsets(padding)
-                .then(if (!isOverlayActive) Modifier.imePadding() else Modifier)
-        ) {
-            if (isLoadingConversation) {
+                ) { padding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .consumeWindowInsets(padding)
+                            .then(if (!isOverlayActive || isSupportingPaneActive) Modifier.imePadding() else Modifier)
+                    ) {
+                if (isLoadingConversation) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -424,7 +473,7 @@ fun ChatScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxChatInputWidth)
+                            .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
                             .fillMaxWidth()
                             .suppressTransientSelectAllContextMenu(),
                         contentPadding = PaddingValues(
@@ -529,35 +578,15 @@ fun ChatScreen(
                 }
 
             // Edit-mode scrim
-            AnimatedVisibility(
+            EditModeScrim(
                 visible = editingUserMessageId != null,
-                enter = fadeIn(animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()),
-                exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec())
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            editingUserMessageId = null
-                            textFieldState.clearText()
-                            focusManager.clearFocus()
-                            keyboardController?.hide()
-                        }
-                        .semantics {
-                            onClick(label = "Cancel editing") {
-                                editingUserMessageId = null
-                                textFieldState.clearText()
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                                true
-                            }
-                        }
-                )
-            }
+                onDismiss = {
+                    editingUserMessageId = null
+                    textFieldState.clearText()
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
+            )
 
             Column(
                 modifier = Modifier
@@ -565,6 +594,47 @@ fun ChatScreen(
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (editingUserMessageId != null) {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Editing previous question",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            IconButton(
+                                onClick = {
+                                    editingUserMessageId = null
+                                    textFieldState.clearText()
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel edit",
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Remains visible during generation whenever the clinician has scrolled up
                 ScrollToBottomFAB(
                     visible = scrollController.showScrollToBottomFab && editingUserMessageId == null,
@@ -620,68 +690,128 @@ fun ChatScreen(
             }
         }
     }
+}
 
-    when (val overlay = activeOverlay) {
-        is ChatOverlay.Article -> {
-            val articleStoreOwner = remember(overlay.topicId) {
-                object : ViewModelStoreOwner {
-                    override val viewModelStore = ViewModelStore()
-                }
-            }
-            DisposableEffect(articleStoreOwner) {
-                onDispose {
-                    articleStoreOwner.viewModelStore.clear()
-                }
-            }
-
-            fun dismissArticleOverlay() {
-                activeOverlay = null
-                inArticleGraphicId = null
-            }
-
-            BackHandler(enabled = true) {
-                dismissArticleOverlay()
-            }
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(100f),
-                color = MaterialTheme.colorScheme.background
-            ) {
-                CompositionLocalProvider(
-                    LocalViewModelStoreOwner provides articleStoreOwner
+            if (isSupportingPaneActive) {
+                VerticalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(0.52f)
+                        .fillMaxHeight()
+                        .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
                 ) {
-                    ContentScreen(
-                        topicId = overlay.topicId,
-                        sectionId = overlay.sectionId,
-                        isModal = true,
-                        onBack = ::dismissArticleOverlay,
-                        onHome = {
-                            dismissArticleOverlay()
-                            onNavigateToHome()
+                    ArticleOverlayPane(
+                        overlay = activeOverlay as ChatOverlay.Article,
+                        inArticleGraphicId = inArticleGraphicId,
+                        onInArticleGraphicSelected = { inArticleGraphicId = normalizeGraphicId(it) },
+                        onDismissInArticleGraphic = { inArticleGraphicId = null },
+                        onDismiss = {
+                            activeOverlay = null
+                            inArticleGraphicId = null
                         },
-                        onGraphicSelected = { graphicId ->
-                            inArticleGraphicId = normalizeGraphicId(graphicId)
+                        onNavigateToHome = {
+                            activeOverlay = null
+                            inArticleGraphicId = null
+                            onNavigateToHome()
                         }
                     )
-
-                    inArticleGraphicId?.let { graphicId ->
-                        GraphicSheet(
-                            graphicId = graphicId,
-                            onDismiss = { inArticleGraphicId = null }
-                        )
-                    }
                 }
             }
         }
-        is ChatOverlay.Graphic -> {
-            GraphicSheet(
-                graphicId = overlay.graphicId,
-                onDismiss = { activeOverlay = null }
-            )
+
+        if (!isSupportingPaneActive) {
+            when (val overlay = activeOverlay) {
+                is ChatOverlay.Article -> {
+                    ArticleOverlayPane(
+                        overlay = overlay,
+                        inArticleGraphicId = inArticleGraphicId,
+                        onInArticleGraphicSelected = { inArticleGraphicId = normalizeGraphicId(it) },
+                        onDismissInArticleGraphic = { inArticleGraphicId = null },
+                        onDismiss = {
+                            activeOverlay = null
+                            inArticleGraphicId = null
+                        },
+                        onNavigateToHome = {
+                            activeOverlay = null
+                            inArticleGraphicId = null
+                            onNavigateToHome()
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(100f)
+                    )
+                }
+                is ChatOverlay.Graphic -> {
+                    GraphicSheet(
+                        graphicId = overlay.graphicId,
+                        onDismiss = { activeOverlay = null }
+                    )
+                }
+                null -> {}
+            }
         }
-        null -> {}
+    }
+}
+
+@Composable
+private fun ArticleOverlayPane(
+    overlay: ChatOverlay.Article,
+    inArticleGraphicId: String?,
+    onInArticleGraphicSelected: (String) -> Unit,
+    onDismissInArticleGraphic: () -> Unit,
+    onDismiss: () -> Unit,
+    onNavigateToHome: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    key(overlay.topicId) {
+        val articleStoreOwner = remember(overlay.topicId) {
+            object : ViewModelStoreOwner {
+                override val viewModelStore = ViewModelStore()
+            }
+        }
+        DisposableEffect(articleStoreOwner) {
+            onDispose {
+                articleStoreOwner.viewModelStore.clear()
+            }
+        }
+
+        BackHandler(enabled = true) {
+            if (inArticleGraphicId != null) {
+                onDismissInArticleGraphic()
+            } else {
+                onDismiss()
+            }
+        }
+
+        Surface(
+            modifier = modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            CompositionLocalProvider(
+                LocalViewModelStoreOwner provides articleStoreOwner
+            ) {
+                ContentScreen(
+                    topicId = overlay.topicId,
+                    sectionId = overlay.sectionId,
+                    isModal = true,
+                    onBack = onDismiss,
+                    onHome = {
+                        onDismiss()
+                        onNavigateToHome()
+                    },
+                    onGraphicSelected = onInArticleGraphicSelected
+                )
+
+                inArticleGraphicId?.let { graphicId ->
+                    GraphicSheet(
+                        graphicId = graphicId,
+                        onDismiss = onDismissInArticleGraphic
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -793,4 +923,33 @@ private fun Modifier.suppressTransientSelectAllContextMenu(): Modifier {
                 else -> true
             }
         }
+}
+
+@Composable
+private fun EditModeScrim(
+    visible: Boolean,
+    onDismiss: () -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec()),
+        exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec())
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                )
+                .semantics {
+                    onClick(label = "Cancel editing") {
+                        onDismiss()
+                        true
+                    }
+                }
+        )
+    }
 }

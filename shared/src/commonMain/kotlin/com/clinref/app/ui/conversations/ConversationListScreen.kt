@@ -3,7 +3,6 @@ package com.clinref.app.ui.conversations
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -31,20 +30,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
@@ -70,7 +70,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButtonMenu
 import androidx.compose.material3.FloatingActionButtonMenuItem
 import androidx.compose.material3.Icon
@@ -102,15 +101,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.key.Key
@@ -129,17 +127,21 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 import com.clinref.app.ui.common.BackHandler
+import com.clinref.app.ui.common.DismissAction
+import com.clinref.app.ui.common.SegmentedDismissBackground
 import com.clinref.app.ui.common.bindReselectScrollToTop
+import com.clinref.app.ui.common.clipDuringSwipe
 import com.clinref.app.ui.common.showUndoSnackbar
 import com.clinref.app.ui.navigation.AiRoute
 import com.clinref.app.util.formatTimestamp
@@ -284,7 +286,7 @@ fun ConversationListContent(
     modifier: Modifier = Modifier
 ) {
     val motionScheme = MaterialTheme.motionScheme
-    val scope = rememberCoroutineScope()
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
 
     val textFieldState = rememberTextFieldState(initialText = uiState.searchQuery)
 
@@ -366,273 +368,283 @@ fun ConversationListContent(
     val fabBottomPadding = rememberContentBottomPadding(0.dp)
     val listBottomPadding = rememberContentBottomPadding(88.dp)
 
-    Scaffold(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("conversation_list_screen")
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    val isModifier = event.isCtrlPressed || event.isMetaPressed
-                    when {
-                        isModifier && event.key == Key.N && !uiState.isSelectionMode &&
-                            !isFabMenuExpanded && !uiState.showDeleteConfirmationDialog &&
-                            sessionToRename == null && !showPatientProfileSheet -> {
-                            showPatientProfileSheet = true
-                            true
-                        }
-                        event.key == Key.Escape -> {
-                            when {
-                                uiState.isSelectionMode -> {
-                                    onToggleSelectionMode()
-                                    true
-                                }
-                                isFabMenuExpanded -> {
-                                    isFabMenuExpanded = false
-                                    true
-                                }
-                                textFieldState.text.isNotEmpty() -> {
-                                    textFieldState.clearText()
-                                    true
-                                }
-                                else -> false
+    Box(modifier = modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("conversation_list_screen")
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown) {
+                        val isModifier = event.isCtrlPressed || event.isMetaPressed
+                        when {
+                            isModifier && event.key == Key.N && !uiState.isSelectionMode &&
+                                !isFabMenuExpanded && !uiState.showDeleteConfirmationDialog &&
+                                sessionToRename == null && !showPatientProfileSheet -> {
+                                showPatientProfileSheet = true
+                                true
                             }
+                            event.key == Key.Escape -> {
+                                when {
+                                    uiState.isSelectionMode -> {
+                                        onClearSelectionMode()
+                                        true
+                                    }
+                                    isFabMenuExpanded -> {
+                                        isFabMenuExpanded = false
+                                        true
+                                    }
+                                    textFieldState.text.isNotEmpty() -> {
+                                        textFieldState.clearText()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
+                            else -> false
                         }
-                        else -> false
-                    }
-                } else false
-            },
-        contentWindowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-        containerColor = MaterialTheme.colorScheme.surface,
-        snackbarHost = {
-            Box(modifier = Modifier.padding(bottom = bottomInsetPadding)) {
-                SnackbarHost(hostState = snackbarHostState)
-            }
-        },
-        topBar = {
-            ClinicalMessengerHeader(
-                uiState = uiState,
-                textFieldState = textFieldState,
-                onToggleSelectionMode = onToggleSelectionMode,
-                onSelectAll = onSelectAll,
-                onTogglePinSelected = onTogglePinSelected,
-                onDeleteSelected = onShowDeleteConfirmation,
-                onRenameSingleSelected = {
-                    val singleId = uiState.selectedIds.singleOrNull()
-                    if (singleId != null) {
-                        val session = uiState.conversations.find { it.id == singleId }
-                        onSessionToRenameChange(session)
-                    }
+                    } else false
                 },
-                onOpenSettings = onOpenSettings
-            )
-        },
-        floatingActionButton = {
-            AnimatedVisibility(
-                visible = !uiState.isSelectionMode,
-                modifier = Modifier.padding(bottom = fabBottomPadding),
-                enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
-                    fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
-                exit = scaleOut(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
-                ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
+            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+            containerColor = MaterialTheme.colorScheme.surface,
+            snackbarHost = {
+                Box(modifier = Modifier.padding(bottom = bottomInsetPadding)) {
+                    SnackbarHost(hostState = snackbarHostState)
+                }
+            },
+            topBar = {
+                ClinicalMessengerHeader(
+                    uiState = uiState,
+                    textFieldState = textFieldState,
+                    onToggleSelectionMode = onToggleSelectionMode,
+                    onSelectAll = onSelectAll,
+                    onTogglePinSelected = onTogglePinSelected,
+                    onDeleteSelected = onShowDeleteConfirmation,
+                    onRenameSingleSelected = {
+                        val singleId = uiState.selectedIds.singleOrNull()
+                        if (singleId != null) {
+                            val session = uiState.conversations.find { it.id == singleId }
+                            onSessionToRenameChange(session)
+                        }
+                    },
+                    onOpenSettings = onOpenSettings
+                )
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding),
+                contentAlignment = Alignment.TopCenter
             ) {
-                FloatingActionButtonMenu(
-                    expanded = isFabMenuExpanded,
-                    button = {
-                        ToggleFloatingActionButton(
-                            checked = isFabMenuExpanded,
-                            onCheckedChange = { isFabMenuExpanded = !isFabMenuExpanded },
-                            containerColor = ToggleFloatingActionButtonDefaults.containerColor(
-                                initialColor = MaterialTheme.colorScheme.primary,
-                                finalColor = MaterialTheme.colorScheme.primaryContainer
-                            ),
-                            modifier = Modifier
-                                .testTag("new_consultation_fab")
-                                .pointerHoverIcon(PointerIcon.Hand)
+                when {
+                    uiState.isLoading -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            val imageVector by remember {
-                                derivedStateOf {
-                                    if (checkedProgress > 0.5f) Icons.Default.Close else Icons.Default.Add
-                                }
-                            }
-                            Icon(
-                                painter = rememberVectorPainter(imageVector),
-                                contentDescription = if (isFabMenuExpanded) "Close menu" else "New Consultation",
-                                modifier = Modifier.animateIcon(
-                                    checkedProgress = { checkedProgress },
-                                    color = ToggleFloatingActionButtonDefaults.iconColor(
-                                        initialColor = MaterialTheme.colorScheme.onPrimary,
-                                        finalColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                )
-                            )
+                            CircularProgressIndicator(strokeWidth = 2.5.dp)
                         }
                     }
-                ) {
-                    FloatingActionButtonMenuItem(
-                        onClick = {
-                            isFabMenuExpanded = false
-                            showPatientProfileSheet = true
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.PersonAdd,
-                                contentDescription = null
-                            )
-                        },
-                        text = { Text("Patient Case") },
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .testTag("fab_with_profile")
-                            .pointerHoverIcon(PointerIcon.Hand)
-                    )
 
-                    FloatingActionButtonMenuItem(
-                        onClick = {
-                            isFabMenuExpanded = false
-                            onNewSessionClick()
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.Bolt,
-                                contentDescription = null
-                            )
-                        },
-                        text = { Text("Quick Consultation") },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier
-                            .testTag("fab_fast_consultation")
-                            .pointerHoverIcon(PointerIcon.Hand)
-                    )
+                    uiState.filteredConversations.isEmpty() -> {
+                        EmptySessionsView(
+                            searchQuery = uiState.searchQuery,
+                            onClearSearch = { textFieldState.clearText() },
+                            bottomInsetPadding = bottomInsetPadding
+                        )
+                    }
+
+                    else -> {
+                        val showSectionHeaders = uiState.pinnedConversations.isNotEmpty() &&
+                            uiState.recentConversations.isNotEmpty()
+
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
+                                .fillMaxWidth(),
+                            contentPadding = PaddingValues(top = 4.dp, bottom = listBottomPadding),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Section 1: Pinned Consultations
+                            if (uiState.pinnedConversations.isNotEmpty()) {
+                                if (showSectionHeaders) {
+                                    item(key = "header_pinned") {
+                                        SectionHeader(
+                                            title = "PINNED",
+                                            count = uiState.pinnedConversations.size,
+                                            icon = Icons.Default.PushPin
+                                        )
+                                    }
+                                }
+
+                                items(
+                                    items = uiState.pinnedConversations,
+                                    key = { it.id }
+                                ) { conversation ->
+                                    ConversationSwipeableItem(
+                                        conversation = conversation,
+                                        isSelectionMode = uiState.isSelectionMode,
+                                        isSelected = conversation.id in uiState.selectedIds,
+                                        onConversationSelected = onConversationSelected,
+                                        onPinClick = { onPinClick(conversation.id) },
+                                        onDeleteClick = { onDeleteSingleClick(conversation.id) },
+                                        onToggleItemSelection = { onToggleItemSelection(conversation.id) },
+                                        onEnterSelectionMode = {
+                                            onToggleSelectionMode()
+                                            onToggleItemSelection(conversation.id)
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Section 2: Recent Consultations
+                            if (uiState.recentConversations.isNotEmpty()) {
+                                if (showSectionHeaders) {
+                                    item(key = "header_recent") {
+                                        SectionHeader(
+                                            title = "RECENT SESSIONS",
+                                            count = uiState.recentConversations.size,
+                                            icon = Icons.Default.History,
+                                            modifier = Modifier.padding(top = 4.dp)
+                                        )
+                                    }
+                                }
+
+                                items(
+                                    items = uiState.recentConversations,
+                                    key = { it.id }
+                                ) { conversation ->
+                                    ConversationSwipeableItem(
+                                        conversation = conversation,
+                                        isSelectionMode = uiState.isSelectionMode,
+                                        isSelected = conversation.id in uiState.selectedIds,
+                                        onConversationSelected = onConversationSelected,
+                                        onPinClick = { onPinClick(conversation.id) },
+                                        onDeleteClick = { onDeleteSingleClick(conversation.id) },
+                                        onToggleItemSelection = { onToggleItemSelection(conversation.id) },
+                                        onEnterSelectionMode = {
+                                            onToggleSelectionMode()
+                                            onToggleItemSelection(conversation.id)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .consumeWindowInsets(innerPadding),
-            contentAlignment = Alignment.TopCenter
+
+        // ONE seamless AnimatedVisibility scrim covering both TopAppBar and content
+        AnimatedVisibility(
+            visible = isFabMenuExpanded,
+            enter = fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
+            exit = fadeOut(animationSpec = motionScheme.fastEffectsSpec()),
+            modifier = Modifier.fillMaxSize()
         ) {
-            when {
-                uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(strokeWidth = 2.5.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { isFabMenuExpanded = false }
+                    .semantics {
+                        onClick(label = "Dismiss consultation menu") {
+                            isFabMenuExpanded = false
+                            true
+                        }
                     }
-                }
+            )
+        }
 
-                uiState.filteredConversations.isEmpty() -> {
-                    EmptySessionsView(
-                        searchQuery = uiState.searchQuery,
-                        onClearSearch = { textFieldState.clearText() }
-                    )
-                }
-
-                else -> {
-                    val showSectionHeaders = uiState.pinnedConversations.isNotEmpty() &&
-                        uiState.recentConversations.isNotEmpty()
-
-                    LazyColumn(
-                        state = listState,
+        // Speed Dial FAB Menu hoisted above the scrim
+        AnimatedVisibility(
+            visible = !uiState.isSelectionMode,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = fabBottomPadding),
+            enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
+                fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
+            exit = scaleOut(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
+        ) {
+            FloatingActionButtonMenu(
+                expanded = isFabMenuExpanded,
+                button = {
+                    ToggleFloatingActionButton(
+                        checked = isFabMenuExpanded,
+                        onCheckedChange = { isFabMenuExpanded = !isFabMenuExpanded },
+                        containerColor = ToggleFloatingActionButtonDefaults.containerColor(
+                            initialColor = MaterialTheme.colorScheme.primary,
+                            finalColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
                         modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
-                            .fillMaxWidth(),
-                        contentPadding = PaddingValues(top = 4.dp, bottom = listBottomPadding),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .testTag("new_consultation_fab")
+                            .pointerHoverIcon(PointerIcon.Hand)
                     ) {
-                        // Section 1: Pinned Consultations
-                        if (uiState.pinnedConversations.isNotEmpty()) {
-                            if (showSectionHeaders) {
-                                item(key = "header_pinned") {
-                                    SectionHeader(
-                                        title = "PINNED",
-                                        count = uiState.pinnedConversations.size,
-                                        icon = Icons.Default.PushPin
-                                    )
-                                }
-                            }
-
-                            items(
-                                items = uiState.pinnedConversations,
-                                key = { it.id }
-                            ) { conversation ->
-                                ConversationSwipeableItem(
-                                    conversation = conversation,
-                                    isSelectionMode = uiState.isSelectionMode,
-                                    isSelected = conversation.id in uiState.selectedIds,
-                                    onConversationSelected = onConversationSelected,
-                                    onPinClick = { onPinClick(conversation.id) },
-                                    onDeleteClick = { onDeleteSingleClick(conversation.id) },
-                                    onToggleItemSelection = { onToggleItemSelection(conversation.id) },
-                                    onEnterSelectionMode = {
-                                        onToggleSelectionMode()
-                                        onToggleItemSelection(conversation.id)
-                                    }
-                                )
+                        val imageVector by remember {
+                            derivedStateOf {
+                                if (checkedProgress > 0.5f) Icons.Default.Close else Icons.Default.Add
                             }
                         }
-
-                        // Section 2: Recent Consultations
-                        if (uiState.recentConversations.isNotEmpty()) {
-                            if (showSectionHeaders) {
-                                item(key = "header_recent") {
-                                    SectionHeader(
-                                        title = "RECENT SESSIONS",
-                                        count = uiState.recentConversations.size,
-                                        icon = Icons.Default.History,
-                                        modifier = Modifier.padding(top = 4.dp)
-                                    )
-                                }
-                            }
-
-                            items(
-                                items = uiState.recentConversations,
-                                key = { it.id }
-                            ) { conversation ->
-                                ConversationSwipeableItem(
-                                    conversation = conversation,
-                                    isSelectionMode = uiState.isSelectionMode,
-                                    isSelected = conversation.id in uiState.selectedIds,
-                                    onConversationSelected = onConversationSelected,
-                                    onPinClick = { onPinClick(conversation.id) },
-                                    onDeleteClick = { onDeleteSingleClick(conversation.id) },
-                                    onToggleItemSelection = { onToggleItemSelection(conversation.id) },
-                                    onEnterSelectionMode = {
-                                        onToggleSelectionMode()
-                                        onToggleItemSelection(conversation.id)
-                                    }
+                        Icon(
+                            painter = rememberVectorPainter(imageVector),
+                            contentDescription = if (isFabMenuExpanded) "Close menu" else "New Consultation",
+                            modifier = Modifier.animateIcon(
+                                checkedProgress = { checkedProgress },
+                                color = ToggleFloatingActionButtonDefaults.iconColor(
+                                    initialColor = MaterialTheme.colorScheme.onPrimary,
+                                    finalColor = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
-                            }
-                        }
+                            )
+                        )
                     }
                 }
-            }
-
-            // Dismissible Scrim when Speed Dial is expanded
-            if (isFabMenuExpanded) {
-                Box(
+            ) {
+                FloatingActionButtonMenuItem(
+                    onClick = {
+                        isFabMenuExpanded = false
+                        showPatientProfileSheet = true
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.PersonAdd,
+                            contentDescription = null
+                        )
+                    },
+                    text = { Text("Patient Case") },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { isFabMenuExpanded = false }
-                        .semantics {
-                            onClick(label = "Dismiss consultation menu") {
-                                isFabMenuExpanded = false
-                                true
-                            }
-                        }
+                        .testTag("fab_with_profile")
+                        .pointerHoverIcon(PointerIcon.Hand)
+                )
+
+                FloatingActionButtonMenuItem(
+                    onClick = {
+                        isFabMenuExpanded = false
+                        onNewSessionClick()
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.Bolt,
+                            contentDescription = null
+                        )
+                    },
+                    text = { Text("Quick Consultation") },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier
+                        .testTag("fab_fast_consultation")
+                        .pointerHoverIcon(PointerIcon.Hand)
                 )
             }
         }
@@ -656,6 +668,7 @@ private fun ClinicalMessengerHeader(
     modifier: Modifier = Modifier
 ) {
     val motionScheme = MaterialTheme.motionScheme
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
 
     if (uiState.isSelectionMode) {
         TopAppBar(
@@ -778,9 +791,9 @@ private fun ClinicalMessengerHeader(
 
             Surface(
                 modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxCatalogListWidth)
+                    .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                    .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 2.dp),
                 shape = MaterialTheme.shapes.extraLarge,
                 color = searchContainerColor,
                 border = BorderStroke(if (isSearchFocused) 1.5.dp else 1.dp, animatedBorderColor)
@@ -803,6 +816,7 @@ private fun ClinicalMessengerHeader(
                     Spacer(modifier = Modifier.width(8.dp))
                     TextField(
                         state = textFieldState,
+                        lineLimits = TextFieldLineLimits.SingleLine,
                         placeholder = {
                             Text(
                                 text = "Search consultations, conditions, topics...",
@@ -866,10 +880,11 @@ private fun SectionHeader(
     icon: ImageVector,
     modifier: Modifier = Modifier
 ) {
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 4.dp),
+            .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -914,19 +929,35 @@ private fun LazyItemScope.ConversationSwipeableItem(
     modifier: Modifier = Modifier
 ) {
     val motionScheme = MaterialTheme.motionScheme
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
     val dismissState = rememberSwipeToDismissBoxState()
 
     LaunchedEffect(conversation.id, conversation.isPinned) {
         dismissState.snapTo(SwipeToDismissBoxValue.Settled)
     }
 
+    val shape = MaterialTheme.shapes.large
+    val outerClipPath = remember { Path() }
+
+    LaunchedEffect(isSelectionMode) {
+        if (isSelectionMode && dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            dismissState.reset()
+        }
+    }
+
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = !isSelectionMode,
         enableDismissFromEndToStart = !isSelectionMode,
+        gesturesEnabled = !isSelectionMode,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = adaptiveInfo.horizontalMargin)
+            .clipDuringSwipe(
+                dismissState = dismissState,
+                shape = shape,
+                reusePath = outerClipPath,
+            )
             .animateItem(
                 fadeInSpec = motionScheme.fastEffectsSpec(),
                 fadeOutSpec = motionScheme.fastEffectsSpec(),
@@ -940,58 +971,22 @@ private fun LazyItemScope.ConversationSwipeableItem(
             }
         },
         backgroundContent = {
-            val direction = dismissState.dismissDirection
-            val isStartToEnd = direction == SwipeToDismissBoxValue.StartToEnd
-            val color by animateColorAsState(
-                targetValue = when (direction) {
-                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
-                    else -> Color.Transparent
-                },
-                label = "swipeBg"
+            SegmentedDismissBackground(
+                dismissState = dismissState,
+                shape = shape,
+                startAction = DismissAction(
+                    label = if (conversation.isPinned) "Unpin" else "Pin",
+                    icon = Icons.Default.PushPin,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+                endAction = DismissAction(
+                    label = "Delete",
+                    icon = Icons.Default.Delete,
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                )
             )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(MaterialTheme.shapes.large)
-                    .background(color)
-                    .padding(horizontal = 20.dp),
-                contentAlignment = if (isStartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            ) {
-                if (isStartToEnd) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PushPin,
-                            contentDescription = if (conversation.isPinned) "Unpin" else "Pin",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = if (conversation.isPinned) "Unpin" else "Pin",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                } else if (direction == SwipeToDismissBoxValue.EndToStart) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "Delete",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete consultation",
-                            tint = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
-            }
         },
         content = {
             ClinicalSessionCard(
@@ -1005,6 +1000,8 @@ private fun LazyItemScope.ConversationSwipeableItem(
                     }
                 },
                 onToggleSelect = onToggleItemSelection,
+                onPinClick = onPinClick,
+                onDeleteClick = onDeleteClick,
                 modifier = Modifier.testTag("conversation_card_${conversation.id}")
             )
         }
@@ -1024,9 +1021,12 @@ private fun ClinicalSessionCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleSelect: () -> Unit,
+    onPinClick: () -> Unit,
+    onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val profile = conversation.patientProfile
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
 
     val containerColor = when {
         isSelected -> MaterialTheme.colorScheme.primaryContainer
@@ -1068,7 +1068,6 @@ private fun ClinicalSessionCard(
                     conversation = conversation,
                     isSelectionMode = isSelectionMode,
                     isSelected = isSelected,
-                    onToggleSelect = onToggleSelect
                 )
 
                 Column(modifier = Modifier.weight(1f)) {
@@ -1091,7 +1090,35 @@ private fun ClinicalSessionCard(
                     }
                 }
 
-                if (conversation.isPinned) {
+                if (adaptiveInfo.isExpanded && !isSelectionMode) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(
+                            onClick = onPinClick,
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PushPin,
+                                contentDescription = if (conversation.isPinned) "Unpin" else "Pin",
+                                tint = if (conversation.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onDeleteClick,
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete consultation",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else if (conversation.isPinned) {
                     Icon(
                         imageVector = Icons.Default.PushPin,
                         contentDescription = "Pinned",
@@ -1157,7 +1184,6 @@ private fun ClinicalDemographicAvatar(
     conversation: ConversationUiModel,
     isSelectionMode: Boolean,
     isSelected: Boolean,
-    onToggleSelect: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (isSelectionMode) {
@@ -1288,6 +1314,7 @@ private fun RenameSessionDialog(
 private fun EmptySessionsView(
     searchQuery: String,
     onClearSearch: () -> Unit = {},
+    bottomInsetPadding: Dp = 0.dp,
     modifier: Modifier = Modifier
 ) {
     val isSearch = searchQuery.isNotBlank()
@@ -1302,7 +1329,9 @@ private fun EmptySessionsView(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(32.dp)
+            .padding(bottom = bottomInsetPadding),
         contentAlignment = Alignment.Center
     ) {
         Column(

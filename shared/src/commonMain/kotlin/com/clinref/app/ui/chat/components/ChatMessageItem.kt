@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.domain.ai.TopicRef
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.chat.MessageUiModel
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
@@ -85,9 +86,7 @@ fun ChatMessageItem(
             )
         } else {
             Column(
-                modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxChatAssistantWidth)
-                    .fillMaxWidth()
+                modifier = Modifier.fillMaxWidth()
             ) {
                 if (isStreaming && streamingState != null) {
                     ChatCardOrchestrationHeader(
@@ -200,17 +199,19 @@ private fun UserMessageBubble(
 ) {
     val bubbleColor = MaterialTheme.colorScheme.surfaceContainerHighest
     val bubbleTextColor = MaterialTheme.colorScheme.onSurface
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val startPadding = if (adaptiveInfo.isCompact) 48.dp else 72.dp
 
     var isExpanded by remember(message.id) { mutableStateOf(false) }
     var hasOverflow by remember(message.id) { mutableStateOf(false) }
     var showContextMenu by remember(message.id) { mutableStateOf(false) }
 
-    Box {
+    Box(modifier = Modifier.padding(start = startPadding)) {
         Surface(
             shape = MaterialTheme.shapes.large,
             color = bubbleColor,
             modifier = Modifier
-                .widthIn(min = 48.dp, max = AdaptiveTokens.MaxDialogWidth)
+                .widthIn(min = 48.dp, max = AdaptiveTokens.MaxSheetCompactWidth)
                 .animateContentSize(
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioNoBouncy,

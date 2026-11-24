@@ -34,7 +34,7 @@ import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
 import com.mikepenz.markdown.compose.elements.MarkdownTableRow
 
-private val MIN_TABLE_CELL_WIDTH = 160.dp
+internal val MarkdownTableCellWidth = 160.dp
 
 @Composable
 fun ClinRefMarkdownTable(
@@ -62,7 +62,7 @@ fun ClinRefMarkdownTable(
     )
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val isScrollable = columnsCount > 1 && maxWidth < (MIN_TABLE_CELL_WIDTH * columnsCount)
+        val isScrollable = columnsCount > 1 && maxWidth < (MarkdownTableCellWidth * columnsCount)
 
         Surface(
             shape = MaterialTheme.shapes.medium,

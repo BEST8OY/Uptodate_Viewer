@@ -9,7 +9,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
@@ -63,7 +67,9 @@ internal fun ClinRefNavRail(
             slideOutHorizontally(motion.exitSpatialSpec) { -it },
         modifier = modifier
     ) {
-        NavigationRail {
+        NavigationRail(
+            windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)
+        ) {
             Spacer(modifier = Modifier.height(16.dp))
             topLevelRoutes.forEach { route ->
                 val isSelected = route == currentRoute
@@ -103,7 +109,9 @@ internal fun BoxScope.ClinRefBottomBar(
             .align(Alignment.BottomCenter)
             .onSizeChanged { if (it.height > 0) onHeightChanged(it.height) }
     ) {
-        NavigationBar {
+        NavigationBar(
+            windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+        ) {
             topLevelRoutes.forEach { route ->
                 val isSelected = route == currentRoute
                 NavigationBarItem(

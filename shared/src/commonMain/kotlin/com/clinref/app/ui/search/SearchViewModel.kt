@@ -48,6 +48,7 @@ class SearchViewModel(
     val error: StateFlow<String?> = _error
 
     private var searchJob: Job? = null
+    private var activeSearchJob: Job? = null
     val searchQueryState = savedStateHandle.getMutableStateFlow(KEY_QUERY, "")
 
     init {
@@ -81,10 +82,11 @@ class SearchViewModel(
         if (query.isBlank()) return
         searchQueryState.value = query
         val currentAudience = Audience.entries.firstOrNull { it.name == audienceNameFlow.value } ?: Audience.ALL
+        activeSearchJob?.cancel()
         _searchResults.value = emptyList()
         _error.value = null
         _isLoading.value = true
-        viewModelScope.launch {
+        activeSearchJob = viewModelScope.launch {
             try {
                 _searchResults.value = withContext(ioDispatcher) {
                     searchRepository.searchTopics(query, currentAudience)

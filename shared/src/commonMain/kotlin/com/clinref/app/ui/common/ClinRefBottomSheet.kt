@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -71,6 +72,10 @@ fun ClinRefBottomSheet(
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val scope = rememberCoroutineScope()
     var isDismissing by remember { mutableStateOf(false) }
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val effectiveHeightFraction = heightFraction?.let {
+        if (adaptiveInfo.isCompactHeight) maxOf(it, 0.95f) else it
+    }
 
     val animatedDismiss: () -> Unit = {
         if (!isDismissing) {
@@ -107,7 +112,7 @@ fun ClinRefBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
-                    if (heightFraction != null) Modifier.fillMaxHeight(heightFraction)
+                    if (effectiveHeightFraction != null) Modifier.fillMaxHeight(effectiveHeightFraction)
                     else Modifier
                 )
                 .imePadding()

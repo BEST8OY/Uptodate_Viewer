@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -264,111 +265,118 @@ internal fun ContentFloatingToolbar(
                 }
             )
         } else {
-            HorizontalFloatingToolbar(
-                expanded = true,
-                floatingActionButton = {
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { AccessiblePlainTooltip("Search in document") },
-                        state = rememberTooltipState()
-                    ) {
-                        FloatingToolbarDefaults.VibrantFloatingActionButton(
-                            onClick = onSearchClick,
-                            shape = CircleShape,
-                            modifier = Modifier
-                                .testTag("toolbar_search_fab")
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .focusProperties { canFocus = interactive && !isSearching }
+            BoxWithConstraints(
+                contentAlignment = Alignment.Center
+            ) {
+                val isNarrow = maxWidth < 360.dp
+
+                HorizontalFloatingToolbar(
+                    expanded = true,
+                    contentPadding = if (isNarrow) PaddingValues(horizontal = 4.dp, vertical = 0.dp) else PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    floatingActionButton = {
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { AccessiblePlainTooltip("Search in document") },
+                            state = rememberTooltipState()
                         ) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
+                            FloatingToolbarDefaults.VibrantFloatingActionButton(
+                                onClick = onSearchClick,
+                                shape = CircleShape,
+                                modifier = Modifier
+                                    .testTag("toolbar_search_fab")
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .focusProperties { canFocus = interactive && !isSearching }
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = "Search")
+                            }
+                        }
+                    },
+                    colors = vibrantColors,
+                    content = {
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { AccessiblePlainTooltip("Back") },
+                            state = rememberTooltipState()
+                        ) {
+                            IconButton(
+                                onClick = onBackClick,
+                                enabled = canGoBack,
+                                modifier = Modifier
+                                    .testTag("toolbar_back")
+                                    .pointerHoverIcon(if (canGoBack) PointerIcon.Hand else PointerIcon.Default)
+                                    .focusProperties { canFocus = interactive && !isSearching }
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            }
+                        }
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { AccessiblePlainTooltip("Forward") },
+                            state = rememberTooltipState()
+                        ) {
+                            IconButton(
+                                onClick = onForwardClick,
+                                enabled = canGoForward,
+                                modifier = Modifier
+                                    .testTag("toolbar_forward")
+                                    .pointerHoverIcon(if (canGoForward) PointerIcon.Hand else PointerIcon.Default)
+                                    .focusProperties { canFocus = interactive && !isSearching }
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
+                            }
+                        }
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { AccessiblePlainTooltip("Home / Contents") },
+                            state = rememberTooltipState()
+                        ) {
+                            IconButton(
+                                onClick = onHomeClick,
+                                modifier = Modifier
+                                    .testTag("toolbar_home")
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .focusProperties { canFocus = interactive && !isSearching }
+                            ) {
+                                Icon(Icons.Default.Home, contentDescription = "Contents")
+                            }
+                        }
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { AccessiblePlainTooltip("Outline") },
+                            state = rememberTooltipState()
+                        ) {
+                            IconButton(
+                                onClick = onOutlineClick,
+                                enabled = outlineEnabled,
+                                modifier = Modifier
+                                    .testTag("toolbar_outline")
+                                    .pointerHoverIcon(if (outlineEnabled) PointerIcon.Hand else PointerIcon.Default)
+                                    .focusProperties { canFocus = interactive && !isSearching }
+                            ) {
+                                Icon(Icons.Default.Menu, contentDescription = "Outline")
+                            }
+                        }
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { AccessiblePlainTooltip(if (isFavorite) "Remove favorite" else "Add favorite") },
+                            state = rememberTooltipState()
+                        ) {
+                            IconButton(
+                                onClick = onFavoriteClick,
+                                modifier = Modifier
+                                    .testTag("toolbar_favorite")
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .focusProperties { canFocus = interactive && !isSearching }
+                            ) {
+                                Icon(
+                                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
+                                )
+                            }
                         }
                     }
-                },
-                colors = vibrantColors,
-                content = {
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { AccessiblePlainTooltip("Back") },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onBackClick,
-                            enabled = canGoBack,
-                            modifier = Modifier
-                                .testTag("toolbar_back")
-                                .pointerHoverIcon(if (canGoBack) PointerIcon.Hand else PointerIcon.Default)
-                                .focusProperties { canFocus = interactive && !isSearching }
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { AccessiblePlainTooltip("Forward") },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onForwardClick,
-                            enabled = canGoForward,
-                            modifier = Modifier
-                                .testTag("toolbar_forward")
-                                .pointerHoverIcon(if (canGoForward) PointerIcon.Hand else PointerIcon.Default)
-                                .focusProperties { canFocus = interactive && !isSearching }
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Forward")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { AccessiblePlainTooltip("Home / Contents") },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onHomeClick,
-                            modifier = Modifier
-                                .testTag("toolbar_home")
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .focusProperties { canFocus = interactive && !isSearching }
-                        ) {
-                            Icon(Icons.Default.Home, contentDescription = "Contents")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { AccessiblePlainTooltip("Outline") },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onOutlineClick,
-                            enabled = outlineEnabled,
-                            modifier = Modifier
-                                .testTag("toolbar_outline")
-                                .pointerHoverIcon(if (outlineEnabled) PointerIcon.Hand else PointerIcon.Default)
-                                .focusProperties { canFocus = interactive && !isSearching }
-                        ) {
-                            Icon(Icons.Default.Menu, contentDescription = "Outline")
-                        }
-                    }
-                    TooltipBox(
-                        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                        tooltip = { AccessiblePlainTooltip(if (isFavorite) "Remove favorite" else "Add favorite") },
-                        state = rememberTooltipState()
-                    ) {
-                        IconButton(
-                            onClick = onFavoriteClick,
-                            modifier = Modifier
-                                .testTag("toolbar_favorite")
-                                .pointerHoverIcon(PointerIcon.Hand)
-                                .focusProperties { canFocus = interactive && !isSearching }
-                        ) {
-                            Icon(
-                                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites"
-                            )
-                        }
-                    }
-                }
-            )
+                )
+            }
         }
     }
 }

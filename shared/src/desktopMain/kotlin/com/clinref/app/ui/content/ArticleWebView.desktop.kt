@@ -14,27 +14,21 @@ import kotlinx.coroutines.delay
 import java.awt.Color
 import java.awt.Desktop
 import java.awt.Point
-import java.awt.Toolkit
-import java.awt.event.KeyEvent
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import java.awt.geom.Point2D
 import java.net.URI
-import javax.swing.JEditorPane
-import javax.swing.JMenuItem
-import javax.swing.JPopupMenu
-import javax.swing.JScrollPane
-import javax.swing.KeyStroke
 import javax.swing.Timer
-import javax.swing.event.HyperlinkEvent
-import javax.swing.text.DefaultCaret
 import javax.swing.text.DefaultHighlighter
-import javax.swing.text.html.HTMLEditorKit
 
 private const val POSITION_DEBOUNCE_MS = 250
 private const val LAYOUT_SETTLE_MS = 60L
 private const val OFFSET_ANCHOR_PREFIX = "off:"
 private const val TOP_ANCHOR = "top"
+
+/** Tracks search matches and active match index for in-page find without triggering Compose recomposition. */
+private class FindState {
+    var matchRanges: List<IntRange> = emptyList()
+    var activeIndex: Int = -1
+}
 
 /** Tracks restore/programmatic scroll boundaries and last observed viewport geometry. */
 private class RestoreState {
@@ -52,14 +46,6 @@ private class RestoreState {
     }
 }
 
-private inline fun runOnEdt(crossinline block: () -> Unit) {
-    if (javax.swing.SwingUtilities.isEventDispatchThread()) {
-        block()
-    } else {
-        javax.swing.SwingUtilities.invokeLater { block() }
-    }
-}
-
 @Composable
 actual fun HtmlContentWebView(
     document: ArticleDocument?,
@@ -73,90 +59,63 @@ actual fun HtmlContentWebView(
     val awtSelectionColor = remember(primaryColor) { Color(primaryColor.toArgb()) }
     val awtSelectedTextColor = remember(onPrimaryColor) { Color(onPrimaryColor.toArgb()) }
 
+    val restoreState = remember { RestoreState() }
+    val findState = remember { FindState() }
+
     val (editorPane, scrollPane) = remember {
-        val pane = JEditorPane().apply {
-            isEditable = false
-            contentType = "text/html"
-            val kit = HTMLEditorKit()
-            editorKit = kit
-            background = awtBgColor
-            selectionColor = awtSelectionColor
-            selectedTextColor = awtSelectedTextColor
-            (caret as? DefaultCaret)?.let { defaultCaret ->
-                defaultCaret.isSelectionVisible = true
-            }
-            addHyperlinkListener { e ->
-                if (e.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-                    val desc = e.description ?: e.url?.toString()
-                    if (desc != null) {
-                        if (desc.startsWith("appaction://")) {
-                            controller.onAction?.invoke(desc.removePrefix("appaction://"))
-                        } else if (desc.startsWith("http://") || desc.startsWith("https://")) {
-                            try {
-                                Desktop.getDesktop().browse(URI(desc))
-                            } catch (_: Exception) {}
+        createHtmlEditorPane(
+            bgColor = awtBgColor,
+            selectionColor = awtSelectionColor,
+            selectedTextColor = awtSelectedTextColor,
+            onHyperlink = { pane, desc ->
+                when {
+                    desc.startsWith("appaction://") -> {
+                        controller.onAction?.invoke(desc.removePrefix("appaction://"))
+                    }
+                    desc.startsWith("#") -> {
+                        try {
+                            restoreState.programmaticScroll = true
+                            pane.scrollToReference(desc.removePrefix("#"))
+                            val viewport = pane.parent as? javax.swing.JViewport
+                            if (viewport != null) {
+                                restoreState.syncGeometry(
+                                    viewport.viewPosition.y,
+                                    viewport.height,
+                                    pane.height
+                                )
+                            }
+                        } catch (_: Exception) {
+                        } finally {
+                            restoreState.programmaticScroll = false
                         }
                     }
-                }
-            }
-            val popup = JPopupMenu().apply {
-                val copyItem = JMenuItem("Copy").apply {
-                    accelerator = KeyStroke.getKeyStroke(
-                        KeyEvent.VK_C,
-                        Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
-                    )
-                    addActionListener { copy() }
-                }
-                val selectAllItem = JMenuItem("Select All").apply {
-                    accelerator = KeyStroke.getKeyStroke(
-                        KeyEvent.VK_A,
-                        Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
-                    )
-                    addActionListener { selectAll() }
-                }
-                add(copyItem)
-                add(selectAllItem)
-            }
-            addMouseListener(object : MouseAdapter() {
-                override fun mousePressed(e: MouseEvent) = maybeShowPopup(e)
-                override fun mouseReleased(e: MouseEvent) = maybeShowPopup(e)
-                private fun maybeShowPopup(e: MouseEvent) {
-                    if (e.isPopupTrigger) {
-                        requestFocusInWindow()
-                        popup.getComponent(0).isEnabled = selectionStart != selectionEnd
-                        popup.show(this@apply, e.x, e.y)
+                    desc.startsWith("http://") || desc.startsWith("https://") -> {
+                        try {
+                            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                                Desktop.getDesktop().browse(URI(desc))
+                            }
+                        } catch (_: Exception) {}
                     }
                 }
-            })
-        }
-        val sp = JScrollPane(pane).apply {
-            border = null
-            background = awtBgColor
-            viewport.background = awtBgColor
-        }
-        pane to sp
+            }
+        )
     }
 
     LaunchedEffect(awtBgColor, awtSelectionColor, awtSelectedTextColor) {
         runOnEdt {
-            editorPane.background = awtBgColor
-            editorPane.selectionColor = awtSelectionColor
-            editorPane.selectedTextColor = awtSelectedTextColor
-            scrollPane.background = awtBgColor
-            scrollPane.viewport.background = awtBgColor
+            syncSwingColors(editorPane, scrollPane, awtBgColor, awtSelectionColor, awtSelectedTextColor)
         }
     }
 
     val currentDocument = rememberUpdatedState(document)
-    val restoreState = remember { RestoreState() }
 
     fun clampedY(y: Int): Int {
         val viewport = scrollPane.viewport
         return y.coerceIn(0, (editorPane.height - viewport.height).coerceAtLeast(0))
     }
 
-    fun reportPosition() {
-        val doc = currentDocument.value ?: return
+    fun reportPosition(doc: ArticleDocument? = currentDocument.value) {
+        val targetDoc = doc ?: return
         if (restoreState.restoring || !restoreState.applied) return
         val viewport = scrollPane.viewport
         val y = viewport.viewPosition.y
@@ -172,7 +131,7 @@ actual fun HtmlContentWebView(
                 anchor = anchor,
                 progress = progress,
                 sectionId = null,
-                contentRev = doc.contentRev
+                contentRev = targetDoc.contentRev
             )
         )
     }
@@ -231,6 +190,40 @@ actual fun HtmlContentWebView(
             }
         }
         scrollPane.viewport.addChangeListener(listener)
+
+        val inactivePainter = DefaultHighlighter.DefaultHighlightPainter(Color(255, 235, 59, 160))
+        val activePainter = DefaultHighlighter.DefaultHighlightPainter(Color(255, 152, 0, 220))
+
+        fun updateHighlights() {
+            val highlighter = editorPane.highlighter
+            highlighter.removeAllHighlights()
+            for (i in findState.matchRanges.indices) {
+                val range = findState.matchRanges[i]
+                val painter = if (i == findState.activeIndex) activePainter else inactivePainter
+                try {
+                    highlighter.addHighlight(range.first, range.last + 1, painter)
+                } catch (_: Exception) {}
+            }
+            if (findState.activeIndex in findState.matchRanges.indices) {
+                val activeRange = findState.matchRanges[findState.activeIndex]
+                try {
+                    restoreState.programmaticScroll = true
+                    val rect = editorPane.modelToView2D(activeRange.first)?.bounds
+                    if (rect != null) {
+                        editorPane.scrollRectToVisible(rect)
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    restoreState.syncGeometry(
+                        scrollPane.viewport.viewPosition.y,
+                        scrollPane.viewport.height,
+                        editorPane.height
+                    )
+                    restoreState.programmaticScroll = false
+                }
+            }
+        }
+
         controller.bindPlatform(
             scrollToSection = { secId ->
                 runOnEdt {
@@ -250,33 +243,48 @@ actual fun HtmlContentWebView(
             },
             findAll = { query ->
                 runOnEdt {
-                    val text = editorPane.text ?: ""
-                    val highlighter = editorPane.highlighter
-                    highlighter.removeAllHighlights()
-                    if (query.isNotEmpty()) {
-                        var count = 0
-                        var index = text.indexOf(query, 0, ignoreCase = true)
-                        val painter = DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW)
-                        while (index >= 0) {
-                            try {
-                                highlighter.addHighlight(index, index + query.length, painter)
-                                count++
-                            } catch (_: Exception) {}
-                            index = text.indexOf(query, index + query.length, ignoreCase = true)
+                    val doc = editorPane.document
+                    val text = try {
+                        doc.getText(0, doc.length)
+                    } catch (_: Exception) { "" }
+
+                    val matches = mutableListOf<IntRange>()
+                    if (query.isNotEmpty() && text.isNotEmpty()) {
+                        var idx = 0
+                        while (true) {
+                            val next = text.indexOf(query, idx, ignoreCase = true)
+                            if (next < 0) break
+                            matches.add(next until (next + query.length))
+                            idx = next + query.length
                         }
-                        controller.onFindResult?.invoke(count, 0)
-                    } else {
-                        controller.onFindResult?.invoke(0, 0)
                     }
+                    findState.matchRanges = matches
+                    findState.activeIndex = if (matches.isNotEmpty()) 0 else -1
+                    updateHighlights()
+                    controller.onFindResult?.invoke(matches.size, 0)
                 }
             },
             clearFindMatches = {
                 runOnEdt {
+                    findState.matchRanges = emptyList()
+                    findState.activeIndex = -1
                     editorPane.highlighter.removeAllHighlights()
                     controller.onFindResult?.invoke(0, 0)
                 }
             },
-            findNext = { /* forward match traversal */ },
+            findNext = { forward ->
+                runOnEdt {
+                    if (findState.matchRanges.isNotEmpty()) {
+                        findState.activeIndex = if (forward) {
+                            (findState.activeIndex + 1) % findState.matchRanges.size
+                        } else {
+                            (findState.activeIndex - 1 + findState.matchRanges.size) % findState.matchRanges.size
+                        }
+                        updateHighlights()
+                        controller.onFindResult?.invoke(findState.matchRanges.size, findState.activeIndex)
+                    }
+                }
+            },
             flushPosition = {
                 runOnEdt {
                     debounce.stop()
@@ -285,8 +293,13 @@ actual fun HtmlContentWebView(
             }
         )
         onDispose {
+            val doc = currentDocument.value
             debounce.stop()
-            reportPosition()
+            runOnEdt {
+                if (doc != null) {
+                    reportPosition(doc)
+                }
+            }
             scrollPane.viewport.removeChangeListener(listener)
             controller.unbindPlatform()
         }
@@ -294,6 +307,12 @@ actual fun HtmlContentWebView(
 
     LaunchedEffect(document?.revision) {
         val doc = document ?: return@LaunchedEffect
+        findState.matchRanges = emptyList()
+        findState.activeIndex = -1
+        runOnEdt {
+            editorPane.highlighter.removeAllHighlights()
+        }
+        controller.onFindResult?.invoke(0, 0)
         restoreState.restoring = true
         restoreState.applied = false
         try {

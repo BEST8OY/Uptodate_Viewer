@@ -151,4 +151,24 @@ class SearchViewModelTest {
 
         assertEquals(restoredResults, viewModel.searchResults.value)
     }
+
+    @Test
+    fun `rapid audience toggle cancels prior query and retains latest audience results`() = runTest(testDispatcher) {
+        val adultResults = listOf(SearchResult.Topic("Adult Asthma", "topic-adult"))
+        val pediatricResults = listOf(SearchResult.Topic("Pediatric Asthma", "topic-pediatric"))
+
+        every { searchRepository.searchTopics("asthma", Audience.ADULT) } returns adultResults
+        every { searchRepository.searchTopics("asthma", Audience.PEDIATRIC) } returns pediatricResults
+
+        val viewModel = createViewModel()
+        viewModel.searchQueryState.value = "asthma"
+
+        viewModel.onAudienceChanged(Audience.ADULT)
+        viewModel.onAudienceChanged(Audience.PEDIATRIC)
+        advanceUntilIdle()
+
+        assertEquals(Audience.PEDIATRIC, viewModel.selectedAudience.value)
+        assertEquals(pediatricResults, viewModel.searchResults.value)
+        verify(exactly = 0) { searchRepository.searchTopics("asthma", Audience.ADULT) }
+    }
 }

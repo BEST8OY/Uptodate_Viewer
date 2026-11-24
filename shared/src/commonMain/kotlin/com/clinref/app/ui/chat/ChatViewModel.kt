@@ -287,14 +287,8 @@ class ChatViewModel(
         val currentList = _messages.value
         val idx = currentList.indexOfFirst { it.id == userMessageId }
         if (idx < 0) return true
-        val next = currentList.getOrNull(idx + 1)
-        if (next == null) {
-            val isGenerating = _activeAssistantMessageId.value != null || _isAwaitingResponse.value
-            return isGenerating
-        }
-        val isStreaming = _activeAssistantMessageId.value == next.id
-        if (isStreaming) return true
-        return next.role == "assistant" && !next.isError && next.role != "cancelled"
+        val isGenerating = _activeAssistantMessageId.value != null || _isAwaitingResponse.value
+        return isTurnSuccessfulAt(currentList, idx, isGenerating, _activeAssistantMessageId.value)
     }
 
     /**
@@ -370,24 +364,28 @@ class ChatViewModel(
         chatExecutionManager.cancelGeneration(conversationId)
     }
 
+    private fun isTurnSuccessfulAt(
+        messages: List<MessageUiModel>,
+        index: Int,
+        isGenerating: Boolean,
+        activeAssistantId: String?
+    ): Boolean {
+        val message = messages.getOrNull(index) ?: return true
+        if (message.role != "user") return true
+        val next = messages.getOrNull(index + 1) ?: return isGenerating
+        if (activeAssistantId != null && activeAssistantId == next.id) return true
+        return next.role == "assistant" && !next.isError && next.role != "cancelled"
+    }
+
     private fun buildChatItems(messages: List<MessageUiModel>): List<ChatListItem> {
         if (messages.isEmpty()) return emptyList()
         val result = ArrayList<ChatListItem>(messages.size * 2)
         val isGenerating = _activeAssistantMessageId.value != null || _isAwaitingResponse.value
+        val activeAssistantId = _activeAssistantMessageId.value
 
         for (i in messages.indices) {
             val message = messages[i]
-            val isTurnSuccessful = if (message.role == "user") {
-                val next = messages.getOrNull(i + 1)
-                if (next == null) {
-                    isGenerating
-                } else {
-                    val isStreaming = _activeAssistantMessageId.value == next.id
-                    if (isStreaming) true else next.role == "assistant" && !next.isError && next.role != "cancelled"
-                }
-            } else {
-                true
-            }
+            val isTurnSuccessful = isTurnSuccessfulAt(messages, i, isGenerating, activeAssistantId)
 
             result.add(ChatListItem.Message(message.copy(showTimestamp = true), isTurnSuccessful = isTurnSuccessful))
             if ((message.articles.isNotEmpty() || message.tables.isNotEmpty()) && message.role == "assistant") {
