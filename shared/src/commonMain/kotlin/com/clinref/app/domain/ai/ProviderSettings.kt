@@ -61,6 +61,18 @@ sealed class ProviderSettings {
         override val temperature: Float = 0.5f,
         override val maxTokens: Int = 4096
     ) : ProviderSettings()
+
+    fun withCommonParams(
+        temperature: Float? = null,
+        maxTokens: Int? = null
+    ): ProviderSettings = when (this) {
+        is Google -> copy(temperature = temperature ?: this.temperature, maxTokens = maxTokens ?: this.maxTokens)
+        is OpenAI -> copy(temperature = temperature ?: this.temperature, maxTokens = maxTokens ?: this.maxTokens)
+        is Anthropic -> copy(temperature = temperature ?: this.temperature, maxTokens = maxTokens ?: this.maxTokens)
+        is MistralAI -> copy(temperature = temperature ?: this.temperature, maxTokens = maxTokens ?: this.maxTokens)
+        is OpenRouter -> copy(temperature = temperature ?: this.temperature, maxTokens = maxTokens ?: this.maxTokens)
+        is Ollama -> copy(temperature = temperature ?: this.temperature, maxTokens = maxTokens ?: this.maxTokens)
+    }
 }
 
 /**

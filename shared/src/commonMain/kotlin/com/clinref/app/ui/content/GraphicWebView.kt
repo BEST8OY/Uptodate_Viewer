@@ -7,9 +7,7 @@ import androidx.compose.ui.Modifier
 expect fun GraphicWebView(
     graphicId: String,
     fullHtml: String,
-    sheetLoading: Boolean,
     onPageFinished: () -> Unit,
     onPageError: () -> Unit,
     modifier: Modifier = Modifier
 )
-

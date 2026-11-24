@@ -18,12 +18,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -62,9 +59,6 @@ class ContentViewModel(
     private val _currentTopicId = MutableStateFlow<String?>(savedStateHandle.get<String>(KEY_CURRENT_TOPIC_ID))
     val currentTopicId: StateFlow<String?> = _currentTopicId
 
-    private val _topicContent = MutableStateFlow<ContentRepository.TopicContent?>(null)
-    val topicContent: StateFlow<ContentRepository.TopicContent?> = _topicContent
-
     /** Single source of truth for what the article renderer shows and where it starts. */
     private val _document = MutableStateFlow<ArticleDocument?>(null)
     val document: StateFlow<ArticleDocument?> = _document
@@ -85,18 +79,9 @@ class ContentViewModel(
     val onOpenExternalUrl: StateFlow<String?> = _onOpenExternalUrl.asStateFlow()
 
     private val _topicReferences = MutableStateFlow<Map<Int, ReferenceItem>>(emptyMap())
-    val topicReferences: StateFlow<Map<Int, ReferenceItem>> = _topicReferences.asStateFlow()
 
     private val _activeSheet = MutableStateFlow<ContentSheet?>(null)
     val activeSheet: StateFlow<ContentSheet?> = _activeSheet.asStateFlow()
-
-    val referenceSheet: StateFlow<ReferenceSheetData?> = _activeSheet
-        .map { (it as? ContentSheet.References)?.data }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
-    val gradeSheet: StateFlow<GradeSheetData?> = _activeSheet
-        .map { (it as? ContentSheet.Grade)?.data }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
      * One-shot, imperative "scroll to this section now" commands (outline taps, same-topic links).
@@ -126,12 +111,10 @@ class ContentViewModel(
     private val _navigationHistory = MutableStateFlow<List<String>>(
         savedStateHandle.get<List<String>>(KEY_NAVIGATION_HISTORY) ?: emptyList()
     )
-    val navigationHistory: StateFlow<List<String>> = _navigationHistory
 
     private val _historyIndex = MutableStateFlow(
         savedStateHandle.get<Int>(KEY_HISTORY_INDEX) ?: -1
     )
-    val historyIndex: StateFlow<Int> = _historyIndex
 
     private val actions = mutableMapOf<String, String>()
 
@@ -254,8 +237,6 @@ class ContentViewModel(
                 _isLoading.value = false
                 return@launch
             }
-
-            _topicContent.value = content
 
             if (content == null) {
                 _error.value = "Content not found"

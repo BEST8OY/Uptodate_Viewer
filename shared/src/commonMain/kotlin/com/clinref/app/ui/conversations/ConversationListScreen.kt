@@ -2,8 +2,6 @@ package com.clinref.app.ui.conversations
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -22,29 +20,24 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
@@ -92,6 +85,7 @@ import androidx.compose.material3.ToggleFloatingActionButtonDefaults
 import androidx.compose.material3.ToggleFloatingActionButtonDefaults.animateIcon
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -118,6 +112,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
@@ -125,24 +120,28 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavKey
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.repository.ConversationBackup
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.CenteredReadableContainer
+import com.clinref.app.ui.adaptive.EndSafeInsets
+import com.clinref.app.ui.adaptive.HorizontalSafeInsets
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
+import com.clinref.app.ui.adaptive.TopAndHorizontalSafeInsets
 import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 import com.clinref.app.ui.common.BackHandler
+import com.clinref.app.ui.common.ClinRefEmptyState
 import com.clinref.app.ui.common.DismissAction
 import com.clinref.app.ui.common.SegmentedDismissBackground
+import com.clinref.app.ui.common.UndoDeleteEffect
 import com.clinref.app.ui.common.bindReselectScrollToTop
 import com.clinref.app.ui.common.clipDuringSwipe
-import com.clinref.app.ui.common.showUndoSnackbar
+import com.clinref.app.ui.common.nonBouncyExitSpring
 import com.clinref.app.ui.navigation.AiRoute
 import com.clinref.app.util.formatTimestamp
 import kotlinx.coroutines.delay
@@ -177,25 +176,17 @@ fun ConversationListScreen(
     val scope = rememberCoroutineScope()
     var pendingDelete by remember { mutableStateOf<List<ConversationBackup>>(emptyList()) }
 
-    LifecycleStartEffect(Unit) {
-        onStopOrDispose {
-            pendingDelete = emptyList()
-        }
-    }
-
-    // Snackbar Undo Handler for Deleted Sessions
-    LaunchedEffect(pendingDelete) {
-        pendingDelete.takeIf { it.isNotEmpty() }?.let { backups ->
-            val message = if (backups.size == 1) "Consultation deleted" else "${backups.size} consultations deleted"
-            showUndoSnackbar(
-                snackbarHostState = snackbarHostState,
-                message = message
-            ) {
-                backups.forEach { viewModel.restoreConversationBackup(it) }
-            }
-            pendingDelete = emptyList()
-        }
-    }
+    UndoDeleteEffect(
+        pendingItems = pendingDelete,
+        snackbarHostState = snackbarHostState,
+        messageFor = { backups ->
+            if (backups.size == 1) "Consultation deleted" else "${backups.size} consultations deleted"
+        },
+        onRestore = { backups ->
+            backups.forEach { viewModel.restoreConversationBackup(it) }
+        },
+        onClearPending = { pendingDelete = emptyList() }
+    )
 
     BackHandler(enabled = uiState.isSelectionMode) {
         viewModel.clearSelectionMode()
@@ -286,7 +277,7 @@ fun ConversationListContent(
     modifier: Modifier = Modifier
 ) {
     val motionScheme = MaterialTheme.motionScheme
-    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val topAppBarScrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
     val textFieldState = rememberTextFieldState(initialText = uiState.searchQuery)
 
@@ -366,6 +357,11 @@ fun ConversationListContent(
 
     val bottomInsetPadding = rememberContentBottomPadding(16.dp)
     val fabBottomPadding = rememberContentBottomPadding(0.dp)
+    val snackbarBottomPadding = if (uiState.isSelectionMode) {
+        bottomInsetPadding
+    } else {
+        rememberContentBottomPadding(80.dp)
+    }
     val listBottomPadding = rememberContentBottomPadding(88.dp)
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -373,6 +369,13 @@ fun ConversationListContent(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("conversation_list_screen")
+                .then(
+                    if (!uiState.isSelectionMode) {
+                        Modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
+                    } else {
+                        Modifier
+                    }
+                )
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown) {
                         val isModifier = event.isCtrlPressed || event.isMetaPressed
@@ -404,10 +407,10 @@ fun ConversationListContent(
                         }
                     } else false
                 },
-            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+            contentWindowInsets = TopAndHorizontalSafeInsets,
             containerColor = MaterialTheme.colorScheme.surface,
             snackbarHost = {
-                Box(modifier = Modifier.padding(bottom = bottomInsetPadding)) {
+                Box(modifier = Modifier.padding(bottom = snackbarBottomPadding)) {
                     SnackbarHost(hostState = snackbarHostState)
                 }
             },
@@ -415,6 +418,7 @@ fun ConversationListContent(
                 ClinicalMessengerHeader(
                     uiState = uiState,
                     textFieldState = textFieldState,
+                    scrollBehavior = topAppBarScrollBehavior,
                     onToggleSelectionMode = onToggleSelectionMode,
                     onSelectAll = onSelectAll,
                     onTogglePinSelected = onTogglePinSelected,
@@ -434,7 +438,8 @@ fun ConversationListContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding),
+                    .consumeWindowInsets(innerPadding)
+                    .imePadding(),
                 contentAlignment = Alignment.TopCenter
             ) {
                 when {
@@ -459,14 +464,13 @@ fun ConversationListContent(
                         val showSectionHeaders = uiState.pinnedConversations.isNotEmpty() &&
                             uiState.recentConversations.isNotEmpty()
 
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier
-                                .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
-                                .fillMaxWidth(),
-                            contentPadding = PaddingValues(top = 4.dp, bottom = listBottomPadding),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        CenteredReadableContainer {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(top = 4.dp, bottom = listBottomPadding),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                             // Section 1: Pinned Consultations
                             if (uiState.pinnedConversations.isNotEmpty()) {
                                 if (showSectionHeaders) {
@@ -532,6 +536,7 @@ fun ConversationListContent(
                                 }
                             }
                         }
+                        }
                     }
                 }
             }
@@ -566,14 +571,12 @@ fun ConversationListContent(
             visible = !uiState.isSelectionMode,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = fabBottomPadding),
+                .windowInsetsPadding(EndSafeInsets)
+                .padding(bottom = fabBottomPadding),
             enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
                 fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
             exit = scaleOut(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
+                animationSpec = nonBouncyExitSpring()
             ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
         ) {
             FloatingActionButtonMenu(
@@ -659,6 +662,7 @@ fun ConversationListContent(
 private fun ClinicalMessengerHeader(
     uiState: ConversationListUiState,
     textFieldState: androidx.compose.foundation.text.input.TextFieldState,
+    scrollBehavior: TopAppBarScrollBehavior,
     onToggleSelectionMode: () -> Unit,
     onSelectAll: () -> Unit,
     onTogglePinSelected: () -> Unit,
@@ -720,6 +724,7 @@ private fun ClinicalMessengerHeader(
                     }
                 }
             },
+            windowInsets = TopAndHorizontalSafeInsets,
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -769,8 +774,11 @@ private fun ClinicalMessengerHeader(
                         )
                     }
                 },
+                windowInsets = TopAndHorizontalSafeInsets,
+                scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface
                 )
             )
 
@@ -789,15 +797,21 @@ private fun ClinicalMessengerHeader(
                 label = "searchBg"
             )
 
-            Surface(
+            Box(
                 modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
                     .fillMaxWidth()
-                    .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 2.dp),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = searchContainerColor,
-                border = BorderStroke(if (isSearchFocused) 1.5.dp else 1.dp, animatedBorderColor)
+                    .windowInsetsPadding(HorizontalSafeInsets),
+                contentAlignment = Alignment.Center
             ) {
+                Surface(
+                    modifier = Modifier
+                        .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
+                        .fillMaxWidth()
+                        .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 2.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = searchContainerColor,
+                    border = BorderStroke(if (isSearchFocused) 1.5.dp else 1.dp, animatedBorderColor)
+                ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -844,10 +858,7 @@ private fun ClinicalMessengerHeader(
                         visible = textFieldState.text.isNotEmpty(),
                         enter = fadeIn(motionScheme.fastEffectsSpec()) + scaleIn(motionScheme.fastSpatialSpec()),
                         exit = fadeOut(motionScheme.fastEffectsSpec()) + scaleOut(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
+                            animationSpec = nonBouncyExitSpring()
                         )
                     ) {
                         IconButton(
@@ -865,6 +876,7 @@ private fun ClinicalMessengerHeader(
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1090,7 +1102,7 @@ private fun ClinicalSessionCard(
                     }
                 }
 
-                if (adaptiveInfo.isExpanded && !isSelectionMode) {
+                if (adaptiveInfo.showInlineRowActions && !isSelectionMode) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1326,48 +1338,25 @@ private fun EmptySessionsView(
         "Start a clinical consultation to synthesize UpToDate evidence, calculate dosages, and evaluate drug interactions."
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(32.dp)
-            .padding(bottom = bottomInsetPadding),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(64.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
-
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 20.dp)
-            )
-
-            if (isSearch) {
+    ClinRefEmptyState(
+        icon = icon,
+        title = title,
+        subtitle = description,
+        useBadge = true,
+        badgeSize = 64.dp,
+        badgeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+        badgeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        titleStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        titleColor = MaterialTheme.colorScheme.onSurface,
+        contentPadding = PaddingValues(
+            start = 32.dp,
+            top = 32.dp,
+            end = 32.dp,
+            bottom = bottomInsetPadding + 32.dp
+        ),
+        modifier = modifier,
+        action = if (isSearch) {
+            {
                 Spacer(modifier = Modifier.height(4.dp))
                 OutlinedButton(onClick = onClearSearch) {
                     Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1375,6 +1364,6 @@ private fun EmptySessionsView(
                     Text("Clear Search")
                 }
             }
-        }
-    }
+        } else null
+    )
 }

@@ -99,23 +99,18 @@ class GraphicIdRobustnessTest {
         //         cleanId = graphicId.removePrefix("Graphic-")
 
         fun pipelineProcess(uri: String): String {
-            // Step 1 (ChatMessageItem)
-            val step1 = if (uri.startsWith("graphic:")) {
-                uri.removePrefix("graphic:").removePrefix("Graphic-")
-            } else {
-                uri.removePrefix("Graphic-")
-            }
-            // Step 2 (ChatScreen)
-            val step2 = step1.removePrefix("Graphic-")
-            // Step 3 (AssetRepository)
-            val step3 = step2.removePrefix("Graphic-")
-            return step3
+            // Step 1 (ChatMessageItem markdown URI stripping -> normalizeGraphicId)
+            val withoutScheme = uri.removePrefix("graphic:")
+            // Step 2 (ChatScreen / GraphicSheet normalizeGraphicId)
+            val normalized = normalizeGraphicId(withoutScheme)
+            // Step 3 (AssetRepository prefix strip)
+            return normalizeGraphicId(normalized)
         }
 
         // Test cases:
         assertEquals("123", pipelineProcess("graphic:123"))
         assertEquals("123", pipelineProcess("graphic:Graphic-123"))
-        // Multi-level prefix: graphic:Graphic-Graphic-123 is stripped completely to 123 across the layers!
+        // Multi-level prefix stripped across ChatScreen -> GraphicSheet layers
         assertEquals("123", pipelineProcess("graphic:Graphic-Graphic-123"))
         assertEquals("123", pipelineProcess("Graphic-Graphic-123"))
         assertEquals("123", pipelineProcess("Graphic-123"))

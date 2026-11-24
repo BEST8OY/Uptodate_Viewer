@@ -114,33 +114,12 @@ class SettingsViewModel(
 
     private fun updateCommonParams(temperature: Float? = null, maxTokens: Int? = null) {
         val current = _configuration.value
-        val newSettings = when (val s = current.providerSettings) {
-            is com.clinref.app.domain.ai.ProviderSettings.Google -> s.copy(
-                temperature = temperature ?: s.temperature,
-                maxTokens = maxTokens ?: s.maxTokens
+        _configuration.value = current.copy(
+            providerSettings = current.providerSettings.withCommonParams(
+                temperature = temperature,
+                maxTokens = maxTokens
             )
-            is com.clinref.app.domain.ai.ProviderSettings.OpenAI -> s.copy(
-                temperature = temperature ?: s.temperature,
-                maxTokens = maxTokens ?: s.maxTokens
-            )
-            is com.clinref.app.domain.ai.ProviderSettings.Anthropic -> s.copy(
-                temperature = temperature ?: s.temperature,
-                maxTokens = maxTokens ?: s.maxTokens
-            )
-            is com.clinref.app.domain.ai.ProviderSettings.MistralAI -> s.copy(
-                temperature = temperature ?: s.temperature,
-                maxTokens = maxTokens ?: s.maxTokens
-            )
-            is com.clinref.app.domain.ai.ProviderSettings.OpenRouter -> s.copy(
-                temperature = temperature ?: s.temperature,
-                maxTokens = maxTokens ?: s.maxTokens
-            )
-            is com.clinref.app.domain.ai.ProviderSettings.Ollama -> s.copy(
-                temperature = temperature ?: s.temperature,
-                maxTokens = maxTokens ?: s.maxTokens
-            )
-        }
-        _configuration.value = current.copy(providerSettings = newSettings)
+        )
     }
 
     fun updateTemperature(temp: Float) = updateCommonParams(temperature = temp)

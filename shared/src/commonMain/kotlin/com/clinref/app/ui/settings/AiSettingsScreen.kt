@@ -2,8 +2,6 @@ package com.clinref.app.ui.settings
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,18 +12,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -78,6 +70,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -99,10 +93,12 @@ import com.clinref.app.domain.ai.AiProvider
 import com.clinref.app.domain.ai.DecisionMode
 import com.clinref.app.domain.ai.ProviderSettings
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.BottomAndHorizontalSafeInsetsExcludingIme
+import com.clinref.app.ui.adaptive.CenteredReadableContainer
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
+import com.clinref.app.ui.adaptive.TopAndHorizontalSafeInsets
 import com.clinref.app.ui.common.AdaptiveTopAppBar
-import com.clinref.app.ui.adaptive.WindowWidthClass
-import com.clinref.app.ui.common.BackHandler
+import com.clinref.app.ui.common.nonBouncyExitSpring
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.koin.compose.viewmodel.koinViewModel
@@ -196,13 +192,9 @@ fun AiSettingsContent(
     val isTokensOutOfRange = maxTokensText.isNotEmpty() && (parsedTokens == null || parsedTokens !in 256..131_072)
     val isSaveEnabled = !isSaving && !isTokensOutOfRange && maxTokensText.isNotEmpty()
 
-    BackHandler(enabled = showModelSheet) {
-        showModelSheet = false
-    }
-
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = TopAndHorizontalSafeInsets,
         topBar = {
             AdaptiveTopAppBar(
                 title = {
@@ -240,26 +232,29 @@ fun AiSettingsContent(
                         modifier = Modifier
                             .widthIn(max = AdaptiveTokens.MaxFormWidth)
                             .fillMaxWidth()
-                            .windowInsetsPadding(
-                                WindowInsets.safeDrawing
-                                    .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
-                                    .exclude(WindowInsets.ime)
-                            )
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                            .windowInsetsPadding(BottomAndHorizontalSafeInsetsExcludingIme)
+                            .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val canTest = testResult !is SettingsViewModel.TestResult.Loading
                         OutlinedButton(
                             onClick = onTestConnection,
-                            modifier = Modifier.weight(1f).height(52.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .pointerHoverIcon(if (canTest) PointerIcon.Hand else PointerIcon.Default),
                             shape = ButtonDefaults.outlinedShape,
-                            enabled = testResult !is SettingsViewModel.TestResult.Loading
+                            enabled = canTest
                         ) {
                             Text("Test Connection", style = MaterialTheme.typography.labelLarge)
                         }
 
                         Button(
                             onClick = onSave,
-                            modifier = Modifier.weight(1f).height(52.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .pointerHoverIcon(if (isSaveEnabled) PointerIcon.Hand else PointerIcon.Default),
                             shape = ButtonDefaults.shape,
                             enabled = isSaveEnabled
                         ) {
@@ -270,20 +265,19 @@ fun AiSettingsContent(
             }
         }
     ) { padding ->
-        Box(
+        CenteredReadableContainer(
+            maxWidth = AdaptiveTokens.MaxFormWidth,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding)
-                .imePadding(),
-            contentAlignment = Alignment.TopCenter
+                .imePadding()
         ) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = AdaptiveTokens.MaxFormWidth)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
 
@@ -513,10 +507,7 @@ fun AiSettingsContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateContentSize(
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
+                                animationSpec = nonBouncyExitSpring()
                             )
                     ) {
                         Text(
@@ -551,18 +542,12 @@ fun AiSettingsContent(
                             enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
                                 expandVertically(
                                     expandFrom = Alignment.Top,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
+                                    animationSpec = nonBouncyExitSpring()
                                 ),
                             exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
                                 shrinkVertically(
                                     shrinkTowards = Alignment.Top,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
+                                    animationSpec = nonBouncyExitSpring()
                                 )
                         ) {
                             Column(
@@ -645,18 +630,12 @@ fun AiSettingsContent(
                     enter = fadeIn(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
                         expandVertically(
                             expandFrom = Alignment.Top,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
+                            animationSpec = nonBouncyExitSpring()
                         ),
                     exit = fadeOut(animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()) +
                         shrinkVertically(
                             shrinkTowards = Alignment.Top,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
+                            animationSpec = nonBouncyExitSpring()
                         )
                 ) {
                     (testResult ?: lastResult)?.let { result ->
@@ -742,6 +721,7 @@ private fun ModelPickerField(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = modifier
             .fillMaxWidth()
+            .pointerHoverIcon(PointerIcon.Hand)
             .semantics {
                 role = Role.Button
                 contentDescription = if (model.isBlank()) {
@@ -798,7 +778,7 @@ private fun ProviderSelectionGrid(
     modifier: Modifier = Modifier
 ) {
     val adaptiveInfo = LocalWindowAdaptiveInfo.current
-    val columns = if (adaptiveInfo.widthClass == WindowWidthClass.EXPANDED) 3 else 2
+    val columns = if (adaptiveInfo.isExpanded) 3 else 2
 
     val providers = remember { AiProvider.entries }
     val chunkedProviders = remember(columns) { providers.chunked(columns) }
@@ -860,7 +840,9 @@ private fun ProviderCard(
             contentColor = contentColor
         ),
         border = BorderStroke(if (isSelected) 2.dp else 1.dp, borderColor),
-        modifier = modifier.semantics {
+        modifier = modifier
+            .pointerHoverIcon(PointerIcon.Hand)
+            .semantics {
             role = Role.RadioButton
             selected = isSelected
         }

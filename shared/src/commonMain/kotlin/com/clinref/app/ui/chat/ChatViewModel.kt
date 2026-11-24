@@ -11,7 +11,6 @@ import com.clinref.app.domain.ai.ClinicalSource
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.domain.ai.GraphicRef
 import com.clinref.app.domain.ai.TopicRef
-import com.clinref.app.domain.ai.SecureLogger
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.repository.ContentRepository
 import com.clinref.app.repository.ConversationRepository
@@ -77,9 +76,6 @@ data class MessageUiModel(
     val content: String,
     val timestamp: Long,
     val isError: Boolean = false,
-    val showTimestamp: Boolean = false,
-    val topicRefs: List<ResolvedTopicRef> = emptyList(),
-    val graphicRefs: List<ResolvedGraphicRef> = emptyList(),
     val articles: List<ClinicalSource.Article> = emptyList(),
     val tables: List<ClinicalSource.Table> = emptyList()
 )
@@ -89,7 +85,6 @@ class ChatViewModel(
     private val contentRepository: ContentRepository,
     private val streamingManager: StreamingManager,
     private val securePreferences: SecurePreferences,
-    private val secureLogger: SecureLogger,
     private val chatExecutionManager: ChatExecutionManager
 ) : ViewModel() {
 
@@ -283,14 +278,6 @@ class ChatViewModel(
         return true
     }
 
-    fun isUserMessageSuccessful(userMessageId: String): Boolean {
-        val currentList = _messages.value
-        val idx = currentList.indexOfFirst { it.id == userMessageId }
-        if (idx < 0) return true
-        val isGenerating = _activeAssistantMessageId.value != null || _isAwaitingResponse.value
-        return isTurnSuccessfulAt(currentList, idx, isGenerating, _activeAssistantMessageId.value)
-    }
-
     /**
      * Submits an edited version of an existing user message.
      * Discards the previous user message, agent answer, and all subsequent turns from that round onwards,
@@ -387,7 +374,7 @@ class ChatViewModel(
             val message = messages[i]
             val isTurnSuccessful = isTurnSuccessfulAt(messages, i, isGenerating, activeAssistantId)
 
-            result.add(ChatListItem.Message(message.copy(showTimestamp = true), isTurnSuccessful = isTurnSuccessful))
+            result.add(ChatListItem.Message(message, isTurnSuccessful = isTurnSuccessful))
             if ((message.articles.isNotEmpty() || message.tables.isNotEmpty()) && message.role == "assistant") {
                 result.add(ChatListItem.ClinicalReferences(message.id, message.articles, message.tables))
             }
@@ -443,8 +430,6 @@ class ChatViewModel(
             content = content,
             timestamp = timestamp,
             isError = isError || this.isError || role == "cancelled",
-            topicRefs = topicRefs,
-            graphicRefs = graphicRefs,
             articles = articles,
             tables = tables
         )

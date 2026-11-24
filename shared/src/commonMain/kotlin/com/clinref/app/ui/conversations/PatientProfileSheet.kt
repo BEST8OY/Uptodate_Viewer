@@ -27,9 +27,12 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.common.ClinRefBottomSheet
 
 private val StringListSaver = listSaver<List<String>, String>(
@@ -81,12 +84,13 @@ fun PatientProfileSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         showDivider = true
     ) { dismiss ->
+        val adaptiveInfo = LocalWindowAdaptiveInfo.current
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
+                .padding(horizontal = adaptiveInfo.horizontalMargin)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -207,7 +211,9 @@ fun PatientProfileSheet(
                     )
                     dismiss()
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerHoverIcon(PointerIcon.Hand)
             ) {
                 Text("Start Consultation")
             }

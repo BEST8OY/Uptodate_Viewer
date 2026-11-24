@@ -1,34 +1,22 @@
 package com.clinref.app.ui.toc
 
-import com.clinref.app.ui.common.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ContainedLoadingIndicator
@@ -39,7 +27,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SearchBarValue
@@ -67,21 +54,26 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import org.koin.compose.viewmodel.koinViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation3.runtime.NavKey
 import com.clinref.app.domain.TocItem
-import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.BottomSafeInsetsExcludingIme
+import com.clinref.app.ui.adaptive.CenteredReadableContainer
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
+import com.clinref.app.ui.adaptive.TopAndHorizontalSafeInsets
 import com.clinref.app.ui.adaptive.rememberContentBottomPadding
+import com.clinref.app.ui.common.BackHandler
+import com.clinref.app.ui.common.ClinRefEmptyState
+import com.clinref.app.ui.common.ClinRefErrorState
 import com.clinref.app.ui.common.bindReselectScrollToTop
+import com.clinref.app.ui.navigation.TocRoute
 import com.clinref.app.ui.search.SearchResultsContent
 import com.clinref.app.ui.search.SearchViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
-import androidx.navigation3.runtime.NavKey
-import com.clinref.app.ui.navigation.TocRoute
+import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -198,61 +190,55 @@ fun TocScreen(
             .testTag("toc_screen")
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
-                    if (textFieldState.text.isNotEmpty()) {
-                        textFieldState.edit { replace(0, length, "") }
-                        skipNextQuery = true
-                        lastQuery = ""
-                        searchViewModel.onQueryChanged("")
-                        hasSearched = false
-                        true
-                    } else false
+                    when {
+                        textFieldState.text.isNotEmpty() -> {
+                            textFieldState.edit { replace(0, length, "") }
+                            skipNextQuery = true
+                            lastQuery = ""
+                            searchViewModel.onQueryChanged("")
+                            hasSearched = false
+                            true
+                        }
+                        expanded -> {
+                            scope.launch { searchBarState.animateToCollapsed() }
+                            true
+                        }
+                        isShowingResults -> {
+                            hasSearched = false
+                            searchViewModel.onQueryChanged("")
+                            true
+                        }
+                        else -> false
+                    }
                 } else false
             },
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = TopAndHorizontalSafeInsets,
         topBar = {
             AppBarWithSearch(
                 state = searchBarState,
                 inputField = inputField,
             )
             ExpandedFullScreenContainedSearchBar(state = searchBarState, inputField = inputField) {
-                val searchBottomInset = WindowInsets.navigationBars
-                    .only(WindowInsetsSides.Bottom)
-                    .asPaddingValues()
-                    .calculateBottomPadding()
-
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                CenteredReadableContainer {
                     LazyColumn(
                         modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
-                            .fillMaxWidth()
+                            .fillMaxSize()
+                            .windowInsetsPadding(BottomSafeInsetsExcludingIme)
                             .imePadding()
                             .padding(horizontal = adaptiveInfo.horizontalMargin),
-                        contentPadding = PaddingValues(bottom = searchBottomInset + 16.dp),
+                        contentPadding = PaddingValues(bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         if (textFieldState.text.isEmpty() && suggestions.isEmpty()) {
                             item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(32.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(48.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text(
-                                            text = "Search for topics",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
+                                ClinRefEmptyState(
+                                    icon = Icons.Default.Search,
+                                    title = "Search for topics",
+                                    titleStyle = MaterialTheme.typography.bodyLarge,
+                                    scrollable = false,
+                                    fillViewport = false,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
 
@@ -289,114 +275,84 @@ fun TocScreen(
             }
         }
     ) { padding ->
-        if (isShowingResults) {
-            SearchResultsContent(
-                searchResults = searchResults,
-                selectedAudience = selectedAudience,
-                isSearchLoading = isSearchLoading,
-                searchError = searchError,
-                onAudienceChanged = searchViewModel::onAudienceChanged,
-                onTopicSelected = onTopicSelected,
-                onGraphicSelected = onGraphicSelected,
-                modifier = Modifier.padding(padding)
-            )
-        } else if (!expanded) {
-            when {
-                isLoading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(padding)
-                            .padding(bottom = bottomInsetPadding),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
-                    }
-                }
-                error != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(padding)
-                            .padding(bottom = bottomInsetPadding),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.ErrorOutline,
-                                contentDescription = "Error",
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = error ?: "Unknown error",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            OutlinedButton(onClick = { viewModel.retry() }) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Retry")
-                            }
-                        }
-                    }
-                }
-                tocItems.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(padding)
-                            .padding(bottom = bottomInsetPadding),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "No topics found",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                else -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.TopCenter
-                    ) {
-                        LazyColumn(
-                            state = listState,
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding)
+        ) {
+            if (isShowingResults) {
+                SearchResultsContent(
+                    searchResults = searchResults,
+                    selectedAudience = selectedAudience,
+                    isSearchLoading = isSearchLoading,
+                    searchError = searchError,
+                    onAudienceChanged = searchViewModel::onAudienceChanged,
+                    onTopicSelected = onTopicSelected,
+                    onGraphicSelected = onGraphicSelected
+                )
+            } else if (!expanded) {
+                when {
+                    isLoading -> {
+                        Box(
                             modifier = Modifier
-                                .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
-                                .fillMaxWidth()
-                                .padding(padding),
-                            contentPadding = PaddingValues(bottom = bottomInsetPadding),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                .fillMaxSize()
+                                .padding(bottom = bottomInsetPadding),
+                            contentAlignment = Alignment.Center
                         ) {
-                            itemsIndexed(
-                                items = visibleTocItems,
-                                key = { _, (_, _, uniqueKey) -> uniqueKey }
-                            ) { index, (item, level, _) ->
-                                TocItemRow(
-                                    item = item,
-                                    level = level,
-                                    index = index,
-                                    totalCount = visibleTocItems.size,
-                                    isExpanded = item.id in expandedIds,
-                                    onTopicSelected = onTopicSelected,
-                                    onGraphicSelected = onGraphicSelected,
-                                    onLoadChildren = viewModel::loadChildren,
-                                    onToggleExpand = viewModel::toggleExpanded,
-                                    onResolveTopicId = { tocId -> viewModel.resolveTopicId(tocId) }
-                                )
+                            ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
+                        }
+                    }
+                    error != null -> {
+                        ClinRefErrorState(
+                            message = error ?: "Unknown error",
+                            onRetry = { viewModel.retry() },
+                            contentPadding = PaddingValues(
+                                start = 32.dp,
+                                top = 32.dp,
+                                end = 32.dp,
+                                bottom = bottomInsetPadding + 32.dp
+                            )
+                        )
+                    }
+                    tocItems.isEmpty() -> {
+                        ClinRefEmptyState(
+                            icon = Icons.Default.FolderOpen,
+                            title = "No topics found",
+                            titleStyle = MaterialTheme.typography.bodyLarge,
+                            contentPadding = PaddingValues(
+                                start = 32.dp,
+                                top = 32.dp,
+                                end = 32.dp,
+                                bottom = bottomInsetPadding + 32.dp
+                            )
+                        )
+                    }
+                    else -> {
+                        CenteredReadableContainer {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(bottom = bottomInsetPadding),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                itemsIndexed(
+                                    items = visibleTocItems,
+                                    key = { _, (_, _, uniqueKey) -> uniqueKey }
+                                ) { index, (item, level, _) ->
+                                    TocItemRow(
+                                        item = item,
+                                        level = level,
+                                        index = index,
+                                        totalCount = visibleTocItems.size,
+                                        isExpanded = item.id in expandedIds,
+                                        onTopicSelected = onTopicSelected,
+                                        onGraphicSelected = onGraphicSelected,
+                                        onLoadChildren = viewModel::loadChildren,
+                                        onToggleExpand = viewModel::toggleExpanded,
+                                        onResolveTopicId = { tocId -> viewModel.resolveTopicId(tocId) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -405,4 +361,3 @@ fun TocScreen(
         }
     }
 }
-

@@ -86,4 +86,42 @@ class AdaptiveLayoutTest {
         assertTrue(expandedEdge.useNavigationRail)
         assertEquals(24.dp, expandedEdge.horizontalMargin)
     }
+
+    @Test
+    fun testPaneAdaptiveInfoPreservesWindowChromeDecisions() {
+        val windowInfo = calculateWindowAdaptiveInfo(1040.dp, 900.dp)
+        assertTrue(windowInfo.supportsSupportingPane)
+        assertTrue(windowInfo.useNavigationRail)
+
+        val postRailPane = calculatePaneAdaptiveInfo(
+            paneWidthDp = 960.dp,
+            paneHeightDp = 900.dp,
+            windowWidthDp = windowInfo.windowWidthDp,
+            windowHeightDp = windowInfo.windowHeightDp
+        )
+        assertEquals(WindowWidthClass.EXPANDED, postRailPane.widthClass)
+        assertTrue(postRailPane.supportsSupportingPane)
+        assertTrue(postRailPane.useNavigationRail)
+
+        val chatSplitPane = calculatePaneAdaptiveInfo(
+            paneWidthDp = 460.dp,
+            paneHeightDp = 900.dp,
+            windowWidthDp = postRailPane.windowWidthDp,
+            windowHeightDp = postRailPane.windowHeightDp
+        )
+        assertEquals(WindowWidthClass.COMPACT, chatSplitPane.widthClass)
+        assertTrue(chatSplitPane.isCompact)
+        assertEquals(16.dp, chatSplitPane.horizontalMargin)
+        assertTrue(chatSplitPane.supportsSupportingPane)
+        assertTrue(chatSplitPane.useNavigationRail)
+    }
+
+    @Test
+    fun testShowInlineRowActionsMatchesPlatformOrExpandedWidth() {
+        val compact = calculateWindowAdaptiveInfo(400.dp, 800.dp)
+        assertEquals(compact.isExpanded || isDesktopPlatform(), compact.showInlineRowActions)
+
+        val expanded = calculateWindowAdaptiveInfo(900.dp, 800.dp)
+        assertTrue(expanded.showInlineRowActions)
+    }
 }

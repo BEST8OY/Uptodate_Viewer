@@ -120,12 +120,10 @@ class ConversationListViewModelTest {
         viewModel.toggleItemSelection("c1")
         assertTrue(viewModel.uiState.value.isSelectionMode)
         assertTrue(viewModel.uiState.value.selectedIds.contains("c1"))
-        assertTrue(viewModel.uiState.value.conversations.first { it.id == "c1" }.isSelected)
 
         viewModel.toggleItemSelection("c1")
         assertFalse(viewModel.uiState.value.isSelectionMode)
         assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
-        assertFalse(viewModel.uiState.value.conversations.first { it.id == "c1" }.isSelected)
     }
 
     @Test
@@ -156,7 +154,6 @@ class ConversationListViewModelTest {
         viewModel.clearSelectionMode()
         assertFalse(viewModel.uiState.value.isSelectionMode)
         assertTrue(viewModel.uiState.value.selectedIds.isEmpty())
-        assertFalse(viewModel.uiState.value.conversations.first { it.id == "c1" }.isSelected)
     }
 
     @Test
@@ -167,16 +164,6 @@ class ConversationListViewModelTest {
         advanceUntilIdle()
 
         coVerify { conversationRepository.togglePin("c1") }
-    }
-
-    @Test
-    fun `deleteConversation delegates to conversation repository`() = runTest(testDispatcher) {
-        val viewModel = ConversationListViewModel(conversationRepository)
-
-        viewModel.deleteConversation("c1")
-        advanceUntilIdle()
-
-        coVerify { conversationRepository.deleteConversation("c1") }
     }
 
     @Test

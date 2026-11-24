@@ -39,9 +39,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.common.ClinRefBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,10 +85,12 @@ fun ModelSelectionSheet(
         maxWidth = AdaptiveTokens.MaxFormWidth,
         showDivider = true
     ) { dismiss ->
+        val adaptiveInfo = LocalWindowAdaptiveInfo.current
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .weight(1f, fill = false)
+                .padding(horizontal = adaptiveInfo.horizontalMargin)
         ) {
             // Search / Custom Input
             OutlinedTextField(
@@ -126,7 +131,8 @@ fun ModelSelectionSheet(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                        .padding(vertical = 4.dp)
+                        .pointerHoverIcon(PointerIcon.Hand),
                     shape = MaterialTheme.shapes.medium,
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer
@@ -226,6 +232,7 @@ fun ModelSelectionSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(MaterialTheme.shapes.small)
+                            .pointerHoverIcon(PointerIcon.Hand)
                             .selectable(
                                 selected = isSelected,
                                 role = Role.RadioButton,

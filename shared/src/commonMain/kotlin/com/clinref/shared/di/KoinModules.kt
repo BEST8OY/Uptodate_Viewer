@@ -111,7 +111,6 @@ val commonViewModelModule: Module = module {
             contentRepository = get(),
             streamingManager = get(),
             securePreferences = get(),
-            secureLogger = get(),
             chatExecutionManager = get()
         )
     }

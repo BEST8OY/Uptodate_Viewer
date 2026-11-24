@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.common.ClinRefBottomSheet
 
 /**
@@ -52,12 +53,13 @@ fun GradeSheet(
             }
         }
     ) {
+        val adaptiveInfo = LocalWindowAdaptiveInfo.current
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 8.dp)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {

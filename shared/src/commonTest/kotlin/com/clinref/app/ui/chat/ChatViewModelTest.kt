@@ -78,7 +78,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = chatExecutionManager
         )
     }
@@ -286,7 +285,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = mockManager
         )
         vm.loadConversation("conv-1")
@@ -326,7 +324,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = mockManager
         )
         vm.loadConversation("conv-1")
@@ -372,7 +369,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = mockManager
         )
 
@@ -413,7 +409,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = mockManager
         )
         vm.loadConversation("conv-1")
@@ -437,7 +432,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = mockManager
         )
         vm.loadConversation("conv-1")
@@ -504,7 +498,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = mockManager
         )
         vm.loadConversation("conv-1")
@@ -603,7 +596,8 @@ class ChatViewModelTest {
         viewModel.loadConversation("conv-1")
         advanceUntilIdle()
 
-        assertFalse("m1 should not be successful because m2 is an error", viewModel.isUserMessageSuccessful("m1"))
+        val m1Item = viewModel.chatItems.value.first { it.key == "m1" } as ChatListItem.Message
+        assertFalse("m1 should not be successful because m2 is an error", m1Item.isTurnSuccessful)
 
         val retried = viewModel.retryTurn("m1")
         assertTrue("Retry turn must successfully trigger sendMessage for the user prompt", retried)
@@ -624,8 +618,10 @@ class ChatViewModelTest {
         viewModel.loadConversation("conv-1")
         advanceUntilIdle()
 
-        assertTrue("m1 should be marked successful", viewModel.isUserMessageSuccessful("m1"))
-        assertTrue("m3 should be marked successful", viewModel.isUserMessageSuccessful("m3"))
+        val m1Item = viewModel.chatItems.value.first { it.key == "m1" } as ChatListItem.Message
+        val m3Item = viewModel.chatItems.value.first { it.key == "m3" } as ChatListItem.Message
+        assertTrue("m1 should be marked successful", m1Item.isTurnSuccessful)
+        assertTrue("m3 should be marked successful", m3Item.isTurnSuccessful)
 
         // Edit turn 2 (m3)
         val edited = viewModel.submitEditedMessage("m3", "In severe renal failure with CrCl 15?")
@@ -645,14 +641,20 @@ class ChatViewModelTest {
         viewModel.loadConversation("conv-1")
         advanceUntilIdle()
 
-        assertTrue("m1 is successful initially", viewModel.isUserMessageSuccessful("m1"))
+        assertTrue(
+            "m1 is successful initially",
+            (viewModel.chatItems.value.first { it.key == "m1" } as ChatListItem.Message).isTurnSuccessful
+        )
 
         // Now initiate a new query (m3) which turns isAwaitingResponse = true
         viewModel.sendMessage("Next question")
         assertTrue(viewModel.isAwaitingResponse.value)
 
         // Historical turn m1 must STILL be marked successful while the new turn is generating
-        assertTrue("Historical turn m1 must remain successful even while new turn awaits response", viewModel.isUserMessageSuccessful("m1"))
+        assertTrue(
+            "Historical turn m1 must remain successful even while new turn awaits response",
+            (viewModel.chatItems.value.first { it.key == "m1" } as ChatListItem.Message).isTurnSuccessful
+        )
     }
 
     @Test
@@ -680,7 +682,6 @@ class ChatViewModelTest {
             contentRepository = contentRepository,
             streamingManager = streamingManager,
             securePreferences = securePreferences,
-            secureLogger = secureLogger,
             chatExecutionManager = mockManager
         )
         vm.loadConversation("conv-1")

@@ -9,15 +9,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -56,6 +50,8 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -63,9 +59,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.BottomSafeInsetsExcludingIme
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 
 private const val MAX_CHARS = 4000
 private const val MAX_INPUT_LINES = 8
+private const val COMPACT_MAX_INPUT_LINES = 3
 
 // Material 3 Component & Target Tokens (Accessibility compliant touch targets >= 48.dp)
 private val BUTTON_INTERACTIVE_TARGET_SIZE = 48.dp // Accessibility compliant touch target (48.dp)
@@ -79,8 +78,8 @@ private val CONTENT_END_PADDING = 12.dp            // M3 Grid Spacing
 
 private val TEXT_BOX_VERTICAL_PADDING = 8.dp       // Centered text offset
 private val MAX_TEXT_BOX_HEIGHT = 200.dp
+private val COMPACT_MAX_TEXT_BOX_HEIGHT = 96.dp
 
-private val OUTER_HORIZONTAL_PADDING = 16.dp       // M3 Screen Edge Margin (PaddingMedium)
 private val OUTER_TOP_PADDING = 12.dp              // M3 Grid Spacing
 private val OUTER_BOTTOM_PADDING = 16.dp           // M3 Screen Edge Margin (PaddingMedium)
 
@@ -101,6 +100,9 @@ fun ChatInputBar(
     onVoiceInput: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val maxTextBoxHeight = if (adaptiveInfo.isCompactHeight) COMPACT_MAX_TEXT_BOX_HEIGHT else MAX_TEXT_BOX_HEIGHT
+    val maxInputLines = if (adaptiveInfo.isCompactHeight) COMPACT_MAX_INPUT_LINES else MAX_INPUT_LINES
     val textCharSequence = state.text
     val isTextNotBlank = textCharSequence.isNotBlank()
 
@@ -120,12 +122,8 @@ fun ChatInputBar(
         modifier = modifier
             .fillMaxWidth()
             .background(brush = gradientBrush)
-            .windowInsetsPadding(
-                WindowInsets.safeDrawing
-                    .only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)
-                    .exclude(WindowInsets.ime)
-            )
-            .padding(horizontal = OUTER_HORIZONTAL_PADDING)
+            .windowInsetsPadding(BottomSafeInsetsExcludingIme)
+            .padding(horizontal = adaptiveInfo.horizontalMargin)
             .padding(top = OUTER_TOP_PADDING, bottom = OUTER_BOTTOM_PADDING),
         contentAlignment = Alignment.Center
     ) {
@@ -201,14 +199,14 @@ fun ChatInputBar(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .heightIn(min = BUTTON_INTERACTIVE_TARGET_SIZE, max = MAX_TEXT_BOX_HEIGHT)
+                            .heightIn(min = BUTTON_INTERACTIVE_TARGET_SIZE, max = maxTextBoxHeight)
                             .padding(vertical = TEXT_BOX_VERTICAL_PADDING),
                         contentAlignment = Alignment.CenterStart
                     ) {
                         BasicTextField(
                             state = state,
                             inputTransformation = InputTransformation.maxLengthTrim(MAX_CHARS),
-                            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = MAX_INPUT_LINES),
+                            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = maxInputLines),
                             textStyle = MaterialTheme.typography.bodyLarge.copy(
                                 color = MaterialTheme.colorScheme.onSurface
                             ),
@@ -280,7 +278,9 @@ private fun ActionButtons(
         if (onVoiceInput != null) {
             IconButton(
                 onClick = onVoiceInput,
-                modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE)
+                modifier = Modifier
+                    .size(BUTTON_INTERACTIVE_TARGET_SIZE)
+                    .pointerHoverIcon(PointerIcon.Hand)
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
@@ -302,7 +302,9 @@ private fun ActionButtons(
             if (generating) {
                 FilledIconButton(
                     onClick = onCancel,
-                    modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE),
+                    modifier = Modifier
+                        .size(BUTTON_INTERACTIVE_TARGET_SIZE)
+                        .pointerHoverIcon(PointerIcon.Hand),
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -319,7 +321,9 @@ private fun ActionButtons(
             } else {
                 FilledIconButton(
                     onClick = onSendMessage,
-                    modifier = Modifier.size(BUTTON_INTERACTIVE_TARGET_SIZE),
+                    modifier = Modifier
+                        .size(BUTTON_INTERACTIVE_TARGET_SIZE)
+                        .pointerHoverIcon(if (isTextNotBlank) PointerIcon.Hand else PointerIcon.Default),
                     shape = CircleShape,
                     colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = if (isTextNotBlank) {

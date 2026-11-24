@@ -1,8 +1,6 @@
 package com.clinref.app.ui.common
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -11,7 +9,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -23,13 +20,10 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 
-enum class ScrollFABDirection { UP, DOWN }
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun ScrollFAB(
+fun ScrollToBottomFAB(
     visible: Boolean,
-    direction: ScrollFABDirection,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -40,12 +34,8 @@ fun ScrollFAB(
         modifier = modifier,
         enter = scaleIn(animationSpec = motionScheme.fastSpatialSpec()) +
             fadeIn(animationSpec = motionScheme.fastEffectsSpec()),
-        exit = scaleOut(
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            )
-        ) + fadeOut(animationSpec = motionScheme.fastEffectsSpec())
+        exit = scaleOut(animationSpec = nonBouncyExitSpring()) +
+            fadeOut(animationSpec = motionScheme.fastEffectsSpec())
     ) {
         SmallFloatingActionButton(
             onClick = onClick,
@@ -61,26 +51,11 @@ fun ScrollFAB(
                 .pointerHoverIcon(PointerIcon.Hand)
         ) {
             Icon(
-                imageVector = if (direction == ScrollFABDirection.UP) {
-                    Icons.Default.KeyboardArrowUp
-                } else {
-                    Icons.Default.KeyboardArrowDown
-                },
-                contentDescription = if (direction == ScrollFABDirection.UP) {
-                    "Scroll to top"
-                } else {
-                    "Scroll to bottom"
-                },
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Scroll to bottom",
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(24.dp)
             )
         }
     }
 }
-
-@Composable
-fun ScrollToBottomFAB(
-    visible: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) = ScrollFAB(visible = visible, direction = ScrollFABDirection.DOWN, onClick = onClick, modifier = modifier)

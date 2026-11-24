@@ -1,9 +1,7 @@
 package com.clinref.app.ui.chat.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -41,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.AiJsonUtils
 import com.clinref.app.domain.ai.ClinicalSource
+import com.clinref.app.ui.common.nonBouncyExitSpring
 
 /**
  * Academic-grade clinical references accordion.
@@ -92,6 +93,7 @@ fun ClinicalReferencesSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(MaterialTheme.shapes.large)
+                    .pointerHoverIcon(PointerIcon.Hand)
                     .clickable(role = Role.Button) { isExpanded = !isExpanded }
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -142,10 +144,7 @@ fun ClinicalReferencesSection(
                     expandVertically(animationSpec = motionScheme.fastSpatialSpec()),
                 exit = fadeOut(animationSpec = motionScheme.fastEffectsSpec()) +
                     shrinkVertically(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
+                        animationSpec = nonBouncyExitSpring()
                     )
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -208,6 +207,7 @@ private fun ArticleReferenceItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .pointerHoverIcon(PointerIcon.Hand)
                 .clickable(role = Role.Button, onClick = onTopicClick)
                 .padding(
                     start = 14.dp,
@@ -272,7 +272,9 @@ private fun ArticleReferenceItem(
                         shape = MaterialTheme.shapes.extraSmall,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                         onClick = { onSectionClick(sec.sectionId) },
-                        modifier = Modifier.minimumInteractiveComponentSize()
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .pointerHoverIcon(PointerIcon.Hand)
                     ) {
                         Text(
                             text = sec.sectionTitle.ifBlank { "Section" },
@@ -296,6 +298,7 @@ private fun TableReferenceItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .pointerHoverIcon(PointerIcon.Hand)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically

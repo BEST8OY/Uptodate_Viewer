@@ -87,7 +87,6 @@ data class ThemeColors(
             val borderEmphasis = colorScheme.outline.toHexString()
             val primary = colorScheme.primary.toHexString()
             val onPrimary = colorScheme.onPrimary.toHexString()
-            val selection = colorScheme.primary.toHexString()
 
             val medicalColors = if (isDark) {
                 MedicalColors(
@@ -116,12 +115,12 @@ data class ThemeColors(
                 borderEmphasis = borderEmphasis,
                 primary = primary,
                 onPrimary = onPrimary,
-                heading = colorScheme.onBackground.toHexString(),
+                heading = text,
                 drug = medicalColors.drug,
                 danger = medicalColors.danger,
                 caution = medicalColors.caution,
                 grade = medicalColors.grade,
-                selection = selection,
+                selection = primary,
                 primaryContainer = colorScheme.primaryContainer.toHexString(),
                 onPrimaryContainer = colorScheme.onPrimaryContainer.toHexString(),
                 tertiaryContainer = colorScheme.tertiaryContainer.toHexString(),

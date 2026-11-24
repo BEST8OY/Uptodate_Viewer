@@ -53,7 +53,7 @@ class CssBuilder(private val colors: ThemeColors) {
             graphicTableSpecifics(),
             sharedTableStyles(),
             graphicNavigation(),
-            responsive(),
+            graphicResponsive(),
             printStyles(),
         )
         return sections.joinToString("\n")
@@ -294,6 +294,13 @@ td.container {
 }
 """.trimIndent()
 
+    private fun selectionStyles(): String = """
+::selection { background: var(--selection); color: var(--on-primary); }
+::-moz-selection { background: var(--selection); color: var(--on-primary); }
+*::selection { background: var(--selection); color: var(--on-primary); }
+*::-moz-selection { background: var(--selection); color: var(--on-primary); }
+""".trimIndent()
+
     // ── Reset & Base ─────────────────────────────────────────────────
 
     fun resetAndBase(): String = """
@@ -323,10 +330,7 @@ body {
 ul, ol { padding-left: 24px; margin: 10px 0; }
 li { margin: 4px 0; }
 
-::selection { background: var(--selection); color: var(--on-primary); }
-::-moz-selection { background: var(--selection); color: var(--on-primary); }
-*::selection { background: var(--selection); color: var(--on-primary); }
-*::-moz-selection { background: var(--selection); color: var(--on-primary); }
+${selectionStyles()}
 
 strong, b { font-weight: 600; }
 i, em { font-style: italic; }
@@ -1183,10 +1187,7 @@ body {
     user-select: text;
 }
 
-::selection { background: var(--selection); color: var(--on-primary); }
-::-moz-selection { background: var(--selection); color: var(--on-primary); }
-*::selection { background: var(--selection); color: var(--on-primary); }
-*::-moz-selection { background: var(--selection); color: var(--on-primary); }
+${selectionStyles()}
 
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -1374,6 +1375,15 @@ a:hover { text-decoration: underline; }
     .utdArticleSection, #topicContent, #topicContentCalculator {
         padding: 32px 40px 120px;
     }
+}
+""".trimIndent()
+
+    private fun graphicResponsive(): String = """
+/* Graphic Responsive */
+@media (max-width: 480px) {
+    .graphic_view { padding: 16px; }
+    .cntnt table { font-size: 0.8rem; }
+    .cntnt td, .cntnt th { padding: 7px 9px; }
 }
 """.trimIndent()
 

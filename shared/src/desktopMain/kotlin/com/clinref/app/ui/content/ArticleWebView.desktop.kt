@@ -1,6 +1,5 @@
 package com.clinref.app.ui.content
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -8,14 +7,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.SwingPanel
-import androidx.compose.ui.graphics.toArgb
 import com.clinref.app.domain.ReadingPosition
 import kotlinx.coroutines.delay
 import java.awt.Color
-import java.awt.Desktop
 import java.awt.Point
 import java.awt.geom.Point2D
-import java.net.URI
 import javax.swing.Timer
 import javax.swing.text.DefaultHighlighter
 
@@ -52,21 +48,14 @@ actual fun HtmlContentWebView(
     controller: ArticleWebViewController,
     modifier: Modifier
 ) {
-    val bgColor = MaterialTheme.colorScheme.background
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
-    val awtBgColor = remember(bgColor) { Color(bgColor.toArgb()) }
-    val awtSelectionColor = remember(primaryColor) { Color(primaryColor.toArgb()) }
-    val awtSelectedTextColor = remember(onPrimaryColor) { Color(onPrimaryColor.toArgb()) }
+    val swingColors = rememberSwingThemeColors()
 
     val restoreState = remember { RestoreState() }
     val findState = remember { FindState() }
 
     val (editorPane, scrollPane) = remember {
         createHtmlEditorPane(
-            bgColor = awtBgColor,
-            selectionColor = awtSelectionColor,
-            selectedTextColor = awtSelectedTextColor,
+            colors = swingColors,
             onHyperlink = { pane, desc ->
                 when {
                     desc.startsWith("appaction://") -> {
@@ -90,22 +79,14 @@ actual fun HtmlContentWebView(
                         }
                     }
                     desc.startsWith("http://") || desc.startsWith("https://") -> {
-                        try {
-                            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                                Desktop.getDesktop().browse(URI(desc))
-                            }
-                        } catch (_: Exception) {}
+                        openExternalUri(desc)
                     }
                 }
             }
         )
     }
 
-    LaunchedEffect(awtBgColor, awtSelectionColor, awtSelectedTextColor) {
-        runOnEdt {
-            syncSwingColors(editorPane, scrollPane, awtBgColor, awtSelectionColor, awtSelectedTextColor)
-        }
-    }
+    BindSwingThemeColors(editorPane, scrollPane, swingColors)
 
     val currentDocument = rememberUpdatedState(document)
 
@@ -340,8 +321,8 @@ actual fun HtmlContentWebView(
     SwingPanel(
         factory = {
             scrollPane.apply {
-                background = awtBgColor
-                viewport.background = awtBgColor
+                background = swingColors.background
+                viewport.background = swingColors.background
             }
         },
         modifier = modifier

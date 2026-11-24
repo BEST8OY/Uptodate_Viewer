@@ -111,7 +111,7 @@ actual fun SetupScreen(
     }
 
     SetupScreenShell(
-        title = "UpToDate Viewer",
+        title = "ClinRef",
         description = if (!hasStoragePermission) {
             "Storage permission is required to access UpToDate database files."
         } else {

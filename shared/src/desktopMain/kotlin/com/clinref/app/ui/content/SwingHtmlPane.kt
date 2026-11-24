@@ -1,10 +1,17 @@
 package com.clinref.app.ui.content
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.toArgb
 import java.awt.Color
-import java.awt.Toolkit
+import java.awt.Desktop
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import java.awt.Toolkit
+import java.net.URI
 import javax.swing.JEditorPane
 import javax.swing.JMenuItem
 import javax.swing.JPopupMenu
@@ -22,15 +29,62 @@ internal inline fun runOnEdt(crossinline block: () -> Unit) {
     }
 }
 
+internal fun openExternalUri(url: String) {
+    if (!url.startsWith("http://") && !url.startsWith("https://")) return
+    try {
+        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            Desktop.getDesktop().browse(URI(url))
+        }
+    } catch (_: Exception) {
+    }
+}
+
+internal data class SwingThemeColors(
+    val background: Color,
+    val selection: Color,
+    val selectedText: Color
+)
+
+@Composable
+internal fun rememberSwingThemeColors(): SwingThemeColors {
+    val bgColor = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onPrimaryColor = MaterialTheme.colorScheme.onPrimary
+    return remember(bgColor, primaryColor, onPrimaryColor) {
+        SwingThemeColors(
+            background = Color(bgColor.toArgb()),
+            selection = Color(primaryColor.toArgb()),
+            selectedText = Color(onPrimaryColor.toArgb())
+        )
+    }
+}
+
+@Composable
+internal fun BindSwingThemeColors(
+    editorPane: JEditorPane,
+    scrollPane: JScrollPane,
+    colors: SwingThemeColors
+) {
+    LaunchedEffect(colors) {
+        runOnEdt {
+            syncSwingColors(
+                editorPane = editorPane,
+                scrollPane = scrollPane,
+                bgColor = colors.background,
+                selectionColor = colors.selection,
+                selectedTextColor = colors.selectedText
+            )
+        }
+    }
+}
+
 internal data class SwingHtmlComponents(
     val editorPane: JEditorPane,
     val scrollPane: JScrollPane
 )
 
 internal fun createHtmlEditorPane(
-    bgColor: Color,
-    selectionColor: Color,
-    selectedTextColor: Color,
+    colors: SwingThemeColors,
     onHyperlink: (pane: JEditorPane, description: String) -> Unit = { _, _ -> }
 ): SwingHtmlComponents {
     val pane = JEditorPane().apply {
@@ -38,9 +92,9 @@ internal fun createHtmlEditorPane(
         contentType = "text/html"
         val kit = HTMLEditorKit()
         editorKit = kit
-        background = bgColor
-        this.selectionColor = selectionColor
-        this.selectedTextColor = selectedTextColor
+        background = colors.background
+        selectionColor = colors.selection
+        selectedTextColor = colors.selectedText
         (caret as? DefaultCaret)?.let { defaultCaret ->
             defaultCaret.isSelectionVisible = true
         }
@@ -84,8 +138,8 @@ internal fun createHtmlEditorPane(
     }
     val sp = JScrollPane(pane).apply {
         border = null
-        background = bgColor
-        viewport.background = bgColor
+        background = colors.background
+        viewport.background = colors.background
     }
     return SwingHtmlComponents(pane, sp)
 }

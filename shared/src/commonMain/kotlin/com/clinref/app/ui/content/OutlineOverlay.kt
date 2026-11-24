@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.common.ClinRefBottomSheet
+import com.clinref.app.ui.common.ClinRefEmptyState
 
 private enum class OverviewTab(val fullLabel: String, val compactLabel: String) {
     OUTLINE("Outline", "Outline"),
@@ -162,6 +164,8 @@ internal fun OutlineOverlay(
         maxWidth = AdaptiveTokens.MaxSheetWideWidth,
         showDivider = false
     ) { dismiss ->
+        val adaptiveInfo = LocalWindowAdaptiveInfo.current
+        val sheetHorizontalMargin = adaptiveInfo.horizontalMargin
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -209,16 +213,14 @@ internal fun OutlineOverlay(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .padding(horizontal = sheetHorizontalMargin, vertical = 6.dp)
             )
-
-            val adaptiveInfo = LocalWindowAdaptiveInfo.current
 
             // Segmented Pill Navigation Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .padding(horizontal = sheetHorizontalMargin, vertical = 6.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .padding(3.dp)
@@ -294,7 +296,7 @@ internal fun OutlineOverlay(
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(horizontal = sheetHorizontalMargin, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(graphicSubtypes) { subtype ->
@@ -346,8 +348,8 @@ internal fun OutlineOverlay(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp)
-                                .padding(bottom = 16.dp),
+                                .padding(horizontal = sheetHorizontalMargin),
+                            contentPadding = PaddingValues(bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             if (searchQuery.isBlank() && summarySection != null && summaryIndex > 0) {
@@ -391,8 +393,8 @@ internal fun OutlineOverlay(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(bottom = 16.dp),
+                                .padding(horizontal = sheetHorizontalMargin),
+                            contentPadding = PaddingValues(bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(
@@ -422,8 +424,8 @@ internal fun OutlineOverlay(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(bottom = 16.dp),
+                                .padding(horizontal = sheetHorizontalMargin),
+                            contentPadding = PaddingValues(bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(
@@ -720,44 +722,19 @@ private fun OverviewEmptyState(
     subtitle: String,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    ClinRefEmptyState(
+        icon = icon,
+        title = title,
+        subtitle = subtitle,
+        useBadge = true,
+        badgeSize = 56.dp,
+        badgeContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        badgeContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        titleStyle = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+        titleColor = MaterialTheme.colorScheme.onSurface,
+        contentPadding = PaddingValues(vertical = 48.dp, horizontal = 24.dp),
         modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 48.dp, horizontal = 24.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.size(56.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
+    )
 }
 
 private fun OutlineSection.cleanGraphicTitle(): String {

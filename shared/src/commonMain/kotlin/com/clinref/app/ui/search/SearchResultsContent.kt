@@ -2,26 +2,20 @@ package com.clinref.app.ui.search
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedListItem
@@ -31,14 +25,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.Audience
 import com.clinref.app.domain.SearchResult
-import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.CenteredReadableContainer
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.adaptive.rememberContentBottomPadding
+import com.clinref.app.ui.common.ClinRefEmptyState
+import com.clinref.app.ui.common.ClinRefErrorState
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -55,14 +52,9 @@ fun SearchResultsContent(
     val adaptiveInfo = LocalWindowAdaptiveInfo.current
     val bottomInsetPadding = rememberContentBottomPadding(16.dp)
 
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.TopCenter
-    ) {
+    CenteredReadableContainer(modifier = modifier) {
         LazyColumn(
-            modifier = Modifier
-                .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 4.dp, bottom = bottomInsetPadding),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
@@ -86,54 +78,26 @@ fun SearchResultsContent(
 
             if (searchError != null) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.ErrorOutline,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = searchError,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
+                    ClinRefErrorState(
+                        message = searchError,
+                        scrollable = false,
+                        fillViewport = false,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
             if (searchResults.isEmpty() && searchError == null && !isSearchLoading) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.SearchOff,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "No results found" +
-                                    if (selectedAudience != Audience.ALL) " for ${selectedAudience.label}" else "",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    ClinRefEmptyState(
+                        icon = Icons.Default.SearchOff,
+                        title = "No results found" +
+                            if (selectedAudience != Audience.ALL) " for ${selectedAudience.label}" else "",
+                        titleStyle = MaterialTheme.typography.bodyLarge,
+                        scrollable = false,
+                        fillViewport = false,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
@@ -158,7 +122,7 @@ fun SearchResultsContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 8.dp)
-                            .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+                            .semantics { liveRegion = LiveRegionMode.Polite }
                     )
                 }
                 itemsIndexed(
@@ -188,4 +152,3 @@ fun SearchResultsContent(
         }
     }
 }
-

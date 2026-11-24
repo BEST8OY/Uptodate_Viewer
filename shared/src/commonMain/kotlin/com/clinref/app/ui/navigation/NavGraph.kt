@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -12,8 +13,6 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.exclude
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -37,6 +36,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavEntry
@@ -47,9 +47,10 @@ import androidx.navigation3.ui.NavDisplay
 import androidx.navigationevent.NavigationEvent
 import androidx.navigation3.scene.Scene
 import com.clinref.app.data.DatabaseManager
+import com.clinref.app.ui.adaptive.BottomSafeInsetsExcludingIme
 import com.clinref.app.ui.adaptive.LocalBottomBarPadding
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
-import com.clinref.app.ui.adaptive.WindowWidthClass
+import com.clinref.app.ui.adaptive.ProvidePaneAdaptiveInfo
 import com.clinref.app.ui.adaptive.calculateWindowAdaptiveInfo
 import com.clinref.app.ui.chat.ChatScreen
 import com.clinref.app.ui.common.BackHandler
@@ -62,6 +63,16 @@ import com.clinref.app.ui.settings.AiSettingsScreen
 import com.clinref.app.ui.setup.SetupScreen
 import com.clinref.app.ui.toc.TocScreen
 
+internal fun calculateEffectiveBottomBarHeightDp(
+    bottomBarVisible: Boolean,
+    measuredBottomBarHeightDp: Dp,
+    navBarBottomDp: Dp
+): Dp = if (bottomBarVisible) {
+    if (measuredBottomBarHeightDp > 0.dp) measuredBottomBarHeightDp else (80.dp + navBarBottomDp)
+} else {
+    0.dp
+}
+
 @Composable
 fun NavGraph(
     databaseManager: DatabaseManager
@@ -70,7 +81,9 @@ fun NavGraph(
     val density = LocalDensity.current
     val containerWidthDp = with(density) { windowInfo.containerSize.width.toDp() }
     val containerHeightDp = with(density) { windowInfo.containerSize.height.toDp() }
-    val adaptiveInfo = calculateWindowAdaptiveInfo(containerWidthDp, containerHeightDp)
+    val adaptiveInfo = remember(containerWidthDp, containerHeightDp) {
+        calculateWindowAdaptiveInfo(containerWidthDp, containerHeightDp)
+    }
 
     CompositionLocalProvider(
         LocalWindowAdaptiveInfo provides adaptiveInfo
@@ -169,9 +182,8 @@ fun NavGraph(
         }
     }
 
-    val windowWidthClass = adaptiveInfo.widthClass
     val isWideScreen = adaptiveInfo.useNavigationRail
-    val isExpandedScreen = windowWidthClass == WindowWidthClass.EXPANDED
+    val isExpandedScreen = adaptiveInfo.isExpanded
     val bottomBarVisible = !navigationState.isOnSubRoute && !isWideScreen
     val navRailVisible = isWideScreen && (isExpandedScreen || !navigationState.isOnSubRoute)
     val motion = rememberNavMotion()
@@ -180,16 +192,14 @@ fun NavGraph(
     val bottomBarHeightDp = remember(bottomBarHeightPx, density) {
         with(density) { bottomBarHeightPx.toDp() }
     }
-    val navBarBottom = WindowInsets.safeDrawing
-        .only(WindowInsetsSides.Bottom)
-        .exclude(WindowInsets.ime)
+    val navBarBottom = BottomSafeInsetsExcludingIme
         .asPaddingValues()
         .calculateBottomPadding()
-    val effectiveBottomBarHeightDp = if (!adaptiveInfo.useNavigationRail) {
-        if (bottomBarHeightDp > 0.dp) bottomBarHeightDp else (80.dp + navBarBottom)
-    } else {
-        0.dp
-    }
+    val effectiveBottomBarHeightDp = calculateEffectiveBottomBarHeightDp(
+        bottomBarVisible = bottomBarVisible,
+        measuredBottomBarHeightDp = bottomBarHeightDp,
+        navBarBottomDp = navBarBottom
+    )
 
     val forwardTransition: AnimatedContentTransitionScope<Scene<NavKey>>.() -> ContentTransform = remember(motion) {
         {
@@ -245,7 +255,13 @@ fun NavGraph(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && selectedGraphicId == null) {
+                val activeRoute = navigationState.currentStack?.lastOrNull()
+                if (
+                    event.type == KeyEventType.KeyDown &&
+                    selectedGraphicId == null &&
+                    activeRoute !is ChatRoute &&
+                    activeRoute !is AiSettingsRoute
+                ) {
                     val isModifier = (event.isCtrlPressed || event.isMetaPressed) &&
                         !event.isAltPressed && !event.isShiftPressed
 
@@ -293,7 +309,7 @@ fun NavGraph(
                     motion = motion
                 )
 
-                Box(
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -302,24 +318,28 @@ fun NavGraph(
                             else WindowInsets(0, 0, 0, 0)
                         )
                 ) {
-                    NavDisplay(
-                        entries = navigationState.toDecoratedEntries(entryProvider),
-                        onBack = {
-                            navigator.goBack()
-                        },
-                        transitionSpec = forwardTransition,
-                        popTransitionSpec = popTransition,
-                        predictivePopTransitionSpec = predictivePopTransition,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    ProvidePaneAdaptiveInfo(paneWidthDp = maxWidth, paneHeightDp = maxHeight) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            NavDisplay(
+                                entries = navigationState.toDecoratedEntries(entryProvider),
+                                onBack = {
+                                    navigator.goBack()
+                                },
+                                transitionSpec = forwardTransition,
+                                popTransitionSpec = popTransition,
+                                predictivePopTransitionSpec = predictivePopTransition,
+                                modifier = Modifier.fillMaxSize()
+                            )
 
-                    ClinRefBottomBar(
-                        visible = bottomBarVisible,
-                        currentRoute = navigationState.topLevelRoute,
-                        onNavigate = { navigator.navigate(it) },
-                        motion = motion,
-                        onHeightChanged = { bottomBarHeightPx = it }
-                    )
+                            ClinRefBottomBar(
+                                visible = bottomBarVisible,
+                                currentRoute = navigationState.topLevelRoute,
+                                onNavigate = { navigator.navigate(it) },
+                                motion = motion,
+                                onHeightChanged = { bottomBarHeightPx = it }
+                            )
+                        }
+                    }
                 }
             }
         }

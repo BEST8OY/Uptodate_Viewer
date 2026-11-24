@@ -1,43 +1,32 @@
 package com.clinref.app.ui.content
 
 import com.clinref.app.ui.common.BackHandler
+import com.clinref.app.ui.common.ClinRefErrorState
+import com.clinref.app.ui.common.nonBouncyFastExitSpring
+import com.clinref.app.ui.adaptive.BottomSafeInsetsExcludingIme
+import com.clinref.app.ui.adaptive.TopAndHorizontalSafeInsets
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -64,7 +53,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -268,7 +256,7 @@ fun ContentScreen(
                     }
                 } else false
             },
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = TopAndHorizontalSafeInsets,
         topBar = {
             ContentTopBar(
                 title = articleTitle,
@@ -298,17 +286,14 @@ fun ContentScreen(
                     animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
                 ),
                 exit = slideOutVertically(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
+                    animationSpec = nonBouncyFastExitSpring(),
                     targetOffsetY = { it }
                 ) + fadeOut(
                     animationSpec = MaterialTheme.motionScheme.fastEffectsSpec()
                 ),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .windowInsetsPadding(WindowInsets.navigationBars.exclude(WindowInsets.ime))
+                    .windowInsetsPadding(BottomSafeInsetsExcludingIme)
                     .imePadding()
                     .padding(bottom = toolbarBottomPadding)
                     .zIndex(1f)
@@ -340,7 +325,11 @@ fun ContentScreen(
                 )
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (showSearch) Modifier.imePadding() else Modifier)
+            ) {
                 HtmlContentWebView(
                     document = document,
                     controller = webView,
@@ -391,7 +380,7 @@ fun ContentScreen(
             ReferenceSheet(
                 data = sheet.data,
                 onDismiss = { viewModel.dismissSheet() },
-                onJumpTo = { num -> viewModel.scrollToSection("ref_$num") },
+                onJumpTo = { num -> viewModel.jumpToReference(num) },
                 onOpenUrl = { url ->
                     try {
                         uriHandler.openUri(url)
@@ -425,28 +414,13 @@ private fun ContentErrorView(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .testTag("content_error")
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Icon(
-            imageVector = Icons.Default.ErrorOutline,
-            contentDescription = "Error",
-            modifier = Modifier.size(48.dp),
-            tint = MaterialTheme.colorScheme.error
-        )
-        Text(
-            text = errorMsg,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.error,
-            textAlign = TextAlign.Center
-        )
-        FilledTonalButton(onClick = onRetry) {
-            Text("Retry")
-        }
-    }
+    ClinRefErrorState(
+        message = errorMsg,
+        onRetry = onRetry,
+        useTonalRetryButton = true,
+        contentPadding = PaddingValues(32.dp),
+        fillViewport = false,
+        modifier = modifier.testTag("content_error")
+    )
 }
 

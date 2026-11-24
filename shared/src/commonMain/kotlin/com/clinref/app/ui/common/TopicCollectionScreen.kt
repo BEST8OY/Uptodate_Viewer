@@ -1,22 +1,15 @@
 package com.clinref.app.ui.common
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VisibilityThreshold
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -66,10 +59,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.navigation3.runtime.NavKey
-import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.CenteredReadableContainer
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
+import com.clinref.app.ui.adaptive.TopAndHorizontalSafeInsets
 import com.clinref.app.ui.adaptive.rememberContentBottomPadding
 import com.clinref.app.ui.content.normalizeGraphicId
 import com.clinref.app.util.formatTimestamp
@@ -103,29 +96,17 @@ fun EmptyTopicCollectionState(
     bottomInsetPadding: androidx.compose.ui.unit.Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(bottom = bottomInsetPadding),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(48.dp),
-            )
-            Text(
-                text = text,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    ClinRefEmptyState(
+        icon = icon,
+        title = text,
+        contentPadding = PaddingValues(
+            start = 32.dp,
+            top = 32.dp,
+            end = 32.dp,
+            bottom = bottomInsetPadding + 32.dp
+        ),
+        modifier = modifier,
+    )
 }
 
 /**
@@ -165,12 +146,14 @@ fun TopicCollectionScreen(
     val adaptiveInfo = LocalWindowAdaptiveInfo.current
     val bottomInsetPadding = rememberContentBottomPadding(16.dp)
 
-    LifecycleStartEffect(Unit) {
-        onStopOrDispose {
-            pendingDelete = emptyList()
-            selectedIds = emptySet()
-        }
-    }
+    UndoDeleteEffect(
+        pendingItems = pendingDelete,
+        snackbarHostState = snackbarHostState,
+        messageFor = { strings.removedSnackbarMessage(it.size) },
+        onRestore = onRestoreEntries,
+        onClearPending = { pendingDelete = emptyList() },
+        onLifecycleStop = { selectedIds = emptySet() },
+    )
 
     LaunchedEffect(entries) {
         val currentIds = entries.map { it.topicId }.toSet()
@@ -206,7 +189,7 @@ fun TopicCollectionScreen(
 
     Scaffold(
         modifier = modifier.nestedScroll(topAppBarScrollBehavior.nestedScrollConnection),
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        contentWindowInsets = TopAndHorizontalSafeInsets,
         snackbarHost = {
             Box(modifier = Modifier.padding(bottom = bottomInsetPadding)) {
                 SnackbarHost(snackbarHostState)
@@ -259,6 +242,7 @@ fun TopicCollectionScreen(
                             )
                         }
                     },
+                    windowInsets = TopAndHorizontalSafeInsets,
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -302,94 +286,72 @@ fun TopicCollectionScreen(
             }
         },
     ) { padding ->
-        if (entries.isEmpty()) {
-            EmptyTopicCollectionState(
-                text = strings.emptyStateText,
-                icon = strings.emptyStateIcon,
-                bottomInsetPadding = bottomInsetPadding,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            )
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
-                        .fillMaxWidth()
-                        .padding(padding),
-                    contentPadding = PaddingValues(top = 4.dp, bottom = bottomInsetPadding),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    itemsIndexed(
-                        items = entries,
-                        key = { _, entry -> entry.topicId },
-                    ) { index, entry ->
-                        val isSelected = entry.topicId in selectedIds
-                        TopicCollectionItemRow(
-                            entry = entry,
-                            index = index,
-                            totalCount = entries.size,
-                            isSelected = isSelected,
-                            isSelectionMode = isSelectionMode,
-                            strings = strings,
-                            shapes = ListItemDefaults.segmentedShapes(index = index, count = entries.size),
-                            onTopicSelected = {
-                                if (isSelectionMode) {
-                                    selectedIds = if (isSelected) selectedIds - entry.topicId else selectedIds + entry.topicId
-                                } else {
-                                    if (entry.topicId.startsWith("Graphic-", ignoreCase = true)) {
-                                        onGraphicSelected(normalizeGraphicId(entry.topicId))
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding),
+        ) {
+            if (entries.isEmpty()) {
+                EmptyTopicCollectionState(
+                    text = strings.emptyStateText,
+                    icon = strings.emptyStateIcon,
+                    bottomInsetPadding = bottomInsetPadding,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                CenteredReadableContainer {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 4.dp, bottom = bottomInsetPadding),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        itemsIndexed(
+                            items = entries,
+                            key = { _, entry -> entry.topicId },
+                        ) { index, entry ->
+                            val isSelected = entry.topicId in selectedIds
+                            TopicCollectionItemRow(
+                                entry = entry,
+                                index = index,
+                                totalCount = entries.size,
+                                isSelected = isSelected,
+                                isSelectionMode = isSelectionMode,
+                                strings = strings,
+                                shapes = ListItemDefaults.segmentedShapes(index = index, count = entries.size),
+                                onTopicSelected = {
+                                    if (isSelectionMode) {
+                                        selectedIds = if (isSelected) selectedIds - entry.topicId else selectedIds + entry.topicId
                                     } else {
-                                        onTopicSelected(entry.topicId)
+                                        if (entry.topicId.startsWith("Graphic-", ignoreCase = true)) {
+                                            onGraphicSelected(normalizeGraphicId(entry.topicId))
+                                        } else {
+                                            onTopicSelected(entry.topicId)
+                                        }
                                     }
-                                }
-                            },
-                            onLongPress = {
-                                if (!isSelectionMode) {
-                                    selectedIds = setOf(entry.topicId)
-                                }
-                            },
-                            onRemove = {
-                                onRemoveEntry(entry.topicId)
-                                pendingDelete = listOf(entry)
-                            },
-                            modifier = Modifier.animateItem(
-                                fadeInSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow,
+                                },
+                                onLongPress = {
+                                    if (!isSelectionMode) {
+                                        selectedIds = setOf(entry.topicId)
+                                    }
+                                },
+                                onRemove = {
+                                    onRemoveEntry(entry.topicId)
+                                    pendingDelete = listOf(entry)
+                                },
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = nonBouncyExitSpring(),
+                                    placementSpec = nonBouncyExitSpring(
+                                        visibilityThreshold = IntOffset.VisibilityThreshold,
+                                    ),
+                                    fadeOutSpec = nonBouncyFastExitSpring(),
                                 ),
-                                placementSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                    visibilityThreshold = IntOffset.VisibilityThreshold,
-                                ),
-                                fadeOutSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMedium,
-                                ),
-                            ),
-                        )
+                            )
+                        }
                     }
                 }
             }
-        }
-    }
-
-    LaunchedEffect(pendingDelete) {
-        pendingDelete.takeIf { it.isNotEmpty() }?.let { toRestore ->
-            val message = strings.removedSnackbarMessage(toRestore.size)
-            showUndoSnackbar(
-                snackbarHostState = snackbarHostState,
-                message = message,
-            ) {
-                onRestoreEntries(toRestore)
-            }
-            pendingDelete = emptyList()
         }
     }
 }
@@ -527,7 +489,7 @@ private fun TopicCollectionItemRow(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (adaptiveInfo.isExpanded) {
+                        if (adaptiveInfo.showInlineRowActions) {
                             IconButton(
                                 onClick = onRemove,
                                 modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),

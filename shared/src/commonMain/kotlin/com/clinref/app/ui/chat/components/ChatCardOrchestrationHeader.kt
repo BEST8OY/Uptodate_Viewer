@@ -3,9 +3,7 @@ package com.clinref.app.ui.chat.components
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -48,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.clinref.app.domain.ai.StreamingManager
 import com.clinref.app.domain.ai.TopicRef
+import com.clinref.app.ui.common.nonBouncyExitSpring
 
 /**
  * Calm, clinically structured 2-phase orchestration header embedded above the live
@@ -128,10 +129,7 @@ fun ChatCardOrchestrationHeader(
             .fillMaxWidth()
             .padding(bottom = 12.dp)
             .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
+                animationSpec = nonBouncyExitSpring()
             ),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -152,12 +150,14 @@ fun ChatCardOrchestrationHeader(
                     .clip(MaterialTheme.shapes.medium)
                     .then(
                         if (hasExpandableDetails) {
-                            Modifier.clickable(
-                                role = Role.Button,
-                                onClickLabel = if (isDetailsExpanded) "Collapse retrieval trace" else "Expand retrieval trace"
-                            ) {
-                                isDetailsExpanded = !isDetailsExpanded
-                            }
+                            Modifier
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = if (isDetailsExpanded) "Collapse retrieval trace" else "Expand retrieval trace"
+                                ) {
+                                    isDetailsExpanded = !isDetailsExpanded
+                                }
                         } else {
                             Modifier
                         }
@@ -233,10 +233,7 @@ fun ChatCardOrchestrationHeader(
                 visible = !isCompactSynthesis,
                 enter = fadeIn(motionScheme.fastEffectsSpec()) + expandVertically(motionScheme.fastSpatialSpec()),
                 exit = fadeOut(motionScheme.fastEffectsSpec()) + shrinkVertically(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
+                    animationSpec = nonBouncyExitSpring()
                 )
             ) {
                 Column(
@@ -278,10 +275,7 @@ fun ChatCardOrchestrationHeader(
                 visible = isDetailsExpanded && steps.isNotEmpty(),
                 enter = fadeIn(motionScheme.fastEffectsSpec()) + expandVertically(motionScheme.fastSpatialSpec()),
                 exit = fadeOut(motionScheme.fastEffectsSpec()) + shrinkVertically(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
+                    animationSpec = nonBouncyExitSpring()
                 )
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -401,7 +395,8 @@ private fun DiscoveredSourcesRail(
                 onClick = { onSourceClick(source.toTopicRef()) },
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
+                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
             ) {
                 Row(
                     modifier = Modifier

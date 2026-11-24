@@ -505,8 +505,8 @@ class ContentViewModelTest {
         assertEquals(topicId, vm.currentTopicId.value)
         assertEquals(null, vm.error.value)
 
-        // It must have opened referenceSheet with reference 60
-        val sheetData = vm.referenceSheet.value
+        // It must have opened References sheet with reference 60
+        val sheetData = (vm.activeSheet.value as? ContentSheet.References)?.data
         assertNotNull(sheetData)
         assertEquals(1, sheetData?.references?.size)
         assertEquals(60, sheetData?.references?.first()?.number)
@@ -541,7 +541,7 @@ class ContentViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, vm.error.value)
-        val sheetData = vm.referenceSheet.value
+        val sheetData = (vm.activeSheet.value as? ContentSheet.References)?.data
         assertNotNull(sheetData)
         assertEquals(1, sheetData?.references?.first()?.number)
         assertEquals("50", sheetData?.references?.first()?.abstractId)
@@ -559,7 +559,7 @@ class ContentViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("ref_60"), jumps)
-        assertEquals(null, vm.referenceSheet.value)
+        assertEquals(null, vm.activeSheet.value)
         job.cancel()
     }
 
@@ -586,7 +586,7 @@ class ContentViewModelTest {
 
         assertEquals(null, vm.error.value)
         assertEquals(topicId, vm.currentTopicId.value)
-        val gradeData = vm.gradeSheet.value
+        val gradeData = (vm.activeSheet.value as? ContentSheet.Grade)?.data
         assertNotNull(gradeData)
         assertEquals("Grade 1B", gradeData?.grade)
         assertTrue(gradeData?.summary?.startsWith("A Grade 1B recommendation is a strong recommendation") == true)
@@ -669,8 +669,6 @@ class ContentViewModelTest {
         assertNotNull(gradeSheet)
         assertEquals("GRADE Recommendation", gradeSheet?.data?.grade)
         assertEquals(GradeSheetData.GENERIC_RECOMMENDATION, gradeSheet?.data)
-        assertEquals(GradeSheetData.GENERIC_RECOMMENDATION, vm.gradeSheet.value)
-        assertEquals(null, vm.referenceSheet.value)
 
         // 2. Open reference -> replaces activeSheet with References, clearing Grade
         vm.handleAction("action_1")
@@ -679,15 +677,11 @@ class ContentViewModelTest {
         val refSheet = vm.activeSheet.value as? ContentSheet.References
         assertNotNull(refSheet)
         assertEquals(1, refSheet?.data?.references?.first()?.number)
-        assertEquals(null, vm.gradeSheet.value)
-        assertNotNull(vm.referenceSheet.value)
 
         // 3. Dismiss sheet -> activeSheet becomes null
         vm.dismissSheet()
         advanceUntilIdle()
         assertEquals(null, vm.activeSheet.value)
-        assertEquals(null, vm.gradeSheet.value)
-        assertEquals(null, vm.referenceSheet.value)
     }
 
     @Test

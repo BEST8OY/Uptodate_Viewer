@@ -18,8 +18,7 @@ data class ConversationUiModel(
     val lastPreview: String,
     val timestamp: Long,
     val isPinned: Boolean = false,
-    val patientProfile: PatientProfile = PatientProfile(),
-    val isSelected: Boolean = false
+    val patientProfile: PatientProfile = PatientProfile()
 )
 
 data class ConversationListUiState(
@@ -66,8 +65,7 @@ class ConversationListViewModel(
                             lastPreview = entity.lastMessagePreview.ifBlank { "No messages yet" },
                             timestamp = entity.updatedAt,
                             isPinned = entity.isPinned,
-                            patientProfile = profile,
-                            isSelected = entity.id in currentSelected
+                            patientProfile = profile
                         )
                     }
 
@@ -111,13 +109,7 @@ class ConversationListViewModel(
         _uiState.update { state ->
             val newMode = !state.isSelectionMode
             val newSelected = if (!newMode) emptySet() else state.selectedIds
-            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
-                conversations = updatedConversations,
-                filteredConversations = filtered,
-                pinnedConversations = pinned,
-                recentConversations = recent,
                 isSelectionMode = newMode,
                 selectedIds = newSelected
             )
@@ -126,13 +118,7 @@ class ConversationListViewModel(
 
     fun clearSelectionMode() {
         _uiState.update { state ->
-            val updatedConversations = state.conversations.map { it.copy(isSelected = false) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
-                conversations = updatedConversations,
-                filteredConversations = filtered,
-                pinnedConversations = pinned,
-                recentConversations = recent,
                 isSelectionMode = false,
                 selectedIds = emptySet()
             )
@@ -146,13 +132,7 @@ class ConversationListViewModel(
             } else {
                 state.selectedIds + id
             }
-            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in newSelected) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
-                conversations = updatedConversations,
-                filteredConversations = filtered,
-                pinnedConversations = pinned,
-                recentConversations = recent,
                 selectedIds = newSelected,
                 isSelectionMode = newSelected.isNotEmpty()
             )
@@ -162,13 +142,7 @@ class ConversationListViewModel(
     fun selectAll() {
         _uiState.update { state ->
             val allIds = state.filteredConversations.map { it.id }.toSet()
-            val updatedConversations = state.conversations.map { it.copy(isSelected = it.id in allIds) }
-            val (filtered, pinned, recent) = filterAndPartition(updatedConversations, state.searchQuery)
             state.copy(
-                conversations = updatedConversations,
-                filteredConversations = filtered,
-                pinnedConversations = pinned,
-                recentConversations = recent,
                 selectedIds = allIds,
                 isSelectionMode = allIds.isNotEmpty()
             )
@@ -178,12 +152,6 @@ class ConversationListViewModel(
     fun togglePin(id: String) {
         viewModelScope.launch {
             conversationRepository.togglePin(id)
-        }
-    }
-
-    fun deleteConversation(id: String) {
-        viewModelScope.launch {
-            conversationRepository.deleteConversation(id)
         }
     }
 
@@ -232,12 +200,6 @@ class ConversationListViewModel(
             )
         }
         return backups
-    }
-
-    fun markAsRead(id: String) {
-        viewModelScope.launch {
-            conversationRepository.markAsRead(id)
-        }
     }
 
     fun renameConversation(id: String, newTitle: String) {

@@ -1,8 +1,6 @@
 package com.clinref.app.ui.chat.components
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +43,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +53,7 @@ import com.clinref.app.domain.ai.TopicRef
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.chat.MessageUiModel
+import com.clinref.app.ui.common.nonBouncyExitSpring
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -69,11 +70,12 @@ fun ChatMessageItem(
 ) {
     val isUser = message.role == "user"
     val isCancelled = message.role == "cancelled"
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 10.dp),
         horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     ) {
         if (isUser) {
@@ -161,7 +163,9 @@ fun ChatMessageItem(
                     ) {
                         IconButton(
                             onClick = { onCopyMessage(message.content) },
-                            modifier = Modifier.minimumInteractiveComponentSize()
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .pointerHoverIcon(PointerIcon.Hand)
                         ) {
                             Surface(
                                 shape = CircleShape,
@@ -213,12 +217,13 @@ private fun UserMessageBubble(
             modifier = Modifier
                 .widthIn(min = 48.dp, max = AdaptiveTokens.MaxSheetCompactWidth)
                 .animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
+                    animationSpec = nonBouncyExitSpring()
                 )
                 .clip(MaterialTheme.shapes.large)
+                .then(
+                    if (hasOverflow || isExpanded) Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    else Modifier
+                )
                 .combinedClickable(
                     onClick = {
                         if (hasOverflow || isExpanded) {

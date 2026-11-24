@@ -37,12 +37,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.common.ClinRefBottomSheet
 import com.clinref.app.ui.common.setPlainText
 import com.clinref.app.util.UrlUtils
@@ -63,6 +66,7 @@ fun ReferenceSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         showDivider = true
     ) { dismiss ->
+        val adaptiveInfo = LocalWindowAdaptiveInfo.current
         ReferenceSheetContent(
             data = data,
             onDismiss = dismiss,
@@ -71,7 +75,7 @@ fun ReferenceSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f, fill = false)
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 8.dp)
                 .padding(bottom = 24.dp)
         )
     }
@@ -215,7 +219,10 @@ private fun ReferenceItemView(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (ref.number > 0) {
-                    FilledTonalButton(onClick = onJumpTo) {
+                    FilledTonalButton(
+                        onClick = onJumpTo,
+                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = null,
@@ -226,7 +233,10 @@ private fun ReferenceItemView(
                     }
                 }
 
-                OutlinedButton(onClick = onOpenPubMed) {
+                OutlinedButton(
+                    onClick = onOpenPubMed,
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = null,
@@ -236,7 +246,10 @@ private fun ReferenceItemView(
                     Text("PubMed", style = MaterialTheme.typography.labelMedium)
                 }
 
-                OutlinedButton(onClick = onOpenScholar) {
+                OutlinedButton(
+                    onClick = onOpenScholar,
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
@@ -246,7 +259,10 @@ private fun ReferenceItemView(
                     Text("Scholar", style = MaterialTheme.typography.labelMedium)
                 }
 
-                OutlinedButton(onClick = onCopy) {
+                OutlinedButton(
+                    onClick = onCopy,
+                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                ) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
                         contentDescription = null,

@@ -8,12 +8,15 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
@@ -34,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 
 val TopLevelRoute.title: String
     get() = when (this) {
@@ -67,24 +71,30 @@ internal fun ClinRefNavRail(
             slideOutHorizontally(motion.exitSpatialSpec) { -it },
         modifier = modifier
     ) {
+        val adaptiveInfo = LocalWindowAdaptiveInfo.current
         NavigationRail(
             windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start)
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-            topLevelRoutes.forEach { route ->
-                val isSelected = route == currentRoute
-                NavigationRailItem(
-                    selected = isSelected,
-                    onClick = { onNavigate(route) },
-                    icon = {
-                        Icon(
-                            imageVector = route.icon,
-                            contentDescription = route.title
-                        )
-                    },
-                    label = { Text(route.title) },
-                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                )
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(if (adaptiveInfo.isCompactHeight) 4.dp else 16.dp))
+                topLevelRoutes.forEach { route ->
+                    val isSelected = route == currentRoute
+                    NavigationRailItem(
+                        selected = isSelected,
+                        onClick = { onNavigate(route) },
+                        icon = {
+                            Icon(
+                                imageVector = route.icon,
+                                contentDescription = route.title
+                            )
+                        },
+                        label = { Text(route.title) },
+                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    )
+                }
             }
         }
     }

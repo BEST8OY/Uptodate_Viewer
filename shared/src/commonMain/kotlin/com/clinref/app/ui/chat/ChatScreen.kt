@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -25,11 +26,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
 import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
 import androidx.compose.foundation.text.contextmenu.modifier.filterTextContextMenuComponents
@@ -39,8 +41,6 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -61,7 +61,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,8 +97,10 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.clinref.app.domain.ai.TopicRef
-import com.clinref.app.ui.adaptive.AdaptiveTokens
+import com.clinref.app.ui.adaptive.CenteredReadableContainer
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
+import com.clinref.app.ui.adaptive.ProvidePaneAdaptiveInfo
+import com.clinref.app.ui.adaptive.TopAndHorizontalSafeInsets
 import com.clinref.app.ui.chat.components.ChatInputBar
 import com.clinref.app.ui.chat.components.ChatMessageItem
 import com.clinref.app.ui.chat.components.ClinicalReferencesSection
@@ -298,7 +300,47 @@ fun ChatScreen(
     }
 
     val adaptiveInfo = LocalWindowAdaptiveInfo.current
-    val isSupportingPaneActive = adaptiveInfo.supportsSupportingPane && activeOverlay is ChatOverlay.Article
+    val activeArticleOverlay = activeOverlay as? ChatOverlay.Article
+    val isSupportingPaneActive = adaptiveInfo.supportsSupportingPane && activeArticleOverlay != null
+
+    val articleStoreOwner = remember(activeArticleOverlay?.topicId) {
+        activeArticleOverlay?.topicId?.let {
+            object : ViewModelStoreOwner {
+                override val viewModelStore = ViewModelStore()
+            }
+        }
+    }
+    DisposableEffect(articleStoreOwner) {
+        onDispose {
+            articleStoreOwner?.viewModelStore?.clear()
+        }
+    }
+
+    val currentOnNavigateToHome by rememberUpdatedState(onNavigateToHome)
+    val movableArticlePane = remember(activeArticleOverlay?.topicId, articleStoreOwner) {
+        movableContentOf<ChatOverlay.Article, Modifier> { overlay, paneModifier ->
+            articleStoreOwner?.let { storeOwner ->
+                ArticleOverlayPane(
+                    overlay = overlay,
+                    articleStoreOwner = storeOwner,
+                    inArticleGraphicId = inArticleGraphicId,
+                    backEnabled = editingUserMessageId == null,
+                    onInArticleGraphicSelected = { inArticleGraphicId = normalizeGraphicId(it) },
+                    onDismissInArticleGraphic = { inArticleGraphicId = null },
+                    onDismiss = {
+                        activeOverlay = null
+                        inArticleGraphicId = null
+                    },
+                    onNavigateToHome = {
+                        activeOverlay = null
+                        inArticleGraphicId = null
+                        currentOnNavigateToHome()
+                    },
+                    modifier = paneModifier
+                )
+            }
+        }
+    }
 
     // 7. Dismiss keyboard when overlays activate (modal mode only)
     LaunchedEffect(isOverlayActive, isSupportingPaneActive) {
@@ -352,7 +394,7 @@ fun ChatScreen(
             }
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(if (isSupportingPaneActive) 0.48f else 1f)
                     .fillMaxHeight()
@@ -361,35 +403,36 @@ fun ChatScreen(
                         else WindowInsets(0, 0, 0, 0)
                     )
             ) {
-                Scaffold(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    snackbarHost = { SnackbarHost(snackbarHostState) },
-                    topBar = {
-                        AdaptiveTopAppBar(
-                            title = {
-                                Text(
-                                    text = conversationTitle.ifBlank { "Clinical Workspace" },
-                                    style = if (adaptiveInfo.isCompactHeight) {
-                                        MaterialTheme.typography.titleMedium.copy(
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    } else {
-                                        MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            },
+                ProvidePaneAdaptiveInfo(paneWidthDp = maxWidth, paneHeightDp = maxHeight) {
+                    val paneAdaptiveInfo = LocalWindowAdaptiveInfo.current
+                    Scaffold(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection),
+                        contentWindowInsets = TopAndHorizontalSafeInsets,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        topBar = {
+                            AdaptiveTopAppBar(
+                                title = {
+                                    Text(
+                                        text = conversationTitle.ifBlank { "Clinical Workspace" },
+                                        style = if (paneAdaptiveInfo.isCompactHeight) {
+                                            MaterialTheme.typography.titleMedium.copy(
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        } else {
+                                            MaterialTheme.typography.titleLarge.copy(
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
                             subtitle = {
                                 Text(
                                     text = "${config.provider.displayName} · ${config.model.ifBlank { "Default" }}",
-                                    style = if (adaptiveInfo.isCompactHeight) {
+                                    style = if (paneAdaptiveInfo.isCompactHeight) {
                                         MaterialTheme.typography.bodySmall
                                     } else {
                                         MaterialTheme.typography.bodyMedium
@@ -460,10 +503,7 @@ fun ChatScreen(
                         }
                 )
             } else {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.TopCenter
-                ) {
+                CenteredReadableContainer {
                     val hasAssistantInPersisted = remember(chatItems, activeAssistantId) {
                         activeAssistantId != null && chatItems.any {
                             it is ChatListItem.Message && it.uiModel.id == activeAssistantId
@@ -473,12 +513,11 @@ fun ChatScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier
-                            .widthIn(max = AdaptiveTokens.MaxReadableContentWidth)
-                            .fillMaxWidth()
+                            .fillMaxSize()
                             .suppressTransientSelectAllContextMenu(),
                         contentPadding = PaddingValues(
                             top = 8.dp,
-                            bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 160.dp
+                            bottom = if (chatInputHeightDp > 0.dp) chatInputHeightDp + 16.dp else 88.dp
                         ),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -539,7 +578,7 @@ fun ChatScreen(
                                         tables = item.tables,
                                         onNavigateToContent = handleNavigateToContent,
                                         onGraphicSelected = handleGraphicSelected,
-                                        modifier = Modifier.padding(horizontal = 20.dp)
+                                        modifier = Modifier.padding(horizontal = paneAdaptiveInfo.horizontalMargin)
                                     )
                                 }
                             }
@@ -594,46 +633,10 @@ fun ChatScreen(
                     .fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (editingUserMessageId != null) {
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Editing previous question",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            IconButton(
-                                onClick = {
-                                    editingUserMessageId = null
-                                    textFieldState.clearText()
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Cancel edit",
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
 
                 // Remains visible during generation whenever the clinician has scrolled up
                 ScrollToBottomFAB(
@@ -683,10 +686,11 @@ fun ChatScreen(
                     isGenerating = isGenerating,
                     patientProfile = patientProfile,
                     focusRequester = inputFocusRequester,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onSizeChanged { chatInputHeightPx = it.height }
-                )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { chatInputHeightPx = it.height }
+                    )
+                }
             }
         }
     }
@@ -696,27 +700,18 @@ fun ChatScreen(
                 VerticalDivider(
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
-                Box(
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(0.52f)
                         .fillMaxHeight()
                         .consumeWindowInsets(WindowInsets.safeDrawing.only(WindowInsetsSides.Start))
                 ) {
-                    ArticleOverlayPane(
-                        overlay = activeOverlay as ChatOverlay.Article,
-                        inArticleGraphicId = inArticleGraphicId,
-                        onInArticleGraphicSelected = { inArticleGraphicId = normalizeGraphicId(it) },
-                        onDismissInArticleGraphic = { inArticleGraphicId = null },
-                        onDismiss = {
-                            activeOverlay = null
-                            inArticleGraphicId = null
-                        },
-                        onNavigateToHome = {
-                            activeOverlay = null
-                            inArticleGraphicId = null
-                            onNavigateToHome()
-                        }
-                    )
+                    ProvidePaneAdaptiveInfo(paneWidthDp = maxWidth, paneHeightDp = maxHeight) {
+                        movableArticlePane(
+                            activeArticleOverlay,
+                            Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
@@ -724,21 +719,9 @@ fun ChatScreen(
         if (!isSupportingPaneActive) {
             when (val overlay = activeOverlay) {
                 is ChatOverlay.Article -> {
-                    ArticleOverlayPane(
-                        overlay = overlay,
-                        inArticleGraphicId = inArticleGraphicId,
-                        onInArticleGraphicSelected = { inArticleGraphicId = normalizeGraphicId(it) },
-                        onDismissInArticleGraphic = { inArticleGraphicId = null },
-                        onDismiss = {
-                            activeOverlay = null
-                            inArticleGraphicId = null
-                        },
-                        onNavigateToHome = {
-                            activeOverlay = null
-                            inArticleGraphicId = null
-                            onNavigateToHome()
-                        },
-                        modifier = Modifier
+                    movableArticlePane(
+                        overlay,
+                        Modifier
                             .fillMaxSize()
                             .zIndex(100f)
                     )
@@ -758,58 +741,47 @@ fun ChatScreen(
 @Composable
 private fun ArticleOverlayPane(
     overlay: ChatOverlay.Article,
+    articleStoreOwner: ViewModelStoreOwner,
     inArticleGraphicId: String?,
+    backEnabled: Boolean,
     onInArticleGraphicSelected: (String) -> Unit,
     onDismissInArticleGraphic: () -> Unit,
     onDismiss: () -> Unit,
     onNavigateToHome: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    key(overlay.topicId) {
-        val articleStoreOwner = remember(overlay.topicId) {
-            object : ViewModelStoreOwner {
-                override val viewModelStore = ViewModelStore()
-            }
+    BackHandler(enabled = backEnabled) {
+        if (inArticleGraphicId != null) {
+            onDismissInArticleGraphic()
+        } else {
+            onDismiss()
         }
-        DisposableEffect(articleStoreOwner) {
-            onDispose {
-                articleStoreOwner.viewModelStore.clear()
-            }
-        }
+    }
 
-        BackHandler(enabled = true) {
-            if (inArticleGraphicId != null) {
-                onDismissInArticleGraphic()
-            } else {
-                onDismiss()
-            }
-        }
-
-        Surface(
-            modifier = modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        CompositionLocalProvider(
+            LocalViewModelStoreOwner provides articleStoreOwner
         ) {
-            CompositionLocalProvider(
-                LocalViewModelStoreOwner provides articleStoreOwner
-            ) {
-                ContentScreen(
-                    topicId = overlay.topicId,
-                    sectionId = overlay.sectionId,
-                    isModal = true,
-                    onBack = onDismiss,
-                    onHome = {
-                        onDismiss()
-                        onNavigateToHome()
-                    },
-                    onGraphicSelected = onInArticleGraphicSelected
-                )
+            ContentScreen(
+                topicId = overlay.topicId,
+                sectionId = overlay.sectionId,
+                isModal = true,
+                onBack = onDismiss,
+                onHome = {
+                    onDismiss()
+                    onNavigateToHome()
+                },
+                onGraphicSelected = onInArticleGraphicSelected
+            )
 
-                inArticleGraphicId?.let { graphicId ->
-                    GraphicSheet(
-                        graphicId = graphicId,
-                        onDismiss = onDismissInArticleGraphic
-                    )
-                }
+            inArticleGraphicId?.let { graphicId ->
+                GraphicSheet(
+                    graphicId = graphicId,
+                    onDismiss = onDismissInArticleGraphic
+                )
             }
         }
     }
@@ -819,8 +791,11 @@ private fun ArticleOverlayPane(
 private fun ChatEmptyState(
     modifier: Modifier = Modifier
 ) {
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
     Column(
-        modifier = modifier.padding(horizontal = 24.dp),
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -876,8 +851,7 @@ private fun StreamingAssistantMessage(
             id = activeAssistantId,
             role = "assistant",
             content = streamingState.streamingText,
-            timestamp = 0L,
-            showTimestamp = false
+            timestamp = 0L
         ),
         isStreaming = true,
         streamingState = streamingState,

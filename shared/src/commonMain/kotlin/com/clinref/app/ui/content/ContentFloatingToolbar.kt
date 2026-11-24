@@ -268,7 +268,7 @@ internal fun ContentFloatingToolbar(
             BoxWithConstraints(
                 contentAlignment = Alignment.Center
             ) {
-                val isNarrow = maxWidth < 360.dp
+                val isNarrow = maxWidth < AdaptiveTokens.CompactToolbarBreakpoint
 
                 HorizontalFloatingToolbar(
                     expanded = true,

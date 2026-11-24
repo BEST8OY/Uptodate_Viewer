@@ -1,5 +1,9 @@
 package com.clinref.app.ui.content
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.GraphicData
@@ -149,14 +155,35 @@ private fun GraphicBodyContent(
                 buildGraphicHtml(uiState.data, graphicCss)
             }
 
-            GraphicWebView(
-                graphicId = cleanId,
-                fullHtml = fullHtml,
-                sheetLoading = sheetLoading,
-                onPageFinished = onPageFinished,
-                onPageError = onPageError,
-                modifier = modifier
-            )
+            Box(
+                modifier = modifier.semantics {
+                    contentDescription = "Graphic: $cleanId"
+                }
+            ) {
+                GraphicWebView(
+                    graphicId = cleanId,
+                    fullHtml = fullHtml,
+                    onPageFinished = onPageFinished,
+                    onPageError = onPageError,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                AnimatedVisibility(
+                    visible = sheetLoading,
+                    enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
+                    exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ContainedLoadingIndicator(modifier = Modifier.size(48.dp))
+                    }
+                }
+            }
         }
         else -> {
             // Initial loading or transitional stale-guard while fetching requested cleanId

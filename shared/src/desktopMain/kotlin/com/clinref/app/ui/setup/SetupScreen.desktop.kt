@@ -1,12 +1,15 @@
 package com.clinref.app.ui.setup
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
@@ -24,10 +27,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import java.io.File
 import javax.swing.JFileChooser
+import javax.swing.SwingUtilities
 
 @Composable
 actual fun SetupScreen(
@@ -42,7 +49,8 @@ actual fun SetupScreen(
     val defaultDbPath = remember {
         File(".").absolutePath
     }
-    var manualPath by remember { mutableStateOf("") }
+    val manualPathState = rememberTextFieldState()
+    val adaptiveInfo = LocalWindowAdaptiveInfo.current
 
     LaunchedEffect(isConfigured) {
         if (!isConfigured && !isValidating) {
@@ -63,25 +71,25 @@ actual fun SetupScreen(
         isValidating = isValidating,
         error = error
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        val actionButtons: @Composable (Modifier) -> Unit = { buttonModifier ->
             OutlinedButton(
                 onClick = {
-                    val chooser = JFileChooser().apply {
-                        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                        dialogTitle = "Select Database Directory"
-                        currentDirectory = File(".")
-                    }
-                    val result = chooser.showOpenDialog(null)
-                    if (result == JFileChooser.APPROVE_OPTION) {
-                        val path = chooser.selectedFile.absolutePath
-                        manualPath = path
-                        viewModel.selectDirectory(path)
+                    SwingUtilities.invokeLater {
+                        val chooser = JFileChooser().apply {
+                            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                            dialogTitle = "Select Database Directory"
+                            currentDirectory = File(".")
+                        }
+                        val result = chooser.showOpenDialog(null)
+                        if (result == JFileChooser.APPROVE_OPTION) {
+                            val path = chooser.selectedFile.absolutePath
+                            manualPathState.edit { replace(0, length, path) }
+                            viewModel.selectDirectory(path)
+                        }
                     }
                 },
                 enabled = !isValidating,
+                modifier = buttonModifier.pointerHoverIcon(if (!isValidating) PointerIcon.Hand else PointerIcon.Default),
                 shape = MaterialTheme.shapes.medium
             ) {
                 Icon(
@@ -96,6 +104,7 @@ actual fun SetupScreen(
             Button(
                 onClick = { viewModel.selectDirectory(defaultDbPath) },
                 enabled = !isValidating,
+                modifier = buttonModifier.pointerHoverIcon(if (!isValidating) PointerIcon.Hand else PointerIcon.Default),
                 shape = MaterialTheme.shapes.medium
             ) {
                 Icon(
@@ -108,6 +117,23 @@ actual fun SetupScreen(
             }
         }
 
+        if (adaptiveInfo.isCompact) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                actionButtons(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                actionButtons(Modifier)
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
         Row(
@@ -116,23 +142,27 @@ actual fun SetupScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
-                value = manualPath,
-                onValueChange = { manualPath = it },
+                state = manualPathState,
                 label = { Text("Or enter path manually") },
                 placeholder = { Text("/path/to/databases") },
-                singleLine = true,
+                lineLimits = TextFieldLineLimits.SingleLine,
                 modifier = Modifier.weight(1f),
                 enabled = !isValidating,
                 shape = MaterialTheme.shapes.medium
             )
 
+            val isManualPathNotBlank = manualPathState.text.isNotBlank()
             Button(
                 onClick = {
-                    if (manualPath.isNotBlank()) {
-                        viewModel.selectDirectory(manualPath.trim())
+                    val trimmed = manualPathState.text.toString().trim()
+                    if (trimmed.isNotBlank()) {
+                        viewModel.selectDirectory(trimmed)
                     }
                 },
-                enabled = !isValidating && manualPath.isNotBlank(),
+                enabled = !isValidating && isManualPathNotBlank,
+                modifier = Modifier.pointerHoverIcon(
+                    if (!isValidating && isManualPathNotBlank) PointerIcon.Hand else PointerIcon.Default
+                ),
                 shape = MaterialTheme.shapes.medium
             ) {
                 Text("Open")

@@ -1,5 +1,6 @@
 package com.clinref.app.ui.navigation
 
+import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavKey
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -275,5 +276,33 @@ class NavigationStateTest {
         navigator.navigate(AiRoute)
         assertEquals(AiRoute, navigator.state.topLevelRoute)
         assertEquals(listOf<NavKey>(AiRoute, chatRoute), navigator.state.backStacks[AiRoute]?.toList())
+    }
+
+    @Test
+    fun `effective bottom bar height is zero when bottom bar is hidden on sub-routes`() {
+        assertEquals(
+            0.dp,
+            calculateEffectiveBottomBarHeightDp(
+                bottomBarVisible = false,
+                measuredBottomBarHeightDp = 84.dp,
+                navBarBottomDp = 24.dp
+            )
+        )
+        assertEquals(
+            84.dp,
+            calculateEffectiveBottomBarHeightDp(
+                bottomBarVisible = true,
+                measuredBottomBarHeightDp = 84.dp,
+                navBarBottomDp = 24.dp
+            )
+        )
+        assertEquals(
+            104.dp,
+            calculateEffectiveBottomBarHeightDp(
+                bottomBarVisible = true,
+                measuredBottomBarHeightDp = 0.dp,
+                navBarBottomDp = 24.dp
+            )
+        )
     }
 }

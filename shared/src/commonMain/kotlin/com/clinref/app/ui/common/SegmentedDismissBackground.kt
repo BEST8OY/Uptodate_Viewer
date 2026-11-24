@@ -130,29 +130,6 @@ fun SegmentedDismissBackground(
 }
 
 /**
- * Backward-compatible overload for single-direction dismiss background.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SegmentedDismissBackground(
-    dismissState: SwipeToDismissBoxState,
-    shape: Shape,
-    actionLabel: String,
-    actionIcon: ImageVector,
-    modifier: Modifier = Modifier,
-    targetDirection: SwipeToDismissBoxValue = SwipeToDismissBoxValue.EndToStart,
-) {
-    val action = DismissAction(label = actionLabel, icon = actionIcon)
-    SegmentedDismissBackground(
-        dismissState = dismissState,
-        shape = shape,
-        modifier = modifier,
-        startAction = if (targetDirection == SwipeToDismissBoxValue.StartToEnd) action else null,
-        endAction = if (targetDirection == SwipeToDismissBoxValue.EndToStart) action else null,
-    )
-}
-
-/**
  * Safely reads the current drag offset from [SwipeToDismissBoxState], returning `0f` before
  * the underlying anchored draggable state anchors are initialized on the first layout pass.
  */

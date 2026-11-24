@@ -1,15 +1,17 @@
 package com.clinref.app.ui.adaptive
 
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.exclude
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -32,7 +34,12 @@ enum class WindowHeightClass {
 }
 
 /**
- * Unified window layout adaptive metrics for responsive UI across Android and Desktop JVM.
+ * Unified window/pane layout adaptive metrics for responsive UI across Android and Desktop JVM.
+ *
+ * [widthDp]/[heightDp] and [widthClass]/[heightClass] reflect the current pane's dimensions
+ * (updated by [ProvidePaneAdaptiveInfo] inside navigation rails or supporting-pane splits), while
+ * [windowWidthDp]/[windowHeightDp] preserve the outer window dimensions for top-level chrome
+ * decisions ([useNavigationRail], [supportsSupportingPane]).
  */
 @Immutable
 data class WindowAdaptiveInfo(
@@ -40,13 +47,15 @@ data class WindowAdaptiveInfo(
     val heightClass: WindowHeightClass = WindowHeightClass.MEDIUM,
     val widthDp: Dp = 360.dp,
     val heightDp: Dp = 800.dp,
+    val windowWidthDp: Dp = widthDp,
+    val windowHeightDp: Dp = heightDp,
 ) {
     val isCompact: Boolean get() = widthClass == WindowWidthClass.COMPACT
-    val isMedium: Boolean get() = widthClass == WindowWidthClass.MEDIUM
     val isExpanded: Boolean get() = widthClass == WindowWidthClass.EXPANDED
-    val useNavigationRail: Boolean get() = widthClass != WindowWidthClass.COMPACT
+    val useNavigationRail: Boolean get() = calculateWindowWidthClass(windowWidthDp) != WindowWidthClass.COMPACT
     val isCompactHeight: Boolean get() = heightClass == WindowHeightClass.COMPACT
-    val supportsSupportingPane: Boolean get() = widthDp >= AdaptiveTokens.SupportingPaneMinWidth
+    val supportsSupportingPane: Boolean get() = windowWidthDp >= AdaptiveTokens.SupportingPaneMinWidth
+    val showInlineRowActions: Boolean get() = isExpanded || isDesktopPlatform()
     val horizontalMargin: Dp get() = when (widthClass) {
         WindowWidthClass.COMPACT -> 16.dp
         WindowWidthClass.MEDIUM -> 24.dp
@@ -71,12 +80,54 @@ val LocalBottomBarPadding = compositionLocalOf { 0.dp }
  */
 @Composable
 fun rememberContentBottomPadding(extra: Dp = 16.dp): Dp {
-    val navBarBottom = WindowInsets.safeDrawing
-        .only(WindowInsetsSides.Bottom)
-        .exclude(WindowInsets.ime)
+    val navBarBottom = BottomSafeInsetsExcludingIme
         .asPaddingValues()
         .calculateBottomPadding()
     return maxOf(LocalBottomBarPadding.current, navBarBottom) + extra
+}
+
+/**
+ * Scopes [LocalWindowAdaptiveInfo] to a sub-pane's rendered width/height while preserving the outer
+ * window dimensions for top-level chrome decisions.
+ */
+@Composable
+fun ProvidePaneAdaptiveInfo(
+    paneWidthDp: Dp,
+    paneHeightDp: Dp,
+    content: @Composable () -> Unit
+) {
+    val parent = LocalWindowAdaptiveInfo.current
+    val paneInfo = remember(paneWidthDp, paneHeightDp, parent.windowWidthDp, parent.windowHeightDp) {
+        calculatePaneAdaptiveInfo(
+            paneWidthDp = paneWidthDp,
+            paneHeightDp = paneHeightDp,
+            windowWidthDp = parent.windowWidthDp,
+            windowHeightDp = parent.windowHeightDp
+        )
+    }
+    CompositionLocalProvider(LocalWindowAdaptiveInfo provides paneInfo, content = content)
+}
+
+/**
+ * Centers readable content horizontally with a max width cap.
+ */
+@Composable
+fun CenteredReadableContainer(
+    maxWidth: Dp = AdaptiveTokens.MaxReadableContentWidth,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = maxWidth)
+                .fillMaxSize(),
+            content = content
+        )
+    }
 }
 
 object AdaptiveTokens {
@@ -86,6 +137,7 @@ object AdaptiveTokens {
     val BreakpointHeightMedium: Dp = 480.dp
     val BreakpointHeightExpanded: Dp = 900.dp
     val SupportingPaneMinWidth: Dp = 1040.dp
+    val CompactToolbarBreakpoint: Dp = 360.dp
 
     // Content width caps (optimal line length & scannability)
     val MaxReadableContentWidth: Dp = 840.dp   // Chat stream, Chat input, TOC/History/Favorites/Conversations
@@ -112,5 +164,21 @@ fun calculateWindowAdaptiveInfo(width: Dp, height: Dp): WindowAdaptiveInfo = Win
     widthClass = calculateWindowWidthClass(width),
     heightClass = calculateWindowHeightClass(height),
     widthDp = width,
-    heightDp = height
+    heightDp = height,
+    windowWidthDp = width,
+    windowHeightDp = height
+)
+
+fun calculatePaneAdaptiveInfo(
+    paneWidthDp: Dp,
+    paneHeightDp: Dp,
+    windowWidthDp: Dp,
+    windowHeightDp: Dp
+): WindowAdaptiveInfo = WindowAdaptiveInfo(
+    widthClass = calculateWindowWidthClass(paneWidthDp),
+    heightClass = calculateWindowHeightClass(paneHeightDp),
+    widthDp = paneWidthDp,
+    heightDp = paneHeightDp,
+    windowWidthDp = windowWidthDp,
+    windowHeightDp = windowHeightDp
 )
