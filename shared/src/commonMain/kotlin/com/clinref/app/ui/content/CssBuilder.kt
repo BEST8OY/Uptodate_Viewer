@@ -45,15 +45,16 @@ class CssBuilder(private val colors: ThemeColors) {
         return "<style>\n${sections.joinToString("\n")}\n</style>"
     }
 
-    fun buildGraphicPopupCss(): String {
+    fun buildGraphicPopupCss(bottomInsetDp: Int = 0): String {
+        val safeBottomInset = bottomInsetDp.coerceAtLeast(0)
         val sections = listOf(
             rootVariables(),
             graphicReset(),
-            graphicLayout(),
+            graphicLayout(safeBottomInset),
             graphicTableSpecifics(),
             sharedTableStyles(),
             graphicNavigation(),
-            graphicResponsive(),
+            graphicResponsive(safeBottomInset),
             printStyles(),
         )
         return sections.joinToString("\n")
@@ -1193,10 +1194,10 @@ a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 """.trimIndent()
 
-    private fun graphicLayout(): String = """
+    private fun graphicLayout(bottomInsetDp: Int): String = """
 /* Graphic Viewer Layout */
 .graphic_view {
-    padding: 24px;
+    padding: 24px 24px ${24 + bottomInsetDp}px;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -1378,10 +1379,10 @@ a:hover { text-decoration: underline; }
 }
 """.trimIndent()
 
-    private fun graphicResponsive(): String = """
+    private fun graphicResponsive(bottomInsetDp: Int): String = """
 /* Graphic Responsive */
 @media (max-width: 480px) {
-    .graphic_view { padding: 16px; }
+    .graphic_view { padding: 16px 16px ${16 + bottomInsetDp}px; }
     .cntnt table { font-size: 0.8rem; }
     .cntnt td, .cntnt th { padding: 7px 9px; }
 }

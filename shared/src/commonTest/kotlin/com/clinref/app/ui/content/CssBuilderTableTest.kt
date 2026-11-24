@@ -86,4 +86,12 @@ class CssBuilderTableTest {
         assertTrue(darkCss.contains("min-width: 481px) and (max-width: 599px)"), "CSS should use non-overlapping 481-599px media query")
         assertTrue(darkCss.contains("a[href^=\"http://\"]::after"), "Print CSS should only append URL for external links")
     }
+
+    @Test
+    fun graphicPopupCss_appliesBottomInsetToGraphicViewPadding() {
+        val css = CssBuilder(ThemeColors.light()).buildGraphicPopupCss(bottomInsetDp = 48)
+
+        assertTrue(css.contains("padding: 24px 24px 72px;"), "Graphic layout should include bottom inset")
+        assertTrue(css.contains("padding: 16px 16px 64px;"), "Compact graphic responsive rule should include bottom inset")
+    }
 }

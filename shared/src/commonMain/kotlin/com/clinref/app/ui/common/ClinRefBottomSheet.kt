@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,7 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.clinref.app.ui.adaptive.BottomAndHorizontalSafeInsetsExcludingIme
+import com.clinref.app.ui.adaptive.BottomSafeInsetsExcludingIme
+import com.clinref.app.ui.adaptive.HorizontalSafeInsets
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -72,12 +74,15 @@ fun ClinRefBottomSheet(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
     ),
-    content: @Composable ColumnScope.(dismiss: () -> Unit) -> Unit
+    content: @Composable ColumnScope.(dismiss: () -> Unit, bottomInset: Dp) -> Unit
 ) {
     val currentOnDismiss by rememberUpdatedState(onDismiss)
     val scope = rememberCoroutineScope()
     var isDismissing by remember { mutableStateOf(false) }
     val adaptiveInfo = LocalWindowAdaptiveInfo.current
+    val bottomInset = BottomSafeInsetsExcludingIme
+        .asPaddingValues()
+        .calculateBottomPadding()
     val effectiveHeightFraction = heightFraction?.let {
         if (adaptiveInfo.isCompactHeight) maxOf(it, 0.95f) else it
     }
@@ -121,7 +126,7 @@ fun ClinRefBottomSheet(
                     if (effectiveHeightFraction != null) Modifier.fillMaxHeight(effectiveHeightFraction)
                     else Modifier
                 )
-                .windowInsetsPadding(BottomAndHorizontalSafeInsetsExcludingIme)
+                .windowInsetsPadding(HorizontalSafeInsets)
                 .imePadding()
         ) {
             if (title != null || showCloseButton || titleBadge != null) {
@@ -182,7 +187,7 @@ fun ClinRefBottomSheet(
                 }
             }
 
-            content(animatedDismiss)
+            content(animatedDismiss, bottomInset)
         }
     }
 }

@@ -163,7 +163,7 @@ internal fun OutlineOverlay(
         title = "Topic Outline",
         maxWidth = AdaptiveTokens.MaxSheetWideWidth,
         showDivider = false
-    ) { dismiss ->
+    ) { dismiss, bottomInset ->
         val adaptiveInfo = LocalWindowAdaptiveInfo.current
         val sheetHorizontalMargin = adaptiveInfo.horizontalMargin
         Column(
@@ -349,7 +349,7 @@ internal fun OutlineOverlay(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = sheetHorizontalMargin),
-                            contentPadding = PaddingValues(bottom = 16.dp),
+                            contentPadding = PaddingValues(bottom = 16.dp + bottomInset),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             if (searchQuery.isBlank() && summarySection != null && summaryIndex > 0) {
@@ -394,7 +394,7 @@ internal fun OutlineOverlay(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = sheetHorizontalMargin),
-                            contentPadding = PaddingValues(bottom = 16.dp),
+                            contentPadding = PaddingValues(bottom = 16.dp + bottomInset),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(
@@ -425,7 +425,7 @@ internal fun OutlineOverlay(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = sheetHorizontalMargin),
-                            contentPadding = PaddingValues(bottom = 16.dp),
+                            contentPadding = PaddingValues(bottom = 16.dp + bottomInset),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(

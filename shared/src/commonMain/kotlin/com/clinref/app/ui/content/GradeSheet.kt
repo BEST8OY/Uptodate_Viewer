@@ -52,7 +52,7 @@ fun GradeSheet(
                 )
             }
         }
-    ) {
+    ) { _, bottomInset ->
         val adaptiveInfo = LocalWindowAdaptiveInfo.current
         Column(
             modifier = Modifier
@@ -60,7 +60,7 @@ fun GradeSheet(
                 .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 8.dp)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 24.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Card(

@@ -29,6 +29,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -66,7 +68,6 @@ fun GraphicSheet(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val colorScheme = MaterialTheme.colorScheme
     val themeColors = remember(colorScheme) { ThemeColors.fromColorScheme(colorScheme) }
-    val graphicCss = remember(themeColors) { CssBuilder(themeColors).buildGraphicPopupCss() }
 
     var sheetLoading by remember(cleanId) { mutableStateOf(true) }
     var webViewError by remember(cleanId) { mutableStateOf(false) }
@@ -86,7 +87,11 @@ fun GraphicSheet(
         showDragHandle = false,
         showDivider = true,
         sheetGesturesEnabled = false
-    ) {
+    ) { _, bottomInset ->
+        val bottomInsetDp = bottomInset.value.toInt().coerceAtLeast(0)
+        val graphicCss = remember(themeColors, bottomInsetDp) {
+            CssBuilder(themeColors).buildGraphicPopupCss(bottomInsetDp = bottomInsetDp)
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -144,7 +149,10 @@ private fun GraphicBodyContent(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.error
                     )
-                    TextButton(onClick = onRetry) {
+                    TextButton(
+                        onClick = onRetry,
+                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    ) {
                         Text("Retry")
                     }
                 }

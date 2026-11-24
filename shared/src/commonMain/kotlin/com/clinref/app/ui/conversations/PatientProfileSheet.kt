@@ -83,7 +83,7 @@ fun PatientProfileSheet(
         maxWidth = AdaptiveTokens.MaxSheetCompactWidth,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         showDivider = true
-    ) { dismiss ->
+    ) { dismiss, bottomInset ->
         val adaptiveInfo = LocalWindowAdaptiveInfo.current
         Column(
             modifier = Modifier
@@ -91,7 +91,7 @@ fun PatientProfileSheet(
                 .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = adaptiveInfo.horizontalMargin)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 24.dp + bottomInset),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(

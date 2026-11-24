@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
@@ -65,18 +67,18 @@ fun ReferenceSheet(
         maxWidth = AdaptiveTokens.MaxSheetReadingWidth,
         containerColor = MaterialTheme.colorScheme.surface,
         showDivider = true
-    ) { dismiss ->
+    ) { dismiss, bottomInset ->
         val adaptiveInfo = LocalWindowAdaptiveInfo.current
         ReferenceSheetContent(
             data = data,
             onDismiss = dismiss,
             onJumpTo = onJumpTo,
             onOpenUrl = onOpenUrl,
+            bottomInset = bottomInset,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f, fill = false)
-                .padding(horizontal = adaptiveInfo.horizontalMargin, vertical = 8.dp)
-                .padding(bottom = 24.dp)
+                .padding(horizontal = adaptiveInfo.horizontalMargin)
         )
     }
 }
@@ -87,6 +89,7 @@ private fun ReferenceSheetContent(
     onDismiss: () -> Unit,
     onJumpTo: (Int) -> Unit,
     onOpenUrl: (String) -> Unit,
+    bottomInset: Dp,
     modifier: Modifier = Modifier
 ) {
     val clipboard = LocalClipboard.current
@@ -108,6 +111,7 @@ private fun ReferenceSheetContent(
 
     LazyColumn(
         modifier = modifier,
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         itemsIndexed(data.references, key = { idx, ref -> "${idx}_${ref.number}_${ref.citation.hashCode()}" }) { _, ref ->

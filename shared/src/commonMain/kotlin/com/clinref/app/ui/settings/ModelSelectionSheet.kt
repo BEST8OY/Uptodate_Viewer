@@ -2,6 +2,7 @@ package com.clinref.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,7 +85,7 @@ fun ModelSelectionSheet(
         sheetState = sheetState,
         maxWidth = AdaptiveTokens.MaxFormWidth,
         showDivider = true
-    ) { dismiss ->
+    ) { dismiss, bottomInset ->
         val adaptiveInfo = LocalWindowAdaptiveInfo.current
         Column(
             modifier = Modifier
@@ -174,6 +175,7 @@ fun ModelSelectionSheet(
                     .fillMaxWidth()
                     .weight(1f, fill = false)
                     .selectableGroup(),
+                contentPadding = PaddingValues(bottom = 16.dp + bottomInset),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (filteredModels.isEmpty() && !isCustomInput) {
@@ -250,7 +252,6 @@ fun ModelSelectionSheet(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
