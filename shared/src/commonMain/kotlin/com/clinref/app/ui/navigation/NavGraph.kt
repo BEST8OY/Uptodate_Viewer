@@ -183,9 +183,9 @@ fun NavGraph(
     }
 
     val isWideScreen = adaptiveInfo.useNavigationRail
-    val isExpandedScreen = adaptiveInfo.isExpanded
+    val isLargeWindow = adaptiveInfo.isLargeWindow
     val bottomBarVisible = !navigationState.isOnSubRoute && !isWideScreen
-    val navRailVisible = isWideScreen && (isExpandedScreen || !navigationState.isOnSubRoute)
+    val navRailVisible = isWideScreen && (isLargeWindow || !navigationState.isOnSubRoute)
     val motion = rememberNavMotion()
 
     var bottomBarHeightPx by remember { mutableIntStateOf(0) }

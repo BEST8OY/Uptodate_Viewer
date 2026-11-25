@@ -20,7 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
-import com.clinref.app.ui.common.ClinRefBottomSheet
+import com.clinref.app.ui.common.ClinRefAdaptiveSheet
 
 /**
  * GRADE recommendation explanation presented as a bottom sheet,
@@ -32,7 +32,7 @@ fun GradeSheet(
     data: GradeSheetData,
     onDismiss: () -> Unit
 ) {
-    ClinRefBottomSheet(
+    ClinRefAdaptiveSheet(
         onDismiss = onDismiss,
         maxWidth = AdaptiveTokens.MaxSheetReadingWidth,
         containerColor = MaterialTheme.colorScheme.surface,

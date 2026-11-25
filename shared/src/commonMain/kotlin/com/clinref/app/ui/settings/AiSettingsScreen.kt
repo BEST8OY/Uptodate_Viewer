@@ -778,7 +778,7 @@ private fun ProviderSelectionGrid(
     modifier: Modifier = Modifier
 ) {
     val adaptiveInfo = LocalWindowAdaptiveInfo.current
-    val columns = if (adaptiveInfo.isExpanded) 3 else 2
+    val columns = if (adaptiveInfo.isCompact) 2 else 3
 
     val providers = remember { AiProvider.entries }
     val chunkedProviders = remember(columns) { providers.chunked(columns) }

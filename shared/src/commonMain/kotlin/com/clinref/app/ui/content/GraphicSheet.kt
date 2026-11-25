@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clinref.app.domain.GraphicData
 import com.clinref.app.ui.adaptive.AdaptiveTokens
-import com.clinref.app.ui.common.ClinRefBottomSheet
+import com.clinref.app.ui.common.ClinRefAdaptiveSheet
 import org.koin.compose.viewmodel.koinViewModel
 
 private val GRAPHIC_PREFIX_REGEX = Regex("^graphic-", RegexOption.IGNORE_CASE)
@@ -78,7 +78,7 @@ fun GraphicSheet(
         viewModel.retry()
     }
 
-    ClinRefBottomSheet(
+    ClinRefAdaptiveSheet(
         onDismiss = onDismiss,
         modifier = modifier,
         heightFraction = 0.88f,

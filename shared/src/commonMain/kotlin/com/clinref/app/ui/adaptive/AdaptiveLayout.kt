@@ -39,7 +39,7 @@ enum class WindowHeightClass {
  * [widthDp]/[heightDp] and [widthClass]/[heightClass] reflect the current pane's dimensions
  * (updated by [ProvidePaneAdaptiveInfo] inside navigation rails or supporting-pane splits), while
  * [windowWidthDp]/[windowHeightDp] preserve the outer window dimensions for top-level chrome
- * decisions ([useNavigationRail], [supportsSupportingPane]).
+ * decisions ([useNavigationRail], [isLargeWindow], [supportsSupportingPane]).
  */
 @Immutable
 data class WindowAdaptiveInfo(
@@ -52,10 +52,14 @@ data class WindowAdaptiveInfo(
 ) {
     val isCompact: Boolean get() = widthClass == WindowWidthClass.COMPACT
     val isExpanded: Boolean get() = widthClass == WindowWidthClass.EXPANDED
+    val isWindowExpanded: Boolean get() = calculateWindowWidthClass(windowWidthDp) == WindowWidthClass.EXPANDED
     val useNavigationRail: Boolean get() = calculateWindowWidthClass(windowWidthDp) != WindowWidthClass.COMPACT
     val isCompactHeight: Boolean get() = heightClass == WindowHeightClass.COMPACT
-    val supportsSupportingPane: Boolean get() = windowWidthDp >= AdaptiveTokens.SupportingPaneMinWidth
-    val showInlineRowActions: Boolean get() = isExpanded || isDesktopPlatform()
+    val isWindowCompactHeight: Boolean get() = calculateWindowHeightClass(windowHeightDp) == WindowHeightClass.COMPACT
+    val isLargeWindow: Boolean get() = isWindowExpanded && !isWindowCompactHeight
+    val supportsSupportingPane: Boolean
+        get() = windowWidthDp >= AdaptiveTokens.SupportingPaneMinWidth && !isWindowCompactHeight
+    val showInlineRowActions: Boolean get() = isDesktopPlatform() || (isExpanded && !isCompactHeight)
     val horizontalMargin: Dp get() = when (widthClass) {
         WindowWidthClass.COMPACT -> 16.dp
         WindowWidthClass.MEDIUM -> 24.dp

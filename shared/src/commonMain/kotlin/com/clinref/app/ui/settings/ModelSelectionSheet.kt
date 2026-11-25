@@ -46,7 +46,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
-import com.clinref.app.ui.common.ClinRefBottomSheet
+import com.clinref.app.ui.common.ClinRefAdaptiveSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,7 +77,7 @@ fun ModelSelectionSheet(
         it.trim().equals(trimmedQuery, ignoreCase = true)
     }
 
-    ClinRefBottomSheet(
+    ClinRefAdaptiveSheet(
         onDismiss = onDismiss,
         modifier = modifier,
         title = "Select Inference Model",

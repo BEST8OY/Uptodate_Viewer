@@ -38,17 +38,33 @@ class AdaptiveLayoutTest {
         assertEquals(WindowHeightClass.MEDIUM, phonePortrait.heightClass)
         assertFalse(phonePortrait.useNavigationRail)
         assertFalse(phonePortrait.isCompactHeight)
+        assertFalse(phonePortrait.isWindowCompactHeight)
+        assertFalse(phonePortrait.isLargeWindow)
         assertFalse(phonePortrait.supportsSupportingPane)
         assertEquals(16.dp, phonePortrait.horizontalMargin)
 
-        // Phone Landscape
+        // Small Phone Landscape
         val phoneLandscape = calculateWindowAdaptiveInfo(800.dp, 360.dp)
         assertEquals(WindowWidthClass.MEDIUM, phoneLandscape.widthClass)
         assertEquals(WindowHeightClass.COMPACT, phoneLandscape.heightClass)
         assertTrue(phoneLandscape.useNavigationRail)
         assertTrue(phoneLandscape.isCompactHeight)
+        assertTrue(phoneLandscape.isWindowCompactHeight)
+        assertFalse(phoneLandscape.isLargeWindow)
         assertFalse(phoneLandscape.supportsSupportingPane)
         assertEquals(24.dp, phoneLandscape.horizontalMargin)
+
+        // Large 20:9 Phone Landscape (>= 840dp wide, < 480dp tall)
+        val largePhoneLandscape = calculateWindowAdaptiveInfo(915.dp, 412.dp)
+        assertEquals(WindowWidthClass.EXPANDED, largePhoneLandscape.widthClass)
+        assertEquals(WindowHeightClass.COMPACT, largePhoneLandscape.heightClass)
+        assertTrue(largePhoneLandscape.useNavigationRail)
+        assertTrue(largePhoneLandscape.isWindowExpanded)
+        assertTrue(largePhoneLandscape.isCompactHeight)
+        assertTrue(largePhoneLandscape.isWindowCompactHeight)
+        assertFalse(largePhoneLandscape.isLargeWindow)
+        assertFalse(largePhoneLandscape.supportsSupportingPane)
+        assertEquals(isDesktopPlatform(), largePhoneLandscape.showInlineRowActions)
 
         // Large Desktop / Tablet Wide
         val desktopWide = calculateWindowAdaptiveInfo(1440.dp, 900.dp)
@@ -56,8 +72,24 @@ class AdaptiveLayoutTest {
         assertEquals(WindowHeightClass.EXPANDED, desktopWide.heightClass)
         assertTrue(desktopWide.useNavigationRail)
         assertFalse(desktopWide.isCompactHeight)
+        assertFalse(desktopWide.isWindowCompactHeight)
+        assertTrue(desktopWide.isLargeWindow)
         assertTrue(desktopWide.supportsSupportingPane)
         assertEquals(24.dp, desktopWide.horizontalMargin)
+    }
+
+    @Test
+    fun testLargeWindowBoundaries() {
+        val mediumWidth = calculateWindowAdaptiveInfo(839.dp, 480.dp)
+        assertFalse(mediumWidth.isLargeWindow)
+
+        val compactHeight = calculateWindowAdaptiveInfo(840.dp, 479.dp)
+        assertTrue(compactHeight.isWindowExpanded)
+        assertTrue(compactHeight.isWindowCompactHeight)
+        assertFalse(compactHeight.isLargeWindow)
+
+        val tabletMinimum = calculateWindowAdaptiveInfo(840.dp, 480.dp)
+        assertTrue(tabletMinimum.isLargeWindow)
     }
 
     @Test
@@ -70,6 +102,12 @@ class AdaptiveLayoutTest {
 
         val aboveThreshold = calculateWindowAdaptiveInfo(1200.dp, 800.dp)
         assertTrue(aboveThreshold.supportsSupportingPane)
+
+        val compactHeightWide = calculateWindowAdaptiveInfo(1100.dp, 479.dp)
+        assertFalse(compactHeightWide.supportsSupportingPane)
+
+        val minHeightWide = calculateWindowAdaptiveInfo(1040.dp, 480.dp)
+        assertTrue(minHeightWide.supportsSupportingPane)
     }
 
     @Test
@@ -111,15 +149,31 @@ class AdaptiveLayoutTest {
         )
         assertEquals(WindowWidthClass.COMPACT, chatSplitPane.widthClass)
         assertTrue(chatSplitPane.isCompact)
+        assertFalse(chatSplitPane.isExpanded)
+        assertTrue(chatSplitPane.isWindowExpanded)
+        assertTrue(chatSplitPane.isLargeWindow)
         assertEquals(16.dp, chatSplitPane.horizontalMargin)
         assertTrue(chatSplitPane.supportsSupportingPane)
         assertTrue(chatSplitPane.useNavigationRail)
+
+        val dialogShortPane = calculatePaneAdaptiveInfo(
+            paneWidthDp = 720.dp,
+            paneHeightDp = 440.dp,
+            windowWidthDp = 900.dp,
+            windowHeightDp = 500.dp
+        )
+        assertTrue(dialogShortPane.isCompactHeight)
+        assertFalse(dialogShortPane.isWindowCompactHeight)
+        assertTrue(dialogShortPane.isLargeWindow)
     }
 
     @Test
     fun testShowInlineRowActionsMatchesPlatformOrExpandedWidth() {
         val compact = calculateWindowAdaptiveInfo(400.dp, 800.dp)
-        assertEquals(compact.isExpanded || isDesktopPlatform(), compact.showInlineRowActions)
+        assertEquals((compact.isExpanded && !compact.isCompactHeight) || isDesktopPlatform(), compact.showInlineRowActions)
+
+        val wideCompactHeight = calculateWindowAdaptiveInfo(920.dp, 412.dp)
+        assertEquals(isDesktopPlatform(), wideCompactHeight.showInlineRowActions)
 
         val expanded = calculateWindowAdaptiveInfo(900.dp, 800.dp)
         assertTrue(expanded.showInlineRowActions)

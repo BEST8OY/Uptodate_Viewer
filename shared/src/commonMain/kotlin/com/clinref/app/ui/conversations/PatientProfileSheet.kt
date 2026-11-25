@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.clinref.app.domain.ai.PatientProfile
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
-import com.clinref.app.ui.common.ClinRefBottomSheet
+import com.clinref.app.ui.common.ClinRefAdaptiveSheet
 
 private val StringListSaver = listSaver<List<String>, String>(
     save = { it },
@@ -77,7 +77,7 @@ fun PatientProfileSheet(
     val medicationInputState = rememberTextFieldState()
     val allergyInputState = rememberTextFieldState()
 
-    ClinRefBottomSheet(
+    ClinRefAdaptiveSheet(
         onDismiss = onDismiss,
         title = "Patient Profile",
         maxWidth = AdaptiveTokens.MaxSheetCompactWidth,

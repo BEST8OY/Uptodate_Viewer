@@ -68,7 +68,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.clinref.app.ui.adaptive.AdaptiveTokens
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
-import com.clinref.app.ui.common.ClinRefBottomSheet
+import com.clinref.app.ui.common.ClinRefAdaptiveSheet
 import com.clinref.app.ui.common.ClinRefEmptyState
 
 private enum class OverviewTab(val fullLabel: String, val compactLabel: String) {
@@ -156,7 +156,7 @@ internal fun OutlineOverlay(
         else allRelated.filter { it.title.contains(searchQuery, ignoreCase = true) }
     }
 
-    ClinRefBottomSheet(
+    ClinRefAdaptiveSheet(
         onDismiss = onDismiss,
         modifier = modifier,
         heightFraction = 0.88f,
