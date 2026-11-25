@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.runtime.Composable
 
+val TopSafeInsets: WindowInsets
+    @Composable
+    get() = WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+
 val TopAndHorizontalSafeInsets: WindowInsets
     @Composable
     get() = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)

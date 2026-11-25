@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +53,7 @@ import com.clinref.app.ui.adaptive.BottomSafeInsetsExcludingIme
 import com.clinref.app.ui.adaptive.HorizontalSafeInsets
 import com.clinref.app.ui.adaptive.LocalWindowAdaptiveInfo
 import com.clinref.app.ui.adaptive.ProvidePaneAdaptiveInfo
+import com.clinref.app.ui.adaptive.TopSafeInsets
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -197,7 +197,7 @@ fun ClinRefAdaptiveSheet(
             sheetState = sheetState,
             sheetMaxWidth = maxWidth,
             containerColor = containerColor,
-            contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+            contentWindowInsets = { TopSafeInsets },
             dragHandle = if (showDragHandle) {
                 { BottomSheetDefaults.DragHandle() }
             } else null,
