@@ -1,0 +1,880 @@
+package com.clinref.app.domain.ai
+
+import com.clinref.app.data.OutlineGraphicItem
+import com.clinref.app.data.OutlineSectionItem
+import com.clinref.app.data.RelatedTopicItem
+import com.clinref.app.data.SearchResultTopicItem
+import com.clinref.app.data.TopicOverviewResponse
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+
+@Serializable
+enum class DecisionMode {
+    OFF,
+    RERANK
+}
+
+@Serializable
+data class DecisionConfig(
+    val enableRetrievalRerank: Boolean = true,
+    val autoPrefetch: Boolean = false,
+    val sectionScoreThreshold: Double = DEFAULT_SECTION_THRESHOLD,
+    val tableScoreThreshold: Double = DEFAULT_TABLE_THRESHOLD,
+    val topicScoreThreshold: Double = DEFAULT_TOPIC_THRESHOLD,
+    val topKSections: Int = DEFAULT_TOP_K_SECTIONS,
+    val topKTables: Int = DEFAULT_TOP_K_TABLES,
+    val topKTopics: Int = DEFAULT_TOP_K_TOPICS,
+    val searchDrugMonographThreshold: Double = DEFAULT_SEARCH_DRUG_THRESHOLD,
+    val overviewDrugMonographThreshold: Double = DEFAULT_OVERVIEW_DRUG_THRESHOLD,
+    val tableDataThreshold: Double = DEFAULT_TABLE_DATA_THRESHOLD,
+    val maxPrefetchedTopicsPerTurn: Int = DEFAULT_MAX_PREFETCHED_TOPICS_PER_TURN
+) {
+    companion object {
+        const val MAX_OUTLINE_SECTIONS_TO_SCORE = 250
+        const val MAX_TABLE_GRAPHICS_TO_SCORE = 25
+        const val MAX_RELATED_TOPICS_TO_SCORE = 25
+        const val DEFAULT_SECTION_THRESHOLD = 1.8
+        const val DEFAULT_TABLE_THRESHOLD = 1.7
+        const val DEFAULT_TOPIC_THRESHOLD = 1.5
+        const val DEFAULT_TOP_K_SECTIONS = 8
+        const val DEFAULT_TOP_K_TABLES = 4
+        const val DEFAULT_TOP_K_TOPICS = 5
+        const val DEFAULT_SEARCH_DRUG_THRESHOLD = 0.70
+        const val DEFAULT_OVERVIEW_DRUG_THRESHOLD = 0.75
+        const val DEFAULT_TABLE_DATA_THRESHOLD = 0.70
+        const val DEFAULT_MAX_PREFETCHED_TOPICS_PER_TURN = 3
+    }
+}
+
+@Serializable
+data class RankedItem(
+    val id: String,
+    val title: String,
+    val score: Double,
+    val confidence: Double = 0.0,
+    val kind: String = "",
+    val topLevel: Int = 0
+)
+
+@Serializable
+data class SearchRerankResult(
+    val rankedTopics: List<RankedItem> = emptyList(),
+    val topTopics: List<RankedItem> = emptyList(),
+    val requiresDrugMonograph: Boolean = false,
+    val drugMonographProb: Double = 0.0,
+    val requiresTableData: Boolean = false,
+    val tableDataProb: Double = 0.0,
+    val ok: Boolean = true,
+    val error: String? = null,
+    val usage: DecisionUsage = DecisionUsage(),
+    val latencyMs: Double = 0.0
+)
+
+@Serializable
+data class OverviewRerankResult(
+    val topicId: String,
+    val topicTitle: String,
+    val rankedSections: List<RankedItem> = emptyList(),
+    val rankedGraphics: List<RankedItem> = emptyList(),
+    val rankedRelatedTopics: List<RankedItem> = emptyList(),
+    val recommendedSectionIds: List<String> = emptyList(),
+    val recommendedGraphicIds: List<String> = emptyList(),
+    val recommendedRelatedTopics: List<RankedItem> = emptyList(),
+    val needsDrugMonograph: Boolean = false,
+    val drugMonographProb: Double = 0.0,
+    val ok: Boolean = true,
+    val error: String? = null,
+    val usage: DecisionUsage = DecisionUsage(),
+    val latencyMs: Double = 0.0
+)
+
+/**
+ * Phase-1 retrieval reranking and triage gates powered by Gemini Decisions (`gemini-decision-1`).
+ */
+object DecisionGates {
+
+    private val SECTION_SPLIT_REGEX = Regex("(?m)(?=^===\\s*Section:)")
+    private val TABLE_SPLIT_REGEX = Regex("(?m)(?=^###\\s*Graphic Table:)")
+    private val COLLAPSE_WS_REGEX = Regex("\\s+")
+
+    val RELEVANCE_RUBRIC: List<String> = listOf(
+        "Irrelevant.",
+        "Tangential: background only or wrong patient population.",
+        "Supporting: secondary detail or indirect context.",
+        "Essential: directly answers the inquiry (rule, dose, workup, monitoring, or criteria) for this patient."
+    )
+
+    val RELATED_TOPIC_RUBRIC: List<String> = listOf(
+        "Irrelevant.",
+        "Redundant: already covered by the open topic, or background only.",
+        "Supplemental: useful extra context beyond the open topic.",
+        "Essential missing source: specifically answers the question or patient population better than the open topic."
+    )
+
+    private val BOILERPLATE_SECTION_TITLES = setOf(
+        "references",
+        "society guideline links",
+        "information for patients",
+        "patient information",
+        "topic outline",
+        "contributors",
+        "author and editor disclosures",
+        "disclosures"
+    )
+
+    fun isBoilerplateSection(title: String): Boolean {
+        val clean = title.trim().lowercase()
+        return clean in BOILERPLATE_SECTION_TITLES
+    }
+
+    /**
+     * Eliminates redundant parent/child section pairs from candidate section IDs.
+     * When an ancestor or descendant is already chosen, skips duplicate coverage.
+     */
+    fun filterSubsumedSections(
+        candidateSectionIds: List<String>,
+        allSections: List<OutlineSectionItem>
+    ): List<String> {
+        if (candidateSectionIds.size <= 1) return candidateSectionIds
+        val parentMap = allSections.associate { it.id to it.parentId }
+        val descendantsMap = mutableMapOf<String, MutableSet<String>>()
+        for (sec in allSections) {
+            var p = sec.parentId
+            while (p != null) {
+                descendantsMap.getOrPut(p) { mutableSetOf() }.add(sec.id)
+                p = parentMap[p]
+            }
+        }
+
+        val result = mutableListOf<String>()
+        val resultSet = mutableSetOf<String>()
+
+        for (sid in candidateSectionIds) {
+            var hasAncestor = false
+            var p = parentMap[sid]
+            while (p != null) {
+                if (p in resultSet) {
+                    hasAncestor = true
+                    break
+                }
+                p = parentMap[p]
+            }
+            if (hasAncestor) continue
+
+            val descendants = descendantsMap[sid]
+            val hasDescendant = descendants != null && descendants.any { it in resultSet }
+            if (hasDescendant) continue
+
+            result.add(sid)
+            resultSet.add(sid)
+        }
+        return result
+    }
+
+    suspend fun rankSearchCandidates(
+        client: DecisionClient,
+        question: String,
+        patientProfileText: String,
+        query: String,
+        candidates: List<SearchResultTopicItem>,
+        config: DecisionConfig = DecisionConfig()
+    ): SearchRerankResult {
+        if (!config.enableRetrievalRerank || candidates.isEmpty()) {
+            return SearchRerankResult(ok = true)
+        }
+
+        val candidateLines = candidates.take(DecisionClient.MAX_QUESTIONS_PER_REQUEST - 2)
+            .joinToString("\n") { "- [${it.id}] ${it.title} (${it.type})" }
+        val taskInstruction = "TASK: Score each candidate's relevance to answering QUESTION" +
+            if (patientProfileText.isNotBlank()) " for PATIENT PROFILE." else "."
+        val blocks = makeTextBlocks(
+            listOfNotNull(
+                "QUESTION:\n${question.trim()}",
+                patientProfileText.takeIf { it.isNotBlank() }?.let { "PATIENT PROFILE:\n${it.trim()}" },
+                "SEARCH QUERY:\n${query.trim()}",
+                "SEARCH CANDIDATES:\n$candidateLines",
+                taskInstruction
+            )
+        )
+
+        val questions = LinkedHashMap<String, DecisionQuestion>(candidates.size + 2)
+        questions["requires_drug_monograph"] = noulQuestion(
+            instructions = "Does answering this clinical question accurately require consulting a dedicated drug dosing / Lexidrug monograph topic?",
+            trueDescription = "Directly asks about a specific drug, or requires monograph-level details (renal/hepatic dose adjustment, pediatric weight dosing, formulation, boxed warnings, contraindications, or drug-drug interactions).",
+            falseDescription = "Disease diagnosis, workup, or standard first-line management/regimens normally covered inside a clinical disease topic."
+        )
+        questions["requires_table_data"] = noulQuestion(
+            instructions = "Does answering this question require checking structured clinical tables (e.g., risk scores, grading criteria, comparative drug regimens, or diagnostic thresholds)?",
+            trueDescription = "Structured comparison tables, dosing tables, classification criteria, or diagnostic scorecards are important.",
+            falseDescription = "Narrative section prose alone is sufficient without table lookup."
+        )
+
+        val keyToCandidate = ArrayList<Pair<String, SearchResultTopicItem>>(candidates.size)
+        val maxCandidateQuestions = DecisionClient.MAX_QUESTIONS_PER_REQUEST - 2
+        candidates.take(maxCandidateQuestions).forEachIndexed { idx, candidate ->
+            val key = uniqueKey(
+                existing = questions,
+                raw = "topic_${idx}_${candidate.id}",
+                prefix = "topic",
+                index = idx
+            )
+            keyToCandidate.add(key to candidate)
+            questions[key] = scoreQuestion(
+                instructions = "Relevance of topic '${candidate.title}' (${candidate.type})",
+                criteria = RELEVANCE_RUBRIC
+            )
+        }
+
+        val batch = client.decide(input = blocks, questions = questions)
+        if (!batch.ok) {
+            return SearchRerankResult(
+                ok = false,
+                error = batch.error,
+                usage = batch.usage,
+                latencyMs = batch.latencyMs
+            )
+        }
+
+        val drugProb = batch.getNoul("requires_drug_monograph")?.noul ?: 0.0
+        val tableProb = batch.getNoul("requires_table_data")?.noul ?: 0.0
+
+        val ranked = keyToCandidate.mapNotNull { (key, candidate) ->
+            val scoreAns = batch.getScore(key) ?: return@mapNotNull null
+            RankedItem(
+                id = candidate.id,
+                title = candidate.title,
+                score = scoreAns.score,
+                confidence = scoreAns.confidence,
+                kind = candidate.type,
+                topLevel = scoreAns.topLevel.first
+            )
+        }.sortedWith(compareByDescending<RankedItem> { it.score }.thenByDescending { it.confidence })
+
+        val aboveThreshold = ranked
+            .filter { it.score >= config.topicScoreThreshold }
+            .take(config.topKTopics)
+        val topTopics = if (aboveThreshold.isNotEmpty()) {
+            aboveThreshold
+        } else {
+            ranked.take(minOf(2, ranked.size))
+        }
+
+        return SearchRerankResult(
+            rankedTopics = ranked,
+            topTopics = topTopics,
+            requiresDrugMonograph = drugProb >= config.searchDrugMonographThreshold,
+            drugMonographProb = drugProb,
+            requiresTableData = tableProb >= config.tableDataThreshold,
+            tableDataProb = tableProb,
+            ok = true,
+            usage = batch.usage,
+            latencyMs = batch.latencyMs
+        )
+    }
+
+    suspend fun rankOverviewItems(
+        client: DecisionClient,
+        question: String,
+        patientProfileText: String,
+        overview: TopicOverviewResponse,
+        config: DecisionConfig = DecisionConfig(),
+        searchRequiresTableData: Boolean = false
+    ): OverviewRerankResult {
+        if (!config.enableRetrievalRerank) {
+            return OverviewRerankResult(
+                topicId = overview.topicId,
+                topicTitle = overview.title,
+                ok = true
+            )
+        }
+
+        if (overview.topicType.equals("calc", ignoreCase = true)) {
+            val calcTitle = overview.title.ifBlank { "Calculator Tool Content" }
+            return OverviewRerankResult(
+                topicId = overview.topicId,
+                topicTitle = overview.title,
+                rankedSections = listOf(
+                    RankedItem(
+                        id = "FULL",
+                        title = calcTitle,
+                        score = 3.0,
+                        confidence = 1.0,
+                        kind = "section"
+                    )
+                ),
+                ok = true
+            )
+        }
+
+        val sectionsToScore = overview.sections
+            .filter { it.id.isNotBlank() && !isBoilerplateSection(it.title) }
+            .take(DecisionConfig.MAX_OUTLINE_SECTIONS_TO_SCORE)
+        val tableGraphicsToScore = overview.graphics
+            .filter { it.id.isNotBlank() && it.isTable }
+            .take(DecisionConfig.MAX_TABLE_GRAPHICS_TO_SCORE)
+        val relatedToScore = overview.relatedTopics
+            .filter { it.id.isNotBlank() }
+            .take(DecisionConfig.MAX_RELATED_TOPICS_TO_SCORE)
+
+        if (sectionsToScore.isEmpty() && tableGraphicsToScore.isEmpty()) {
+            return OverviewRerankResult(
+                topicId = overview.topicId,
+                topicTitle = overview.title,
+                ok = true
+            )
+        }
+
+        val h1Headings = overview.sections.filter { it.level == 1 }.take(100)
+        val h1Digest = if (h1Headings.isNotEmpty()) {
+            "\n\nMajor Heading Outline:\n" + h1Headings.joinToString("\n") { "- ${it.title}" }
+        } else ""
+        val tableDigest = if (tableGraphicsToScore.isNotEmpty()) {
+            "\n\nAvailable Tables:\n" + tableGraphicsToScore.joinToString("\n") { "- ${it.title}" }
+        } else ""
+
+        val overviewDigest = "OPEN TOPIC:\n[${overview.topicId}] ${overview.title} (type=${overview.topicType.ifBlank { "topic" }})$h1Digest$tableDigest"
+        val taskInstruction = "TASK: Score each item's relevance to answering QUESTION" +
+            if (patientProfileText.isNotBlank()) " for PATIENT PROFILE." else "."
+
+        val blocks = makeTextBlocks(
+            listOfNotNull(
+                "QUESTION:\n${question.trim()}",
+                patientProfileText.takeIf { it.isNotBlank() }?.let { "PATIENT PROFILE:\n${it.trim()}" },
+                overviewDigest,
+                taskInstruction
+            )
+        )
+
+        val questions = LinkedHashMap<String, DecisionQuestion>()
+        questions["is_topic_relevant"] = noulQuestion(
+            instructions = "Is topic '${overview.title}' relevant to answering the clinical question?",
+            trueDescription = "This topic contains clinical information pertinent to the inquiry.",
+            falseDescription = "This topic is unrelated, off-target, or covers the wrong patient population."
+        )
+
+        val isDrugTopic = overview.topicType.equals("drug", ignoreCase = true)
+        if (!isDrugTopic) {
+            questions["needs_drug_monograph"] = noulQuestion(
+                instructions = "While inspecting topic '${overview.title}', does the question also require a separate dedicated drug dosing monograph (renal dosing, interactions, formulation, or pediatric weight dosing)?",
+                trueDescription = "A dedicated drug monograph is needed in addition to this disease/management topic.",
+                falseDescription = "This topic (or its sections/tables) likely contains sufficient information without an external drug monograph."
+            )
+        }
+
+        val sectionTitlesById = overview.sections.associateBy({ it.id }, { it.title })
+        val secKeyToItem = ArrayList<Pair<String, OutlineSectionItem>>(sectionsToScore.size)
+        sectionsToScore.forEachIndexed { idx, sec ->
+            val key = uniqueKey(questions, "sec_${idx}_${sec.id}", "sec", idx)
+            secKeyToItem.add(key to sec)
+            val parentTitle = sec.parentId?.let { sectionTitlesById[it] }?.takeIf { it.isNotBlank() }
+            val hierarchicalLabel = if (parentTitle != null) "$parentTitle > ${sec.title}" else sec.title
+            questions[key] = scoreQuestion(
+                instructions = "Relevance of section '$hierarchicalLabel'",
+                criteria = RELEVANCE_RUBRIC
+            )
+        }
+
+        val gfxKeyToItem = ArrayList<Pair<String, OutlineGraphicItem>>(tableGraphicsToScore.size)
+        tableGraphicsToScore.forEachIndexed { idx, gfx ->
+            val key = uniqueKey(questions, "gfx_${idx}_${gfx.id}", "gfx", idx)
+            gfxKeyToItem.add(key to gfx)
+            questions[key] = scoreQuestion(
+                instructions = "Relevance of table '${gfx.title}'",
+                criteria = RELEVANCE_RUBRIC
+            )
+        }
+
+        val relKeyToItem = ArrayList<Pair<String, RelatedTopicItem>>(relatedToScore.size)
+        relatedToScore.forEachIndexed { idx, rel ->
+            val key = uniqueKey(questions, "rel_${idx}_${rel.id}", "rel", idx)
+            relKeyToItem.add(key to rel)
+            questions[key] = scoreQuestion(
+                instructions = "Relevance of linked topic '${rel.title}'",
+                criteria = RELATED_TOPIC_RUBRIC
+            )
+        }
+
+        val batch = client.decide(input = blocks, questions = questions)
+        if (!batch.ok) {
+            return OverviewRerankResult(
+                topicId = overview.topicId,
+                topicTitle = overview.title,
+                ok = false,
+                error = batch.error,
+                usage = batch.usage,
+                latencyMs = batch.latencyMs
+            )
+        }
+
+        val isTopicRelevant = batch.getNoul("is_topic_relevant")?.noul ?: 1.0
+
+        val drugProb = if (!isDrugTopic) {
+            batch.getNoul("needs_drug_monograph")?.noul ?: 0.0
+        } else {
+            0.0
+        }
+
+        val rankedSections = extractRankedItems(secKeyToItem, batch, kind = "section") { it.id to it.title }
+        val rankedGraphics = extractRankedItems(gfxKeyToItem, batch, kind = "table") { it.id to it.title }
+        val rankedRelated = extractRankedItems(relKeyToItem, batch, kind = "related_topic") { it.id to it.title }
+
+        // Prevent H1 parent bloat: if any descendant of an H1 section also passed the score threshold,
+        // penalize the broad ancestor so the specific child subsection is preferred during subsumption filtering.
+        val sectionLevelMap = overview.sections.associate { it.id to it.level }
+        val parentMap = overview.sections.associate { it.id to it.parentId }
+        val ancestorsWithQualifyingDescendants = mutableSetOf<String>()
+        for (sec in rankedSections) {
+            var p = parentMap[sec.id]
+            while (p != null) {
+                if (sec.score >= config.sectionScoreThreshold) {
+                    ancestorsWithQualifyingDescendants.add(p)
+                }
+                p = parentMap[p]
+            }
+        }
+
+        val sectionsPassing = rankedSections
+            .filter { it.score >= config.sectionScoreThreshold }
+            .sortedWith(
+                compareByDescending<RankedItem> { item ->
+                    val level = sectionLevelMap[item.id] ?: 1
+                    val specificityBonus = if (level > 1) 0.2 else 0.0
+                    val ancestorPenalty = if (item.id in ancestorsWithQualifyingDescendants) -0.5 else 0.0
+                    item.score + specificityBonus + ancestorPenalty
+                }.thenByDescending { it.confidence }
+            )
+            .map { it.id }
+
+        val deduplicatedPassing = filterSubsumedSections(sectionsPassing, overview.sections)
+            .take(config.topKSections)
+
+        val recommendedSectionIds = if (deduplicatedPassing.isNotEmpty()) {
+            deduplicatedPassing
+        } else if (isTopicRelevant >= 0.35 && rankedSections.firstOrNull()?.let { it.score >= 1.0 && it.confidence >= 0.50 } == true) {
+            val fallbackCandidates = rankedSections.take(minOf(3, rankedSections.size)).map { it.id }
+            filterSubsumedSections(fallbackCandidates, overview.sections)
+        } else {
+            emptyList()
+        }
+
+        val effectiveTableThreshold = if (searchRequiresTableData) {
+            maxOf(1.0, config.tableScoreThreshold - 0.3)
+        } else {
+            config.tableScoreThreshold
+        }
+
+        val recommendedGraphicIds = rankedGraphics
+            .filter { it.score >= effectiveTableThreshold }
+            .take(config.topKTables)
+            .map { it.id }
+
+        val recommendedRelated = rankedRelated
+            .filter { it.score >= config.topicScoreThreshold }
+            .take(config.topKTopics)
+
+        return OverviewRerankResult(
+            topicId = overview.topicId,
+            topicTitle = overview.title,
+            rankedSections = rankedSections,
+            rankedGraphics = rankedGraphics,
+            rankedRelatedTopics = rankedRelated,
+            recommendedSectionIds = recommendedSectionIds,
+            recommendedGraphicIds = recommendedGraphicIds,
+            recommendedRelatedTopics = recommendedRelated,
+            needsDrugMonograph = !isDrugTopic && drugProb >= config.overviewDrugMonographThreshold,
+            drugMonographProb = drugProb,
+            ok = true,
+            usage = batch.usage,
+            latencyMs = batch.latencyMs
+        )
+    }
+
+    /**
+     * Attaches `decisionRerank` hints to a serialized `searchTopics` JSON payload.
+     */
+    fun injectSearchRerankIntoJson(
+        toolJson: String,
+        rerank: SearchRerankResult,
+        json: Json = AiJsonUtils.json,
+        autoChainedTopicId: String? = null,
+        autoChainedTopicIds: List<String> = emptyList(),
+        autoPrefetchedTopicIds: List<String> = emptyList(),
+        autoPrefetched: Boolean = false,
+        needsDrugMonograph: Boolean = false,
+        needsRelatedTopic: Boolean = false,
+        promisingRelatedSummary: String? = null,
+        prefetchedPreview: String? = null
+    ): String {
+        if (!rerank.ok || (rerank.topTopics.isEmpty() && rerank.rankedTopics.isEmpty())) {
+            return toolJson
+        }
+        val obj = parseSuccessObject(toolJson, json) ?: return toolJson
+
+        val topSummary = rerank.topTopics.joinToString(", ") {
+            "${it.id} ('${it.title}', score=${formatScore(it.score)})"
+        }
+        val hintParts = mutableListOf<String>()
+        if (topSummary.isNotEmpty()) {
+            hintParts.add("Decisions API top topics: $topSummary.")
+        }
+
+        val chainedIds = when {
+            autoChainedTopicIds.isNotEmpty() -> autoChainedTopicIds
+            autoChainedTopicId != null -> listOf(autoChainedTopicId)
+            else -> emptyList()
+        }
+        val isChained = chainedIds.isNotEmpty()
+
+        val prefetchedIds = when {
+            autoPrefetchedTopicIds.isNotEmpty() -> autoPrefetchedTopicIds
+            autoPrefetched -> chainedIds
+            else -> emptyList()
+        }
+        val unprefetchedIds = chainedIds.filter { it !in prefetchedIds }
+
+        if (isChained) {
+            val idsStr = chainedIds.joinToString(", ")
+            val previewNote = previewHintNote(prefetchedPreview, needsDrugMonograph)
+            when {
+                autoPrefetched -> {
+                    hintParts.add("Auto-chained overview and prefetched top evidence for topic(s) $idsStr; evidence is already in context.$previewNote")
+                }
+                prefetchedIds.isNotEmpty() -> {
+                    val prefStr = prefetchedIds.joinToString(", ")
+                    val remStr = unprefetchedIds.joinToString(", ")
+                    hintParts.add("Auto-prefetched top evidence for topic(s) $prefStr; call getTopicOverview for remaining topic(s) $remStr.$previewNote")
+                }
+                else -> {
+                    hintParts.add("Auto-chained overview for topic(s) $idsStr; call getTopicOverview to inspect outline sections.")
+                }
+            }
+        }
+        val effectiveDrugNeeded = if (isChained) {
+            needsDrugMonograph
+        } else {
+            rerank.requiresDrugMonograph
+        }
+        if (effectiveDrugNeeded) {
+            hintParts.add("Dedicated drug dosing monograph likely needed.")
+        }
+        if (needsRelatedTopic) {
+            val note = if (!promisingRelatedSummary.isNullOrBlank()) ": $promisingRelatedSummary" else ""
+            hintParts.add("Dedicated specialty related topic likely needed$note.")
+        }
+        if (rerank.requiresTableData) {
+            hintParts.add("Structured table data likely needed.")
+        }
+
+        val finalRequiresDrug = if (isChained && autoPrefetched && !needsDrugMonograph) {
+            false
+        } else {
+            rerank.requiresDrugMonograph || needsDrugMonograph
+        }
+
+        val rerankObj = buildJsonObject {
+            put(
+                "topTopics",
+                buildJsonArray {
+                    rerank.topTopics.forEach { item ->
+                        add(
+                            buildJsonObject {
+                                put("id", item.id)
+                                put("title", item.title)
+                                put("score", formatScore(item.score).toDouble())
+                            }
+                        )
+                    }
+                }
+            )
+            put("requiresDrugMonograph", finalRequiresDrug)
+            put("requiresTableData", rerank.requiresTableData)
+            if (isChained) {
+                put("autoChainedTopicId", chainedIds.first())
+                if (chainedIds.size > 1) {
+                    put("autoChainedTopicIds", buildJsonArray { chainedIds.forEach { add(JsonPrimitive(it)) } })
+                }
+                put("autoPrefetched", autoPrefetched)
+                if (prefetchedIds.isNotEmpty() && !autoPrefetched) {
+                    put("autoPrefetchedTopicIds", buildJsonArray { prefetchedIds.forEach { add(JsonPrimitive(it)) } })
+                }
+                put("needsDrugMonograph", needsDrugMonograph)
+                put("needsRelatedTopic", needsRelatedTopic)
+                if (!prefetchedPreview.isNullOrBlank()) {
+                    put("prefetchedPreview", prefetchedPreview)
+                }
+            }
+            put("hint", hintParts.joinToString(" "))
+        }
+
+        return encodeWithRerank(obj, rerankObj, json)
+    }
+
+    /**
+     * Attaches `decisionRerank` recommendations (and optional prefetched markdown) to a
+     * serialized `getTopicOverview` JSON payload.
+     */
+    fun injectOverviewRerankIntoJson(
+        toolJson: String,
+        rerank: OverviewRerankResult,
+        autoPrefetched: Boolean = false,
+        prefetchedSectionsMarkdown: String? = null,
+        prefetchedTablesMarkdown: String? = null,
+        prefetchedSectionsChars: Int = prefetchedSectionsMarkdown?.length ?: 0,
+        prefetchedTablesChars: Int = prefetchedTablesMarkdown?.length ?: 0,
+        pruneLowScoringSections: Boolean = true,
+        prefetchedPreview: String? = null,
+        needsRelatedTopic: Boolean = false,
+        json: Json = AiJsonUtils.json
+    ): String {
+        if (!rerank.ok) return toolJson
+        val obj = parseSuccessObject(toolJson, json) ?: return toolJson
+
+        val hasAnyRecommendation = rerank.recommendedSectionIds.isNotEmpty() ||
+            rerank.recommendedGraphicIds.isNotEmpty() ||
+            (needsRelatedTopic && rerank.recommendedRelatedTopics.isNotEmpty()) ||
+            rerank.needsDrugMonograph
+        if (!hasAnyRecommendation && !autoPrefetched) {
+            return toolJson
+        }
+
+        val effectiveSecChars = if (prefetchedSectionsChars > 0) prefetchedSectionsChars else (prefetchedSectionsMarkdown?.length ?: 0)
+        val effectiveGfxChars = if (prefetchedTablesChars > 0) prefetchedTablesChars else (prefetchedTablesMarkdown?.length ?: 0)
+
+        val hintParts = mutableListOf<String>()
+        if (rerank.recommendedSectionIds.isNotEmpty()) {
+            val secPrefix = if (autoPrefetched) {
+                "Auto-prefetched top sections"
+            } else {
+                "Recommended sectionIds for getTopicSectionsText"
+            }
+            hintParts.add("$secPrefix: ${rerank.recommendedSectionIds.joinToString(", ")}.")
+        } else if (rerank.rankedSections.isNotEmpty() && rerank.rankedSections.all { it.score < 1.0 }) {
+            hintParts.add("All sections in this topic scored low relevance (<1.0); check relatedTopics or refine searchTopics.")
+        }
+        if (rerank.recommendedGraphicIds.isNotEmpty()) {
+            val gfxPrefix = if (autoPrefetched) {
+                "Auto-prefetched tables"
+            } else {
+                "Recommended graphicIds for getGraphicContent"
+            }
+            hintParts.add("$gfxPrefix: ${rerank.recommendedGraphicIds.joinToString(", ")}.")
+        }
+        if (needsRelatedTopic && rerank.recommendedRelatedTopics.isNotEmpty()) {
+            val relSummary = rerank.recommendedRelatedTopics.joinToString(", ") {
+                "${it.id} (${it.title})"
+            }
+            hintParts.add("Promising related topics: $relSummary.")
+        }
+        if (rerank.needsDrugMonograph) {
+            hintParts.add("Consider checking a dedicated Lexidrug monograph if exact dosing is required.")
+        }
+        if (needsRelatedTopic) {
+            hintParts.add("Dedicated specialty related topic likely needed.")
+        }
+        if (autoPrefetched) {
+            val charInfo = if (effectiveSecChars > 0 || effectiveGfxChars > 0) {
+                " ($effectiveSecChars chars text, $effectiveGfxChars chars tables)"
+            } else ""
+            val previewNote = previewHintNote(prefetchedPreview, rerank.needsDrugMonograph)
+            hintParts.add("Auto-prefetched evidence$charInfo is already added to retrieved evidence; only fetch additional sections if a gap remains.$previewNote")
+        }
+
+        val exposedRelated = if (needsRelatedTopic) rerank.recommendedRelatedTopics else emptyList()
+        val rerankObj = buildJsonObject {
+            put(
+                "recommendedSectionIds",
+                buildJsonArray { rerank.recommendedSectionIds.forEach { add(JsonPrimitive(it)) } }
+            )
+            put(
+                "recommendedGraphicIds",
+                buildJsonArray { rerank.recommendedGraphicIds.forEach { add(JsonPrimitive(it)) } }
+            )
+            put(
+                "recommendedRelatedTopics",
+                buildJsonArray {
+                    exposedRelated.forEach { item ->
+                        add(
+                            buildJsonObject {
+                                put("id", item.id)
+                                put("title", item.title)
+                                put("score", formatScore(item.score).toDouble())
+                            }
+                        )
+                    }
+                }
+            )
+            put("needsDrugMonograph", rerank.needsDrugMonograph)
+            put("needsRelatedTopic", needsRelatedTopic)
+            if (autoPrefetched) {
+                put("autoPrefetched", true)
+                prefetchedSectionsMarkdown?.let { put("prefetchedSectionsMarkdown", it) }
+                prefetchedTablesMarkdown?.let { put("prefetchedTablesMarkdown", it) }
+                put("prefetchedSectionsChars", effectiveSecChars)
+                put("prefetchedTablesChars", effectiveGfxChars)
+                if (!prefetchedPreview.isNullOrBlank()) {
+                    put("prefetchedPreview", prefetchedPreview)
+                }
+            }
+            put("hint", hintParts.joinToString(" "))
+        }
+
+        val baseObj = if (pruneLowScoringSections && rerank.rankedSections.isNotEmpty() && obj.containsKey("sections")) {
+            val sectionsArr = obj["sections"] as? kotlinx.serialization.json.JsonArray
+            if (sectionsArr != null && sectionsArr.size > 15) {
+                val keptSectionIds = rerank.recommendedSectionIds.toSet() +
+                    rerank.rankedSections.filter { it.score >= 1.0 }.map { it.id }.toSet()
+                if (keptSectionIds.isNotEmpty()) {
+                    val prunedArr = buildJsonArray {
+                        sectionsArr.forEach { secEl ->
+                            val sid = (secEl as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
+                            if (sid == null || sid in keptSectionIds) {
+                                add(secEl)
+                            }
+                        }
+                    }
+                    buildJsonObject {
+                        obj.forEach { (k, v) ->
+                            if (k == "sections") put(k, prunedArr) else put(k, v)
+                        }
+                    }
+                } else {
+                    obj
+                }
+            } else {
+                obj
+            }
+        } else {
+            obj
+        }
+
+        return encodeWithRerank(baseObj, rerankObj, json)
+    }
+
+    private fun <T> extractRankedItems(
+        keyToItem: List<Pair<String, T>>,
+        batch: DecisionBatchResult,
+        kind: String,
+        identity: (T) -> Pair<String, String>
+    ): List<RankedItem> =
+        keyToItem.mapNotNull { (key, item) ->
+            val scoreAns = batch.getScore(key) ?: return@mapNotNull null
+            val (id, title) = identity(item)
+            RankedItem(
+                id = id,
+                title = title,
+                score = scoreAns.score,
+                confidence = scoreAns.confidence,
+                kind = kind,
+                topLevel = scoreAns.topLevel.first
+            )
+        }.sortedWith(compareByDescending<RankedItem> { it.score }.thenByDescending { it.confidence })
+
+    private fun uniqueKey(
+        existing: Map<String, DecisionQuestion>,
+        raw: String,
+        prefix: String,
+        index: Int
+    ): String {
+        val base = sanitizeQuestionKey(raw, prefix = prefix, index = index)
+        if (base !in existing) return base
+        val suffix = "_$index"
+        val candidate = base.take(DecisionClient.MAX_QUESTION_KEY_LEN - suffix.length) + suffix
+        if (candidate !in existing) return candidate
+        var counter = 0
+        while (true) {
+            val s = "_$counter"
+            val alt = base.take(DecisionClient.MAX_QUESTION_KEY_LEN - s.length) + s
+            if (alt !in existing) return alt
+            counter++
+        }
+    }
+
+    private fun parseSuccessObject(toolJson: String, json: Json): JsonObject? {
+        return try {
+            val obj = json.parseToJsonElement(toolJson) as? JsonObject ?: return null
+            val error = obj["error"]?.jsonPrimitive?.contentOrNull
+            if (!error.isNullOrBlank()) null else obj
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun encodeWithRerank(
+        original: JsonObject,
+        rerankObj: JsonObject,
+        json: Json
+    ): String {
+        val updated = buildJsonObject {
+            original.forEach { (k, v) ->
+                if (k != "decisionRerank") put(k, v)
+            }
+            put("decisionRerank", rerankObj)
+        }
+        return json.encodeToString(JsonObject.serializer(), updated)
+    }
+
+    private fun previewHintNote(prefetchedPreview: String?, needsDrugMonograph: Boolean): String =
+        if (!prefetchedPreview.isNullOrBlank()) {
+            if (needsDrugMonograph) {
+                " Regimen excerpt included in 'prefetchedPreview' to identify drug monographs."
+            } else {
+                " Prefetched evidence digest included in 'prefetchedPreview'."
+            }
+        } else {
+            ""
+        }
+
+    /**
+     * Builds a compact digest of auto-prefetched sections and tables for Stage 1 visibility
+     * so the retrieval LLM can verify coverage without duplicating full markdown.
+     */
+    fun buildPrefetchedDigest(
+        sectionsMarkdown: String?,
+        tablesMarkdown: String?,
+        maxChars: Int = 2000
+    ): String? {
+        val entries = mutableListOf<String>()
+        val secRaw = sectionsMarkdown?.trim().orEmpty()
+        if (secRaw.isNotEmpty()) {
+            val blocks = secRaw.split(SECTION_SPLIT_REGEX).filter { it.isNotBlank() }
+            for (block in blocks) {
+                val lines = block.trim().lines()
+                val header = lines.firstOrNull().orEmpty().trim()
+                val body = lines.drop(1).joinToString(" ").replace(COLLAPSE_WS_REGEX, " ").trim()
+                val snippet = if (body.length > 180) body.take(180).trimEnd() + "…" else body
+                val line = if (header.startsWith("===") && snippet.isNotEmpty()) {
+                    "$header $snippet"
+                } else {
+                    val flat = block.replace(COLLAPSE_WS_REGEX, " ").trim()
+                    if (flat.length > 200) flat.take(200).trimEnd() + "…" else flat
+                }
+                if (line.isNotEmpty()) entries.add(line)
+            }
+        }
+        val tblRaw = tablesMarkdown?.trim().orEmpty()
+        if (tblRaw.isNotEmpty()) {
+            val blocks = tblRaw.split(TABLE_SPLIT_REGEX).filter { it.isNotBlank() }
+            for (block in blocks) {
+                val lines = block.trim().lines().filter { it.isNotBlank() }.take(3)
+                val summary = lines.joinToString(" | ").replace(COLLAPSE_WS_REGEX, " ").trim()
+                val clipped = if (summary.length > 200) summary.take(200).trimEnd() + "…" else summary
+                if (clipped.isNotEmpty()) entries.add(clipped)
+            }
+        }
+        if (entries.isEmpty()) return null
+        val joined = entries.joinToString("\n")
+        return if (joined.length > maxChars) joined.take(maxChars).trimEnd() + "…" else joined
+    }
+
+    private fun formatScore(score: Double): String {
+        val rounded = kotlin.math.round(score * 100.0) / 100.0
+        return rounded.toString()
+    }
+}
