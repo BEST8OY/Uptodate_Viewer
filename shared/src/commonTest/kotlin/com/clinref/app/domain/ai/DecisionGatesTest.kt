@@ -400,4 +400,146 @@ class DecisionGatesTest {
         // Parent must be retained and recommended because child failed the threshold and was dropped
         assertEquals(listOf("sec-parent"), res.recommendedSectionIds)
     }
+
+    @Test
+    fun `injectOverviewRerankIntoJson suppresses related topic hints unless needsRelatedTopic is true`() {
+        val overviewJson = json.encodeToString(TopicOverviewResponse(topicId = "T1", title = "AFib"))
+        val rerank = OverviewRerankResult(
+            topicId = "T1",
+            topicTitle = "AFib",
+            recommendedSectionIds = listOf("S1"),
+            recommendedRelatedTopics = listOf(RankedItem(id = "REL_1", title = "AFib in Pregnancy", score = 2.1)),
+            ok = true
+        )
+
+        val suppressed = DecisionGates.injectOverviewRerankIntoJson(
+            toolJson = overviewJson,
+            rerank = rerank,
+            needsRelatedTopic = false,
+            json = json
+        )
+        val suppressedBlock = json.parseToJsonElement(suppressed).jsonObject["decisionRerank"]!!.jsonObject
+        val suppressedHint = suppressedBlock["hint"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        assertFalse(suppressedHint.contains("Promising related topics"))
+        assertEquals(0, suppressedBlock["recommendedRelatedTopics"]!!.jsonArray.size)
+
+        val enabled = DecisionGates.injectOverviewRerankIntoJson(
+            toolJson = overviewJson,
+            rerank = rerank,
+            needsRelatedTopic = true,
+            json = json
+        )
+        val enabledBlock = json.parseToJsonElement(enabled).jsonObject["decisionRerank"]!!.jsonObject
+        val enabledHint = enabledBlock["hint"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        assertTrue(enabledHint.contains("Promising related topics"))
+        assertEquals(1, enabledBlock["recommendedRelatedTopics"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `buildPrefetchedDigest summarizes sections and tables within maxChars`() {
+        val secMd = """
+            === Section: S1 ===
+            Empiric therapy includes vancomycin plus piperacillin-tazobactam within 1 hour.
+
+            === Section: S2 ===
+            Adjust vancomycin trough levels based on renal clearance.
+        """.trimIndent()
+        val tblMd = """
+            ### Graphic Table: Empiric Dosing
+            | Agent | Dose |
+            | Vancomycin | 15 mg/kg |
+        """.trimIndent()
+
+        val digest = DecisionGates.buildPrefetchedDigest(secMd, tblMd, maxChars = 400)
+        requireNotNull(digest)
+        assertTrue(digest.contains("S1"))
+        assertTrue(digest.contains("S2"))
+        assertTrue(digest.contains("Empiric Dosing"))
+        assertTrue(digest.length <= 401)
+    }
+
+    @Test
+    fun `rankOverviewItems includes H1 headings beyond 15 in overviewDigest`() = runTest {
+        var capturedInputText = ""
+        val transport = DecisionTransport { reqJson ->
+            val root = json.parseToJsonElement(reqJson).jsonObject
+            capturedInputText = root["input"]!!.jsonArray.joinToString("\n") {
+                it.jsonObject["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            }
+            val qs = root["questions"]!!.jsonObject
+            val answers = buildJsonObject {
+                qs.keys.forEach { k ->
+                    if (k == "is_topic_relevant" || k == "needs_drug_monograph") {
+                        put(k, buildJsonObject { put("type", "noul"); put("noul", 0.5); put("confidence", 0.9) })
+                    } else {
+                        put(k, buildJsonObject { put("type", "score"); put("score", 2.0); put("confidence", 0.9) })
+                    }
+                }
+            }
+            json.encodeToString(
+                JsonObject.serializer(),
+                buildJsonObject {
+                    put("answers", answers)
+                    put("usage", buildJsonObject { put("total_input_tokens", 100) })
+                }
+            )
+        }
+
+        val overview = TopicOverviewResponse(
+            topicId = "Drug-Long",
+            title = "Long Drug Monograph",
+            topicType = "drug",
+            sections = (1..25).map { idx ->
+                OutlineSectionItem(id = "H$idx", title = "Heading $idx", level = 1)
+            },
+            graphics = listOf(
+                OutlineGraphicItem(id = "G_DOSING", title = "Empiric IV Antimicrobial Dosing", isTable = true),
+                OutlineGraphicItem(id = "G_IMG", title = "Rash Photo", isTable = false)
+            )
+        )
+
+        val res = DecisionGates.rankOverviewItems(
+            client = DecisionClient(transport),
+            question = "Renal dosing?",
+            patientProfileText = "",
+            overview = overview
+        )
+
+        assertTrue(res.ok)
+        assertTrue(capturedInputText.contains("- Heading 16"))
+        assertTrue(capturedInputText.contains("- Heading 25"))
+        assertTrue(capturedInputText.contains("Available Tables:"))
+        assertTrue(capturedInputText.contains("- Empiric IV Antimicrobial Dosing"))
+        assertFalse(capturedInputText.contains("Rash Photo"))
+    }
+
+    @Test
+    fun `injectOverviewRerankIntoJson prunes low-scoring sections even when autoPrefetched is false`() {
+        val overview = TopicOverviewResponse(
+            topicId = "T_Large",
+            title = "Large Topic",
+            sections = (1..20).map { idx -> OutlineSectionItem(id = "S$idx", title = "Section $idx") }
+        )
+        val rerank = OverviewRerankResult(
+            topicId = "T_Large",
+            topicTitle = "Large Topic",
+            rankedSections = (1..20).map { idx ->
+                RankedItem(id = "S$idx", title = "Section $idx", score = if (idx <= 3) 2.5 else 0.4)
+            },
+            recommendedSectionIds = listOf("S1", "S2", "S3"),
+            ok = true
+        )
+
+        val enriched = DecisionGates.injectOverviewRerankIntoJson(
+            toolJson = json.encodeToString(overview),
+            rerank = rerank,
+            autoPrefetched = false,
+            json = json
+        )
+        val parsed = json.parseToJsonElement(enriched).jsonObject
+        val keptIds = parsed["sections"]!!.jsonArray.mapNotNull {
+            it.jsonObject["id"]?.jsonPrimitive?.contentOrNull
+        }
+        assertEquals(listOf("S1", "S2", "S3"), keptIds)
+    }
 }

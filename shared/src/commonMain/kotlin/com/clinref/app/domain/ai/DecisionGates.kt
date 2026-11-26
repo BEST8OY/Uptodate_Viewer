@@ -33,7 +33,8 @@ data class DecisionConfig(
     val topKTopics: Int = DEFAULT_TOP_K_TOPICS,
     val searchDrugMonographThreshold: Double = DEFAULT_SEARCH_DRUG_THRESHOLD,
     val overviewDrugMonographThreshold: Double = DEFAULT_OVERVIEW_DRUG_THRESHOLD,
-    val tableDataThreshold: Double = DEFAULT_TABLE_DATA_THRESHOLD
+    val tableDataThreshold: Double = DEFAULT_TABLE_DATA_THRESHOLD,
+    val maxPrefetchedTopicsPerTurn: Int = DEFAULT_MAX_PREFETCHED_TOPICS_PER_TURN
 ) {
     companion object {
         const val MAX_OUTLINE_SECTIONS_TO_SCORE = 250
@@ -48,6 +49,7 @@ data class DecisionConfig(
         const val DEFAULT_SEARCH_DRUG_THRESHOLD = 0.70
         const val DEFAULT_OVERVIEW_DRUG_THRESHOLD = 0.75
         const val DEFAULT_TABLE_DATA_THRESHOLD = 0.70
+        const val DEFAULT_MAX_PREFETCHED_TOPICS_PER_TURN = 3
     }
 }
 
@@ -97,6 +99,10 @@ data class OverviewRerankResult(
  * Phase-1 retrieval reranking and triage gates powered by Gemini Decisions (`gemini-decision-1`).
  */
 object DecisionGates {
+
+    private val SECTION_SPLIT_REGEX = Regex("(?m)(?=^===\\s*Section:)")
+    private val TABLE_SPLIT_REGEX = Regex("(?m)(?=^###\\s*Graphic Table:)")
+    private val COLLAPSE_WS_REGEX = Regex("\\s+")
 
     val RELEVANCE_RUBRIC: List<String> = listOf(
         "Irrelevant.",
@@ -325,12 +331,15 @@ object DecisionGates {
             )
         }
 
-        val h1Headings = overview.sections.filter { it.level == 1 }.take(15)
+        val h1Headings = overview.sections.filter { it.level == 1 }.take(100)
         val h1Digest = if (h1Headings.isNotEmpty()) {
             "\n\nMajor Heading Outline:\n" + h1Headings.joinToString("\n") { "- ${it.title}" }
         } else ""
+        val tableDigest = if (tableGraphicsToScore.isNotEmpty()) {
+            "\n\nAvailable Tables:\n" + tableGraphicsToScore.joinToString("\n") { "- ${it.title}" }
+        } else ""
 
-        val overviewDigest = "OPEN TOPIC:\n[${overview.topicId}] ${overview.title} (type=${overview.topicType.ifBlank { "topic" }})$h1Digest"
+        val overviewDigest = "OPEN TOPIC:\n[${overview.topicId}] ${overview.title} (type=${overview.topicType.ifBlank { "topic" }})$h1Digest$tableDigest"
         val taskInstruction = "TASK: Score each item's relevance to answering QUESTION" +
             if (patientProfileText.isNotBlank()) " for PATIENT PROFILE." else "."
 
@@ -496,6 +505,7 @@ object DecisionGates {
         json: Json = AiJsonUtils.json,
         autoChainedTopicId: String? = null,
         autoChainedTopicIds: List<String> = emptyList(),
+        autoPrefetchedTopicIds: List<String> = emptyList(),
         autoPrefetched: Boolean = false,
         needsDrugMonograph: Boolean = false,
         needsRelatedTopic: Boolean = false,
@@ -522,15 +532,28 @@ object DecisionGates {
         }
         val isChained = chainedIds.isNotEmpty()
 
+        val prefetchedIds = when {
+            autoPrefetchedTopicIds.isNotEmpty() -> autoPrefetchedTopicIds
+            autoPrefetched -> chainedIds
+            else -> emptyList()
+        }
+        val unprefetchedIds = chainedIds.filter { it !in prefetchedIds }
+
         if (isChained) {
             val idsStr = chainedIds.joinToString(", ")
-            if (autoPrefetched) {
-                val previewNote = if (!prefetchedPreview.isNullOrBlank()) {
-                    " Regimen excerpt included in 'prefetchedPreview' to identify drug monographs."
-                } else ""
-                hintParts.add("Auto-chained overview and prefetched top evidence for topic(s) $idsStr; evidence is already in context.$previewNote")
-            } else {
-                hintParts.add("Auto-chained overview for topic(s) $idsStr; call getTopicOverview to inspect outline sections.")
+            val previewNote = previewHintNote(prefetchedPreview, needsDrugMonograph)
+            when {
+                autoPrefetched -> {
+                    hintParts.add("Auto-chained overview and prefetched top evidence for topic(s) $idsStr; evidence is already in context.$previewNote")
+                }
+                prefetchedIds.isNotEmpty() -> {
+                    val prefStr = prefetchedIds.joinToString(", ")
+                    val remStr = unprefetchedIds.joinToString(", ")
+                    hintParts.add("Auto-prefetched top evidence for topic(s) $prefStr; call getTopicOverview for remaining topic(s) $remStr.$previewNote")
+                }
+                else -> {
+                    hintParts.add("Auto-chained overview for topic(s) $idsStr; call getTopicOverview to inspect outline sections.")
+                }
             }
         }
         val effectiveDrugNeeded = if (isChained) {
@@ -578,6 +601,9 @@ object DecisionGates {
                     put("autoChainedTopicIds", buildJsonArray { chainedIds.forEach { add(JsonPrimitive(it)) } })
                 }
                 put("autoPrefetched", autoPrefetched)
+                if (prefetchedIds.isNotEmpty() && !autoPrefetched) {
+                    put("autoPrefetchedTopicIds", buildJsonArray { prefetchedIds.forEach { add(JsonPrimitive(it)) } })
+                }
                 put("needsDrugMonograph", needsDrugMonograph)
                 put("needsRelatedTopic", needsRelatedTopic)
                 if (!prefetchedPreview.isNullOrBlank()) {
@@ -612,7 +638,7 @@ object DecisionGates {
 
         val hasAnyRecommendation = rerank.recommendedSectionIds.isNotEmpty() ||
             rerank.recommendedGraphicIds.isNotEmpty() ||
-            rerank.recommendedRelatedTopics.isNotEmpty() ||
+            (needsRelatedTopic && rerank.recommendedRelatedTopics.isNotEmpty()) ||
             rerank.needsDrugMonograph
         if (!hasAnyRecommendation && !autoPrefetched) {
             return toolJson
@@ -640,7 +666,7 @@ object DecisionGates {
             }
             hintParts.add("$gfxPrefix: ${rerank.recommendedGraphicIds.joinToString(", ")}.")
         }
-        if (rerank.recommendedRelatedTopics.isNotEmpty()) {
+        if (needsRelatedTopic && rerank.recommendedRelatedTopics.isNotEmpty()) {
             val relSummary = rerank.recommendedRelatedTopics.joinToString(", ") {
                 "${it.id} (${it.title})"
             }
@@ -656,12 +682,11 @@ object DecisionGates {
             val charInfo = if (effectiveSecChars > 0 || effectiveGfxChars > 0) {
                 " ($effectiveSecChars chars text, $effectiveGfxChars chars tables)"
             } else ""
-            val previewNote = if (!prefetchedPreview.isNullOrBlank()) {
-                " Regimen excerpt included in 'prefetchedPreview' to identify drug monographs."
-            } else ""
+            val previewNote = previewHintNote(prefetchedPreview, rerank.needsDrugMonograph)
             hintParts.add("Auto-prefetched evidence$charInfo is already added to retrieved evidence; only fetch additional sections if a gap remains.$previewNote")
         }
 
+        val exposedRelated = if (needsRelatedTopic) rerank.recommendedRelatedTopics else emptyList()
         val rerankObj = buildJsonObject {
             put(
                 "recommendedSectionIds",
@@ -674,7 +699,7 @@ object DecisionGates {
             put(
                 "recommendedRelatedTopics",
                 buildJsonArray {
-                    rerank.recommendedRelatedTopics.forEach { item ->
+                    exposedRelated.forEach { item ->
                         add(
                             buildJsonObject {
                                 put("id", item.id)
@@ -700,23 +725,27 @@ object DecisionGates {
             put("hint", hintParts.joinToString(" "))
         }
 
-        val baseObj = if (autoPrefetched && pruneLowScoringSections && obj.containsKey("sections")) {
+        val baseObj = if (pruneLowScoringSections && rerank.rankedSections.isNotEmpty() && obj.containsKey("sections")) {
             val sectionsArr = obj["sections"] as? kotlinx.serialization.json.JsonArray
             if (sectionsArr != null && sectionsArr.size > 15) {
                 val keptSectionIds = rerank.recommendedSectionIds.toSet() +
                     rerank.rankedSections.filter { it.score >= 1.0 }.map { it.id }.toSet()
-                val prunedArr = buildJsonArray {
-                    sectionsArr.forEach { secEl ->
-                        val sid = (secEl as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
-                        if (sid == null || sid in keptSectionIds) {
-                            add(secEl)
+                if (keptSectionIds.isNotEmpty()) {
+                    val prunedArr = buildJsonArray {
+                        sectionsArr.forEach { secEl ->
+                            val sid = (secEl as? JsonObject)?.get("id")?.jsonPrimitive?.contentOrNull
+                            if (sid == null || sid in keptSectionIds) {
+                                add(secEl)
+                            }
                         }
                     }
-                }
-                buildJsonObject {
-                    obj.forEach { (k, v) ->
-                        if (k == "sections") put(k, prunedArr) else put(k, v)
+                    buildJsonObject {
+                        obj.forEach { (k, v) ->
+                            if (k == "sections") put(k, prunedArr) else put(k, v)
+                        }
                     }
+                } else {
+                    obj
                 }
             } else {
                 obj
@@ -789,6 +818,59 @@ object DecisionGates {
             put("decisionRerank", rerankObj)
         }
         return json.encodeToString(JsonObject.serializer(), updated)
+    }
+
+    private fun previewHintNote(prefetchedPreview: String?, needsDrugMonograph: Boolean): String =
+        if (!prefetchedPreview.isNullOrBlank()) {
+            if (needsDrugMonograph) {
+                " Regimen excerpt included in 'prefetchedPreview' to identify drug monographs."
+            } else {
+                " Prefetched evidence digest included in 'prefetchedPreview'."
+            }
+        } else {
+            ""
+        }
+
+    /**
+     * Builds a compact digest of auto-prefetched sections and tables for Stage 1 visibility
+     * so the retrieval LLM can verify coverage without duplicating full markdown.
+     */
+    fun buildPrefetchedDigest(
+        sectionsMarkdown: String?,
+        tablesMarkdown: String?,
+        maxChars: Int = 2000
+    ): String? {
+        val entries = mutableListOf<String>()
+        val secRaw = sectionsMarkdown?.trim().orEmpty()
+        if (secRaw.isNotEmpty()) {
+            val blocks = secRaw.split(SECTION_SPLIT_REGEX).filter { it.isNotBlank() }
+            for (block in blocks) {
+                val lines = block.trim().lines()
+                val header = lines.firstOrNull().orEmpty().trim()
+                val body = lines.drop(1).joinToString(" ").replace(COLLAPSE_WS_REGEX, " ").trim()
+                val snippet = if (body.length > 180) body.take(180).trimEnd() + "…" else body
+                val line = if (header.startsWith("===") && snippet.isNotEmpty()) {
+                    "$header $snippet"
+                } else {
+                    val flat = block.replace(COLLAPSE_WS_REGEX, " ").trim()
+                    if (flat.length > 200) flat.take(200).trimEnd() + "…" else flat
+                }
+                if (line.isNotEmpty()) entries.add(line)
+            }
+        }
+        val tblRaw = tablesMarkdown?.trim().orEmpty()
+        if (tblRaw.isNotEmpty()) {
+            val blocks = tblRaw.split(TABLE_SPLIT_REGEX).filter { it.isNotBlank() }
+            for (block in blocks) {
+                val lines = block.trim().lines().filter { it.isNotBlank() }.take(3)
+                val summary = lines.joinToString(" | ").replace(COLLAPSE_WS_REGEX, " ").trim()
+                val clipped = if (summary.length > 200) summary.take(200).trimEnd() + "…" else summary
+                if (clipped.isNotEmpty()) entries.add(clipped)
+            }
+        }
+        if (entries.isEmpty()) return null
+        val joined = entries.joinToString("\n")
+        return if (joined.length > maxChars) joined.take(maxChars).trimEnd() + "…" else joined
     }
 
     private fun formatScore(score: Double): String {

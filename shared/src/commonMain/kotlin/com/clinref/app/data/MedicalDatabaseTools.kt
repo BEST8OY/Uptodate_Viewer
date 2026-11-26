@@ -7,8 +7,9 @@ import com.clinref.app.repository.SearchRepository
 // Maximum sections returned per getTopicSectionsText call; extras land in omittedSections
 internal const val MAX_SECTIONS_PER_CALL = 20
 
-// SearchTopics result budget: hits returned, refine terms offered, and auto-refine retries.
-private const val MAX_SEARCH_RESULTS = 8
+// SearchTopics result budget: hits returned, wider rerank pool, refine terms offered, and auto-refine retries.
+internal const val DEFAULT_SEARCH_RESULTS = 8
+internal const val RERANK_SEARCH_POOL_SIZE = 25
 private const val MAX_REFINE_SUGGESTIONS = 20
 private const val MAX_REFINE_RETRIES = 5
 
@@ -167,14 +168,18 @@ class MedicalDatabaseTools(
         return outlineCache.getOrPut(topicId) { parseOutlineSections(outlineHtml) }
     }
 
-    fun searchTopics(query: String): SearchTopicsResponse {
+    fun searchTopics(query: String): SearchTopicsResponse =
+        searchTopics(query, DEFAULT_SEARCH_RESULTS)
+
+    fun searchTopics(query: String, maxResults: Int): SearchTopicsResponse {
         val cleanQuery = query.trim()
+        val effectiveLimit = maxResults.coerceAtLeast(1)
         if (cleanQuery.isEmpty()) {
             return SearchTopicsResponse()
         }
 
         val searchResults = searchRepository.searchTopics(cleanQuery)
-        val results = formatSearchResults(searchResults).take(MAX_SEARCH_RESULTS)
+        val results = formatSearchResults(searchResults).take(effectiveLimit)
         if (results.isNotEmpty()) {
             return SearchTopicsResponse(query = cleanQuery, results = results, message = "Success")
         }
@@ -182,7 +187,7 @@ class MedicalDatabaseTools(
         // No direct hit: consult the typeahead vocabulary once, then retry its best terms.
         val suggestions = searchRepository.getSuggestions(cleanQuery).distinct().take(MAX_REFINE_SUGGESTIONS)
         for (suggestion in suggestions.take(MAX_REFINE_RETRIES)) {
-            val retry = formatSearchResults(searchRepository.searchTopics(suggestion)).take(MAX_SEARCH_RESULTS)
+            val retry = formatSearchResults(searchRepository.searchTopics(suggestion)).take(effectiveLimit)
             if (retry.isNotEmpty()) {
                 return SearchTopicsResponse(
                     query = suggestion,

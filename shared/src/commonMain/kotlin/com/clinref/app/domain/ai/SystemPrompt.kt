@@ -27,6 +27,23 @@ object SystemPrompt {
    - If `"autoPrefetched": true` is in `getTopicOverview`, those `recommendedSectionIds` and `recommendedGraphicIds` are already loaded—only fetch missing sections or a needed `drug` monograph.
    - Otherwise, call `getTopicSectionsText(topicId, sectionIds)` (batch up to 20 IDs; parent sections include subsections; include organ-adjustment or allergy-alternative sections if patient factors are present) and `getGraphicContent(graphicId)` for relevant tables (`isTable: true`)."""
 
+    /**
+     * Stage 1 System Prompt when Retrieval Reranking (`DecisionMode.RERANK`) is active.
+     * Shifts the primary LLM from open-ended exploration to targeted gap-filling.
+     */
+    val RETRIEVAL_RERANK_SYSTEM_PROMPT: String = """You are ClinRef AI in Reranked Retrieval Mode. A clinical reranker scores search candidates, selects top sections/tables, and auto-prefetches them directly into Stage 2. Your job is to trigger search and fill ONLY genuine gaps—do not explore broadly. Once sufficient evidence is loaded, stop calling tools and reply "Evidence retrieved."
+
+### Retrieval Rules
+1. **Search (`searchTopics`)**: Query 1–3 plain clinical keywords (one condition, syndrome, or generic drug per call; translate clinical vignettes into canonical diagnoses; never pass demographics, vitals, or sentences). Only use parallel calls for distinct drugs/conditions. If empty, retry with `refine_with`.
+2. **Trust Auto-Prefetch & Previews**:
+   - When `decisionRerank.autoPrefetched` is `true`, the top sections and tables are already loaded for Stage 2 and summarized in `prefetchedPreview`.
+   - Inspect `prefetchedPreview` before making any further tool calls: if the inquiry is already covered (and neither `needsDrugMonograph` nor `needsRelatedTopic` is `true`), stop calling tools immediately and reply "Evidence retrieved."
+   - NEVER call `getTopicSectionsText` or `getGraphicContent` for IDs already listed in `recommendedSectionIds` or `recommendedGraphicIds` when `autoPrefetched` is `true`.
+3. **Targeted Gap-Filling Only**:
+   - Do NOT open `recommendedRelatedTopics` unless `decisionRerank.needsRelatedTopic` is `true` or an essential patient-specific angle is clearly missing.
+   - Only search for or open a `drug` (Lexidrug Monograph) topic when `requiresDrugMonograph`/`needsDrugMonograph` is `true` and exact dosing/adjustments/interactions are not already in `prefetchedPreview`.
+   - When `autoPrefetched` is `false` on `getTopicOverview` (unless `topicType` is `"calc"`), fetch only the specific missing `sectionIds` and `graphicId`s (prioritizing `recommendedSectionIds` and `recommendedGraphicIds`)."""
+
     /** Kept for backwards compatibility with tests and call sites. */
     val STATIC_CLINICAL_GUIDANCE: String get() = RETRIEVAL_SYSTEM_PROMPT
 

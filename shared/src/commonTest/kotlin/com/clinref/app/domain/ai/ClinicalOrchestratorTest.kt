@@ -2103,4 +2103,619 @@ class ClinicalOrchestratorTest {
         // After Round 2, all required topics were inspected, so it short-circuited to Stage 2 (exactly 2 rounds)
         assertEquals(2, executor.executedPrompts.size)
     }
+
+    @Test
+    fun testRerankModeUsesRerankPromptAndCapsRounds() = runTest {
+        val json = AiJsonUtils.json
+        val meta = ResponseMetaInfo(KoogClock.System.now(), inputTokensCount = 40, outputTokensCount = 15)
+
+        coEvery { medicalDatabaseTools.searchTopics("loop query") } returns SearchTopicsResponse(
+            query = "loop query",
+            results = listOf(
+                SearchResultTopicItem(id = "T1", title = "Topic 1"),
+                SearchResultTopicItem(id = "T2", title = "Topic 2")
+            )
+        )
+
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport { reqJson ->
+                val qs = json.parseToJsonElement(reqJson).jsonObject["questions"]!!.jsonObject
+                val answers = buildJsonObject {
+                    qs.keys.forEach { k ->
+                        when {
+                            k == "requires_drug_monograph" || k == "needs_drug_monograph" || k == "requires_table_data" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.1); put("confidence", 0.9) })
+                            else ->
+                                // Close scores prevent Round 1 chaining
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.0); put("confidence", 0.8) })
+                        }
+                    }
+                }
+                json.encodeToString(
+                    JsonObject.serializer(),
+                    buildJsonObject {
+                        put("answers", answers)
+                        put("usage", buildJsonObject { put("total_input_tokens", 50) })
+                    }
+                )
+            }
+        )
+
+        var step = 0
+        executor.executeHandler = { _, _, _ ->
+            step++
+            Message.Assistant(
+                parts = listOf(MessagePart.Tool.Call(id = "s_$step", tool = "searchTopics", args = """{"query":"loop query"}""")),
+                metaInfo = meta
+            )
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Complex query",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true)
+        )
+
+        // Uses Rerank-specific system prompt
+        val firstPromptText = executor.executedPrompts.first().messages.first().parts.joinToString("\n") { it.toString() }
+        assertTrue(firstPromptText.contains("Reranked Retrieval Mode"))
+        // Caps Stage 1 rounds at MAX_RERANK_RETRIEVAL_ROUNDS (7)
+        assertEquals(ClinicalOrchestrator.MAX_RERANK_RETRIEVAL_ROUNDS, executor.executedPrompts.size)
+        assertEquals(SystemPrompt.CANONICAL_ABSTENTION, result.content)
+    }
+
+    @Test
+    fun testRound3GetTopicOverviewAutoPrefetchesWithinTopicBudget() = runTest {
+        val json = AiJsonUtils.json
+        val meta = ResponseMetaInfo(KoogClock.System.now(), inputTokensCount = 40, outputTokensCount = 15)
+
+        coEvery { medicalDatabaseTools.searchTopics("ambiguous query") } returns SearchTopicsResponse(
+            query = "ambiguous query",
+            results = listOf(
+                SearchResultTopicItem(id = "T1", title = "Topic 1"),
+                SearchResultTopicItem(id = "T2", title = "Topic 2")
+            )
+        )
+        coEvery { medicalDatabaseTools.getTopicOverview("T3") } returns TopicOverviewResponse(
+            topicId = "T3",
+            title = "Topic 3",
+            topicType = "medical",
+            sections = listOf(OutlineSectionItem(id = "S3", title = "Management", level = 1))
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("T3", listOf("S3")) } returns TopicSectionsResponse(
+            topicId = "T3",
+            topicTitle = "Topic 3",
+            sectionTitles = mapOf("S3" to "Management"),
+            markdown = "=== Section: S3 ===\nRound 3 prefetched content."
+        )
+        every { medicalDatabaseTools.getTopicTitle("T3") } returns "Topic 3"
+        every { medicalDatabaseTools.getSectionTitle("T3", "S3") } returns "Management"
+
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport { reqJson ->
+                val qs = json.parseToJsonElement(reqJson).jsonObject["questions"]!!.jsonObject
+                val answers = buildJsonObject {
+                    qs.keys.forEach { k ->
+                        when {
+                            k == "requires_drug_monograph" || k == "needs_drug_monograph" || k == "requires_table_data" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.1); put("confidence", 0.9) })
+                            k == "is_topic_relevant" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.9); put("confidence", 0.9) })
+                            k.contains("S3") ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.8); put("confidence", 0.9) })
+                            else ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.0); put("confidence", 0.8) })
+                        }
+                    }
+                }
+                json.encodeToString(
+                    JsonObject.serializer(),
+                    buildJsonObject {
+                        put("answers", answers)
+                        put("usage", buildJsonObject { put("total_input_tokens", 50) })
+                    }
+                )
+            }
+        )
+
+        var step = 0
+        executor.executeHandler = { _, _, _ ->
+            step++
+            when (step) {
+                1, 2 -> Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "s_$step", tool = "searchTopics", args = """{"query":"ambiguous query"}""")),
+                    metaInfo = meta
+                )
+                else -> Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "ov_3", tool = "getTopicOverview", args = """{"topicId":"T3"}""")),
+                    metaInfo = meta
+                )
+            }
+        }
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Synthesized from Round 3 prefetch."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Multi-step query",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true)
+        )
+
+        // Round 3 getTopicOverview within topic budget auto-prefetched and short-circuited cleanly
+        coVerify(exactly = 1) { medicalDatabaseTools.getTopicSectionsText("T3", listOf("S3")) }
+        assertEquals(3, executor.executedPrompts.size)
+        assertEquals("Synthesized from Round 3 prefetch.", result.content)
+    }
+
+    @Test
+    fun testPerTurnPrefetchBudgetCapsTopicsAndPopulatesDigestPreview() = runTest {
+        val json = AiJsonUtils.json
+        val meta = ResponseMetaInfo(KoogClock.System.now(), inputTokensCount = 40, outputTokensCount = 15)
+
+        val topics = (1..4).map { idx -> "T$idx" to "Topic $idx" }
+        coEvery { medicalDatabaseTools.searchTopics("multi a") } returns SearchTopicsResponse(
+            query = "multi a",
+            results = listOf(
+                SearchResultTopicItem("T1", "Topic 1"),
+                SearchResultTopicItem("T2", "Topic 2")
+            )
+        )
+        coEvery { medicalDatabaseTools.searchTopics("multi b") } returns SearchTopicsResponse(
+            query = "multi b",
+            results = listOf(
+                SearchResultTopicItem("T3", "Topic 3"),
+                SearchResultTopicItem("T4", "Topic 4")
+            )
+        )
+        topics.forEach { (tid, title) ->
+            coEvery { medicalDatabaseTools.getTopicOverview(tid) } returns TopicOverviewResponse(
+                topicId = tid,
+                title = title,
+                topicType = "medical",
+                sections = listOf(OutlineSectionItem("S_$tid", "Management $tid", level = 1))
+            )
+            coEvery { medicalDatabaseTools.getTopicSectionsText(tid, listOf("S_$tid")) } returns TopicSectionsResponse(
+                topicId = tid,
+                topicTitle = title,
+                sectionTitles = mapOf("S_$tid" to "Management $tid"),
+                markdown = "=== Section: S_$tid ===\nClinical content for $title."
+            )
+            every { medicalDatabaseTools.getTopicTitle(tid) } returns title
+            every { medicalDatabaseTools.getSectionTitle(tid, "S_$tid") } returns "Management $tid"
+        }
+
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport { reqJson ->
+                val qs = json.parseToJsonElement(reqJson).jsonObject["questions"]!!.jsonObject
+                val answers = buildJsonObject {
+                    qs.keys.forEach { k ->
+                        when (k) {
+                            "requires_drug_monograph", "needs_drug_monograph", "requires_table_data" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.1); put("confidence", 0.9) })
+                            "is_topic_relevant" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.95); put("confidence", 0.9) })
+                            else ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.8); put("confidence", 0.9) })
+                        }
+                    }
+                }
+                json.encodeToString(
+                    JsonObject.serializer(),
+                    buildJsonObject {
+                        put("answers", answers)
+                        put("usage", buildJsonObject { put("total_input_tokens", 50) })
+                    }
+                )
+            }
+        )
+
+        var step = 0
+        var round2SearchResults: List<String> = emptyList()
+        executor.executeHandler = { prompt, _, _ ->
+            step++
+            if (step == 1) {
+                Message.Assistant(
+                    parts = listOf(
+                        MessagePart.Tool.Call(id = "c1", tool = "searchTopics", args = """{"query":"multi a"}"""),
+                        MessagePart.Tool.Call(id = "c2", tool = "searchTopics", args = """{"query":"multi b"}""")
+                    ),
+                    metaInfo = meta
+                )
+            } else {
+                val userToolMsg = prompt.messages.lastOrNull { it is Message.User } as? Message.User
+                round2SearchResults = userToolMsg?.parts?.filterIsInstance<MessagePart.Tool.Result>()?.map { it.output }.orEmpty()
+                Message.Assistant(parts = emptyList(), metaInfo = meta)
+            }
+        }
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Synthesized within turn budget."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Multi-topic query",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(
+                enableRetrievalRerank = true,
+                autoPrefetch = true,
+                maxPrefetchedTopicsPerTurn = 2
+            )
+        )
+
+        assertEquals("Synthesized within turn budget.", result.content)
+        // With maxPrefetchedTopicsPerTurn = 2, only 2 of the 4 chained topics may auto-prefetch
+        assertEquals(2, result.topicRefs.size)
+        // Since the 2nd search had a blocked candidate, Stage 1 fell into Round 2 and provided prefetchedPreview digest for the prefetched search
+        assertEquals(2, executor.executedPrompts.size)
+        val previews = round2SearchResults.mapNotNull { resJson ->
+            json.parseToJsonElement(resJson).jsonObject["decisionRerank"]?.jsonObject?.get("prefetchedPreview")?.jsonPrimitive?.contentOrNull
+        }
+        assertTrue("Prefetched search should include compact digest preview even when drug monograph is not needed", previews.isNotEmpty())
+    }
+
+    @Test
+    fun testRerankSearchScores25PoolPromotesDeepHitAndReturnsTop8Results() = runTest {
+        val json = AiJsonUtils.json
+        val meta = ResponseMetaInfo(KoogClock.System.now(), inputTokensCount = 40, outputTokensCount = 15)
+
+        val candidates25 = (1..25).map { idx ->
+            SearchResultTopicItem(id = "T_$idx", title = "Candidate $idx", type = "medical")
+        }
+        coEvery { medicalDatabaseTools.searchTopics("hypertension pregnancy", 25) } returns SearchTopicsResponse(
+            query = "hypertension pregnancy",
+            results = candidates25,
+            message = "Success"
+        )
+
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport { reqJson ->
+                val qs = json.parseToJsonElement(reqJson).jsonObject["questions"]!!.jsonObject
+                val answers = buildJsonObject {
+                    qs.keys.forEach { k ->
+                        when {
+                            k == "requires_drug_monograph" || k == "requires_table_data" || k == "needs_drug_monograph" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.1); put("confidence", 0.9) })
+                            k == "is_topic_relevant" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.95); put("confidence", 0.9) })
+                            k.endsWith("_T_12") ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.2); put("confidence", 0.95) })
+                            k.endsWith("_T_15") ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.1); put("confidence", 0.9) })
+                            k.startsWith("sec_") ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.8); put("confidence", 0.9) })
+                            else ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 0.8); put("confidence", 0.8) })
+                        }
+                    }
+                }
+                json.encodeToString(
+                    JsonObject.serializer(),
+                    buildJsonObject {
+                        put("answers", answers)
+                        put("usage", buildJsonObject { put("total_input_tokens", 120) })
+                    }
+                )
+            }
+        )
+
+        coEvery { medicalDatabaseTools.getTopicOverview("T_12") } returns TopicOverviewResponse(
+            topicId = "T_12",
+            title = "Candidate 12",
+            topicType = "medical",
+            sections = listOf(OutlineSectionItem("S12", "Pregnancy", level = 1))
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("T_12", listOf("S12")) } returns TopicSectionsResponse(
+            topicId = "T_12",
+            topicTitle = "Candidate 12",
+            sectionTitles = mapOf("S12" to "Pregnancy"),
+            markdown = "Labetalol or nifedipine."
+        )
+        every { medicalDatabaseTools.getTopicTitle("T_12") } returns "Candidate 12"
+        every { medicalDatabaseTools.getSectionTitle("T_12", "S12") } returns "Pregnancy"
+
+        var step = 0
+        var round2SearchJson = ""
+        executor.executeHandler = { prompt, _, _ ->
+            step++
+            if (step == 1) {
+                Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "s1", tool = "searchTopics", args = """{"query":"hypertension pregnancy"}""")),
+                    metaInfo = meta
+                )
+            } else {
+                val userToolMsg = prompt.messages.lastOrNull { it is Message.User } as? Message.User
+                round2SearchJson = userToolMsg?.parts?.filterIsInstance<MessagePart.Tool.Result>()?.firstOrNull()?.output.orEmpty()
+                Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "ov1", tool = "getTopicOverview", args = """{"topicId":"T_12"}""")),
+                    metaInfo = meta
+                )
+            }
+        }
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Use labetalol."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Hypertension in pregnancy?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true)
+        )
+
+        assertEquals("Use labetalol.", result.content)
+        val parsedSearch = json.decodeFromString<SearchTopicsResponse>(round2SearchJson)
+        assertEquals(8, parsedSearch.results.size)
+        assertEquals(listOf("T_12", "T_15"), parsedSearch.results.take(2).map { it.id })
+        coVerify(exactly = 1) { medicalDatabaseTools.getTopicSectionsText("T_12", listOf("S12")) }
+        assertEquals(2, executor.executedPrompts.size)
+    }
+
+    @Test
+    fun testRound2DoesNotPrematurelyShortCircuitWhenRound1FlaggedDrugMonograph() = runTest {
+        val json = AiJsonUtils.json
+        val meta = ResponseMetaInfo(KoogClock.System.now(), inputTokensCount = 40, outputTokensCount = 15)
+
+        coEvery { medicalDatabaseTools.searchTopics("cap treatment") } returns SearchTopicsResponse(
+            query = "cap treatment",
+            results = listOf(SearchResultTopicItem("T_CAP", "CAP treatment", type = "medical"))
+        )
+        coEvery { medicalDatabaseTools.searchTopics("renal") } returns SearchTopicsResponse(
+            query = "renal",
+            results = listOf(
+                SearchResultTopicItem("T_RenalA", "Renal A", type = "medical"),
+                SearchResultTopicItem("T_RenalB", "Renal B", type = "medical")
+            )
+        )
+        coEvery { medicalDatabaseTools.getTopicOverview("T_CAP") } returns TopicOverviewResponse(
+            topicId = "T_CAP", title = "CAP treatment", topicType = "medical",
+            sections = listOf(OutlineSectionItem("S_CAP", "Empiric therapy", level = 1))
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("T_CAP", listOf("S_CAP")) } returns TopicSectionsResponse(
+            topicId = "T_CAP", topicTitle = "CAP treatment",
+            sectionTitles = mapOf("S_CAP" to "Empiric therapy"), markdown = "Use amoxicillin."
+        )
+        coEvery { medicalDatabaseTools.getTopicOverview("T_RenalA") } returns TopicOverviewResponse(
+            topicId = "T_RenalA", title = "Renal A", topicType = "medical",
+            sections = listOf(OutlineSectionItem("S_RA", "Overview", level = 1))
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("T_RenalA", listOf("S_RA")) } returns TopicSectionsResponse(
+            topicId = "T_RenalA", topicTitle = "Renal A",
+            sectionTitles = mapOf("S_RA" to "Overview"), markdown = "Check CrCl."
+        )
+        coEvery { medicalDatabaseTools.getTopicOverview("T_Amox") } returns TopicOverviewResponse(
+            topicId = "T_Amox", title = "Amoxicillin: Drug information", topicType = "drug",
+            sections = listOf(OutlineSectionItem("S_Amox", "Renal dosing", level = 1))
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("T_Amox", listOf("S_Amox")) } returns TopicSectionsResponse(
+            topicId = "T_Amox", topicTitle = "Amoxicillin: Drug information",
+            sectionTitles = mapOf("S_Amox" to "Renal dosing"), markdown = "500 mg q12h if CrCl < 30."
+        )
+        every { medicalDatabaseTools.getTopicTitle(any()) } answers { firstArg() }
+        every { medicalDatabaseTools.getSectionTitle(any(), any()) } answers { secondArg() }
+
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport { reqJson ->
+                val root = json.parseToJsonElement(reqJson).jsonObject
+                val inputStr = root["input"].toString()
+                val qs = root["questions"]!!.jsonObject
+                val answers = buildJsonObject {
+                    qs.keys.forEach { k ->
+                        when {
+                            k == "requires_drug_monograph" || k == "needs_drug_monograph" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", if (inputStr.contains("CAP")) 0.9 else 0.1); put("confidence", 0.9) })
+                            k == "requires_table_data" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.1); put("confidence", 0.9) })
+                            k == "is_topic_relevant" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.95); put("confidence", 0.9) })
+                            k.contains("T_CAP") || k.contains("S_CAP") || k.contains("S_RA") || k.contains("S_Amox") ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.8); put("confidence", 0.9) })
+                            else ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.0); put("confidence", 0.8) })
+                        }
+                    }
+                }
+                json.encodeToString(JsonObject.serializer(), buildJsonObject {
+                    put("answers", answers)
+                    put("usage", buildJsonObject { put("total_input_tokens", 50) })
+                })
+            }
+        )
+
+        var step = 0
+        executor.executeHandler = { _, _, _ ->
+            step++
+            when (step) {
+                1 -> Message.Assistant(
+                    parts = listOf(
+                        MessagePart.Tool.Call(id = "c1", tool = "searchTopics", args = """{"query":"cap treatment"}"""),
+                        MessagePart.Tool.Call(id = "c2", tool = "searchTopics", args = """{"query":"renal"}""")
+                    ),
+                    metaInfo = meta
+                )
+                // Round 2 opens T_RenalA (not a drug monograph) -> must NOT prematurely short-circuit!
+                2 -> Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "c3", tool = "getTopicOverview", args = """{"topicId":"T_RenalA"}""")),
+                    metaInfo = meta
+                )
+                // Round 3 opens the needed drug monograph T_Amox -> now satisfies pendingDrugMonograph and short-circuits!
+                else -> Message.Assistant(
+                    parts = listOf(MessagePart.Tool.Call(id = "c4", tool = "getTopicOverview", args = """{"topicId":"T_Amox"}""")),
+                    metaInfo = meta
+                )
+            }
+        }
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("500 mg q12h."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "CAP dosing in CrCl 20?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true)
+        )
+
+        assertEquals("500 mg q12h.", result.content)
+        coVerify(exactly = 1) { medicalDatabaseTools.getTopicSectionsText("T_Amox", listOf("S_Amox")) }
+        assertEquals(3, executor.executedPrompts.size)
+    }
+
+    @Test
+    fun testRequiresTableDataRelaxesThresholdOnlyForTopicsFromThatSearch() = runTest {
+        val json = AiJsonUtils.json
+        val meta = ResponseMetaInfo(KoogClock.System.now(), inputTokensCount = 40, outputTokensCount = 15)
+
+        coEvery { medicalDatabaseTools.searchTopics("staging criteria") } returns SearchTopicsResponse(
+            query = "staging criteria",
+            results = listOf(
+                SearchResultTopicItem("T_A1", "Staging A1"),
+                SearchResultTopicItem("T_A2", "Staging A2")
+            )
+        )
+        coEvery { medicalDatabaseTools.searchTopics("background") } returns SearchTopicsResponse(
+            query = "background",
+            results = listOf(
+                SearchResultTopicItem("T_B1", "Background B1"),
+                SearchResultTopicItem("T_B2", "Background B2")
+            )
+        )
+        coEvery { medicalDatabaseTools.getTopicOverview("T_A1") } returns TopicOverviewResponse(
+            topicId = "T_A1", title = "Staging A1", topicType = "medical",
+            sections = listOf(OutlineSectionItem("S_A1", "Criteria", level = 1)),
+            graphics = listOf(OutlineGraphicItem("G_A1", "Staging Table", isTable = true))
+        )
+        coEvery { medicalDatabaseTools.getTopicOverview("T_B1") } returns TopicOverviewResponse(
+            topicId = "T_B1", title = "Background B1", topicType = "medical",
+            sections = listOf(OutlineSectionItem("S_B1", "Overview", level = 1)),
+            graphics = listOf(OutlineGraphicItem("G_B1", "Minor Table", isTable = true))
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("T_A1", listOf("S_A1")) } returns TopicSectionsResponse(
+            topicId = "T_A1", topicTitle = "Staging A1",
+            sectionTitles = mapOf("S_A1" to "Criteria"), markdown = "Criteria text."
+        )
+        coEvery { medicalDatabaseTools.getGraphicContent("G_A1") } returns GraphicContentResponse(
+            graphicId = "G_A1", title = "Staging Table", markdown = "| Stage | GFR |"
+        )
+        coEvery { medicalDatabaseTools.getTopicSectionsText("T_B1", listOf("S_B1")) } returns TopicSectionsResponse(
+            topicId = "T_B1", topicTitle = "Background B1",
+            sectionTitles = mapOf("S_B1" to "Overview"), markdown = "Background text."
+        )
+        every { medicalDatabaseTools.getTopicTitle(any()) } answers { firstArg() }
+        every { medicalDatabaseTools.getSectionTitle(any(), any()) } answers { secondArg() }
+
+        val decisionClient = DecisionClient(
+            transport = DecisionTransport { reqJson ->
+                val root = json.parseToJsonElement(reqJson).jsonObject
+                val inputStr = root["input"].toString()
+                val qs = root["questions"]!!.jsonObject
+                val answers = buildJsonObject {
+                    qs.keys.forEach { k ->
+                        when {
+                            k == "requires_table_data" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", if (inputStr.contains("staging criteria")) 0.9 else 0.1); put("confidence", 0.9) })
+                            k == "requires_drug_monograph" || k == "needs_drug_monograph" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.1); put("confidence", 0.9) })
+                            k == "is_topic_relevant" ->
+                                put(k, buildJsonObject { put("type", "noul"); put("noul", 0.95); put("confidence", 0.9) })
+                            k.startsWith("gfx_") ->
+                                // Both tables score 1.5: passes relaxed 1.4 for T_A1, fails normal 1.7 for T_B1!
+                                put(k, buildJsonObject { put("type", "score"); put("score", 1.5); put("confidence", 0.9) })
+                            k.startsWith("sec_") ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.8); put("confidence", 0.9) })
+                            else ->
+                                put(k, buildJsonObject { put("type", "score"); put("score", 2.0); put("confidence", 0.8) })
+                        }
+                    }
+                }
+                json.encodeToString(JsonObject.serializer(), buildJsonObject {
+                    put("answers", answers)
+                    put("usage", buildJsonObject { put("total_input_tokens", 50) })
+                })
+            }
+        )
+
+        var step = 0
+        executor.executeHandler = { _, _, _ ->
+            step++
+            if (step == 1) {
+                Message.Assistant(
+                    parts = listOf(
+                        MessagePart.Tool.Call(id = "s1", tool = "searchTopics", args = """{"query":"staging criteria"}"""),
+                        MessagePart.Tool.Call(id = "s2", tool = "searchTopics", args = """{"query":"background"}""")
+                    ),
+                    metaInfo = meta
+                )
+            } else {
+                Message.Assistant(
+                    parts = listOf(
+                        MessagePart.Tool.Call(id = "ovA", tool = "getTopicOverview", args = """{"topicId":"T_A1"}"""),
+                        MessagePart.Tool.Call(id = "ovB", tool = "getTopicOverview", args = """{"topicId":"T_B1"}""")
+                    ),
+                    metaInfo = meta
+                )
+            }
+        }
+        executor.streamingHandler = { _, _, _ ->
+            flow {
+                emit(StreamFrame.TextDelta("Stage criteria."))
+                emit(StreamFrame.End(finishReason = "stop", metaInfo = meta))
+            }
+        }
+
+        val result = orchestrator.runTurn(
+            question = "Staging criteria and background?",
+            patientProfile = PatientProfile(),
+            chatHistory = emptyList(),
+            executor = executor,
+            model = model,
+            providerParams = null,
+            streamingManager = streamingManager,
+            decisionClient = decisionClient,
+            decisionConfig = DecisionConfig(enableRetrievalRerank = true, autoPrefetch = true)
+        )
+
+        assertEquals("Stage criteria.", result.content)
+        coVerify(exactly = 1) { medicalDatabaseTools.getGraphicContent("G_A1") }
+        coVerify(exactly = 0) { medicalDatabaseTools.getGraphicContent("G_B1") }
+    }
 }

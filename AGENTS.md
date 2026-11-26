@@ -76,8 +76,6 @@ uv run python eval_prompt.py --mode agent --provider mistral # Full agentic retr
 - `domain/ai/DecisionClientTest.kt` & `domain/ai/DecisionGatesTest.kt`: Gemini Decisions API (`gemini-decision-1`), search candidate scoring, overview section/table scoring, auto-prefetching, and fail-open behavior.
 - `domain/ai/TurnContextAccumulatorTest.kt`: Tool call deduplication, outline title dash stripping (`-Antiplatelet` -> `Antiplatelet`), ref auto-population, and thread-safe concurrent collection.
 
-See [`docs/ai-system-prompts-and-pipelines.md`](docs/ai-system-prompts-and-pipelines.md) for the operational prompt and tool contract reference and [`docs/architectural-principles-universal-clinical-prompt.md`](docs/architectural-principles-universal-clinical-prompt.md) for the foundational biomedical CDS architecture and empirical verification whitepaper.
-
 ## Architectural Parity & Design Precedence (Kotlin & Python)
 > **Design Precedence**: `python_prototype/` serves as an algorithm verification testbed and reference implementation. Algorithmic tool flow, safety regexes, and validation criteria should align, but **architectural parity must NEVER compromise idiomatic Kotlin, Jetpack Compose M3 Expressive, Room 3, Navigation 3, or Koin architecture**. When superior multiplatform UX or cleaner software engineering warrants divergence (e.g., rich UI models, navigation scoping, native DI), prioritize Kotlin/CMP architecture.
 

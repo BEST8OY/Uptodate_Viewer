@@ -11,8 +11,10 @@ import ai.koog.prompt.message.RequestMetaInfo
 import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.streaming.IncompleteStreamException
 import ai.koog.prompt.streaming.StreamFrame
+import com.clinref.app.data.DEFAULT_SEARCH_RESULTS
 import com.clinref.app.data.GraphicContentResponse
 import com.clinref.app.data.MedicalDatabaseTools
+import com.clinref.app.data.RERANK_SEARCH_POOL_SIZE
 import com.clinref.app.data.TopicSectionsResponse
 import com.clinref.app.data.local.entity.MessageEntity
 import com.clinref.shared.platform.PlatformLogger as Log
@@ -46,6 +48,7 @@ class ClinicalOrchestrator(
     companion object {
         private const val TAG = "ClinicalOrchestrator"
         const val MAX_RETRIEVAL_ROUNDS = 10
+        const val MAX_RERANK_RETRIEVAL_ROUNDS = 7
         const val MAX_CHAT_HISTORY_TURNS = 100
         private val TOPIC_ID_NUM_REGEX = Regex("""\b\d+\b""")
     }
@@ -108,24 +111,31 @@ class ClinicalOrchestrator(
         // ════════════════════════════════════════════════════════════════════
         // STAGE 1: Ephemeral Evidence Retrieval Loop
         // ════════════════════════════════════════════════════════════════════
+        val rerankConfig = if (decisionClient != null && decisionConfig?.enableRetrievalRerank == true) decisionConfig else null
+        val rerankActive = rerankConfig != null
+        val maxRetrievalRounds = if (rerankActive) MAX_RERANK_RETRIEVAL_ROUNDS else MAX_RETRIEVAL_ROUNDS
+        val prefetchBudget = rerankConfig?.let { TurnPrefetchBudget(it) }
         val toolDescriptors = medicalDatabaseTools.asToolList().map { it.descriptor }
         var currentRetrievalPrompt = buildInitialRetrievalPrompt(
             question = trimmedQuestion,
             patientProfile = patientProfile,
             chatHistory = chatHistory,
             providerParams = providerParams,
-            isAnthropic = isAnthropic
+            isAnthropic = isAnthropic,
+            rerankActive = rerankActive
         )
         val turnToolCache = TurnToolCache()
-        val lastSearchRequiresTableData = java.util.concurrent.atomic.AtomicBoolean(false)
 
         var round = 0
         var emptyEvidenceRetries = 0
         val maxEmptyEvidenceRetries = 1
+        var pendingDrugMonograph = false
+        val pendingRelatedTopicIds = mutableSetOf<String>()
+        val inspectedTopicIdsThisTurn = mutableSetOf<String>()
 
-        while (round < MAX_RETRIEVAL_ROUNDS) {
+        while (round < maxRetrievalRounds) {
             round++
-            Log.d(TAG, "Stage 1 Retrieval Round $round/$MAX_RETRIEVAL_ROUNDS")
+            Log.d(TAG, "Stage 1 Retrieval Round $round/$maxRetrievalRounds")
 
             val assistantMsg = try {
                 executor.execute(currentRetrievalPrompt, model, toolDescriptors)
@@ -175,8 +185,7 @@ class ClinicalOrchestrator(
                             onDecisionTokens = recordDecisionTokens,
                             turnId = turnId,
                             cache = turnToolCache,
-                            searchRequiresTableData = lastSearchRequiresTableData.get(),
-                            onTableDataRequired = { if (it) lastSearchRequiresTableData.set(true) }
+                            prefetchBudget = prefetchBudget
                         )
                         Triple(tc, callId, outcome)
                     }
@@ -212,11 +221,28 @@ class ClinicalOrchestrator(
                 oldMessages + normalizedAssistantMsg + userToolMessage
             }
 
-            // Short-circuit retrieval if every tool call resolved auto-prefetched/calc evidence with zero monograph/related-topic requirements
+            // Update turn-level pending obligations across rounds so Round 2+ never short-circuits prematurely
+            if (executedResults.any { it.third.satisfiedDrugMonograph }) {
+                pendingDrugMonograph = false
+            } else if (executedResults.any { it.third.needsDrugMonograph }) {
+                pendingDrugMonograph = true
+            }
+            executedResults.forEach { (_, _, outcome) ->
+                inspectedTopicIdsThisTurn.addAll(outcome.inspectedTopicIds)
+                pendingRelatedTopicIds.removeAll(outcome.inspectedTopicIds)
+            }
+            executedResults.forEach { (_, _, outcome) ->
+                val relId = outcome.dominantRelatedTopicId
+                if (outcome.needsRelatedTopic && !relId.isNullOrBlank() && relId !in inspectedTopicIdsThisTurn) {
+                    pendingRelatedTopicIds.add(relId)
+                }
+            }
+
+            // Short-circuit retrieval if every tool call resolved auto-prefetched/calc evidence with zero pending obligations
             val allPrefetched = executedResults.all { it.third.didPrefetch }
             val allSucceeded = executedResults.all { !it.third.hasError && !it.third.isEmptyResult }
-            val noMonographNeeded = executedResults.none { it.third.needsDrugMonograph }
-            val noRelatedTopicNeeded = executedResults.none { it.third.needsRelatedTopic }
+            val noMonographNeeded = !pendingDrugMonograph && executedResults.none { it.third.needsDrugMonograph }
+            val noRelatedTopicNeeded = pendingRelatedTopicIds.isEmpty() && executedResults.none { it.third.needsRelatedTopic }
             val canShortCircuit = decisionClient != null && decisionConfig?.autoPrefetch == true
 
             if (canShortCircuit && executedResults.isNotEmpty() && allPrefetched && allSucceeded && noMonographNeeded && noRelatedTopicNeeded && accumulator.hasEvidence) {
@@ -388,7 +414,10 @@ class ClinicalOrchestrator(
         val canonicalTool: String,
         val didPrefetch: Boolean = false,
         val needsDrugMonograph: Boolean = false,
+        val satisfiedDrugMonograph: Boolean = false,
         val needsRelatedTopic: Boolean = false,
+        val dominantRelatedTopicId: String? = null,
+        val inspectedTopicIds: Set<String> = emptySet(),
         val hasError: Boolean = false,
         val isEmptyResult: Boolean = false,
         val isEvidenceProducer: Boolean = false
@@ -405,14 +434,43 @@ class ClinicalOrchestrator(
         val needsDrug: Boolean,
         val needsRelatedTopic: Boolean = false,
         val dominantRelatedTopic: RankedItem? = null,
-        val previewMarkdown: String? = null
+        val previewSectionsMarkdown: String? = null,
+        val previewTablesMarkdown: String? = null
     )
+
+    private fun buildPrefetchedPreview(
+        sectionsMarkdown: String?,
+        tablesMarkdown: String?,
+        needsDrugMonograph: Boolean
+    ): String? = if (needsDrugMonograph) {
+        (sectionsMarkdown?.takeIf { it.isNotBlank() } ?: tablesMarkdown)?.take(2500)?.trim()?.ifBlank { null }
+    } else {
+        DecisionGates.buildPrefetchedDigest(sectionsMarkdown, tablesMarkdown)
+    }
+
+    private class TurnPrefetchBudget(private val config: DecisionConfig) {
+        private val lock = Any()
+        private val prefetchedIds = mutableSetOf<String>()
+
+        fun tryAllocate(id: String): Boolean = synchronized(lock) {
+            if (id in prefetchedIds) return true
+            if (prefetchedIds.size >= config.maxPrefetchedTopicsPerTurn) return false
+            prefetchedIds.add(id)
+            true
+        }
+
+        fun release(id: String) = synchronized(lock) {
+            prefetchedIds.remove(id)
+        }
+    }
 
     private class TurnToolCache {
         val searchCache = java.util.concurrent.ConcurrentHashMap<String, ToolExecutionOutcome>()
         val overviewCache = java.util.concurrent.ConcurrentHashMap<String, ToolExecutionOutcome>()
         val graphicCache = java.util.concurrent.ConcurrentHashMap<String, ToolExecutionOutcome>()
         val sectionCache = java.util.concurrent.ConcurrentHashMap<String, ToolExecutionOutcome>()
+        val drugTopicIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+        val tableDataTopicIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     }
 
     private suspend fun executeSingleTool(
@@ -425,8 +483,7 @@ class ClinicalOrchestrator(
         onDecisionTokens: (Int) -> Unit = {},
         turnId: String? = null,
         cache: TurnToolCache = TurnToolCache(),
-        searchRequiresTableData: Boolean = false,
-        onTableDataRequired: (Boolean) -> Unit = {}
+        prefetchBudget: TurnPrefetchBudget? = null
     ): ToolExecutionOutcome {
         val canonicalName = AiJsonUtils.normalizeToolName(toolCall.tool)
         val argsStr = toolCall.args.ifBlank { toolCall.argsJson.toString() }
@@ -438,7 +495,10 @@ class ClinicalOrchestrator(
         var deferredPrefetchCalls = emptyList<Triple<String, String, String>>() // toolName, argsJson, resultJson
         var didPrefetch = false
         var needsDrugMonograph = false
+        var satisfiedDrugMonograph = false
         var needsRelatedTopic = false
+        var dominantRelatedTopicId: String? = null
+        var inspectedTopicIds = emptySet<String>()
         var hasError = false
         var isEmptyResult = false
         var isEvidenceProducer = false
@@ -454,17 +514,29 @@ class ClinicalOrchestrator(
                         didPrefetch = cached.didPrefetch
                         isEvidenceProducer = cached.isEvidenceProducer
                         needsDrugMonograph = cached.needsDrugMonograph
+                        satisfiedDrugMonograph = cached.satisfiedDrugMonograph
                         needsRelatedTopic = cached.needsRelatedTopic
+                        dominantRelatedTopicId = cached.dominantRelatedTopicId
+                        inspectedTopicIds = cached.inspectedTopicIds
                         cached.resultJson
                     } else {
-                        val resp = medicalDatabaseTools.searchTopics(query)
-                        val rawJson = json.encodeToString(resp)
+                        val rerankSearchActive = decisionClient != null && decisionConfig?.enableRetrievalRerank == true
+                        val resp = if (rerankSearchActive) {
+                            medicalDatabaseTools.searchTopics(query, RERANK_SEARCH_POOL_SIZE).let { pooled ->
+                                if (pooled.results.isEmpty() && pooled.error.isNullOrBlank() && pooled.message.isBlank()) {
+                                    medicalDatabaseTools.searchTopics(query)
+                                } else {
+                                    pooled
+                                }
+                            }
+                        } else {
+                            medicalDatabaseTools.searchTopics(query)
+                        }
                         hasError = !resp.error.isNullOrBlank()
                         isEmptyResult = resp.results.isEmpty()
 
                         val finalJson = if (resp.error.isNullOrBlank() &&
-                            decisionClient != null &&
-                            decisionConfig?.enableRetrievalRerank == true &&
+                            rerankSearchActive &&
                             resp.results.isNotEmpty()
                         ) {
                             val rerank = DecisionGates.rankSearchCandidates(
@@ -476,7 +548,20 @@ class ClinicalOrchestrator(
                                 config = decisionConfig
                             )
                             onDecisionTokens(rerank.usage.totalInputTokens)
-                            onTableDataRequired(rerank.requiresTableData)
+                            if (rerank.requiresTableData) {
+                                resp.results.forEach { cache.tableDataTopicIds.add(it.id) }
+                            }
+
+                            val rerankedResults = if (rerank.ok && rerank.rankedTopics.isNotEmpty()) {
+                                val byId = resp.results.associateBy { it.id }
+                                val ordered = rerank.rankedTopics.mapNotNull { byId[it.id] }
+                                val orderedIds = ordered.mapTo(HashSet()) { it.id }
+                                val remainder = resp.results.filter { it.id !in orderedIds }
+                                (ordered + remainder).take(DEFAULT_SEARCH_RESULTS)
+                            } else {
+                                resp.results.take(DEFAULT_SEARCH_RESULTS)
+                            }
+                            val rawJson = json.encodeToString(resp.copy(results = rerankedResults))
 
                             // Check for high-confidence Round 1 chaining using 3-tier rule
                             val top1 = rerank.topTopics.getOrNull(0)
@@ -518,7 +603,8 @@ class ClinicalOrchestrator(
                                                 decisionClient = decisionClient,
                                                 decisionConfig = decisionConfig,
                                                 onDecisionTokens = onDecisionTokens,
-                                                alreadyChainedIds = alreadyChainedIds
+                                                alreadyChainedIds = alreadyChainedIds,
+                                                prefetchBudget = prefetchBudget
                                             )
                                         }
                                     }.awaitAll()
@@ -529,7 +615,9 @@ class ClinicalOrchestrator(
                                 val anyNeedsDrug = chainResults.any { it.needsDrug }
                                 val effectiveDrugNeeded = if (anyDrugSatisfied) false else anyNeedsDrug
                                 val anyNeedsRelatedTopic = chainResults.any { it.needsRelatedTopic }
-                                val promisingRelatedSummary = chainResults.firstOrNull { it.needsRelatedTopic }?.dominantRelatedTopic?.let {
+                                val prefetchedIds = chainResults.filter { it.didPrefetch }.map { it.candidateId }
+                                val dominantRelated = chainResults.firstOrNull { it.needsRelatedTopic }?.dominantRelatedTopic
+                                val promisingRelatedSummary = dominantRelated?.let {
                                     "${it.id} (${it.title})"
                                 }
 
@@ -537,14 +625,21 @@ class ClinicalOrchestrator(
                                 didPrefetch = allPrefetched
                                 isEvidenceProducer = chainResults.any { it.isEvidenceProducer }
                                 needsDrugMonograph = effectiveDrugNeeded
+                                satisfiedDrugMonograph = anyDrugSatisfied
                                 needsRelatedTopic = anyNeedsRelatedTopic
+                                dominantRelatedTopicId = dominantRelated?.id
+                                inspectedTopicIds = chainResults.filter { !it.isTable }.map { it.candidateId }.toSet()
 
-                                val combinedPreview = if (allPrefetched && effectiveDrugNeeded) {
-                                    chainResults.mapNotNull { it.previewMarkdown?.trim() }
+                                val combinedPreview = if (prefetchedIds.isNotEmpty()) {
+                                    val allSecMd = chainResults.mapNotNull { it.previewSectionsMarkdown?.trim() }
                                         .filter { it.isNotBlank() }
-                                        .joinToString("\n\n---\n\n")
-                                        .take(2500)
+                                        .joinToString("\n\n")
                                         .ifBlank { null }
+                                    val allTblMd = chainResults.mapNotNull { it.previewTablesMarkdown?.trim() }
+                                        .filter { it.isNotBlank() }
+                                        .joinToString("\n\n")
+                                        .ifBlank { null }
+                                    buildPrefetchedPreview(allSecMd, allTblMd, effectiveDrugNeeded)
                                 } else null
 
                                 DecisionGates.injectSearchRerankIntoJson(
@@ -553,6 +648,7 @@ class ClinicalOrchestrator(
                                     json = json,
                                     autoChainedTopicId = candidatesToChain.first().id,
                                     autoChainedTopicIds = candidatesToChain.map { it.id },
+                                    autoPrefetchedTopicIds = prefetchedIds,
                                     autoPrefetched = allPrefetched,
                                     needsDrugMonograph = effectiveDrugNeeded,
                                     needsRelatedTopic = anyNeedsRelatedTopic,
@@ -564,7 +660,13 @@ class ClinicalOrchestrator(
                                 DecisionGates.injectSearchRerankIntoJson(rawJson, rerank, json)
                             }
                         } else {
-                            rawJson
+                            json.encodeToString(
+                                if (resp.results.size > DEFAULT_SEARCH_RESULTS) {
+                                    resp.copy(results = resp.results.take(DEFAULT_SEARCH_RESULTS))
+                                } else {
+                                    resp
+                                }
+                            )
                         }
                         if (resp.error.isNullOrBlank()) {
                             cache.searchCache[query] = ToolExecutionOutcome(
@@ -572,7 +674,10 @@ class ClinicalOrchestrator(
                                 canonicalTool = "searchTopics",
                                 didPrefetch = didPrefetch,
                                 needsDrugMonograph = needsDrugMonograph,
+                                satisfiedDrugMonograph = satisfiedDrugMonograph,
                                 needsRelatedTopic = needsRelatedTopic,
+                                dominantRelatedTopicId = dominantRelatedTopicId,
+                                inspectedTopicIds = inspectedTopicIds,
                                 hasError = hasError,
                                 isEmptyResult = isEmptyResult,
                                 isEvidenceProducer = isEvidenceProducer
@@ -590,98 +695,69 @@ class ClinicalOrchestrator(
                         didPrefetch = cached.didPrefetch
                         isEvidenceProducer = cached.isEvidenceProducer
                         needsDrugMonograph = cached.needsDrugMonograph
+                        satisfiedDrugMonograph = cached.satisfiedDrugMonograph
                         needsRelatedTopic = cached.needsRelatedTopic
+                        dominantRelatedTopicId = cached.dominantRelatedTopicId
+                        inspectedTopicIds = cached.inspectedTopicIds
                         cached.resultJson
                     } else {
                         val resp = medicalDatabaseTools.getTopicOverview(topicId)
                         val rawJson = json.encodeToString(resp)
                         hasError = !resp.error.isNullOrBlank()
+                        if (!hasError) {
+                            inspectedTopicIds = setOf(topicId)
+                            if (resp.topicType.equals("drug", ignoreCase = true)) {
+                                cache.drugTopicIds.add(topicId)
+                            }
+                        }
 
                         val finalJson = if (resp.error.isNullOrBlank() &&
                             decisionClient != null &&
                             decisionConfig?.enableRetrievalRerank == true
                         ) {
-                            val isCalc = resp.topicType.equals("calc", ignoreCase = true)
-                            val isDrug = resp.topicType.equals("drug", ignoreCase = true)
-                            val rerank = DecisionGates.rankOverviewItems(
-                                client = decisionClient,
-                                question = accumulator.question,
-                                patientProfileText = accumulator.getPatientProfile()?.toSystemBlock().orEmpty(),
-                                overview = resp,
-                                config = decisionConfig,
-                                searchRequiresTableData = searchRequiresTableData
+                            val processed = rerankAndPrefetchOverview(
+                                topicId = topicId,
+                                resp = resp,
+                                rawJson = rawJson,
+                                decisionClient = decisionClient,
+                                decisionConfig = decisionConfig,
+                                accumulator = accumulator,
+                                cache = cache,
+                                onDecisionTokens = onDecisionTokens,
+                                prefetchBudget = prefetchBudget,
+                                searchRequiresTableData = topicId in cache.tableDataTopicIds
                             )
-                            onDecisionTokens(rerank.usage.totalInputTokens)
-                            rerank.rankedSections.forEach { sec ->
-                                accumulator.recordSectionScore(topicId, sec.id, sec.score)
-                            }
-                            rerank.rankedGraphics.forEach { gfx ->
-                                accumulator.recordGraphicScore(gfx.id, gfx.score)
-                            }
-                            val prefetch = if (rerank.ok && decisionConfig.autoPrefetch) {
-                                executeAutoPrefetch(
-                                    topicId = topicId,
-                                    rerank = rerank,
-                                    accumulator = accumulator,
-                                    cache = cache
-                                )
-                            } else null
-                            val actuallyPrefetched = (prefetch?.didPrefetch == true) || isCalc
-                            val effectiveDrugNeeded = if (isDrug) false else rerank.needsDrugMonograph
-                            val uninspectedRelated = rerank.recommendedRelatedTopics.firstOrNull { rel ->
-                                rel.id != topicId &&
-                                !accumulator.hasInspectedTopic(rel.id) &&
-                                !cache.overviewCache.containsKey(rel.id)
-                            }
-                            val bestSectionScore = rerank.rankedSections.firstOrNull()?.score ?: 0.0
-                            val effectiveRelatedNeeded = uninspectedRelated != null &&
-                                uninspectedRelated.score >= 2.6 &&
-                                (uninspectedRelated.score > bestSectionScore || uninspectedRelated.score >= 2.8)
-
-                            if (prefetch != null) {
-                                deferredPrefetchCalls = prefetch.recordedCalls
-                            }
-                            didPrefetch = actuallyPrefetched
-                            isEvidenceProducer = actuallyPrefetched
-                            needsDrugMonograph = effectiveDrugNeeded
-                            needsRelatedTopic = effectiveRelatedNeeded
-
-                            val markdownToPreview = prefetch?.sectionsMarkdown?.takeIf { it.isNotBlank() } ?: prefetch?.tablesMarkdown
-                            val previewExcerpt = if (actuallyPrefetched && effectiveDrugNeeded) {
-                                markdownToPreview?.take(2500)?.trim()
-                            } else null
-
-                            DecisionGates.injectOverviewRerankIntoJson(
-                                toolJson = rawJson,
-                                rerank = rerank,
-                                autoPrefetched = actuallyPrefetched,
-                                prefetchedSectionsMarkdown = null,
-                                prefetchedTablesMarkdown = null,
-                                prefetchedSectionsChars = prefetch?.sectionsMarkdown?.length ?: 0,
-                                prefetchedTablesChars = prefetch?.tablesMarkdown?.length ?: 0,
-                                prefetchedPreview = previewExcerpt,
-                                needsRelatedTopic = effectiveRelatedNeeded,
-                                json = json
-                            )
+                            deferredPrefetchCalls = processed.prefetch?.recordedCalls.orEmpty()
+                            didPrefetch = processed.outcome.didPrefetch
+                            isEvidenceProducer = processed.outcome.isEvidenceProducer
+                            needsDrugMonograph = processed.outcome.needsDrugMonograph
+                            satisfiedDrugMonograph = processed.outcome.satisfiedDrugMonograph
+                            needsRelatedTopic = processed.outcome.needsRelatedTopic
+                            dominantRelatedTopicId = processed.outcome.dominantRelatedTopicId
+                            cache.overviewCache[topicId] = processed.outcome
+                            processed.outcome.resultJson
                         } else {
                             val isCalc = resp.topicType.equals("calc", ignoreCase = true)
                             if (isCalc && decisionClient != null && decisionConfig?.autoPrefetch == true) {
                                 didPrefetch = true
                                 isEvidenceProducer = true
                             }
+                            if (resp.error.isNullOrBlank()) {
+                                cache.overviewCache[topicId] = ToolExecutionOutcome(
+                                    resultJson = rawJson,
+                                    canonicalTool = "getTopicOverview",
+                                    didPrefetch = didPrefetch,
+                                    needsDrugMonograph = needsDrugMonograph,
+                                    satisfiedDrugMonograph = satisfiedDrugMonograph,
+                                    needsRelatedTopic = needsRelatedTopic,
+                                    dominantRelatedTopicId = dominantRelatedTopicId,
+                                    inspectedTopicIds = inspectedTopicIds,
+                                    hasError = hasError,
+                                    isEmptyResult = isEmptyResult,
+                                    isEvidenceProducer = isEvidenceProducer
+                                )
+                            }
                             rawJson
-                        }
-                        if (resp.error.isNullOrBlank()) {
-                            cache.overviewCache[topicId] = ToolExecutionOutcome(
-                                resultJson = finalJson,
-                                canonicalTool = "getTopicOverview",
-                                didPrefetch = didPrefetch,
-                                needsDrugMonograph = needsDrugMonograph,
-                                needsRelatedTopic = needsRelatedTopic,
-                                hasError = hasError,
-                                isEmptyResult = isEmptyResult,
-                                isEvidenceProducer = isEvidenceProducer
-                            )
                         }
                         finalJson
                     }
@@ -863,12 +939,22 @@ class ClinicalOrchestrator(
 
         streamingManager.onWaitingForLlm(turnId = turnId)
 
+        if (canonicalName == "getTopicSectionsText" && !hasError && isEvidenceProducer) {
+            val tid = extractSectionsArg(cleanArgs).first
+            if (tid in cache.drugTopicIds) {
+                satisfiedDrugMonograph = true
+            }
+        }
+
         return ToolExecutionOutcome(
             resultJson = resultJson,
             canonicalTool = canonicalName,
             didPrefetch = didPrefetch,
             needsDrugMonograph = needsDrugMonograph,
+            satisfiedDrugMonograph = satisfiedDrugMonograph,
             needsRelatedTopic = needsRelatedTopic,
+            dominantRelatedTopicId = dominantRelatedTopicId,
+            inspectedTopicIds = inspectedTopicIds,
             hasError = hasError,
             isEmptyResult = isEmptyResult,
             isEvidenceProducer = isEvidenceProducer
@@ -883,12 +969,26 @@ class ClinicalOrchestrator(
         decisionClient: DecisionClient,
         decisionConfig: DecisionConfig,
         onDecisionTokens: (Int) -> Unit,
-        alreadyChainedIds: Set<String> = emptySet()
+        alreadyChainedIds: Set<String> = emptySet(),
+        prefetchBudget: TurnPrefetchBudget? = null
     ): ChainedCandidateResult {
         val candId = cand.id
         val isTable = cand.kind.equals("table", ignoreCase = true)
 
         if (isTable) {
+            val canPrefetchTable = prefetchBudget?.tryAllocate(candId) ?: true
+            if (!canPrefetchTable) {
+                return ChainedCandidateResult(
+                    candidateId = candId,
+                    isTable = true,
+                    isDrug = false,
+                    isCalc = false,
+                    deferredCalls = emptyList(),
+                    didPrefetch = false,
+                    isEvidenceProducer = false,
+                    needsDrug = rerank.requiresDrugMonograph
+                )
+            }
             val gfxResp = medicalDatabaseTools.getGraphicContent(candId)
             val encoded = json.encodeToString(gfxResp)
             return if (gfxResp.error.isNullOrBlank() && gfxResp.markdown.isNotBlank()) {
@@ -912,9 +1012,10 @@ class ClinicalOrchestrator(
                     didPrefetch = true,
                     isEvidenceProducer = true,
                     needsDrug = rerank.requiresDrugMonograph,
-                    previewMarkdown = gfxResp.markdown
+                    previewTablesMarkdown = gfxResp.markdown
                 )
             } else {
+                prefetchBudget?.release(candId)
                 ChainedCandidateResult(
                     candidateId = candId,
                     isTable = true,
@@ -930,100 +1031,45 @@ class ClinicalOrchestrator(
             val overviewResp = medicalDatabaseTools.getTopicOverview(candId)
             val rawOverviewJson = json.encodeToString(overviewResp)
             return if (overviewResp.error.isNullOrBlank()) {
-                val isCalc = overviewResp.topicType.equals("calc", ignoreCase = true)
-                val isDrug = overviewResp.topicType.equals("drug", ignoreCase = true)
-                val overviewRerank = DecisionGates.rankOverviewItems(
-                    client = decisionClient,
-                    question = accumulator.question,
-                    patientProfileText = accumulator.getPatientProfile()?.toSystemBlock().orEmpty(),
-                    overview = overviewResp,
-                    config = decisionConfig,
-                    searchRequiresTableData = rerank.requiresTableData
+                val processed = rerankAndPrefetchOverview(
+                    topicId = candId,
+                    resp = overviewResp,
+                    rawJson = rawOverviewJson,
+                    decisionClient = decisionClient,
+                    decisionConfig = decisionConfig,
+                    accumulator = accumulator,
+                    cache = cache,
+                    onDecisionTokens = onDecisionTokens,
+                    prefetchBudget = prefetchBudget,
+                    searchRequiresTableData = rerank.requiresTableData,
+                    alreadyChainedIds = alreadyChainedIds,
+                    calcScoreOverride = cand.score.takeIf { it > 0.0 },
+                    fallbackDrugNeeded = rerank.requiresDrugMonograph
                 )
-                onDecisionTokens(overviewRerank.usage.totalInputTokens)
-                overviewRerank.rankedSections.forEach { sec ->
-                    val finalScore = if (isCalc && sec.id == "FULL" && cand.score > 0.0) cand.score else sec.score
-                    accumulator.recordSectionScore(candId, sec.id, finalScore)
-                }
-                overviewRerank.rankedGraphics.forEach { gfx ->
-                    accumulator.recordGraphicScore(gfx.id, gfx.score)
-                }
-                val uninspectedRelated = overviewRerank.recommendedRelatedTopics.firstOrNull { rel ->
-                    rel.id != candId &&
-                    rel.id !in alreadyChainedIds &&
-                    !accumulator.hasInspectedTopic(rel.id) &&
-                    !cache.overviewCache.containsKey(rel.id)
-                }
-                val bestSectionScore = overviewRerank.rankedSections.firstOrNull()?.score ?: 0.0
-                val effectiveRelatedNeeded = uninspectedRelated != null &&
-                    uninspectedRelated.score >= 2.6 &&
-                    (uninspectedRelated.score > bestSectionScore || uninspectedRelated.score >= 2.8)
-
-                val prefetch = if (overviewRerank.ok && decisionConfig.autoPrefetch && !isCalc) {
-                    executeAutoPrefetch(
-                        topicId = candId,
-                        rerank = overviewRerank,
-                        accumulator = accumulator,
-                        cache = cache
-                    )
-                } else null
-
-                val actuallyPrefetched = (prefetch?.didPrefetch == true) || isCalc
-                val effectiveDrugNeeded = when {
-                    isDrug -> false
-                    overviewRerank.ok -> overviewRerank.needsDrugMonograph
-                    else -> rerank.requiresDrugMonograph
-                }
-
-                val markdownToPreview = prefetch?.sectionsMarkdown?.takeIf { it.isNotBlank() } ?: prefetch?.tablesMarkdown
-                val previewExcerpt = if (actuallyPrefetched && effectiveDrugNeeded) {
-                    markdownToPreview?.take(2500)?.trim()
-                } else null
-
-                val overviewJsonWithRerank = DecisionGates.injectOverviewRerankIntoJson(
-                    toolJson = rawOverviewJson,
-                    rerank = overviewRerank,
-                    autoPrefetched = actuallyPrefetched,
-                    prefetchedSectionsMarkdown = null,
-                    prefetchedTablesMarkdown = null,
-                    prefetchedSectionsChars = prefetch?.sectionsMarkdown?.length ?: 0,
-                    prefetchedTablesChars = prefetch?.tablesMarkdown?.length ?: 0,
-                    prefetchedPreview = previewExcerpt,
-                    needsRelatedTopic = effectiveRelatedNeeded,
-                    json = json
-                )
-                cache.overviewCache[candId] = ToolExecutionOutcome(
-                    resultJson = overviewJsonWithRerank,
-                    canonicalTool = "getTopicOverview",
-                    didPrefetch = actuallyPrefetched,
-                    needsDrugMonograph = effectiveDrugNeeded,
-                    needsRelatedTopic = effectiveRelatedNeeded,
-                    hasError = false,
-                    isEmptyResult = false,
-                    isEvidenceProducer = actuallyPrefetched
-                )
+                cache.overviewCache[candId] = processed.outcome
 
                 val chainedCalls = mutableListOf<Triple<String, String, String>>()
                 val overviewArgs = json.encodeToString(
                     buildJsonObject { put("topicId", candId) }
                 )
-                chainedCalls.add(Triple("getTopicOverview", overviewArgs, overviewJsonWithRerank))
-                if (prefetch != null) {
-                    chainedCalls.addAll(prefetch.recordedCalls)
+                chainedCalls.add(Triple("getTopicOverview", overviewArgs, processed.outcome.resultJson))
+                if (processed.prefetch != null) {
+                    chainedCalls.addAll(processed.prefetch.recordedCalls)
                 }
 
                 ChainedCandidateResult(
                     candidateId = candId,
                     isTable = false,
-                    isDrug = isDrug,
-                    isCalc = isCalc,
+                    isDrug = processed.isDrug,
+                    isCalc = processed.isCalc,
                     deferredCalls = chainedCalls,
-                    didPrefetch = actuallyPrefetched,
-                    isEvidenceProducer = actuallyPrefetched,
-                    needsDrug = effectiveDrugNeeded,
-                    needsRelatedTopic = effectiveRelatedNeeded,
-                    dominantRelatedTopic = if (effectiveRelatedNeeded) uninspectedRelated else null,
-                    previewMarkdown = markdownToPreview
+                    didPrefetch = processed.outcome.didPrefetch,
+                    isEvidenceProducer = processed.outcome.isEvidenceProducer,
+                    needsDrug = processed.outcome.needsDrugMonograph,
+                    needsRelatedTopic = processed.outcome.needsRelatedTopic,
+                    dominantRelatedTopic = processed.dominantRelatedTopic,
+                    previewSectionsMarkdown = processed.prefetch?.sectionsMarkdown,
+                    previewTablesMarkdown = processed.prefetch?.tablesMarkdown
                 )
             } else {
                 ChainedCandidateResult(
@@ -1038,6 +1084,124 @@ class ClinicalOrchestrator(
                 )
             }
         }
+    }
+
+    private data class OverviewProcessingResult(
+        val outcome: ToolExecutionOutcome,
+        val prefetch: AutoPrefetchOutcome?,
+        val dominantRelatedTopic: RankedItem?,
+        val isDrug: Boolean,
+        val isCalc: Boolean
+    )
+
+    private suspend fun rerankAndPrefetchOverview(
+        topicId: String,
+        resp: com.clinref.app.data.TopicOverviewResponse,
+        rawJson: String,
+        decisionClient: DecisionClient,
+        decisionConfig: DecisionConfig,
+        accumulator: TurnContextAccumulator,
+        cache: TurnToolCache,
+        onDecisionTokens: (Int) -> Unit,
+        prefetchBudget: TurnPrefetchBudget?,
+        searchRequiresTableData: Boolean,
+        alreadyChainedIds: Set<String> = emptySet(),
+        calcScoreOverride: Double? = null,
+        fallbackDrugNeeded: Boolean = false
+    ): OverviewProcessingResult {
+        val isCalc = resp.topicType.equals("calc", ignoreCase = true)
+        val isDrug = resp.topicType.equals("drug", ignoreCase = true)
+        if (isDrug) {
+            cache.drugTopicIds.add(topicId)
+        }
+        val rerank = DecisionGates.rankOverviewItems(
+            client = decisionClient,
+            question = accumulator.question,
+            patientProfileText = accumulator.getPatientProfile()?.toSystemBlock().orEmpty(),
+            overview = resp,
+            config = decisionConfig,
+            searchRequiresTableData = searchRequiresTableData
+        )
+        onDecisionTokens(rerank.usage.totalInputTokens)
+        rerank.rankedSections.forEach { sec ->
+            val finalScore = if (isCalc && sec.id == "FULL" && calcScoreOverride != null) calcScoreOverride else sec.score
+            accumulator.recordSectionScore(topicId, sec.id, finalScore)
+        }
+        rerank.rankedGraphics.forEach { gfx ->
+            accumulator.recordGraphicScore(gfx.id, gfx.score)
+        }
+        val uninspectedRelated = rerank.recommendedRelatedTopics.firstOrNull { rel ->
+            rel.id != topicId &&
+            rel.id !in alreadyChainedIds &&
+            !accumulator.hasInspectedTopic(rel.id) &&
+            !cache.overviewCache.containsKey(rel.id)
+        }
+        val bestSectionScore = rerank.rankedSections.firstOrNull()?.score ?: 0.0
+        val effectiveRelatedNeeded = uninspectedRelated != null &&
+            uninspectedRelated.score >= 2.6 &&
+            (uninspectedRelated.score > bestSectionScore || uninspectedRelated.score >= 2.8)
+        if (effectiveRelatedNeeded && searchRequiresTableData) {
+            cache.tableDataTopicIds.add(uninspectedRelated.id)
+        }
+
+        val allowAutoPrefetch = rerank.ok && decisionConfig.autoPrefetch && !isCalc &&
+            (prefetchBudget?.tryAllocate(topicId) ?: true)
+        val prefetch = if (allowAutoPrefetch) {
+            executeAutoPrefetch(
+                topicId = topicId,
+                rerank = rerank,
+                accumulator = accumulator,
+                cache = cache
+            ).also { outcome ->
+                if (!outcome.didPrefetch) {
+                    prefetchBudget?.release(topicId)
+                }
+            }
+        } else null
+
+        val actuallyPrefetched = (prefetch?.didPrefetch == true) || isCalc
+        val effectiveDrugNeeded = when {
+            isDrug -> false
+            rerank.ok -> rerank.needsDrugMonograph
+            else -> fallbackDrugNeeded
+        }
+        val previewExcerpt = if (actuallyPrefetched) {
+            buildPrefetchedPreview(prefetch?.sectionsMarkdown, prefetch?.tablesMarkdown, effectiveDrugNeeded)
+        } else null
+
+        val enrichedJson = DecisionGates.injectOverviewRerankIntoJson(
+            toolJson = rawJson,
+            rerank = rerank,
+            autoPrefetched = actuallyPrefetched,
+            prefetchedSectionsMarkdown = null,
+            prefetchedTablesMarkdown = null,
+            prefetchedSectionsChars = prefetch?.sectionsMarkdown?.length ?: 0,
+            prefetchedTablesChars = prefetch?.tablesMarkdown?.length ?: 0,
+            prefetchedPreview = previewExcerpt,
+            needsRelatedTopic = effectiveRelatedNeeded,
+            json = json
+        )
+        val dominantRelated = if (effectiveRelatedNeeded) uninspectedRelated else null
+        val outcome = ToolExecutionOutcome(
+            resultJson = enrichedJson,
+            canonicalTool = "getTopicOverview",
+            didPrefetch = actuallyPrefetched,
+            needsDrugMonograph = effectiveDrugNeeded,
+            satisfiedDrugMonograph = isDrug && actuallyPrefetched,
+            needsRelatedTopic = effectiveRelatedNeeded,
+            dominantRelatedTopicId = dominantRelated?.id,
+            inspectedTopicIds = setOf(topicId),
+            hasError = false,
+            isEmptyResult = false,
+            isEvidenceProducer = actuallyPrefetched
+        )
+        return OverviewProcessingResult(
+            outcome = outcome,
+            prefetch = prefetch,
+            dominantRelatedTopic = dominantRelated,
+            isDrug = isDrug,
+            isCalc = isCalc
+        )
     }
 
     private data class AutoPrefetchOutcome(
@@ -1222,7 +1386,8 @@ class ClinicalOrchestrator(
         patientProfile: PatientProfile,
         chatHistory: List<MessageEntity>,
         providerParams: LLMParams?,
-        isAnthropic: Boolean
+        isAnthropic: Boolean,
+        rerankActive: Boolean = false
     ): Prompt = buildPromptWithHistory(
         id = "clinref-retrieval",
         finalUserContent = question,
@@ -1230,7 +1395,11 @@ class ClinicalOrchestrator(
         providerParams = providerParams,
         isAnthropic = isAnthropic,
         patientProfile = patientProfile,
-        systemInstruction = SystemPrompt.RETRIEVAL_SYSTEM_PROMPT,
+        systemInstruction = if (rerankActive) {
+            SystemPrompt.RETRIEVAL_RERANK_SYSTEM_PROMPT
+        } else {
+            SystemPrompt.RETRIEVAL_SYSTEM_PROMPT
+        },
         maxHistoryTurns = 4,
         truncateAssistantHistoryChars = 300
     )
